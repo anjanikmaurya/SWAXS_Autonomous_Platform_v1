@@ -1,0 +1,90 @@
+# SWAXS Platform — App Registry
+# ──────────────────────────────────────────────────────────────────────────────
+# Add new apps here. The Hub reads this file on startup and launches each app
+# as an independent subprocess. No code changes needed to register a new app.
+#
+# Required fields per entry:
+#   id          — unique slug used internally (no spaces)
+#   name        — display name shown in the Hub UI
+#   port        — TCP port the app listens on
+#   entry       — path to app.py relative to the project root
+#
+# Optional fields (used by Hub UI and AI subsystem):
+#   description — one-line description for the Hub card
+#   icon        — emoji shown in the Hub card
+#   color       — hex colour for the Hub card accent
+#   knowledge   — path to a knowledge.md the AI indexes on registration
+#   manifest_key — top-level key in manifest.json this app owns
+# ──────────────────────────────────────────────────────────────────────────────
+
+apps:
+  - id:           reduction
+    name:         "Reduction & Correction"
+    description:  "2D → 1D data reduction, normalization, PyFAI integration"
+    port:         5001
+    entry:        "reduction/app.py"
+    knowledge:    "reduction/knowledge.md"
+    manifest_key: "files"
+    icon:         "⚙️"
+    color:        "#1565C0"
+
+  - id:           viewer
+    name:         "Data Viewer"
+    description:  "Visualise 2D & 1D SAXS/WAXS data, average scans, stitch SAXS+WAXS"
+    port:         5002
+    entry:        "viewer/app.py"
+    knowledge:    "viewer/knowledge.md"
+    manifest_key: "files"
+    icon:         "📊"
+    color:        "#2E7D32"
+
+  - id:           background
+    name:         "Background Subtraction"
+    description:  "Keyword, scan-matched, and user-defined background subtraction"
+    port:         5003
+    entry:        "background/app.py"
+    knowledge:    "background/knowledge.md"
+    manifest_key: "background"
+    icon:         "🔬"
+    color:        "#6A1B9A"
+
+  - id:           quality
+    name:         "Quality Gate"
+    description:  "AI grading of subtracted profiles — good/bad scoring, auto-sort, frame selection"
+    port:         5006
+    entry:        "quality/app.py"
+    knowledge:    "quality/knowledge.md"
+    manifest_key: "quality"
+    icon:         "✅"
+    color:        "#00897B"
+
+  - id:           analysis
+    name:         "Data Analysis"
+    description:  "Guinier, Porod, Kratky, pair distance p(r), model fitting"
+    port:         5004
+    entry:        "analysis/app.py"
+    knowledge:    "analysis/knowledge.md"
+    manifest_key: "analyses"
+    icon:         "📈"
+    color:        "#E65100"
+
+  - id:           reactor
+    name:         "Flow Synthesis"
+    description:  "5-pump continuous-flow reactor control — executes predicted recipes, auto-flush"
+    port:         5007
+    entry:        "reactor/app.py"
+    knowledge:    "reactor/knowledge.md"
+    manifest_key: "reactor"
+    icon:         "🧪"
+    color:        "#00838F"
+
+  - id:           assistant
+    name:         "Tassone Group Assistant"
+    description:  "LLM-powered data interpretation, proactive hints, inline plots"
+    port:         5005
+    entry:        "assistant/app.py"
+    knowledge:    "assistant/knowledge.md"
+    manifest_key: "ai_memory"
+    icon:         "🤖"
+    icon_image:   "/static/saxs_smiley.png"
+    color:        "#455A64"

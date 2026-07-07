@@ -1,0 +1,1477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SWAXS Pipeline — SLAC/SSRL</title>
+  <style>
+/* ── Design tokens — SLAC cardinal red theme ───────────────────────────── */
+:root {
+  /* ── SWAXS shared design system — Light theme ───────── */
+  --bg:         #f5f7fa;
+  --surface:    #ffffff;
+  --surface2:   #f0f2f5;
+  --sidebar:    #eef1f5;   /* light rail (matches content by day) */
+  --sidebar-h:  #e3e7ed;
+  --sf:         31,41,55;   /* sidebar foreground RGB (dark text by day) */
+  --sidebar-active-bg:rgba(177,4,14,.10);
+  --sidebar-active-fg:#8C1515;
+  --accent:     #B1040E;   /* bright cardinal (primary) */
+  --accent-d:   #8C1515;   /* deep cardinal (hover) */
+  --accent-lt:  #fee2e2;
+  --teal:       #B83A4B;
+  --teal-lt:    #fee2e2;
+  /* Semantic — fills / dots / borders */
+  --ok:         #16a34a;  --ok-lt:   #dcfce7;
+  --warn:       #d97706;  --warn-lt: #fef3c7;
+  --err:        #dc2626;  --err-lt:  #fee2e2;
+  /* Semantic — accessible text (≥4.5:1 on white) */
+  --ok-text:    #15803d;
+  --warn-text:  #b45309;
+  --err-text:   #b91c1c;
+  --info-text:  #1d4ed8;
+  /* Text & lines */
+  --txt:        #1f2937;   /* primary  14.7:1 */
+  --txt-strong: #111827;
+  --muted:      #4b5563;   /* secondary 7.6:1 */
+  --faint:      #6b7280;   /* tertiary  4.8:1 */
+  --disabled:   #9ca3af;   /* decoration/disabled only */
+  --border:     #e5e7eb;
+  --border-strong:#c3c9d1; /* softened control outlines */
+  /* Typography scale (shared across all SWAXS apps) */
+  --font:       'Inter','Segoe UI',system-ui,-apple-system,sans-serif;
+  --mono:       "JetBrains Mono","Fira Code","Courier New",monospace;
+  --fs-2xs:.6875rem; --fs-xs:.75rem; --fs-sm:.8125rem; --fs-md:.875rem;
+  --fs-base:1rem;    --fs-lg:1.125rem; --fs-xl:1.375rem; --fs-2xl:1.75rem;
+  --fw-regular:400; --fw-medium:500; --fw-semibold:600; --fw-bold:700;
+  --lh-tight:1.25; --lh-snug:1.4; --lh-normal:1.5; --ls-label:.06em;
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:24px; --sp-6:32px;
+  --radius:     8px;
+  --label-w:    190px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  height: 100%;
+  font-family: var(--font);
+  font-size: 16px; line-height: var(--lh-normal); color: var(--txt); background: var(--bg);
+}
+
+/* ── Shell ────────────────────────────────────────────────────────── */
+#app { display: flex; height: 100vh; overflow: hidden; }
+
+/* ── Sidebar ─────────────────────────────────────────────────────── */
+#sidebar {
+  width: 220px; flex-shrink: 0;
+  background: var(--sidebar);
+  display: flex; flex-direction: column;
+}
+#logo {
+  padding: 18px 16px 14px;
+  border-bottom: 1px solid rgba(var(--sf),.10);
+}
+#logo-badge {
+  font-size:12px; font-weight: 700; letter-spacing: .14em;
+  text-transform: uppercase; color: rgba(var(--sf),.6); margin-bottom: 4px;
+}
+#logo-name { font-size: 20px; font-weight: 700; color: rgba(var(--sf),.95); line-height: 1.15; }
+#logo-sub  { font-size:14px; color: rgba(var(--sf),.5); margin-top: 3px; }
+
+.nav-section-label {
+  padding: 14px 16px 5px;
+  font-size:13px; font-weight: 700; letter-spacing: .12em;
+  text-transform: uppercase; color: rgba(var(--sf),.45);
+}
+.nav-btn {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 16px; border: none; background: transparent;
+  color: rgba(var(--sf),.72); font-size: 16px; font-weight: 500;
+  text-align: left; width: 100%; cursor: pointer;
+  transition: background .15s, color .15s;
+  border-left: 3px solid transparent;
+}
+.nav-btn:hover  { background: var(--sidebar-h); color: var(--sidebar-active-fg); }
+.nav-btn.active { background: var(--sidebar-active-bg); color: var(--sidebar-active-fg);
+                  border-left-color: var(--accent);
+                  font-weight: 700; }
+.nav-icon { font-size: 19px; width: 24px; text-align: center; flex-shrink: 0; }
+
+.nav-divider { height: 1px; background: rgba(var(--sf),.10); margin: 10px 16px; }
+
+/* Viewer launch buttons — distinct style */
+.launch-btn {
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 16px; border: none; cursor: pointer;
+  background: var(--sidebar-active-bg); color: var(--sidebar-active-fg);
+  font-size:15px; font-weight: 600;
+  text-align: left; width: 100%;
+  border-left: 3px solid var(--accent);
+  transition: background .15s;
+  margin-bottom: 2px;
+}
+.launch-btn:hover { background: rgba(177,4,14,.18); }
+.launch-badge {
+  margin-left: auto; font-size:12px; opacity: .7;
+  background: rgba(var(--sf),.14); border-radius: 3px;
+  padding: 1px 5px;
+}
+
+#sidebar-foot {
+  margin-top: auto; padding: 10px 14px 12px;
+  font-size:13px; color: rgba(var(--sf),.4);
+  border-top: 1px solid rgba(var(--sf),.10);
+  line-height: 1.6;
+}
+#sse-row { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
+#sse-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: rgba(var(--sf),.25); flex-shrink: 0;
+  transition: background .3s, box-shadow .3s;
+}
+#sse-dot.live { background: #16a34a; box-shadow: 0 0 6px #16a34a; }
+#sse-txt { font-size:12px; color: rgba(var(--sf),.5); }
+
+/* ── Main ─────────────────────────────────────────────────────────── */
+#main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+#topbar {
+  height: 44px; flex-shrink: 0;
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; padding: 0 22px; gap: 14px;
+}
+#topbar-title { font-weight: 700; color: var(--txt); font-size: 17px; }
+#topbar-path  {
+  font-size:15px; font-family: var(--mono);
+  color: var(--accent); flex: 1;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.tab-panel { display: none; flex: 1; overflow-y: auto; padding: 22px 22px 22px 48px; }
+.tab-panel.active { display: flex; flex-direction: column; gap: 18px; }
+
+/* ── Cards ────────────────────────────────────────────────────────── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 22px;
+}
+.card-hd {
+  font-size:15px; font-weight: 700; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--accent);
+  margin-bottom: 16px; padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* ── Form layout ─────────────────────────────────────────────────── */
+/*
+  2-column grid:  [label]  [.cell{input-row + optional note}]
+  ALL rows use the same grid — Browse button lives inside .cell → .ir
+  so label alignment is always identical regardless of button presence.
+*/
+.fg {
+  display: grid;
+  grid-template-columns: var(--label-w) 1fr;
+  gap: 10px 16px;
+  align-items: start;
+}
+.fg > label {
+  text-align: right;
+  padding-top: 8px;       /* visually centre with input */
+  font-size: 15px;
+  color: var(--muted);
+  font-weight: 500;
+  line-height: 1.3;
+}
+.fg > .cell {
+  display: flex; flex-direction: column; gap: 4px;
+}
+.ir {
+  display: flex; gap: 6px; align-items: center;
+}
+.ir input { flex: 1; }
+.fnote {
+  font-size:14px; color: var(--muted); padding-left: 2px;
+}
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+
+/* ── Inputs ───────────────────────────────────────────────────────── */
+input[type="text"],
+input[type="number"],
+select {
+  width: 100%; padding: 7px 10px;
+  background: var(--surface2); border: 1px solid var(--border-strong);
+  border-radius: 5px; font-size: 15px; color: var(--txt);
+  transition: border-color .15s, box-shadow .15s;
+  appearance: auto;
+}
+input:focus, select:focus {
+  outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(140,21,21,.12);
+  background: #ffffff;
+}
+select option { background: #ffffff; }
+
+/* ── Normalisation pill toggles ───────────────────────────────────── */
+.norm-pills { display: flex; gap: 8px; flex-wrap: wrap; padding-top: 4px; }
+.norm-pill {
+  padding: 5px 16px; border-radius: 20px;
+  border: 1.5px solid #c9cdd4;
+  background: #e4e7ed; color: #4b5563;
+  font-size:15px; font-weight: 600;
+  cursor: pointer; transition: background .15s, color .15s, border-color .15s;
+  user-select: none;
+}
+.norm-pill:hover:not(.active) {
+  border-color: var(--accent); color: var(--accent); background: #f5e6e8;
+}
+.norm-pill.active {
+  background: var(--accent); color: #fff;
+  border-color: var(--accent); box-shadow: 0 2px 6px rgba(184,58,75,.25);
+}
+.norm-pill.none-pill.active {
+  background: var(--muted); border-color: var(--muted); color: #fff;
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────── */
+.btn {
+  padding: 7px 15px; border: none; border-radius: 5px;
+  font-size: 15px; font-weight: 600; cursor: pointer;
+  transition: opacity .15s; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.btn:hover    { opacity: .86; }
+.btn:disabled { opacity: .35; cursor: not-allowed; }
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-ok      { background: var(--ok);     color: #fff; }
+.btn-warn    { background: var(--warn);   color: #fff; }
+.btn-err     { background: var(--err);    color: #fff; }
+.btn-ghost   { background: var(--surface2); color: var(--txt);
+               border: 1px solid var(--border); }
+.btn-sm  { padding: 5px 14px; font-size:15px; }
+.btn-xs  { padding: 3px 10px; font-size:14px; }
+.btn-grp { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+/* ── Toggle ───────────────────────────────────────────────────────── */
+.tog-wrap { display: flex; align-items: center; gap: 9px; }
+.tog { position: relative; display: inline-block; width: 40px; height: 22px; }
+.tog input { display: none; }
+.tog-sl {
+  position: absolute; inset: 0; border-radius: 22px; cursor: pointer;
+  background: var(--border); transition: background .2s;
+}
+.tog-sl::before {
+  content: ""; position: absolute; width: 16px; height: 16px;
+  left: 3px; top: 3px; background: #fff; border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0,0,0,.2);
+  transition: transform .2s;
+}
+.tog input:checked + .tog-sl { background: var(--accent); }
+.tog input:checked + .tog-sl::before { transform: translateX(18px); }
+
+/* ── Log terminal ─────────────────────────────────────────────────── */
+#log-box {
+  background: #1e293b; color: #e2e8f0; font-family: var(--mono);
+  font-size:14px; line-height: 1.65;
+  border-radius: var(--radius); padding: 14px 16px;
+  border: 1px solid #1e293b;
+  flex: 1; min-height: 320px; max-height: 60vh;
+  overflow-y: auto; white-space: pre-wrap; word-break: break-all;
+}
+.l-ok     { color: #4ade80; }
+.l-warn   { color: #fbbf24; }
+.l-error  { color: #fc8181; }
+.l-header { color: rgba(255,255,255,.6); font-weight: bold; }
+.l-info   { color: #e5e7eb; }
+
+/* ── Badge ────────────────────────────────────────────────────────── */
+.badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 10px; border-radius: 20px;
+  font-size:14px; font-weight: 600;
+}
+.badge::before { content:""; width:6px; height:6px; border-radius:50%; }
+.b-green  { background: var(--ok-lt);   color: var(--ok); }
+.b-green::before  { background: var(--ok); }
+.b-blue   { background: var(--accent-lt); color: var(--accent); }
+.b-blue::before   { background: var(--accent); }
+.b-orange { background: var(--warn-lt); color: var(--warn); }
+.b-orange::before { background: var(--warn); }
+.b-red    { background: var(--err-lt);  color: var(--err); }
+.b-red::before    { background: var(--err); }
+
+/* ── Run bar ──────────────────────────────────────────────────────── */
+#run-bar { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+.vdiv    { width: 1px; height: 24px; background: var(--border); flex-shrink: 0; }
+
+/* ── Misc ─────────────────────────────────────────────────────────── */
+.hint  { font-size:14px; color: var(--muted); }
+.inline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* Scrollbar */
+::-webkit-scrollbar       { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+/* ── Normalisation equation reference block ──────────────────────── */
+.norm-eq-block {
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
+  font-size:14px;
+}
+.norm-eq-row {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  line-height: 1.5;
+  background: var(--surface2);
+  transition: background .18s;
+}
+.norm-eq-row:last-child { border-bottom: none; }
+.norm-eq-row.eq-active  { background: var(--accent-lt); }
+.norm-eq-row .eq-title  { font-weight: 700; color: var(--accent); }
+.norm-eq-row .eq-formula {
+  display: inline-block;
+  margin-top: 4px; margin-bottom: 3px;
+  font-family: var(--mono); font-size:14px;
+  background: rgba(0,0,0,.06); border-radius: 4px;
+  padding: 3px 9px; color: var(--txt);
+}
+.norm-eq-row .eq-desc { color: var(--muted); font-size:14px; margin-top: 2px; line-height: 1.5; }
+.norm-eq-label {
+  font-size:12px; font-weight: 700; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--muted);
+  margin: 10px 0 4px; padding-left: 1px;
+}
+.norm-warn {
+  display: none;
+  margin-top: 9px;
+  padding: 8px 12px;
+  background: var(--warn-lt);
+  border: 1px solid var(--warn);
+  border-radius: 5px;
+  font-size:14px;
+  color: var(--warn);
+  font-weight: 600;
+  line-height: 1.5;
+}
+  /* Accessibility — visible keyboard focus ring (WCAG 2.4.7) */
+a:focus-visible,button:focus-visible,[role="button"]:focus-visible,
+input:focus-visible,select:focus-visible,textarea:focus-visible{
+  outline:2px solid var(--accent);outline-offset:2px;border-radius:4px;
+}
+/* ===== SWAXS theme v2 · charcoal sidebar · cardinal accent · dark mode ===== */
+:root[data-theme="dark"]{
+  --bg:#15161a;--surface:#1f2126;--surface2:#272a31;--border:#343842;--border-strong:#4c515c;
+  --txt:#e7e9ee;--txt-strong:#f5f7fa;--muted:#a4abb6;--faint:#7d848f;--disabled:#5a606b;
+  --accent:#d44a55;--accent-d:#b1040e;--accent-lt:#3a2023;--teal:#d44a55;--teal-lt:#3a2023;
+  --sidebar:#1f2126;--sidebar-h:#2a2d34;--sf:231,233,238;
+  --sidebar-active-bg:rgba(212,74,85,.22);--sidebar-active-fg:#f0a6ab;
+}
+.theme-toggle{display:inline-flex;align-items:center;justify-content:center;width:34px;height:30px;border:1px solid var(--border-strong);border-radius:7px;background:var(--surface);color:var(--txt);cursor:pointer;font-size:15px;line-height:1}
+.theme-toggle:hover{background:var(--surface2)}
+/* larger left-nav text */
+.nav-btn{font-size:18px}
+.nav-section-label{font-size:15px}
+#logo-name{font-size:22px}
+.launch-btn{font-size:17px}
+</style>
+</head>
+<body>
+<div id="app">
+
+<!-- ── Sidebar ──────────────────────────────────────────────────────────── -->
+<nav id="sidebar">
+  <div id="logo">
+    <div id="logo-badge">SLAC · SSRL</div>
+    <div id="logo-name">SWAXS<br>Pipeline</div>
+    <div id="logo-sub">Web Interface</div>
+  </div>
+
+  <div class="nav-section-label">Pipeline</div>
+  <button class="nav-btn active" data-tab="setup" onclick="switchTab('setup')">
+    <span class="nav-icon">⚙</span> Setup
+  </button>
+  <button class="nav-btn" data-tab="run" onclick="switchTab('run')">
+    <span class="nav-icon">▶</span> Run &amp; Monitor
+  </button>
+
+  <div id="sidebar-foot">
+    <div id="sse-row">
+      <div id="sse-dot"></div>
+      <span id="sse-txt">Disconnected</span>
+    </div>
+    localhost:5000
+  </div>
+</nav>
+
+<!-- ── Main ─────────────────────────────────────────────────────────────── -->
+<div id="main">
+
+  <div id="topbar">
+    <span id="topbar-title">SWAXS Data Correction &amp; Reduction Pipeline</span>
+    <span id="topbar-path"></span>
+    <label style="display:flex;align-items:center;gap:6px;font-size:14px;color:var(--muted);white-space:nowrap">
+      <span>Operator</span>
+      <input id="cfg-operator" placeholder="name / initials"
+             title="Recorded with every reduction (manifest provenance + project metadata)"
+             style="width:140px;padding:5px 8px"
+             oninput="try{localStorage.setItem('swaxs_operator',this.value)}catch(e){}">
+    </label>
+    <script>try{document.getElementById('cfg-operator').value=localStorage.getItem('swaxs_operator')||''}catch(e){}</script>
+    <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" title="Toggle light / dark">☾</button>
+  </div>
+
+  <!-- ══════════════════════════════
+       TAB: SETUP
+  ══════════════════════════════ -->
+  <div id="tab-setup" class="tab-panel active">
+
+    <!-- Directories -->
+    <div class="card">
+      <div class="card-hd">📁 Directories</div>
+      <div class="fg">
+        <label>Data Directory (2D)</label>
+        <div class="cell">
+          <div class="ir">
+            <input type="text" id="cfg-data-dir" placeholder="/path/to/experiment/2D" />
+            <button class="btn btn-ghost btn-sm" onclick="openBrowser('cfg-data-dir','dir')">Browse…</button>
+          </div>
+          <span class="fnote">Folder containing SAXS/ and WAXS/ subfolders with .raw files</span>
+        </div>
+
+        <label>Output Directory (1D)</label>
+        <div class="cell">
+          <div class="ir">
+            <input type="text" id="cfg-output-dir" placeholder="auto — sibling 1D/ folder (leave blank)" />
+            <button class="btn btn-ghost btn-sm" onclick="openBrowser('cfg-output-dir','dir')">Browse…</button>
+          </div>
+          <span class="fnote">Where processed .dat files are saved. Leave blank to auto-place at the same level as the 2D folder.</span>
+        </div>
+
+        <label>PONI Directory</label>
+        <div class="cell">
+          <div class="ir">
+            <input type="text" id="cfg-poni-dir" placeholder="/path/to/poni" />
+            <button class="btn btn-ghost btn-sm" onclick="openBrowser('cfg-poni-dir','dir')">Browse…</button>
+          </div>
+          <span class="fnote">Folder containing .poni calibration files and mask .edf files</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Calibration files -->
+    <div class="card">
+      <div class="card-hd">🔬 Calibration &amp; Mask Files</div>
+      <div class="fg">
+        <label>SAXS PONI filename</label>
+        <div class="cell">
+          <div class="ir">
+            <input type="text" id="cfg-saxs-poni" placeholder="atT_SAXS.poni" />
+          </div>
+          <span class="fnote">Filename only — file must be inside the PONI directory</span>
+        </div>
+
+        <label>WAXS PONI filename</label>
+        <div class="cell">
+          <div class="ir">
+            <input type="text" id="cfg-waxs-poni" placeholder="atT_WAXS.poni" />
+          </div>
+        </div>
+
+        <label>SAXS Mask filename</label>
+        <div class="cell">
+          <div class="ir">
+            <input type="text" id="cfg-saxs-mask" placeholder="RT_SAXS_mask_03.edf  (blank = no mask)" />
+          </div>
+        </div>
+
+        <label>WAXS Mask filename</label>
+        <div class="cell">
+          <div class="ir">
+            <input type="text" id="cfg-waxs-mask" placeholder="blank = no mask" />
+          </div>
+        </div>
+
+        <label>SAXS Dark frame filename</label>
+        <div class="cell">
+          <div class="ir">
+            <input type="text" id="cfg-saxs-dark" placeholder="blank = no 2D dark subtraction" />
+          </div>
+          <span class="fnote">2D dark-current frame subtracted pixel-by-pixel before azimuthal integration (different from the scalar I₀/Bstop offsets)</span>
+        </div>
+
+        <label>WAXS Dark frame filename</label>
+        <div class="cell">
+          <div class="ir">
+            <input type="text" id="cfg-waxs-dark" placeholder="blank = no 2D dark subtraction" />
+          </div>
+        </div>
+
+        <label>SAXS Flat field filename</label>
+        <div class="cell">
+          <div class="ir">
+            <input type="text" id="cfg-saxs-flat" placeholder="blank = no flat-field correction" />
+          </div>
+          <span class="fnote">2D pixel-sensitivity map — data is divided by this frame to correct detector non-uniformity</span>
+        </div>
+
+        <label>WAXS Flat field filename</label>
+        <div class="cell">
+          <div class="ir">
+            <input type="text" id="cfg-waxs-flat" placeholder="blank = no flat-field correction" />
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Detector + Sample -->
+    <div class="two-col">
+      <div class="card">
+        <div class="card-hd">📐 Detector Pixel Dimensions</div>
+        <div class="fg">
+          <label>SAXS rows</label>
+          <div class="cell"><div class="ir">
+            <input type="number" id="cfg-saxs-rows" value="1043" min="1" />
+          </div></div>
+
+          <label>SAXS cols</label>
+          <div class="cell"><div class="ir">
+            <input type="number" id="cfg-saxs-cols" value="981" min="1" />
+          </div></div>
+
+          <label>WAXS rows</label>
+          <div class="cell"><div class="ir">
+            <input type="number" id="cfg-waxs-rows" value="195" min="1" />
+          </div></div>
+
+          <label>WAXS cols</label>
+          <div class="cell"><div class="ir">
+            <input type="number" id="cfg-waxs-cols" value="487" min="1" />
+          </div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-hd">⚗ Sample &amp; Beam</div>
+        <div class="fg">
+          <label>Compound formula</label>
+          <div class="cell">
+            <div class="ir"><input type="text" id="cfg-compound" value="C2H4" placeholder="H2O, SiO2…" /></div>
+          </div>
+
+          <label>X-ray energy (keV)</label>
+          <div class="cell">
+            <div class="ir"><input type="number" id="cfg-energy" value="12" step="0.1" min="1" /></div>
+          </div>
+
+          <label>Density (g/cm³)</label>
+          <div class="cell">
+            <div class="ir"><input type="number" id="cfg-density" value="0.92" step="0.01" min="0.001" /></div>
+          </div>
+
+          <label>Thickness (m)</label>
+          <div class="cell">
+            <div class="ir"><input type="text" id="cfg-thickness" placeholder="blank = auto from Beer-Lambert" /></div>
+            <span class="fnote">Leave blank to calculate from transmission ratio</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Processing options -->
+    <div class="card">
+      <div class="card-hd">⚙ Processing Options</div>
+      <div class="fg">
+        <label>Mode</label>
+        <div class="cell"><div class="ir">
+          <select id="cfg-mode">
+            <option value="SWAXS" selected>SWAXS — both detectors</option>
+            <option value="SAXS">SAXS only</option>
+            <option value="WAXS">WAXS only</option>
+          </select>
+        </div></div>
+
+        <label>Metadata format</label>
+        <div class="cell"><div class="ir">
+          <select id="cfg-meta">
+            <option value="csv" selected>CSV (most SSRL beamlines)</option>
+            <option value="pdi">PDI</option>
+          </select>
+        </div></div>
+
+        <label>Radial bins (npt)</label>
+        <div class="cell">
+          <div class="ir"><input type="number" id="cfg-npt" value="1000" min="10" max="10000" /></div>
+          <span class="fnote">Number of q-bins in the output profile — 1000 is a good default</span>
+        </div>
+
+        <label>Error model</label>
+        <div class="cell"><div class="ir">
+          <select id="cfg-error-model">
+            <option value="poisson" selected>Poisson (photon counting)</option>
+            <option value="azimuthal">Azimuthal</option>
+          </select>
+        </div></div>
+
+        <label>Normalise 1D by</label>
+        <div class="cell">
+          <!-- Pill toggle row -->
+          <div class="norm-pills" id="norm-pills">
+            <button type="button" class="norm-pill none-pill" data-norm=""
+                    title="No normalisation — raw integrated counts">
+              None
+            </button>
+            <button type="button" class="norm-pill active" data-norm="bstop"
+                    title="Divide by B_stop (transmitted-beam monitor) — standard SSRL normalisation">
+              Bstop
+            </button>
+            <button type="button" class="norm-pill" data-norm="i0"
+                    title="Divide by I₀ (incident-beam monitor)">
+              I₀
+            </button>
+            <button type="button" class="norm-pill" data-norm="absolute"
+                    title="Semi-absolute: divide by B_stop × d (cm) → intensity in cm⁻¹">
+              Absolute
+            </button>
+          </div>
+
+          <!-- Absolute calibration constant panel — visible only when Absolute is active -->
+          <div id="abs-calib-panel" style="display:none; margin-top:10px;
+               background:var(--accent-lt); border:1px solid rgba(140,21,21,.20);
+               border-radius:7px; padding:12px 14px;">
+            <div style="font-size:13px; font-weight:700; color:var(--accent); margin-bottom:8px;">
+              🎯 Absolute calibration constant K
+            </div>
+            <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+              <input type="number" id="cfg-abs-calib" value="1.0"
+                     step="any" min="0" placeholder="1.0"
+                     style="width:160px;"
+                     title="Calibration constant from water or glassy-carbon standard measurement" />
+              <span style="font-size:13px; color:var(--muted); font-family:var(--mono);">cm · (monitor units)⁻¹</span>
+            </div>
+            <div style="font-size:13px; color:var(--muted); margin-top:8px; line-height:1.6;">
+              Applied as:
+              <code style="font-size:12px; background:rgba(0,0,0,.07); padding:2px 8px; border-radius:4px;">
+                dΣ/dΩ (cm⁻¹) = K × counts / (B<sub>stop</sub> × d<sub>cm</sub>)
+              </code><br>
+              <strong>How to determine K:</strong> measure a primary standard under the same
+              conditions, then compute K = I<sub>ref</sub>(q) / [counts(q) / (B<sub>stop</sub> × d<sub>cm</sub>)]
+              at a q-range where the reference value is known.<br>
+              &nbsp;• <strong>Water</strong> — use the flat plateau at high-q
+              (e.g. ~1.65 × 10⁻² cm⁻¹ at 25 °C).<br>
+              &nbsp;• <strong>Glassy carbon (GC)</strong> — use the absolute
+              dΣ/dΩ curve supplied by your beamline (NIST SRM 3600 recommended).<br>
+              Leave K = <code>1.0</code> for <em>semi-absolute</em> output
+              (relative cm⁻¹ units, proportional to dΣ/dΩ but not calibrated).
+            </div>
+          </div>
+
+          <!-- Non-physical combination warning -->
+          <div id="norm-warn" class="norm-warn">
+            ⚠ Warning: I₀ + Bstop together is non-physical —
+            B<sub>stop</sub> already contains the I₀ signal (B<sub>stop</sub> ∝ Φ₀·T),
+            so selecting both double-counts incident flux. Use one or the other.
+          </div>
+
+          <!-- Equation reference — one row per mode, highlights active selection -->
+          <div class="norm-eq-label">What each mode computes</div>
+          <div class="norm-eq-block">
+
+            <div class="norm-eq-row eq-active" id="eq-none">
+              <span class="eq-title">None</span> — raw integrated counts, no correction<br>
+              <code class="eq-formula">I(q) = counts(q)</code>
+              <div class="eq-desc">
+                Output is in detector counts. Use for diagnostics or when applying
+                all corrections externally (e.g. in a downstream analysis script).
+              </div>
+            </div>
+
+            <div class="norm-eq-row" id="eq-bstop">
+              <span class="eq-title">Bstop</span> — divide by transmitted-beam monitor<br>
+              <code class="eq-formula">I(q) = counts(q) / B<sub>stop</sub></code>
+              <div class="eq-desc">
+                B<sub>stop</sub> ∝ Φ₀·T (incident flux × sample transmission), so
+                this simultaneously corrects for beam intensity variations <em>and</em>
+                sample absorption in one step.
+                <strong>Recommended default for SSRL beamlines.</strong>
+                Physically: I(q) ∝ dΣ/dΩ · (constant).
+              </div>
+            </div>
+
+            <div class="norm-eq-row" id="eq-i0">
+              <span class="eq-title">I₀</span> — divide by incident-beam monitor<br>
+              <code class="eq-formula">I(q) = counts(q) / I₀</code>
+              <div class="eq-desc">
+                Corrects for incident flux Φ₀ only; does <em>not</em> account for
+                sample transmission. The result still carries the absorption factor T.
+                Useful when Bstop is unavailable or unreliable.
+                Do <strong>not</strong> combine with Bstop (double-counts Φ₀) or
+                with Absolute (Absolute already contains Φ₀ via B_stop ∝ Φ₀·T).
+              </div>
+            </div>
+
+            <div class="norm-eq-row" id="eq-absolute">
+              <span class="eq-title">Absolute</span> — semi-absolute intensity (cm⁻¹)<br>
+              <code class="eq-formula">I(q) = counts(q) / (B<sub>stop</sub> · d<sub>cm</sub>) ∝ dΣ/dΩ [cm⁻¹]</code>
+              <div class="eq-desc">
+                Since B<sub>stop</sub> ∝ Φ₀·T and T = exp(−μd), dividing by
+                B<sub>stop</sub>·d gives intensity proportional to the macroscopic
+                differential scattering cross-section dΣ/dΩ in cm⁻¹.
+                A calibration constant K (from a primary standard such as water or
+                glassy carbon) is still required for <em>true</em> absolute units:
+                <br>
+                <code class="eq-formula">dΣ/dΩ (cm⁻¹) = K · counts(q) / (B<sub>stop</sub> · d<sub>cm</sub>)</code>
+                <br>
+                Mutually exclusive with both Bstop and I₀ — Absolute already
+                incorporates both (B_stop ∝ Φ₀·T subsumes Bstop and I₀ in one number).
+                Selecting Absolute automatically deselects the other two.
+              </div>
+            </div>
+
+          </div><!-- /norm-eq-block -->
+
+          <span class="fnote" style="margin-top:8px;">
+            Click pills to toggle. Active pills are highlighted.
+            The active terms are multiplied together as PyFAI's
+            <code>normalization_factor</code> (PyFAI divides all pixel counts by this
+            scalar before azimuthal averaging).
+            <strong>Absolute</strong> is mutually exclusive with both
+            <strong>Bstop</strong> and <strong>I₀</strong> — selecting Absolute
+            deselects the others automatically, because B_stop already encodes
+            both Φ₀ (incident flux) and T (transmission).
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- PyFAI Integration Parameters -->
+    <div class="card">
+      <div class="card-hd">📐 PyFAI Integration Parameters</div>
+      <div class="fg">
+
+        <label>Output unit</label>
+        <div class="cell">
+          <div class="ir">
+            <select id="cfg-unit">
+              <option value="q_A^-1" selected>q (Å⁻¹) — standard SAXS/WAXS</option>
+              <option value="q_nm^-1">q (nm⁻¹)</option>
+              <option value="2th_deg">2θ (degrees)</option>
+              <option value="2th_rad">2θ (radians)</option>
+            </select>
+          </div>
+          <span class="fnote">Radial axis unit written to the output .dat file and displayed in the 1-D viewer</span>
+        </div>
+
+        <label>Solid angle correction</label>
+        <div class="cell" style="padding-top:8px;">
+          <div class="tog-wrap">
+            <label class="tog">
+              <input type="checkbox" id="cfg-solid-angle" checked>
+              <span class="tog-sl"></span>
+            </label>
+            <span style="font-size:14px; color:var(--muted);">Correct for cos³θ detector area variation (recommended — leave on)</span>
+          </div>
+        </div>
+
+        <label>Polarization factor <i>p</i></label>
+        <div class="cell">
+          <div class="ir">
+            <input type="number" id="cfg-polarization" value="0.99"
+                   step="0.01" min="-1" max="1" placeholder="0.99" />
+            <button class="btn btn-ghost btn-xs" onclick="document.getElementById('cfg-polarization').value=''">
+              Clear (off)
+            </button>
+          </div>
+          <span class="fnote">
+            Polarization correction applied before azimuthal averaging.
+            <strong>p = +1</strong> horizontal (wiggler/undulator),
+            <strong>p = −1</strong> vertical,
+            <strong>p = 0</strong> unpolarised,
+            <strong>~0.99</strong> typical SSRL synchrotron.
+            Clear the field to skip the correction.
+          </span>
+        </div>
+
+        <label>q range (min / max)</label>
+        <div class="cell">
+          <div class="ir">
+            <input type="number" id="cfg-q-min" placeholder="auto" step="any" min="0"
+                   style="width:110px;" title="Minimum q (or 2θ) — leave blank for full range" />
+            <span style="color:var(--muted); font-size:13px; padding:0 4px;">–</span>
+            <input type="number" id="cfg-q-max" placeholder="auto" step="any" min="0"
+                   style="width:110px;" title="Maximum q (or 2θ)" />
+          </div>
+          <span class="fnote">
+            Restrict radial integration to this range in the chosen output unit.
+            Both fields must be filled to take effect — blank = use full detector range.
+          </span>
+        </div>
+
+        <label>Azimuthal range χ (min / max)</label>
+        <div class="cell">
+          <div class="ir">
+            <input type="number" id="cfg-chi-min" placeholder="auto" step="1" min="-180" max="360"
+                   style="width:110px;" title="χ minimum in degrees" />
+            <span style="color:var(--muted); font-size:13px; padding:0 4px;">–</span>
+            <input type="number" id="cfg-chi-max" placeholder="auto" step="1" min="-180" max="360"
+                   style="width:110px;" title="χ maximum in degrees" />
+            <span style="font-size:13px; color:var(--muted); margin-left:4px;">°</span>
+          </div>
+          <span class="fnote">
+            Restrict azimuthal integration to a sector (e.g. −90° to +90° for a half-circle).
+            Both fields must be filled — blank = full 360° circle.
+          </span>
+        </div>
+
+        <label>Dummy value</label>
+        <div class="cell">
+          <div class="ir">
+            <input type="number" id="cfg-dummy" placeholder="blank = none" step="any"
+                   style="width:130px;" title="Pixel values equal to dummy are treated as masked" />
+            <span style="font-size:13px; color:var(--muted); margin-left:4px;">±</span>
+            <input type="number" id="cfg-delta-dummy" placeholder="tolerance" step="any" min="0"
+                   style="width:120px;" title="Pixels within ±delta_dummy of dummy are masked" />
+          </div>
+          <span class="fnote">
+            Pixels where |data − dummy| ≤ Δdummy are treated as masked and excluded from integration.
+            Useful when bad/dead pixels are flagged with a specific sentinel value in the detector readout.
+          </span>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Advanced -->
+    <div class="card">
+      <div class="card-hd">🔧 Advanced — leave at defaults if unsure</div>
+      <div class="fg">
+        <label>I₀ dark-current offset</label>
+        <div class="cell"><div class="ir">
+          <input type="number" id="cfg-i0-offset" value="0.0" step="0.001" />
+        </div></div>
+
+        <label>Bstop dark-current offset</label>
+        <div class="cell"><div class="ir">
+          <input type="number" id="cfg-bstop-offset" value="0.0" step="0.001" />
+        </div></div>
+
+        <label>I₀ air measurement</label>
+        <div class="cell">
+          <div class="ir">
+            <input type="number" id="cfg-i0-air" value="0.0" step="0.001" />
+          </div>
+          <span class="fnote">Averaged I₀ with no sample in beam. Used to compute true sample transmission T = (Bstop/I₀)<sub>sample</sub> / (Bstop/I₀)<sub>air</sub>. Leave at 0 to skip.</span>
+        </div>
+
+        <label>Bstop air measurement</label>
+        <div class="cell">
+          <div class="ir">
+            <input type="number" id="cfg-bstop-air" value="0.0" step="0.001" />
+          </div>
+          <span class="fnote">Averaged Bstop with no sample in beam. Both I₀ air and Bstop air must be non-zero for air normalisation to apply.</span>
+        </div>
+
+        <label>SAXS prefix to strip</label>
+        <div class="cell">
+          <div class="ir"><input type="text" id="cfg-saxs-prefix" placeholder="e.g. sone_  (blank if none)" /></div>
+        </div>
+
+        <label>WAXS prefix to strip</label>
+        <div class="cell">
+          <div class="ir"><input type="text" id="cfg-waxs-prefix" placeholder="e.g. b_tassone_  (blank if none)" /></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Save / Load -->
+    <div class="card">
+      <div class="card-hd">💾 Save / Load Configuration (YAML)</div>
+      <div class="fg">
+        <label>Config file path</label>
+        <div class="cell">
+          <div class="ir">
+            <input type="text" id="cfg-yaml-path" placeholder="/path/to/config.yml" />
+            <button class="btn btn-ghost btn-sm" onclick="openBrowser('cfg-yaml-path','file')">Browse…</button>
+          </div>
+          <span class="fnote">Browse to an existing .yml file to load, or type a new path to save</span>
+        </div>
+      </div>
+      <div style="margin-top:14px;" class="btn-grp">
+        <button class="btn btn-primary" onclick="saveConfig()">Save as YAML</button>
+        <button class="btn btn-ghost"   onclick="loadConfig()">Load from YAML</button>
+      </div>
+    </div>
+
+  </div><!-- /tab-setup -->
+
+
+  <!-- ══════════════════════════════
+       TAB: RUN & MONITOR
+  ══════════════════════════════ -->
+  <div id="tab-run" class="tab-panel">
+
+    <div class="card">
+      <div class="card-hd">Controls</div>
+      <div id="run-bar">
+        <button class="btn btn-primary" id="btn-run" onclick="startRun()">▶ Run Now</button>
+        <button class="btn btn-err"     id="btn-stop" onclick="stopRun()"
+                style="display:none;">⏹ Stop</button>
+        <span id="run-badge" class="badge b-green">Ready</span>
+        <div class="vdiv"></div>
+        <div class="tog-wrap">
+          <label class="tog">
+            <input type="checkbox" id="mon-tog" onchange="toggleMonitor()">
+            <span class="tog-sl"></span>
+          </label>
+          <span style="font-weight:600;">Watch for new files</span>
+        </div>
+        <div class="inline">
+          <span class="hint">every</span>
+          <input type="number" id="mon-interval" value="10" min="1" style="width:60px; padding:5px 8px;" />
+          <span class="hint">seconds</span>
+        </div>
+        <div style="margin-left:auto;" class="btn-grp">
+          <button class="btn btn-ghost btn-sm" onclick="clearLog()">Clear log</button>
+          <button class="btn btn-warn  btn-sm" onclick="resetProcessed()">↺ Reset files</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="flex:1; display:flex; flex-direction:column;">
+      <div class="card-hd" style="margin-bottom:10px;">Live Log</div>
+      <div id="log-box">Waiting for run…</div>
+    </div>
+
+  </div><!-- /tab-run -->
+
+
+
+</div><!-- /main -->
+</div><!-- /app -->
+
+
+<!-- ── File-browser modal ────────────────────────────────────────────────── -->
+<div id="modal-overlay" onclick="maybeClose(event)"
+     style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.45);
+            z-index:100; align-items:center; justify-content:center;">
+  <div style="background:#fff; border:1px solid var(--border); border-radius:10px;
+              width:540px; max-height:78vh; display:flex; flex-direction:column;
+              box-shadow:0 16px 48px rgba(0,0,0,.2); overflow:hidden;">
+    <div style="padding:14px 18px; background:var(--accent); display:flex;
+                align-items:center; justify-content:space-between;">
+      <span style="font-size:15px; font-weight:600; color:#fff;">Browse</span>
+      <button class="btn btn-sm" onclick="closeBrow()"
+              style="background:rgba(255,255,255,.15); color:#fff; border:none;">✕</button>
+    </div>
+    <div id="brow-path"
+         style="padding:9px 16px; background:var(--surface2); border-bottom:1px solid var(--border);
+                font-family:var(--mono); font-size:13px; color:var(--accent); word-break:break-all;"></div>
+    <div id="brow-body" style="flex:1; overflow-y:auto;"></div>
+    <div style="padding:11px 16px; border-top:1px solid var(--border); display:flex;
+                justify-content:space-between; align-items:center; gap:10px; background:var(--surface2);">
+      <span id="brow-sel" style="font-size:13px; color:var(--muted); flex:1; word-break:break-all;">—</span>
+      <button class="btn btn-primary btn-sm" onclick="selectDir()">✓ Use this</button>
+    </div>
+  </div>
+</div>
+
+
+<script>
+"use strict";
+
+const S = {
+  sse: null, monitoring: false,
+  browTarget: null, browMode: 'dir', browPath: '',
+};
+
+// ── Tabs ───────────────────────────────────────────────────────────────────
+function switchTab(name) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  document.querySelector(`[data-tab="${name}"]`).classList.add('active');
+  if (name === 'run' && !S.sse) connectSSE();
+}
+
+// ── Config ─────────────────────────────────────────────────────────────────
+function getConfig() {
+  const g  = id => document.getElementById(id).value.trim();
+  const n  = id => parseFloat(document.getElementById(id).value) || 0;
+  const nv = id => { const v = document.getElementById(id).value.trim(); return v ? parseFloat(v) : null; };
+  const thk = g('cfg-thickness');
+
+  // q-range: only set if both min AND max are filled
+  const qMin = nv('cfg-q-min'), qMax = nv('cfg-q-max');
+  // Azimuthal range: only set if both filled
+  const chiMin = nv('cfg-chi-min'), chiMax = nv('cfg-chi-max');
+  // Polarization: empty field → null (skip correction)
+  const polRaw = g('cfg-polarization');
+  const polVal = polRaw !== '' ? parseFloat(polRaw) : null;
+
+  return {
+    data_directory:       g('cfg-data-dir'),
+    output_directory:     g('cfg-output-dir') || null,
+    poni_directory:       g('cfg-poni-dir'),
+    poni_files:           { saxs: g('cfg-saxs-poni'), waxs: g('cfg-waxs-poni') },
+    mask_files:           { saxs: g('cfg-saxs-mask') || null, waxs: g('cfg-waxs-mask') || null },
+    dark_files:           { saxs: g('cfg-saxs-dark') || null, waxs: g('cfg-waxs-dark') || null },
+    flat_files:           { saxs: g('cfg-saxs-flat') || null, waxs: g('cfg-waxs-flat') || null },
+    detector_shapes:      { saxs: [+g('cfg-saxs-rows'), +g('cfg-saxs-cols')],
+                            waxs: [+g('cfg-waxs-rows'), +g('cfg-waxs-cols')] },
+    compound:             g('cfg-compound'),
+    energy_keV:           n('cfg-energy'),
+    density_g_cm3:        n('cfg-density'),
+    thickness:            thk ? parseFloat(thk) : null,
+    mode:                 document.getElementById('cfg-mode').value,
+    metadata_format:      document.getElementById('cfg-meta').value,
+    npt_radial:           parseInt(g('cfg-npt')),
+    error_model:          document.getElementById('cfg-error-model').value,
+    // PyFAI integration parameters
+    unit:                 document.getElementById('cfg-unit').value,
+    correct_solid_angle:  document.getElementById('cfg-solid-angle').checked,
+    polarization_factor:  polVal,
+    // Persist each bound exactly as typed; the pipeline only APPLIES the range
+    // when both min and max are present (see core.py), so partial entries are
+    // saved (and round-trip) instead of being silently dropped.
+    radial_range_min:     qMin,
+    radial_range_max:     qMax,
+    azimuth_range_min:    chiMin,
+    azimuth_range_max:    chiMax,
+    dummy:                nv('cfg-dummy'),
+    delta_dummy:          nv('cfg-delta-dummy'),
+    // Offsets, air measurements and naming
+    i0_offset:            n('cfg-i0-offset'),
+    bstop_offset:         n('cfg-bstop-offset'),
+    i0_air:               n('cfg-i0-air'),
+    bstop_air:            n('cfg-bstop-air'),
+    saxs_filename_prefix: g('cfg-saxs-prefix'),
+    waxs_filename_prefix: g('cfg-waxs-prefix'),
+    normalization:               getNormalization(),
+    absolute_calibration_factor: parseFloat(document.getElementById('cfg-abs-calib').value) || 1.0,
+    // Operator + monitoring poll interval (every UI input is persisted)
+    operator:             g('cfg-operator'),
+    monitor_interval:     parseInt(document.getElementById('mon-interval').value) || 10,
+    beamline:                    { type: '1-5', data_format: 'raw' },
+  };
+}
+
+function setConfig(c) {
+  const s = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = v; };
+  s('cfg-data-dir',    c.data_directory  || '');
+  s('cfg-output-dir',  c.output_directory || '');
+  s('cfg-poni-dir',    c.poni_directory  || '');
+  s('cfg-saxs-poni',   (c.poni_files||{}).saxs || '');
+  s('cfg-waxs-poni',   (c.poni_files||{}).waxs || '');
+  s('cfg-saxs-mask',   (c.mask_files||{}).saxs || '');
+  s('cfg-waxs-mask',   (c.mask_files||{}).waxs || '');
+  const sh = c.detector_shapes || {};
+  s('cfg-saxs-rows',   (sh.saxs||[1043])[0]);
+  s('cfg-saxs-cols',   (sh.saxs||[0,981])[1]);
+  s('cfg-waxs-rows',   (sh.waxs||[195])[0]);
+  s('cfg-waxs-cols',   (sh.waxs||[0,487])[1]);
+  s('cfg-compound',    c.compound      || 'C2H4');
+  s('cfg-energy',      c.energy_keV    || 12);
+  s('cfg-density',     c.density_g_cm3 || 0.92);
+  s('cfg-thickness',   c.thickness     || '');
+  s('cfg-npt',         c.npt_radial    || 1000);
+  s('cfg-i0-offset',   c.i0_offset     || 0);
+  s('cfg-bstop-offset',c.bstop_offset  || 0);
+  s('cfg-i0-air',      c.i0_air        || 0);
+  s('cfg-bstop-air',   c.bstop_air     || 0);
+  s('cfg-saxs-prefix', c.saxs_filename_prefix || '');
+  s('cfg-waxs-prefix', c.waxs_filename_prefix || '');
+  if (c.mode)            document.getElementById('cfg-mode').value        = c.mode;
+  if (c.metadata_format) document.getElementById('cfg-meta').value        = c.metadata_format;
+  if (c.error_model)     document.getElementById('cfg-error-model').value = c.error_model;
+  if (c.unit)            document.getElementById('cfg-unit').value        = c.unit;
+  if (c.data_directory)  document.getElementById('topbar-path').textContent = c.data_directory;
+
+  // Dark / flat files
+  s('cfg-saxs-dark', (c.dark_files||{}).saxs || '');
+  s('cfg-waxs-dark', (c.dark_files||{}).waxs || '');
+  s('cfg-saxs-flat', (c.flat_files||{}).saxs || '');
+  s('cfg-waxs-flat', (c.flat_files||{}).waxs || '');
+
+  // PyFAI integration parameters
+  if (c.correct_solid_angle !== undefined)
+    document.getElementById('cfg-solid-angle').checked = !!c.correct_solid_angle;
+  s('cfg-polarization', c.polarization_factor != null ? c.polarization_factor : '');
+  s('cfg-q-min',    c.radial_range_min  != null ? c.radial_range_min  : '');
+  s('cfg-q-max',    c.radial_range_max  != null ? c.radial_range_max  : '');
+  s('cfg-chi-min',  c.azimuth_range_min != null ? c.azimuth_range_min : '');
+  s('cfg-chi-max',  c.azimuth_range_max != null ? c.azimuth_range_max : '');
+  s('cfg-dummy',       c.dummy       != null ? c.dummy       : '');
+  s('cfg-delta-dummy', c.delta_dummy != null ? c.delta_dummy : '');
+
+  if (Array.isArray(c.normalization)) setNormalization(c.normalization);
+  s('cfg-abs-calib', c.absolute_calibration_factor ?? 1.0);
+
+  // Operator + monitoring interval
+  if (c.operator != null) {
+    document.getElementById('cfg-operator').value = c.operator;
+    try { localStorage.setItem('swaxs_operator', c.operator); } catch (e) {}
+  }
+  if (c.monitor_interval != null) s('mon-interval', c.monitor_interval);
+}
+
+async function saveConfig() {
+  const path = document.getElementById('cfg-yaml-path').value.trim();
+  if (!path) { alert('Enter or browse to a file path first.'); return; }
+  const r = await fetch('/api/save-config', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ config: getConfig(), path }),
+  });
+  const d = await r.json();
+  d.ok ? alert('✓ Saved to:\n' + d.path) : alert('Error: ' + d.error);
+}
+
+async function loadConfig() {
+  const path = document.getElementById('cfg-yaml-path').value.trim();
+  if (!path) { alert('Enter or browse to your YAML file first.'); return; }
+  const r = await fetch('/api/load-config', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ path }),
+  });
+  const d = await r.json();
+  if (d.ok) { setConfig(d.config); alert('✓ Config loaded.'); }
+  else       alert('Error: ' + d.error);
+}
+
+// ── SSE ────────────────────────────────────────────────────────────────────
+const TAG_CLS = { ok:'l-ok', warn:'l-warn', error:'l-error', header:'l-header', info:'l-info' };
+const MAX_LOG_LINES = 400;   // max <span> elements kept in the DOM
+
+// Batched log rendering — accumulate messages, flush once per animation frame.
+// This prevents dozens of individual DOM mutations (each causing a reflow)
+// from stalling the browser JS thread during heavy file processing.
+let _logQueue   = [];
+let _logRafId   = null;
+
+function flushLog() {
+  _logRafId = null;
+  if (!_logQueue.length) return;
+  const box  = document.getElementById('log-box');
+  const frag = document.createDocumentFragment();
+  for (const {msg, tag} of _logQueue) {
+    const sp = document.createElement('span');
+    sp.className   = TAG_CLS[tag] || 'l-info';
+    sp.textContent = msg + '\n';
+    frag.appendChild(sp);
+  }
+  _logQueue = [];
+  box.appendChild(frag);        // single DOM mutation for all queued lines
+
+  // Trim oldest lines so the DOM never grows unbounded
+  while (box.childElementCount > MAX_LOG_LINES) {
+    box.removeChild(box.firstChild);
+  }
+  box.scrollTop = box.scrollHeight;  // scroll once, after the batch
+}
+
+function setSse(live) {
+  document.getElementById('sse-dot').className = live ? 'live' : '';
+  document.getElementById('sse-txt').textContent = live ? 'Connected' : 'Disconnected';
+}
+
+function connectSSE() {
+  if (S.sse) return;
+  S.sse = new EventSource('/api/stream');
+  S.sse.onopen    = () => setSse(true);
+  S.sse.onmessage = e => {
+    const d = JSON.parse(e.data);
+    if (d.tag === 'ping') return;
+    if (d.tag === 'sentinel') {
+      setBadge('Done ✓','green');
+      document.getElementById('btn-run').disabled = false;
+      document.getElementById('btn-run').style.display  = '';
+      const stopBtn = document.getElementById('btn-stop');
+      stopBtn.style.display = 'none';
+      stopBtn.disabled = false;
+      stopBtn.textContent = '⏹ Stop';
+      return;
+    }
+    appendLog(d.msg, d.tag || 'info');
+  };
+  S.sse.onerror = () => {
+    setSse(false); S.sse.close(); S.sse = null;
+    setTimeout(connectSSE, 3000);
+  };
+}
+
+function appendLog(msg, tag) {
+  _logQueue.push({msg, tag});
+  // Schedule a flush on the next animation frame (de-duplicated)
+  if (_logRafId === null) {
+    _logRafId = requestAnimationFrame(flushLog);
+  }
+}
+
+function clearLog() {
+  _logQueue = [];
+  if (_logRafId !== null) { cancelAnimationFrame(_logRafId); _logRafId = null; }
+  document.getElementById('log-box').innerHTML = '';
+}
+
+// ── Run ────────────────────────────────────────────────────────────────────
+async function startRun() {
+  const cfg = getConfig();
+  if (!cfg.data_directory) { alert('Set the Data Directory on the Setup tab first.'); switchTab('setup'); return; }
+  document.getElementById('btn-run').disabled = true;
+  document.getElementById('btn-run').style.display  = 'none';
+  document.getElementById('btn-stop').style.display = '';
+  setBadge('Processing…', 'blue');
+  document.getElementById('topbar-path').textContent = cfg.data_directory;
+  connectSSE();
+  const operator = (document.getElementById('cfg-operator')?.value || '').trim();
+  const r = await fetch('/api/run', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ ...cfg, operator }),
+  });
+  const d = await r.json();
+  if (!d.ok) {
+    appendLog('Failed to start: ' + (d.error || 'unknown'), 'error');
+    document.getElementById('btn-run').disabled = false;
+    document.getElementById('btn-run').style.display  = '';
+    document.getElementById('btn-stop').style.display = 'none';
+    setBadge('Error','red');
+  }
+}
+
+async function stopRun() {
+  document.getElementById('btn-stop').disabled = true;
+  document.getElementById('btn-stop').textContent = '⏹ Stopping…';
+  await fetch('/api/run/stop', { method: 'POST' });
+  // UI resets back to normal when the sentinel message arrives via SSE
+}
+
+async function toggleMonitor() {
+  const on  = document.getElementById('mon-tog').checked;
+  const ivl = document.getElementById('mon-interval').value;
+  connectSSE();
+  if (on) {
+    const cfg = getConfig();
+    if (!cfg.data_directory) {
+      alert('Set the Data Directory on the Setup tab first.');
+      document.getElementById('mon-tog').checked = false; return;
+    }
+    const operator = (document.getElementById('cfg-operator')?.value || '').trim();
+    const r = await fetch('/api/monitor/start', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ config: cfg, interval: +ivl, operator }),
+    });
+    const d = await r.json();
+    if (d.ok) { S.monitoring = true; setBadge('Monitoring…','orange'); }
+    else { alert('Could not start: ' + d.error); document.getElementById('mon-tog').checked = false; }
+  } else {
+    await fetch('/api/monitor/stop', { method:'POST' });
+    S.monitoring = false; setBadge('Ready','green');
+  }
+}
+
+async function resetProcessed() {
+  if (!confirm('All files will be re-processed on the next run. Continue?')) return;
+  await fetch('/api/reset', { method:'POST' });
+}
+
+function setBadge(text, colour) {
+  const b = document.getElementById('run-badge');
+  b.textContent = text; b.className = 'badge b-' + colour;
+}
+
+// ── Browser modal ──────────────────────────────────────────────────────────
+function openBrowser(targetId, mode) {
+  S.browTarget = targetId; S.browMode = mode || 'dir';
+  const start = document.getElementById(targetId).value.trim() || '~';
+  document.getElementById('modal-overlay').style.display = 'flex';
+  loadBrowDir(start);
+}
+
+async function loadBrowDir(path) {
+  const r = await fetch('/api/browse?path=' + encodeURIComponent(path));
+  const d = await r.json();
+  if (d.error) { alert(d.error); return; }
+  S.browPath = d.path;
+  document.getElementById('brow-path').textContent = d.path;
+  document.getElementById('brow-sel').textContent  = d.path;
+  const body = document.getElementById('brow-body');
+  body.innerHTML = '';
+  if (d.parent) body.appendChild(mkBrowItem('⬆', '.. (go up)', () => loadBrowDir(d.parent)));
+  d.dirs.forEach(name => {
+    const full = d.path.replace(/\/$/, '') + '/' + name;
+    body.appendChild(mkBrowItem('📁', name, () => loadBrowDir(full)));
+  });
+  if (S.browMode === 'file') {
+    d.files.forEach(name => {
+      const full = d.path.replace(/\/$/, '') + '/' + name;
+      body.appendChild(mkBrowItem('📄', name, () => {
+        document.getElementById(S.browTarget).value = full;
+        closeBrow();
+      }));
+    });
+  }
+}
+
+function mkBrowItem(icon, label, cb) {
+  const div = document.createElement('div');
+  div.style.cssText = 'display:flex;align-items:center;gap:9px;padding:9px 16px;cursor:pointer;font-size:14px;border-bottom:1px solid var(--border);color:var(--txt);transition:background .1s;';
+  div.innerHTML = `<span style="width:18px;text-align:center;">${icon}</span><span>${label}</span>`;
+  div.onmouseenter = () => div.style.background = 'var(--surface2)';
+  div.onmouseleave = () => div.style.background = '';
+  div.addEventListener('click', cb);
+  return div;
+}
+
+function selectDir() {
+  if (S.browTarget) document.getElementById(S.browTarget).value = S.browPath;
+  closeBrow();
+}
+function closeBrow() { document.getElementById('modal-overlay').style.display = 'none'; }
+function maybeClose(e) { if (e.target.id === 'modal-overlay') closeBrow(); }
+
+// ── Normalisation pill logic ───────────────────────────────────────────────
+
+function getNormalization() {
+  return [...document.querySelectorAll('#norm-pills .norm-pill.active')]
+    .map(p => p.dataset.norm)
+    .filter(n => n !== '');   // exclude the "None" pill's empty string
+}
+
+/** Highlight equation rows that match the currently active pills,
+ *  and show/hide the Absolute calibration panel and warning banner. */
+function syncNormEqHighlight() {
+  const active = getNormalization();
+  const noneActive = active.length === 0;
+  const absActive  = active.includes('absolute');
+
+  // Equation row highlights
+  document.getElementById('eq-none').classList.toggle('eq-active', noneActive);
+  ['bstop', 'i0', 'absolute'].forEach(k => {
+    const el = document.getElementById('eq-' + k);
+    if (el) el.classList.toggle('eq-active', active.includes(k));
+  });
+
+  // Show/hide the calibration-constant input panel
+  const calibPanel = document.getElementById('abs-calib-panel');
+  if (calibPanel) calibPanel.style.display = absActive ? 'block' : 'none';
+
+  // Show warning when I₀ and Bstop are both active (non-physical combination)
+  const warnEl = document.getElementById('norm-warn');
+  if (warnEl) {
+    warnEl.style.display = (active.includes('i0') && active.includes('bstop'))
+      ? 'block' : 'none';
+  }
+}
+
+function setNormalization(list) {
+  document.querySelectorAll('#norm-pills .norm-pill').forEach(p => {
+    if (p.dataset.norm === '') {
+      // "None" pill is active only when nothing else is
+      p.classList.toggle('active', list.length === 0);
+    } else {
+      p.classList.toggle('active', list.includes(p.dataset.norm));
+    }
+  });
+  syncNormEqHighlight();
+}
+
+// Called when any pill is clicked
+function toggleNormPill(btn) {
+  const norm = btn.dataset.norm;
+  const isNone = norm === '';
+  if (isNone) {
+    // "None" clears all other selections
+    document.querySelectorAll('#norm-pills .norm-pill').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+  } else {
+    btn.classList.toggle('active');
+    const nowActive = btn.classList.contains('active');
+
+    // "Absolute" is mutually exclusive with both "Bstop" and "I₀":
+    //   Absolute = B_stop × d_cm, and B_stop ∝ Φ₀·T (incident flux × transmission).
+    //   So Absolute already subsumes Bstop (T-correction) and I₀ (flux correction).
+    //   Combining either with Absolute would double-count those factors.
+    if (nowActive) {
+      if (norm === 'absolute') {
+        document.querySelector('[data-norm="bstop"]').classList.remove('active');
+        document.querySelector('[data-norm="i0"]').classList.remove('active');
+      } else if (norm === 'bstop' || norm === 'i0') {
+        document.querySelector('[data-norm="absolute"]').classList.remove('active');
+      }
+    }
+
+    // If no specific norm is active → auto-activate "None"
+    const anyActive = [...document.querySelectorAll('#norm-pills .norm-pill')]
+      .some(p => p.dataset.norm !== '' && p.classList.contains('active'));
+    document.querySelector('#norm-pills .none-pill')
+      .classList.toggle('active', !anyActive);
+  }
+  syncNormEqHighlight();
+}
+
+// Attach click handlers once DOM is ready (done in DOMContentLoaded below)
+
+// ── Viewer helpers ─────────────────────────────────────────────────────────
+
+/** Compute the effective 1D output path (mirrors pipeline_core logic). */
+function effectiveOutDir() {
+  const explicit = document.getElementById('cfg-output-dir').value.trim();
+  if (explicit) return explicit;
+  const overrideBox = document.getElementById('viewer-out-dir').value.trim();
+  if (overrideBox) return overrideBox;
+  const dataDir = document.getElementById('cfg-data-dir').value.trim();
+  if (!dataDir) return '';
+  // Mimic Python: data_directory.parent / "1D"
+  const parent = dataDir.replace(/\/[^/]+\/?$/, '');
+  return parent ? parent + '/1D' : '1D';
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  connectSSE();
+  fetch('/api/monitor/status').then(r=>r.json()).then(d => {
+    document.getElementById('mon-tog').checked = d.monitoring;
+    if (d.monitoring) setBadge('Monitoring…','orange');
+  }).catch(()=>{});
+
+  // Wire normalisation pill click handlers
+  document.querySelectorAll('#norm-pills .norm-pill').forEach(p => {
+    p.addEventListener('click', () => toggleNormPill(p));
+  });
+  syncNormEqHighlight();  // set initial eq-row highlight state
+});
+</script>
+<script>
+/* Auto-fill folder paths from the hub project root (resets on project change). */
+(function(){
+  let last=null;
+  const strip=s=>s.replace(/\/+$/,'');
+  const set=(id,v)=>{const e=document.getElementById(id); if(e) e.value=v;};
+  function apply(root){
+    root=strip(root);
+    set('cfg-data-dir',   root+'/2D');
+    set('cfg-poni-dir',   root+'/poni');
+    set('cfg-output-dir', root+'/1D');
+    set('cfg-yaml-path',  root+'/config.yml');
+    const tp=document.getElementById('topbar-path'); if(tp) tp.textContent=root;
+  }
+  async function poll(){
+    try{const d=await (await fetch('/api/project')).json();
+      const r=(d.project_root||'').trim();
+      if(r && r!==last){last=r; apply(r);}
+    }catch(e){}
+  }
+  poll(); setInterval(poll,3000);
+})();
+</script>
+<script>
+(function(){var K='swaxs-theme',s=localStorage.getItem(K),
+ d=s?s==='dark':matchMedia('(prefers-color-scheme:dark)').matches;
+ function ap(x){document.documentElement.setAttribute('data-theme',x?'dark':'light');
+  var b=document.getElementById('themeToggle');if(b)b.textContent=x?'☀':'☾';}
+ ap(d);window.toggleTheme=function(){d=!d;localStorage.setItem(K,d?'dark':'light');ap(d);};})();
+</script>
+</body>
+</html>

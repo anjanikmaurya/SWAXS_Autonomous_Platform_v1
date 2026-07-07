@@ -1,0 +1,946 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tassone Group Assistant</title>
+<link rel="icon" type="image/png" href="/static/saxs_smiley.png">
+<!-- Rich rendering: Markdown (marked) + sanitiser (DOMPurify) + math (KaTeX).
+     Vendored locally under /static/vendor/ so the assistant works fully OFFLINE
+     on the beamline network. The renderer degrades gracefully to escaped plain
+     text if any of these fail to load. -->
+<link rel="stylesheet" href="/static/vendor/katex/katex.min.css">
+<script src="/static/vendor/marked.min.js"></script>
+<script src="/static/vendor/purify.min.js"></script>
+<script src="/static/vendor/katex/katex.min.js"></script>
+<script src="/static/vendor/katex/auto-render.min.js"></script>
+<!-- Interactive plots (Plotly), vendored offline. Falls back to static PNG if absent. -->
+<script src="/static/vendor/plotly.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  /* ── SWAXS shared design system — Light theme ───────── */
+  --bg:#f5f7fa;--surface:#ffffff;--surface2:#f0f2f5;--border:#e5e7eb;
+  --border-strong:#c3c9d1;
+  --text:#111827;--text-strong:#111827;
+  --muted:#4b5563;        /* secondary 7.6:1 */
+  --faint:#6b7280;        /* tertiary 4.8:1 */
+  --disabled:#9ca3af;     /* decoration/disabled only */
+  --accent:#B1040E;--accent-d:#8C1515;--accent-l:#fbe9ea;--accent-lt:#fbe9ea;
+  --sidebar:#27272d;--sidebar-h:#34343c;
+  /* Semantic — fills */
+  --green:#16a34a;--yellow:#d97706;--red:#dc2626;--blue:#1d4ed8;
+  /* Semantic — accessible text (≥4.5:1 on white) */
+  --ok-text:#15803d;--warn-text:#b45309;--err-text:#b91c1c;--info-text:#1d4ed8;
+  /* Chat surfaces & hints */
+  --user-bg:#eff6ff;--user-border:#bfdbfe;
+  --ai-bg:#f9fafb;--ai-border:#e5e7eb;
+  --hint-warn:#fffbeb;--hint-warn-b:#fde68a;
+  --hint-info:#eff6ff;--hint-info-b:#bfdbfe;
+  --hint-err:#fef2f2;--hint-err-b:#fecaca;
+  /* Typography scale (shared across all SWAXS apps) */
+  --font:'Inter','Segoe UI',system-ui,-apple-system,sans-serif;
+  --mono:'JetBrains Mono','Fira Code','Cascadia Code',monospace;
+  --fs-2xs:.6875rem;--fs-xs:.75rem;--fs-sm:.8125rem;--fs-md:.875rem;
+  --fs-base:1rem;--fs-lg:1.125rem;--fs-xl:1.375rem;--fs-2xl:1.75rem;
+  --fw-regular:400;--fw-medium:500;--fw-semibold:600;--fw-bold:700;
+  --lh-tight:1.25;--lh-snug:1.4;--lh-normal:1.5;--ls-label:.06em;
+  --sp-1:4px;--sp-2:8px;--sp-3:12px;--sp-4:16px;--sp-5:24px;--sp-6:32px;
+  --radius:8px;
+}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--font);font-size:18px;line-height:1.5}
+
+/* ── Layout ──────────────────────────────────────────────────────────── */
+.shell{display:flex;flex-direction:column;height:100vh;overflow:hidden}
+.topbar{
+  display:flex;align-items:center;gap:12px;padding:0 18px;height:52px;
+  background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;
+}
+.topbar h1{font-size:var(--fs-lg);font-weight:700;letter-spacing:-.01em}
+.topbar h1 span{color:var(--accent)}
+.badge{
+  font-size:var(--fs-xs);font-weight:600;padding:2px 9px;border-radius:20px;
+  border:1.5px solid var(--border);color:var(--muted);
+}
+.badge.ok{border-color:var(--green);color:var(--ok-text)}
+.badge.warn{border-color:var(--yellow);color:var(--warn-text)}
+.badge.err{border-color:var(--red);color:var(--err-text)}
+.topbar .spacer{flex:1}
+.btn{
+  display:inline-flex;align-items:center;gap:5px;
+  padding:5px 12px;border-radius:6px;border:1px solid var(--border);
+  background:var(--surface);color:var(--text);font-size:14px;font-weight:500;
+  cursor:pointer;transition:all .12s;white-space:nowrap;
+}
+.btn:hover{background:#f3f4f6;border-color:#9ca3af}
+.btn-accent{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn-accent:hover{background:var(--accent-d);border-color:var(--accent-d)}
+
+.body{display:flex;flex:1;overflow:hidden}
+
+/* ── Sidebar ──────────────────────────────────────────────────────────── */
+.sidebar{
+  width:362px;flex-shrink:0;border-right:1px solid var(--border);
+  background:var(--surface);display:flex;flex-direction:column;overflow:hidden;
+}
+.sidebar-scroll{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:12px}
+.stitle{font-size:var(--fs-xs);font-weight:700;text-transform:uppercase;letter-spacing:var(--ls-label);color:var(--muted);margin-bottom:6px}
+.scard{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:11px}
+
+/* Quick prompts */
+.qp{
+  padding:7px 9px;border:1px solid var(--border);border-radius:7px;
+  font-size:var(--fs-md);color:var(--muted);cursor:pointer;line-height:1.4;
+  transition:all .12s;margin-bottom:4px;
+}
+.qp:last-child{margin-bottom:0}
+.qp:hover{border-color:var(--accent);color:var(--text);background:#fef2f2}
+
+/* Hints panel */
+.hints-panel{flex-shrink:0;border-top:1px solid var(--border);padding:10px 14px;background:#fafafa;max-height:180px;overflow-y:auto}
+.hint-item{
+  padding:6px 9px;border-radius:6px;font-size:var(--fs-md);margin-bottom:5px;line-height:1.4;
+  border-left:3px solid;
+}
+.hint-item.info   {background:var(--hint-info); border-color:var(--blue)}
+.hint-item.warning{background:var(--hint-warn); border-color:var(--yellow)}
+.hint-item.error  {background:var(--hint-err);  border-color:var(--red)}
+.hint-item:last-child{margin-bottom:0}
+.hints-empty{font-size:var(--fs-sm);color:var(--faint);text-align:center;padding:8px}
+
+/* ── Chat area ──────────────────────────────────────────────────────────── */
+.chat-wrap{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;min-height:0}
+.messages{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;padding:24px 36px 24px 72px;display:flex;flex-direction:column;gap:14px}
+
+.msg{display:flex;flex-direction:column;gap:5px;max-width:920px;overflow:hidden;flex:0 0 auto}
+.msg.user    {align-self:flex-end; align-items:flex-end}
+.msg.assistant{align-self:flex-start;align-items:flex-start}
+.msg.system  {align-self:center;   align-items:center}
+.msg-label{font-size:var(--fs-xs);font-weight:600;color:var(--muted);padding:0 3px}
+.bubble{
+  padding:11px 15px;border-radius:var(--radius);font-size:var(--fs-base);
+  line-height:1.65;word-break:break-word;
+}
+.msg.user .bubble    {background:var(--user-bg);border:1px solid var(--user-border);color:var(--text)}
+.msg.assistant .bubble{background:var(--ai-bg);  border:1px solid var(--ai-border); color:var(--text)}
+.msg.system .bubble  {background:none; border:none; font-size:var(--fs-sm); color:var(--faint)}
+
+/* ── Rendered markdown inside assistant bubbles ─────────────────────────── */
+.bubble > :first-child{margin-top:0}
+.bubble > :last-child{margin-bottom:0}
+.bubble h1,.bubble h2,.bubble h3,.bubble h4{
+  line-height:var(--lh-tight);font-weight:var(--fw-bold);color:var(--text-strong);
+  margin:14px 0 8px}
+.bubble h1{font-size:var(--fs-xl)}
+.bubble h2{font-size:var(--fs-lg);border-bottom:2px solid var(--accent-l);padding-bottom:3px}
+.bubble h3{font-size:var(--fs-md);color:var(--accent-d)}
+.bubble h4{font-size:var(--fs-sm);text-transform:uppercase;letter-spacing:var(--ls-label);color:var(--muted)}
+.bubble p{margin:8px 0}
+.bubble strong{font-weight:var(--fw-bold);color:var(--text-strong)}
+.bubble em{color:var(--muted)}
+.bubble ul,.bubble ol{margin:8px 0 8px 22px}
+.bubble li{margin:3px 0}
+.bubble li::marker{color:var(--accent)}
+.bubble a{color:var(--info-text);text-decoration:underline}
+.bubble code{
+  font-family:var(--mono);font-size:.85em;background:var(--surface2);
+  border:1px solid var(--border);border-radius:5px;padding:1px 5px;color:var(--accent-d)}
+.bubble pre{
+  background:#0f172a;color:#e2e8f0;border-radius:var(--radius);padding:12px 14px;
+  overflow:auto;margin:10px 0;font-size:var(--fs-sm)}
+.bubble pre code{background:none;border:none;color:inherit;padding:0}
+.bubble blockquote{
+  border-left:3px solid var(--accent);background:var(--accent-l);
+  margin:10px 0;padding:6px 12px;border-radius:0 6px 6px 0;color:var(--muted)}
+.bubble hr{border:none;border-top:1px solid var(--border);margin:14px 0}
+.bubble table{
+  border-collapse:collapse;width:100%;margin:10px 0;font-size:var(--fs-sm);
+  border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.bubble thead th{
+  background:var(--accent);color:#fff;font-weight:var(--fw-semibold);
+  text-align:left;padding:7px 11px}
+.bubble tbody td{padding:6px 11px;border-top:1px solid var(--border)}
+.bubble tbody tr:nth-child(even){background:var(--surface2)}
+.bubble .katex{font-size:1.04em}
+.bubble .katex-display{margin:10px 0;overflow-x:auto;overflow-y:hidden}
+
+/* Inline plots */
+.plot-img{
+  width:100%;max-width:min(900px,100%);border-radius:8px;border:1px solid var(--border);
+  display:block;margin-top:8px;
+}
+.plot-interactive{
+  width:900px;max-width:100%;height:520px;margin-top:8px;flex:0 0 auto;
+  border:1px solid var(--border);border-radius:8px;overflow:hidden;
+  box-sizing:border-box;position:relative;
+}
+.plot-interactive .plot-container,.plot-interactive .svg-container{max-width:100%}
+
+/* Tool calls */
+.tool-card{
+  border:1px solid #fde68a;border-radius:8px;background:#fffbeb;
+  padding:7px 11px;font-size:var(--fs-sm);font-family:var(--mono);max-width:680px;margin-top:4px;
+}
+.tool-card .tc-label{font-weight:700;color:var(--warn-text);margin-bottom:3px}
+.tool-card .tc-body{color:var(--muted);white-space:pre-wrap;max-height:100px;overflow:auto}
+
+/* AI hints inside chat (response) */
+.response-hints{margin-top:8px;display:flex;flex-direction:column;gap:4px}
+.rh{
+  padding:5px 9px;border-radius:6px;font-size:var(--fs-md);border-left:3px solid;
+}
+.rh.info{background:var(--hint-info);border-color:var(--blue)}
+.rh.warning{background:var(--hint-warn);border-color:var(--yellow)}
+.rh.error{background:var(--hint-err);border-color:var(--red)}
+
+/* Typing indicator */
+.typing{
+  display:flex;gap:4px;padding:11px 15px;background:var(--ai-bg);
+  border:1px solid var(--ai-border);border-radius:var(--radius);width:62px;
+}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--faint);animation:bounce .8s infinite}
+.dot:nth-child(2){animation-delay:.15s}
+.dot:nth-child(3){animation-delay:.3s}
+@keyframes bounce{0%,80%,100%{transform:translateY(0)}40%{transform:translateY(-7px)}}
+/* Live progress steps */
+.steps{display:flex;flex-direction:column;gap:4px;margin-top:2px}
+.step-row{font-size:var(--fs-sm);color:var(--muted);padding:5px 11px;
+  background:var(--ai-bg);border:1px solid var(--ai-border);border-radius:7px;
+  border-left:3px solid var(--border-strong);transition:all .15s}
+.step-row.tool{border-left-color:var(--accent)}
+.step-row.think{border-left-color:var(--info-text);font-style:italic}
+.step-row.step-active{color:var(--text);box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.step-row:not(.step-active){opacity:.62}
+/* "Collecting live" loader — pure CSS SAXS frame: rings + low-q core brighten
+   from faint to full (counts accumulating), beamstop stays dark, then a new
+   exposure begins. Loops. No image dependency. */
+.det-row{display:flex;align-items:center;gap:9px;font-size:var(--fs-sm);color:var(--muted);
+  background:var(--ai-bg);border:1px solid var(--ai-border);border-radius:7px;padding:5px 11px}
+.det-load{position:relative;width:30px;height:30px;border-radius:7px;overflow:hidden;
+  background:#150510;border:1px solid var(--ai-border);flex:0 0 auto}
+.det-load .field{position:absolute;inset:-12%;
+  background:
+    repeating-radial-gradient(circle at 50% 50%,
+      rgba(255,160,60,0) 0 1.4px, rgba(255,185,85,.9) 1.4px 2.2px, rgba(255,160,60,0) 2.2px 4.4px),
+    radial-gradient(circle at 50% 50%,
+      rgba(255,228,150,1) 4%, rgba(245,120,55,.85) 15%, rgba(150,45,18,.35) 40%, rgba(21,5,16,0) 64%);
+  animation:saxsacc 1.9s linear infinite}
+.det-load .bs{position:absolute;left:50%;top:50%;width:26%;height:26%;
+  transform:translate(-50%,-50%);background:#150510;border-radius:50%;z-index:2}
+.det-load .arm{position:absolute;left:50%;top:50%;bottom:0;width:3px;
+  transform:translateX(-50%);background:#150510;z-index:2}
+@keyframes saxsacc{
+  0%{opacity:.22;filter:brightness(.55)}
+  42%{opacity:1;filter:brightness(1)}
+  74%{opacity:1;filter:brightness(1.06)}
+  92%{opacity:.22;filter:brightness(.55)}
+  100%{opacity:.22;filter:brightness(.55)}
+}
+@media (prefers-reduced-motion: reduce){
+  .det-load .field{animation:none;opacity:1;filter:none}
+}
+
+/* ── Input area ──────────────────────────────────────────────────────────── */
+.input-area{
+  flex-shrink:0;padding:12px 20px 14px;background:var(--surface);
+  border-top:1px solid var(--border);display:flex;flex-direction:column;gap:7px;
+}
+.input-row{display:flex;gap:9px;align-items:flex-end}
+textarea#msg{
+  flex:1;background:#f3f4f6;border:1.5px solid var(--border-strong);border-radius:10px;
+  color:var(--text);padding:9px 13px;font-size:var(--fs-base);font-family:inherit;
+  resize:none;min-height:42px;max-height:160px;line-height:1.5;
+  transition:border-color .12s, box-shadow .12s;
+}
+textarea#msg:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(140,21,21,.15)}
+.send-btn{
+  width:42px;height:42px;flex-shrink:0;border-radius:10px;
+  background:var(--accent);border:none;color:#fff;font-size:17px;
+  cursor:pointer;display:flex;align-items:center;justify-content:center;
+  transition:background .12s;
+}
+.send-btn:hover{background:var(--accent-d)}
+.send-btn:disabled{opacity:.4;cursor:not-allowed}
+.input-meta{display:flex;gap:10px;align-items:center}
+.input-hint{font-size:var(--fs-xs);color:var(--faint)}
+.pdf-label{
+  display:inline-flex;align-items:center;gap:4px;font-size:var(--fs-sm);
+  padding:3px 9px;border-radius:5px;border:1px solid var(--border);
+  cursor:pointer;color:var(--muted);transition:all .12s;
+}
+.pdf-label:hover{border-color:var(--accent);color:var(--accent)}
+input[type=file]{display:none}
+/* Knowledge panel */
+.kb-refresh{float:right;border:none;background:none;cursor:pointer;color:var(--muted);
+  font-size:13px;line-height:1;padding:0}
+.kb-refresh:hover{color:var(--accent)}
+.kb-list{max-height:170px;overflow:auto;margin-bottom:8px;display:flex;flex-direction:column;gap:3px}
+.kb-item{display:flex;align-items:center;gap:6px;background:var(--surface);
+  border:1px solid var(--border);border-radius:6px;padding:4px 7px;font-size:var(--fs-xs)}
+.kb-item .kb-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
+.kb-item .kb-tag{font-size:var(--fs-2xs);color:var(--faint)}
+.kb-item .kb-del{border:none;background:none;color:var(--faint);cursor:pointer;font-size:13px;padding:0 2px}
+.kb-item .kb-del:hover{color:var(--err-text)}
+.kb-empty{font-size:var(--fs-xs);color:var(--faint);font-style:italic;padding:4px 0}
+.kb-note{width:100%;background:#fff;border:1px solid var(--border);border-radius:6px;
+  padding:6px 9px;font-size:var(--fs-sm);color:var(--text);resize:vertical;font-family:inherit}
+/* Accessibility — visible keyboard focus ring (WCAG 2.4.7) */
+a:focus-visible,button:focus-visible,[role="button"]:focus-visible,
+input:focus-visible,select:focus-visible,textarea:focus-visible{
+  outline:2px solid var(--accent);outline-offset:2px;border-radius:4px;
+}
+/* ===== SWAXS theme v2 · cardinal accent · dark mode ===== */
+:root[data-theme="dark"]{
+  --bg:#15161a;--surface:#1f2126;--surface2:#272a31;--border:#343842;--border-strong:#4c515c;
+  --text:#e7e9ee;--text-strong:#f5f7fa;--muted:#a4abb6;--faint:#7d848f;--disabled:#5a606b;
+  --accent:#d44a55;--accent-d:#b1040e;--accent-l:#3a2023;--accent-lt:#3a2023;
+  --user-bg:#1c2a3f;--user-border:#2d456b;
+  --ai-bg:#23252b;--ai-border:#343842;
+  --hint-warn:#33270f;--hint-warn-b:#5c4711;--hint-info:#13243b;--hint-info-b:#274b73;
+  --hint-err:#371a1c;--hint-err-b:#5e2a2d;
+}
+.theme-toggle{display:inline-flex;align-items:center;justify-content:center;width:34px;height:30px;border:1px solid var(--border-strong);border-radius:7px;background:var(--surface);color:var(--text);cursor:pointer;font-size:15px;line-height:1}
+.theme-toggle:hover{background:var(--surface2)}
+/* larger left sidebar text */
+.sidebar .stitle{font-size:var(--fs-sm)}
+.sidebar .qp{font-size:var(--fs-base)}
+.sidebar .scard,.sidebar #kbStats,.sidebar .hint-item{font-size:var(--fs-md)}
+.sidebar .kb-item{font-size:var(--fs-sm)}
+.sidebar .pdf-label{font-size:var(--fs-md)}
+</style>
+</head>
+<body>
+<div class="shell">
+  <!-- ── Topbar ────────────────────────────────────────────── -->
+  <header class="topbar">
+    <img src="/static/saxs_smiley.png" alt="SAXS assistant icon"
+         style="width:30px;height:30px;border-radius:7px;margin-right:10px;object-fit:cover;box-shadow:0 1px 3px rgba(0,0,0,.25)">
+    <h1>Tassone Group <span>Assistant</span></h1>
+    <div id="apiBadge" class="badge warn">Connecting…</div>
+    <div class="spacer"></div>
+    <button class="btn" onclick="clearChat()">🗑 Clear</button>
+    <button class="btn" onclick="showMemory()" title="View memory context">🧠 Memory</button>
+    <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" title="Toggle light / dark">☾</button>
+    <a href="http://localhost:5000" style="text-decoration:none">
+      <button class="btn">← Hub</button>
+    </a>
+  </header>
+
+  <div class="body">
+    <!-- ── Sidebar ──────────────────────────────────────────── -->
+    <aside class="sidebar">
+      <div class="sidebar-scroll">
+        <!-- Project -->
+        <div class="scard">
+          <div class="stitle">Project</div>
+          <input type="text" id="projectRoot" placeholder="/path/to/project"
+            style="width:100%;background:#fff;border:1px solid var(--border);border-radius:6px;
+                   padding:6px 9px;font-size:var(--fs-md);color:var(--text);margin-bottom:6px"
+            onchange="saveProject()">
+          <button class="btn btn-accent" style="width:100%;justify-content:center" onclick="saveProject()">
+            Set Project
+          </button>
+        </div>
+
+        <!-- Knowledge base -->
+        <div class="scard">
+          <div class="stitle">Knowledge &amp; Literature
+            <button class="kb-refresh" title="Refresh counts and list" onclick="refreshKB()">⟳</button>
+          </div>
+          <div id="kbStats" style="font-size:var(--fs-sm);color:var(--muted);margin-bottom:8px">Loading…</div>
+
+          <!-- indexed items list -->
+          <div id="kbList" class="kb-list"></div>
+
+          <!-- add a paper -->
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px">
+            <label style="font-size:var(--fs-sm);color:var(--muted);white-space:nowrap">Library</label>
+            <select id="uploadCollection" title="Where this PDF is filed. Both are searched when answering; this is just how it's organised."
+              style="flex:1;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:4px 7px;font-size:var(--fs-sm);color:var(--text)">
+              <option value="user_papers">My papers (project-specific)</option>
+              <option value="literature">Literature (general reference)</option>
+            </select>
+          </div>
+          <label class="pdf-label">
+            📄 Add PDF
+            <input type="file" id="pdfInput" accept=".pdf" onchange="uploadPDF(event)">
+          </label>
+          <div id="pdfStatus" style="font-size:var(--fs-xs);color:var(--muted);margin-top:4px"></div>
+
+          <!-- add a note -->
+          <textarea id="kbNote" class="kb-note" rows="2"
+            placeholder="Add a note/fact for the assistant to remember…"></textarea>
+          <button class="btn btn-accent" style="width:100%;justify-content:center;margin-top:4px"
+            onclick="addNote()">+ Add note</button>
+        </div>
+
+        <!-- Quick prompts -->
+        <div class="scard">
+          <div class="stitle">Quick Prompts</div>
+          <div class="qp" onclick="usePrompt(this)">What is the Rg of my latest averaged SAXS file?</div>
+          <div class="qp" onclick="usePrompt(this)">Run a Guinier analysis and check if the qRg range is valid.</div>
+          <div class="qp" onclick="usePrompt(this)">Show me a Kratky plot and tell me if my sample is folded or disordered.</div>
+          <div class="qp" onclick="usePrompt(this)">Compare all averaged files for keyword BSA and overlay them.</div>
+          <div class="qp" onclick="usePrompt(this)">What files have been processed and are there any quality issues?</div>
+          <div class="qp" onclick="usePrompt(this)">My background scale factor is 1.3 — is that reasonable?</div>
+          <div class="qp" onclick="usePrompt(this)">Generate a Guinier plot with the fit line for the last file.</div>
+          <div class="qp" onclick="usePrompt(this)">Plot the last subtracted SAXS curve over q = 0.07–2 nm⁻¹ on a log–log scale.</div>
+          <div class="qp" onclick="usePrompt(this)">Analyse the scattering profile and suggest which model best describes the scattering features.</div>
+          <div class="qp" onclick="usePrompt(this)">Plot i0 and bstop vs Timer for the averaged samples with keyword 12CE.</div>
+          <div class="qp" onclick="usePrompt(this)">Plot transmission vs Timer for the subtracted curves with keyword Nylon6.</div>
+        </div>
+      </div>
+
+      <!-- Hints panel (live from event bus) -->
+      <div class="hints-panel">
+        <div class="stitle" style="margin-bottom:5px">Live Hints</div>
+        <div id="hintsContainer">
+          <div class="hints-empty">No hints yet</div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ── Chat ─────────────────────────────────────────────── -->
+    <div class="chat-wrap">
+      <div class="messages" id="messages">
+        <div class="msg assistant">
+          <div class="msg-label"><img src="/static/saxs_smiley.png" alt="" style="width:16px;height:16px;border-radius:4px;vertical-align:-3px;margin-right:5px">Tassone Group Assistant</div>
+          <div class="bubble">
+            Hello! I'm the Tassone Group Assistant — your SAXS/WAXS research assistant.<br><br>
+            I can help you with:<br>
+            • Guinier analysis (Rg, I₀, qRg validity)<br>
+            • Kratky and Porod plots<br>
+            • Background subtraction checks<br>
+            • Data quality flags and notes<br>
+            • Interpreting your scattering profiles<br><br>
+            Set your project folder in the sidebar, then ask me anything about your data.
+            Make sure <code>ANTHROPIC_API_KEY</code> is set in your environment.
+          </div>
+        </div>
+      </div>
+
+      <div class="input-area">
+        <div class="input-row">
+          <textarea id="msg" rows="1" placeholder="Ask about your scattering data…"
+            onkeydown="handleKey(event)" oninput="autoGrow(this)"></textarea>
+          <button class="send-btn" id="sendBtn" onclick="sendMsg()">↑</button>
+        </div>
+        <div class="input-meta">
+          <span class="input-hint">Enter to send · Shift+Enter for newline</span>
+          <div style="flex:1"></div>
+          <span id="sessionBadge" style="font-size:var(--fs-xs);color:var(--faint)">session: —</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ────────────────────────────────────────────────────────────────
+let SESSION_ID   = null;
+let BUSY         = false;
+let PROJECT_ROOT = localStorage.getItem('swaxs_project') || '';
+let PROJECT_USER_SET = false;   // true once the user types an explicit override
+let _hintCursor  = 0;  // pointer into server hint queue (managed via SSE)
+
+// ── Init ─────────────────────────────────────────────────────────────────
+document.getElementById('projectRoot').value = PROJECT_ROOT;
+checkHealth();
+loadHubProject();                          // adopt the hub's selected folder
+setInterval(loadHubProject, 8000);         // keep tracking it during the session
+loadKBStats();
+loadKnowledge();
+connectHints();
+
+// Adopt the project folder the hub currently has selected, unless the user has
+// typed an explicit override (clear the field to resume auto-tracking).
+function loadHubProject() {
+  fetch('/api/project')
+    .then(r => r.json())
+    .then(d => {
+      const hub = ((d && d.project_root) || '').trim();
+      if (!hub || PROJECT_USER_SET) return;
+      const el = document.getElementById('projectRoot');
+      if (el.value.trim() !== hub) {
+        el.value = hub;
+        PROJECT_ROOT = hub;
+        try { localStorage.setItem('swaxs_project', hub); } catch (e) {}
+      }
+    })
+    .catch(() => {});
+}
+
+function checkHealth() {
+  fetch('/api/health')
+    .then(r => r.json())
+    .then(d => {
+      const badge = document.getElementById('apiBadge');
+      const ready = d.api_key_set || (d.credentials && d.credentials !== 'none');
+      if (ready) {
+        badge.textContent = d.credentials === 'gateway-token' ? 'AI Ready · gateway' : 'AI Ready';
+        badge.className   = 'badge ok';
+        badge.title       = (d.base_url || '') + (d.model ? ' · ' + d.model : '');
+      } else {
+        badge.textContent = 'No API Key';
+        badge.className   = 'badge warn';
+      }
+    })
+    .catch(() => {
+      document.getElementById('apiBadge').textContent = 'Offline';
+      document.getElementById('apiBadge').className   = 'badge err';
+    });
+}
+
+function loadKBStats(retry) {
+  retry = retry || 0;
+  const el = document.getElementById('kbStats');
+  // The knowledge base may still be initialising on first page load (ChromaDB +
+  // embedding model). Retry a few times so it populates without a manual refresh.
+  const again = () => { if (retry < 6) { el.textContent = 'Loading knowledge base…';
+                                         setTimeout(() => loadKBStats(retry + 1), 2000); }
+                        else { el.textContent = 'KB unavailable'; } };
+  fetch('/api/knowledge/stats')
+    .then(r => r.json())
+    .then(d => {
+      if (d.error) { again(); return; }
+      el.innerHTML = Object.entries(d)
+        .map(([k,v]) => `<span style="color:var(--text)">${v}</span> ${k}`)
+        .join('<br>');
+    })
+    .catch(again);
+}
+
+// ── Knowledge & literature management ─────────────────────────────────────
+function refreshKB() { loadKBStats(); loadKnowledge(); }
+
+function loadKnowledge(retry) {
+  retry = retry || 0;
+  const el = document.getElementById('kbList');
+  // Retry while the KB is still warming up (transient error), so the list
+  // appears on first load without needing the refresh button.
+  const again = () => { if (retry < 6) { setTimeout(() => loadKnowledge(retry + 1), 2000); }
+                        else { el.innerHTML = '<div class="kb-empty">Knowledge list unavailable.</div>'; } };
+  fetch('/api/knowledge/list')
+    .then(r => r.json())
+    .then(d => {
+      if (d && d.error) { again(); return; }
+      const items = (d && d.items) || [];
+      if (!items.length) {
+        el.innerHTML = '<div class="kb-empty">No papers or notes indexed yet.</div>';
+        return;
+      }
+      el.innerHTML = items.map(it => {
+        const nm = it.name || '(unnamed)';
+        const tag = (it.collection || '').replace('user_papers','paper').replace('literature','lit');
+        return `<div class="kb-item" title="${escAttr(nm)} — ${it.chunks||0} chunks, added ${it.added||''}">
+          <span class="kb-name">${escHtml(nm)}</span>
+          <span class="kb-tag">${escHtml(tag)}</span>
+          <button class="kb-del" title="Remove" onclick="removeKnowledge('${escAttr(nm)}')">✕</button>
+        </div>`;
+      }).join('');
+    })
+    .catch(again);
+}
+
+function addNote() {
+  const ta = document.getElementById('kbNote');
+  const text = ta.value.trim();
+  if (!text) return;
+  const name = (text.split('\n')[0].slice(0, 48) || 'note');
+  fetch('/api/knowledge/note', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ name, text })
+  }).then(r => r.json()).then(d => {
+    if (d.error) { alert('Could not save note: ' + d.error); return; }
+    ta.value = '';
+    loadKnowledge(); loadKBStats();
+  }).catch(() => alert('Could not save note (network).'));
+}
+
+function removeKnowledge(name) {
+  if (!confirm('Remove "' + name + '" from the knowledge base?')) return;
+  fetch('/api/knowledge/remove', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ name })
+  }).then(r => r.json()).then(d => {
+    if (d.error) { alert('Remove failed: ' + d.error); return; }
+    loadKnowledge(); loadKBStats();
+  }).catch(() => alert('Remove failed (network).'));
+}
+
+function escHtml(s){ return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+function escAttr(s){ return String(s).replace(/['"\\]/g, '\\$&').replace(/[<>]/g, ''); }
+
+// ── Live hints via SSE ────────────────────────────────────────────────────
+function connectHints() {
+  try {
+    const es = new EventSource('/api/events/stream');
+    es.onmessage = (e) => {
+      let ev;
+      try { ev = JSON.parse(e.data); } catch { return; }
+      if (ev.type === 'connected') return;
+      addHintToPanel(ev);
+    };
+    es.onerror = () => {
+      // SSE auto-reconnects — no action needed
+    };
+  } catch(_) {}
+}
+
+function addHintToPanel(h) {
+  const container = document.getElementById('hintsContainer');
+  const empty = container.querySelector('.hints-empty');
+  if (empty) empty.remove();
+
+  const div = document.createElement('div');
+  div.className = `hint-item ${h.severity || 'info'}`;
+  div.textContent = h.message || JSON.stringify(h);
+  container.prepend(div);
+
+  // Keep only last 10
+  const items = container.querySelectorAll('.hint-item');
+  if (items.length > 10) items[items.length - 1].remove();
+}
+
+// ── UI helpers ────────────────────────────────────────────────────────────
+function autoGrow(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+}
+
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); }
+}
+
+function usePrompt(el) {
+  document.getElementById('msg').value = el.textContent.trim();
+  autoGrow(document.getElementById('msg'));
+  document.getElementById('msg').focus();
+}
+
+function saveProject() {
+  PROJECT_ROOT = document.getElementById('projectRoot').value.trim();
+  // A non-empty manual entry is an override; clearing it resumes hub tracking.
+  PROJECT_USER_SET = !!PROJECT_ROOT;
+  localStorage.setItem('swaxs_project', PROJECT_ROOT);
+  appendSystem(`Project set to: ${PROJECT_ROOT || '(none)'}`);
+  if (!PROJECT_ROOT) loadHubProject();
+}
+
+function clearChat() {
+  SESSION_ID = null;
+  document.getElementById('messages').innerHTML = '';
+  document.getElementById('sessionBadge').textContent = 'session: —';
+}
+
+function showMemory() {
+  fetch('/api/memory/context')
+    .then(r => r.json())
+    .then(d => {
+      const text = JSON.stringify(d, null, 2);
+      appendAssistant(
+        '### Memory Context\n```\n' + text.slice(0, 1200) + (text.length > 1200 ? '\n…' : '') + '\n```',
+        [], null
+      );
+    })
+    .catch(err => appendSystem('Memory fetch failed: ' + err.message));
+}
+
+// ── DOM builders ──────────────────────────────────────────────────────────
+function appendSystem(text) {
+  const d = document.createElement('div');
+  d.className = 'msg system';
+  d.innerHTML = `<div class="bubble">${esc(text)}</div>`;
+  document.getElementById('messages').appendChild(d);
+  scrollEnd();
+}
+
+function appendUser(text) {
+  const d = document.createElement('div');
+  d.className = 'msg user';
+  d.innerHTML = `<div class="msg-label">👤 You</div><div class="bubble">${esc(text)}</div>`;
+  document.getElementById('messages').appendChild(d);
+  scrollEnd();
+}
+
+function appendTyping() {
+  const d = document.createElement('div');
+  d.className = 'msg assistant'; d.id = '__typing';
+  d.innerHTML = `<div class="msg-label"><img src="/static/saxs_smiley.png" alt="" style="width:16px;height:16px;border-radius:4px;vertical-align:-3px;margin-right:5px">Tassone Group Assistant</div>
+    <div class="det-row"><div class="det-load"><div class="field"></div><div class="bs"></div><div class="arm"></div></div><span>collecting…</span></div>`;
+  document.getElementById('messages').appendChild(d);
+  scrollEnd();
+  return d;
+}
+
+function appendAssistant(text, toolCalls, plot, inlineHints, plotFig) {
+  const d = document.createElement('div');
+  d.className = 'msg assistant';
+
+  let html = `<div class="msg-label"><img src="/static/saxs_smiley.png" alt="" style="width:16px;height:16px;border-radius:4px;vertical-align:-3px;margin-right:5px">Tassone Group Assistant</div><div class="bubble">${renderRich(text)}</div>`;
+
+  // Inline plot — prefer interactive Plotly, fall back to the static PNG.
+  const useInteractive = plotFig && window.Plotly;
+  let plotDivId = null;
+  if (useInteractive) {
+    plotDivId = 'iplot_' + Math.random().toString(36).slice(2);
+    html += `<div id="${plotDivId}" class="plot-interactive"></div>`;
+  } else if (plot) {
+    html += `<img class="plot-img" src="data:image/png;base64,${plot}" alt="Analysis plot">`;
+  }
+
+  // Response hints (from Claude API result)
+  if (inlineHints && inlineHints.length) {
+    html += '<div class="response-hints">' +
+      inlineHints.map(h => `<div class="rh info">💡 ${esc(h)}</div>`).join('') +
+      '</div>';
+  }
+
+  // Tool calls (collapsible)
+  if (toolCalls && toolCalls.length) {
+    html += toolCalls.map(tc => `
+      <div class="tool-card">
+        <div class="tc-label">⚙ ${esc(tc.name)}</div>
+        <div class="tc-body">${esc(typeof tc.output === 'string' ? tc.output.slice(0,500) : JSON.stringify(tc.output))}</div>
+      </div>`).join('');
+  }
+
+  d.innerHTML = html;
+  document.getElementById('messages').appendChild(d);
+  typesetMath(d.querySelector('.bubble'));
+
+  // Render the interactive figure now that the div is in the DOM.
+  if (useInteractive && plotDivId) {
+    requestAnimationFrame(() => {
+      const el = document.getElementById(plotDivId);
+      if (!el) return;
+      try {
+        // Size the figure to the container; NOT responsive (avoids a
+        // resize loop that can blow the chat layout out to a white page).
+        const layout = Object.assign({}, plotFig.layout, {
+          autosize: false,
+          width:  el.clientWidth  || 700,
+          height: el.clientHeight || 430,
+          margin: (plotFig.layout && plotFig.layout.margin) || { t: 56, l: 62, r: 16, b: 52 },
+        });
+        Plotly.newPlot(plotDivId, plotFig.data, layout,
+                       { responsive: false, displaylogo: false,
+                         modeBarButtonsToRemove: ['lasso2d', 'select2d'] });
+      } catch (e) {
+        if (plot) {
+          el.outerHTML = `<img class="plot-img" src="data:image/png;base64,${plot}" alt="Analysis plot">`;
+        }
+      }
+      scrollEnd();
+    });
+  } else {
+    scrollEnd();
+  }
+}
+
+// Render assistant markdown → safe HTML (graceful fallback to plain text).
+// Math spans are protected from the markdown parser (so underscores/asterisks
+// inside LaTeX aren't eaten as emphasis), then restored for KaTeX to typeset.
+function renderRich(text) {
+  if (typeof text !== 'string') text = String(text == null ? '' : text);
+  if (!window.marked) return esc(text).replace(/\n/g, '<br>');
+  try {
+    const math = [];
+    const stash = (m) => { math.push(m); return `@@MATH${math.length - 1}@@`; };
+    let t = text
+      .replace(/\$\$([\s\S]+?)\$\$/g, stash)      // $$ display $$
+      .replace(/\\\[([\s\S]+?)\\\]/g, stash)      // \[ display \]
+      .replace(/\\\(([\s\S]+?)\\\)/g, stash)      // \( inline \)
+      .replace(/\$([^$\n]+?)\$/g, stash);         // $ inline $
+    let html = marked.parse(t, { breaks: true, gfm: true });
+    if (window.DOMPurify) html = DOMPurify.sanitize(html);
+    html = html.replace(/@@MATH(\d+)@@/g, (m, i) => math[+i] || m);
+    return html;
+  } catch (e) {
+    return esc(text).replace(/\n/g, '<br>');
+  }
+}
+
+// Typeset LaTeX math inside an element using KaTeX (no-op if unavailable).
+function typesetMath(el) {
+  if (!el || !window.renderMathInElement) return;
+  try {
+    renderMathInElement(el, {
+      delimiters: [
+        { left: '$$', right: '$$', display: true },
+        { left: '\\[', right: '\\]', display: true },
+        { left: '$',  right: '$',  display: false },
+        { left: '\\(', right: '\\)', display: false },
+      ],
+      throwOnError: false,
+    });
+  } catch (e) { /* leave text as-is */ }
+}
+
+function scrollEnd() {
+  const el = document.getElementById('messages');
+  el.scrollTop = el.scrollHeight;
+}
+
+function esc(s) {
+  return String(s || '')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/\n/g,'<br>').replace(/`([^`]+)`/g,'<code>$1</code>');
+}
+
+// ── Send message ──────────────────────────────────────────────────────────
+async function sendMsg() {
+  if (BUSY) return;
+  const input = document.getElementById('msg');
+  const text  = input.value.trim();
+  if (!text) return;
+
+  appendUser(text);
+  input.value = '';
+  input.style.height = 'auto';
+
+  BUSY = true;
+  document.getElementById('sendBtn').disabled = true;
+
+  const stepsEl = appendSteps();   // live progress area
+
+  const finish = (data) => {
+    stepsEl.remove();
+    if (!data || data.error) {
+      appendAssistant('⚠ Error: ' + ((data && data.error) || 'no response'), [], null, []);
+      return;
+    }
+    SESSION_ID = data.session_id || SESSION_ID;
+    document.getElementById('sessionBadge').textContent =
+      'session: ' + String(SESSION_ID).slice(0, 8);
+    appendAssistant(
+      data.text || '(no response)',
+      data.tool_calls || [],
+      data.plot || null,
+      data.hints || [],
+      data.plot_interactive || null,
+    );
+    (data.hints || []).forEach(h => addHintToPanel({ severity: 'info', message: h }));
+  };
+
+  try {
+    const res = await fetch('/api/chat/stream', {
+      method:  'POST',
+      headers: {'Content-Type': 'application/json'},
+      body:    JSON.stringify({
+        message: text, session_id: SESSION_ID,
+        project_root: PROJECT_ROOT, app_id: 'assistant',
+      }),
+    });
+    if (!res.body) throw new Error('no stream');   // fall back below
+
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    let finalData = null;
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const chunks = buf.split('\n\n');
+      buf = chunks.pop();          // keep incomplete tail
+      for (const ch of chunks) {
+        const line = ch.split('\n').find(l => l.startsWith('data:'));
+        if (!line) continue;
+        let ev; try { ev = JSON.parse(line.slice(5).trim()); } catch (e) { continue; }
+        if (ev.type === 'thinking') {
+          addStep(stepsEl, '💭 ' + ev.text, 'think');
+        } else if (ev.type === 'tool') {
+          addStep(stepsEl, '⚙ ' + (ev.label || ev.name), 'tool');
+        } else if (ev.type === 'final') {
+          finalData = ev;
+        } else if (ev.type === 'error') {
+          finalData = { error: ev.error };
+        }
+      }
+    }
+    finish(finalData);
+  } catch (err) {
+    // Fallback to the non-streaming endpoint.
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ message: text, session_id: SESSION_ID,
+          project_root: PROJECT_ROOT, app_id: 'assistant' }),
+      });
+      finish(await res.json());
+    } catch (e2) {
+      stepsEl.remove();
+      appendAssistant('⚠ Request failed: ' + err.message, [], null, []);
+    }
+  } finally {
+    BUSY = false;
+    document.getElementById('sendBtn').disabled = false;
+  }
+}
+
+// Live progress area (shows steps as the assistant works).
+function appendSteps() {
+  const d = document.createElement('div');
+  d.className = 'msg assistant';
+  d.innerHTML = `<div class="msg-label"><img src="/static/saxs_smiley.png" alt="" style="width:16px;height:16px;border-radius:4px;vertical-align:-3px;margin-right:5px">Tassone Group Assistant</div>
+    <div class="steps"><div class="det-row">
+      <div class="det-load"><div class="field"></div><div class="bs"></div><div class="arm"></div></div>
+      <span>collecting…</span>
+    </div></div>`;
+  document.getElementById('messages').appendChild(d);
+  scrollEnd();
+  return d;
+}
+function addStep(stepsEl, label, kind) {
+  const box = stepsEl.querySelector('.steps');
+  const prev = box.querySelector('.step-active');
+  if (prev) prev.classList.remove('step-active');
+  const row = document.createElement('div');
+  row.className = 'step-row step-active ' + (kind || '');
+  row.textContent = label.length > 120 ? label.slice(0, 120) + '…' : label;
+  box.appendChild(row);
+  scrollEnd();
+}
+
+// ── PDF upload ────────────────────────────────────────────────────────────
+async function uploadPDF(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const status = document.getElementById('pdfStatus');
+  status.textContent = `Uploading ${file.name}…`;
+
+  const collection = (document.getElementById('uploadCollection') || {}).value || 'user_papers';
+  const form = new FormData();
+  form.append('file', file);
+  form.append('collection', collection);
+
+  try {
+    const r = await fetch('/api/ingest/pdf', { method: 'POST', body: form });
+    const d = await r.json();
+
+    if (d.error) {
+      status.textContent = '✗ ' + d.error;
+    } else {
+      status.textContent = `✓ ${d.message}`;
+      loadKBStats();
+      loadKnowledge();
+      appendSystem(`PDF ingested: ${file.name} — ${d.chunks} chunks into '${d.collection}'.`);
+    }
+  } catch (err) {
+    status.textContent = '✗ Upload failed: ' + err.message;
+  }
+
+  event.target.value = '';
+}
+</script>
+<script>
+(function(){var K='swaxs-theme',s=localStorage.getItem(K),
+ d=s?s==='dark':matchMedia('(prefers-color-scheme:dark)').matches;
+ function ap(x){document.documentElement.setAttribute('data-theme',x?'dark':'light');
+  var b=document.getElementById('themeToggle');if(b)b.textContent=x?'☀':'☾';}
+ ap(d);window.toggleTheme=function(){d=!d;localStorage.setItem(K,d?'dark':'light');ap(d);};})();
+</script>
+</body>
+</html>

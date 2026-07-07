@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SWAXS · Quality Gate</title>
+<style>
+:root{
+  --fs-2xs:.6875rem;--fs-xs:.75rem;--fs-sm:.8125rem;--fs-md:.875rem;--fs-base:1rem;--fs-lg:1.125rem;
+  --radius:9px;--mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+  --bg:#f4f5f7;--surface:#fff;--surface2:#eef0f3;--border:#d8dce2;--border-strong:#b9c0ca;
+  --text:#1c2128;--muted:#5c6470;--accent:#B83A4B;--accent-d:#8c1515;
+  --ok:#15803d;--ok-lt:#e3f3e9;--err:#b3261e;--err-lt:#fbe7e6;--warn:#b45309;--warn-lt:#f7ecd9;
+  --sidebar:#23262d;--sf:231,233,238;
+}
+:root[data-theme="dark"]{
+  --bg:#15161a;--surface:#1f2126;--surface2:#272a31;--border:#343842;--border-strong:#4c515c;
+  --text:#e7e9ee;--muted:#a4abb6;--accent:#d44a55;--accent-d:#b1040e;
+  --ok:#4ade80;--ok-lt:#1f3a29;--err:#f87171;--err-lt:#3a2023;--warn:#d8a657;--warn-lt:#3a3120;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--text);font-size:16px;line-height:1.5}
+.topbar{display:flex;align-items:center;gap:12px;padding:10px 18px;background:var(--sidebar);color:#fff}
+.topbar h1{font-size:var(--fs-lg);font-weight:700;margin:0}
+.topbar h1 span{color:#f0a6ab;font-weight:500}
+.topbar .sub{font-size:var(--fs-xs);color:rgba(var(--sf),.7)}
+.topbar a{color:#f0a6ab;text-decoration:none}
+.proj{font-size:var(--fs-xs);color:rgba(var(--sf),.7);font-family:var(--mono);max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.theme-toggle{width:32px;height:28px;border:1px solid rgba(var(--sf),.3);border-radius:7px;background:transparent;color:#fff;cursor:pointer}
+.wrap{padding:14px 18px;display:flex;flex-direction:column;gap:12px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px}
+.card-hd{font-size:var(--fs-sm);font-weight:700;margin-bottom:8px;color:var(--text)}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+.field{display:flex;flex-direction:column;gap:4px}
+.field label{font-size:var(--fs-xs);color:var(--muted);font-weight:600}
+.field input{background:var(--surface2);border:1px solid var(--border-strong);border-radius:6px;color:var(--text);padding:6px 9px;font-size:var(--fs-sm)}
+select{background:var(--surface2);border:1px solid var(--border-strong);border-radius:6px;color:var(--text);padding:6px 9px;font-size:var(--fs-sm);cursor:pointer}
+.field.grow{flex:1;min-width:240px}
+.field.grow input{width:100%}
+.btn{padding:7px 14px;border:none;border-radius:var(--radius);font-size:var(--fs-sm);font-weight:600;cursor:pointer}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-ghost{background:var(--surface2);color:var(--text);border:1px solid var(--border)}
+.btn-ok{background:var(--ok);color:#fff}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.pill{padding:3px 12px;border-radius:999px;font-size:var(--fs-xs);font-weight:700;background:var(--surface2);color:var(--muted)}
+.pill.on{background:var(--ok);color:#fff}
+.stats{display:flex;gap:10px;flex-wrap:wrap}
+.stat{flex:1;min-width:110px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px}
+.stat .n{font-size:1.5rem;font-weight:800;line-height:1}
+.stat .l{font-size:var(--fs-xs);color:var(--muted);margin-top:3px}
+.stat.good .n{color:var(--ok)} .stat.bad .n{color:var(--err)}
+.slider-row{display:flex;align-items:center;gap:12px}
+.slider-row input[type=range]{flex:1;max-width:420px;accent-color:var(--accent)}
+.thresh-val{font-weight:800;color:var(--accent);min-width:64px}
+.main{display:flex;gap:12px;align-items:flex-start}
+.gallery{flex:1;display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:10px;max-height:62vh;overflow-y:auto;padding:2px}
+.gcard{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:8px;cursor:pointer;transition:border-color .12s,transform .12s}
+.gcard:hover{border-color:var(--accent);transform:translateY(-1px)}
+.gcard.sel{outline:2px solid var(--accent);outline-offset:1px}
+.gcard.good{border-left:4px solid var(--ok)} .gcard.bad{border-left:4px solid var(--err)}
+.gcard canvas{width:100%;height:78px;display:block;background:var(--surface2);border-radius:6px}
+.gcard .nm{font-size:var(--fs-2xs);font-family:var(--mono);margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gcard .badge{display:inline-block;font-size:var(--fs-2xs);font-weight:800;padding:1px 7px;border-radius:999px;margin-top:3px}
+.badge.good{background:var(--ok-lt);color:var(--ok)} .badge.bad{background:var(--err-lt);color:var(--err)}
+.chip{display:inline-block;font-size:9px;background:var(--warn-lt);color:var(--warn);border-radius:4px;padding:0 4px;margin:2px 2px 0 0}
+.chip.ov{background:var(--accent);color:#fff}
+.detail{width:380px;flex:none;position:sticky;top:14px}
+.detail canvas{width:100%;height:230px;background:var(--surface2);border:1px solid var(--border);border-radius:8px}
+.mtable{width:100%;border-collapse:collapse;font-size:var(--fs-xs);margin-top:8px}
+.mtable td{padding:3px 6px;border-bottom:1px solid var(--border)}
+.mtable td:last-child{text-align:right;font-family:var(--mono)}
+.reasons{font-size:var(--fs-xs);color:var(--muted);margin:8px 0 0;padding-left:16px}
+.llm{font-size:var(--fs-xs);background:var(--surface2);border-left:3px solid var(--accent);padding:6px 9px;border-radius:0 6px 6px 0;margin-top:8px}
+.ovrow{display:flex;gap:6px;margin-top:10px;align-items:center}
+.ovrow input{flex:1;background:var(--surface2);border:1px solid var(--border-strong);border-radius:6px;padding:6px 8px;font-size:var(--fs-xs);color:var(--text)}
+.log{display:none;max-height:200px;overflow-y:auto;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:8px 11px;font-family:var(--mono);font-size:var(--fs-xs);line-height:1.5}
+.muted{color:var(--muted);font-size:var(--fs-xs)}
+.consensus{font-size:var(--fs-xs);margin-top:6px}
+.consensus b{color:var(--accent)}
+.empty{color:var(--muted);font-size:var(--fs-sm);padding:30px;text-align:center;grid-column:1/-1}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <h1>SWAXS <span>Quality Gate</span></h1>
+  <div style="flex:1"></div>
+  <span class="proj" id="proj"></span>
+  <button class="theme-toggle" id="themeBtn" onclick="toggleTheme()">☾</button>
+  <span class="sub">Port 5006 · <a href="http://localhost:5000">← Hub</a></span>
+</div>
+
+<div class="wrap">
+
+  <!-- Setup -->
+  <div class="card">
+    <div class="card-hd">⚙ Watch &amp; grade</div>
+    <div class="row">
+      <div class="field grow">
+        <label>SAXS Subtracted folder</label>
+        <input type="text" id="saxs-folder" placeholder="/…/1D/SAXS/Subtracted">
+      </div>
+      <div class="field grow">
+        <label>WAXS Subtracted folder</label>
+        <input type="text" id="waxs-folder" placeholder="/…/1D/WAXS/Subtracted">
+      </div>
+      <div class="field">
+        <label>Interval (s)</label>
+        <input type="number" id="interval" value="10" min="1" style="width:90px">
+      </div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button class="btn btn-ok"   id="startBtn" onclick="startMon()">▶ Start grading</button>
+      <button class="btn btn-ghost" id="stopBtn" onclick="stopMon()" disabled>⏹ Stop</button>
+      <button class="btn btn-ghost" onclick="gradeNow()">⚡ Grade now</button>
+      <button class="btn btn-ghost" onclick="exportReport()">⬇ Export report</button>
+      <span class="pill" id="state">Idle</span>
+      <span class="muted" id="count"></span>
+    </div>
+    <div class="slider-row" style="margin-top:12px">
+      <label class="field" style="gap:2px"><span style="font-size:var(--fs-xs);color:var(--muted);font-weight:600">Good ≥ threshold</span></label>
+      <input type="range" id="thresh" min="0" max="100" step="1" value="60" oninput="onThresh(this.value)">
+      <span class="thresh-val" id="threshVal">60 / 100</span>
+    </div>
+    <div class="muted">Move the threshold to re-label instantly. Manual overrides nudge it toward your judgment.</div>
+    <div class="row" style="margin-top:10px;align-items:center">
+      <label style="display:flex;align-items:center;gap:6px;font-size:var(--fs-sm);font-weight:600">
+        <input type="checkbox" id="llm-on" checked style="accent-color:var(--accent)"> LLM adjudication (borderline only)
+      </label>
+      <div class="field"><label>Model</label><input type="text" id="llm-model" value="claude-sonnet-4-6" style="width:200px"></div>
+      <span class="muted">Used only when a score is within ±10 of the threshold; needs ANTHROPIC_API_KEY. Falls back to rules.</span>
+    </div>
+  </div>
+
+  <!-- Scoring parameters -->
+  <div class="card">
+    <div class="card-hd" style="display:flex;align-items:center;gap:10px">
+      <span>🎚 Scoring parameters</span>
+      <button class="btn btn-ghost" style="padding:3px 10px;font-size:var(--fs-xs)" onclick="toggleParams()">show / hide</button>
+      <span style="flex:1"></span>
+      <button class="btn btn-ghost" style="padding:3px 10px;font-size:var(--fs-xs)" onclick="refineAI()">🧠 Refine with AI</button>
+      <button class="btn btn-ghost" style="padding:3px 10px;font-size:var(--fs-xs)" onclick="resetParams()">Reset defaults</button>
+      <button class="btn btn-primary" style="padding:3px 12px;font-size:var(--fs-xs)" onclick="applyParams()">Apply</button>
+    </div>
+    <div id="ai-suggest" style="display:none;margin:6px 0;padding:8px 10px;background:var(--surface2);border-left:3px solid var(--accent);border-radius:0 6px 6px 0;font-size:var(--fs-xs)"></div>
+    <div id="params-grid" style="display:none;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px"></div>
+    <div class="muted" id="params-hint" style="display:none">Higher weights penalize that defect more. Edits are saved to <code>quality_config.json</code> and re-score all profiles instantly.</div>
+  </div>
+
+  <!-- Dashboard -->
+  <div class="stats">
+    <div class="stat"><div class="n" id="s-total">0</div><div class="l">graded</div></div>
+    <div class="stat good"><div class="n" id="s-good">0</div><div class="l">good (accepted)</div></div>
+    <div class="stat bad"><div class="n" id="s-bad">0</div><div class="l">bad (needs review)</div></div>
+    <div class="stat"><div class="n" id="s-pct">—</div><div class="l">% good</div></div>
+  </div>
+
+  <!-- Toolbar -->
+  <div class="card" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 12px">
+    <input id="search" placeholder="🔍 search name…" oninput="renderGallery()"
+           style="background:var(--surface2);border:1px solid var(--border-strong);border-radius:6px;padding:6px 9px;font-size:var(--fs-sm);color:var(--text);min-width:180px">
+    <select id="f-verdict" onchange="renderGallery()">
+      <option value="all">All verdicts</option><option value="good">Good only</option><option value="bad">Bad only</option>
+    </select>
+    <select id="f-det" onchange="renderGallery()">
+      <option value="all">All detectors</option><option value="saxs">SAXS</option><option value="waxs">WAXS</option>
+    </select>
+    <select id="f-flag" onchange="renderGallery()">
+      <option value="all">Any flag</option><option value="featureless">featureless</option>
+      <option value="over_subtraction">over-subtraction</option><option value="low_snr">low SNR</option>
+      <option value="aggregation">aggregation</option><option value="spikes">spikes</option>
+      <option value="narrow_q">narrow q</option>
+    </select>
+    <select id="sort" onchange="renderGallery()">
+      <option value="score_desc">Score ↓</option><option value="score_asc">Score ↑</option>
+      <option value="name">Name</option><option value="sample">Sample</option>
+    </select>
+    <span class="muted" id="shown"></span>
+    <span style="flex:1"></span>
+    <span class="muted">↑↓←→ navigate · <b>g</b>/<b>b</b> override</span>
+  </div>
+
+  <!-- Gallery + detail -->
+  <div class="main">
+    <div class="gallery" id="gallery"><div class="empty">No profiles graded yet. Set the Subtracted folder(s) and Start grading (or Grade now).</div></div>
+    <div class="card detail" id="detail">
+      <div class="card-hd" id="d-title">Select a profile</div>
+      <canvas id="d-plot" width="356" height="230"></canvas>
+      <div id="d-body"><div class="muted" style="padding:14px 0">Click a card to inspect its curve, metrics, and reasons.</div></div>
+    </div>
+  </div>
+
+  <!-- Log -->
+  <div class="card">
+    <div class="card-hd">📜 Activity log</div>
+    <div class="log" id="log"></div>
+    <div class="muted" id="log-empty">Live grading activity will appear here.</div>
+  </div>
+</div>
+
+<script>
+let ES=null, SEL=null, RESULTS=[], threshTimer=null, refreshTimer=null;
+function api(u,b){const o={method:b?'POST':'GET',headers:{}};if(b){o.headers['Content-Type']='application/json';o.body=JSON.stringify(b);}return fetch(u,o).then(r=>r.json());}
+function $(id){return document.getElementById(id);}
+
+/* theme */
+(function(){const K='swaxs-theme';let d=localStorage.getItem(K)==='dark'||(localStorage.getItem(K)===null&&matchMedia('(prefers-color-scheme:dark)').matches);
+ function ap(x){document.documentElement.setAttribute('data-theme',x?'dark':'light');const b=$('themeBtn');if(b)b.textContent=x?'☀':'☾';}
+ ap(d);window.toggleTheme=function(){d=!d;localStorage.setItem(K,d?'dark':'light');ap(d);if(SEL)selectProfile(SEL);};})();
+
+/* project autofill */
+async function pollProject(){try{const d=await api('/api/project');const r=(d.project_root||'').trim();if(r){$('proj').textContent=r;
+  if(!$('saxs-folder').value)$('saxs-folder').value=r+'/1D/SAXS/Subtracted';
+  if(!$('waxs-folder').value)$('waxs-folder').value=r+'/1D/WAXS/Subtracted';}}catch(e){}}
+pollProject();setInterval(pollProject,4000);
+
+function setState(on){const el=$('state');el.textContent=on?'Grading':'Idle';el.classList.toggle('on',on);
+  $('startBtn').disabled=on;$('stopBtn').disabled=!on;}
+
+function logLine(l){const box=$('log');box.style.display='block';$('log-empty').style.display='none';
+  const c={ok:'var(--ok)',error:'var(--err)',warn:'var(--warn)',info:'var(--muted)'};
+  const d=document.createElement('div');d.style.color=c[l.tag]||'var(--text)';d.textContent=`[${l.ts}]  ${l.msg}`;
+  box.appendChild(d);while(box.childNodes.length>500)box.removeChild(box.firstChild);box.scrollTop=box.scrollHeight;}
+function openStream(){if(ES)ES.close();ES=new EventSource('/api/monitor/stream');ES.onmessage=e=>{try{const l=JSON.parse(e.data);logLine(l);scheduleRefresh();}catch(_){}};}
+function scheduleRefresh(){clearTimeout(refreshTimer);refreshTimer=setTimeout(refresh,600);}
+
+function body(){return {saxs_folder:$('saxs-folder').value.trim(),waxs_folder:$('waxs-folder').value.trim(),
+  interval:+$('interval').value||10,threshold:+$('thresh').value||60,
+  llm_enabled:$('llm-on').checked,llm_model:$('llm-model').value.trim()};}
+
+async function startMon(){const b=body();if(!b.saxs_folder&&!b.waxs_folder){alert('Set a Subtracted folder');return;}
+  const r=await api('/api/monitor/start',b);if(!r.ok){alert(r.error||'failed');return;}setState(true);openStream();refresh();pollStatus();}
+async function stopMon(){await api('/api/monitor/stop',{});if(ES){ES.close();ES=null;}setState(false);}
+async function gradeNow(){const b=body();if(!b.saxs_folder&&!b.waxs_folder){alert('Set a Subtracted folder');return;}
+  const r=await api('/api/grade',b);applyResults(r);}
+async function pollStatus(){try{const s=await api('/api/monitor/status');setState(!!s.monitoring);if(s.monitoring){setTimeout(pollStatus,3000);}}catch(_){setTimeout(pollStatus,5000);}}
+
+function onThresh(v){$('threshVal').textContent=v+' / 100';clearTimeout(threshTimer);
+  threshTimer=setTimeout(async()=>{const r=await api('/api/threshold',{threshold:+v});applyResults(r);},250);}
+
+async function refresh(){try{const r=await api('/api/results');applyResults(r);}catch(_){}}
+function applyResults(r){if(r.results)RESULTS=r.results;if(r.status)updateStats(r.status);
+  if(typeof r.threshold==='number'){$('thresh').value=r.threshold;$('threshVal').textContent=r.threshold+' / 100';}
+  renderGallery();}
+function updateStats(s){$('s-total').textContent=s.graded;$('s-good').textContent=s.good;$('s-bad').textContent=s.bad;
+  $('s-pct').textContent=s.graded?Math.round(100*s.good/s.graded)+'%':'—';
+  $('count').textContent=s.graded?`${s.good} good · ${s.bad} bad`:'';}
+
+/* ===== Scoring parameters editor ===== */
+let PARAMS=null, PLABELS=null, AISUGGEST=null;
+async function loadParams(){const d=await api('/api/params');PARAMS=d.params;PLABELS=d.labels;renderParams();}
+function renderParams(){const g=$('params-grid');if(!PARAMS||!PLABELS)return;
+  g.innerHTML=Object.keys(PLABELS).map(k=>`<label style="display:flex;flex-direction:column;gap:2px;font-size:var(--fs-xs)">
+    <span class="muted">${PLABELS[k]}</span>
+    <input type="number" step="any" id="p-${k}" value="${PARAMS[k]}"
+      style="background:var(--surface2);border:1px solid var(--border-strong);border-radius:6px;padding:5px 8px;color:var(--text)"></label>`).join('');}
+async function toggleParams(){const g=$('params-grid'),h=$('params-hint');
+  const show=g.style.display==='none';g.style.display=show?'grid':'none';h.style.display=show?'block':'none';
+  if(show&&!PARAMS)await loadParams();}
+async function applyParams(){if(!PLABELS)await loadParams();
+  const params={};Object.keys(PLABELS).forEach(k=>{const e=$('p-'+k);if(e&&e.value!=='')params[k]=+e.value;});
+  const r=await api('/api/params',{params});PARAMS=r.params;applyResults(r);renderParams();}
+async function resetParams(){const r=await api('/api/params/reset',{});PARAMS=r.params;applyResults(r);renderParams();$('ai-suggest').style.display='none';}
+async function refineAI(){const box=$('ai-suggest');box.style.display='block';
+  box.textContent='🧠 Asking the model to suggest weights from your overrides…';
+  const r=await api('/api/refine_ai',{});
+  if(!r.ok){box.textContent='⚠ '+(r.error||'failed');return;}
+  const s=r.suggested||{};const keys=Object.keys(s);
+  if(!keys.length){box.textContent='AI had no changes to suggest yet (need more good/bad overrides).';return;}
+  AISUGGEST=s;
+  box.innerHTML='🧠 <b>Suggested changes:</b> '+keys.map(k=>`${(PLABELS&&PLABELS[k])||k}: <b>${s[k]}</b>`).join(' · ')+
+    (r.note?`<br><i>${esc(r.note)}</i>`:'')+
+    ` <button class="btn btn-primary" style="padding:2px 10px;font-size:var(--fs-xs);margin-left:6px" onclick="applySuggestion()">Apply suggestions</button>`;}
+async function applySuggestion(){if(!AISUGGEST)return;const r=await api('/api/params',{params:AISUGGEST});
+  PARAMS=r.params;applyResults(r);renderParams();$('ai-suggest').style.display='none';AISUGGEST=null;}
+async function aiRegrade(){if(!SEL)return;const r=await api('/api/llm_grade',{path:SEL});
+  if(!r.ok){alert(r.error||'AI unavailable');return;}applyResults(r);selectProfile(SEL);}
+
+let FILTERED=[];
+function applyFilters(){
+  const q=($('search')?$('search').value.trim().toLowerCase():'');
+  const fv=$('f-verdict')?$('f-verdict').value:'all';
+  const fd=$('f-det')?$('f-det').value:'all';
+  const ff=$('f-flag')?$('f-flag').value:'all';
+  const sort=$('sort')?$('sort').value:'score_desc';
+  let list=RESULTS.filter(r=>
+    (fv==='all'||r.verdict===fv) &&
+    (fd==='all'||(r.detector||'')===fd) &&
+    (ff==='all'||(r.flags||[]).includes(ff)) &&
+    (!q||r.name.toLowerCase().includes(q)||(r.sample||'').toLowerCase().includes(q)));
+  list.sort((a,b)=> sort==='score_asc'?a.score-b.score
+    : sort==='name'?a.name.localeCompare(b.name)
+    : sort==='sample'?(a.sample||'').localeCompare(b.sample||'')
+    : b.score-a.score);
+  return list;
+}
+function renderGallery(){const g=$('gallery');
+  if(!RESULTS.length){g.innerHTML='<div class="empty">No profiles graded yet. Set the Subtracted folder(s) and Start grading (or Grade now).</div>';if($('shown'))$('shown').textContent='';return;}
+  FILTERED=applyFilters();
+  if($('shown'))$('shown').textContent=`${FILTERED.length} of ${RESULTS.length} shown`;
+  if(!FILTERED.length){g.innerHTML='<div class="empty">No profiles match the current filters.</div>';return;}
+  g.innerHTML='';FILTERED.forEach(r=>{const d=document.createElement('div');
+    d.className='gcard '+(r.verdict==='good'?'good':'bad')+(SEL===r.path?' sel':'');
+    d.onclick=()=>selectProfile(r.path);
+    const cv=document.createElement('canvas');cv.width=150;cv.height=78;
+    d.appendChild(cv);
+    const nm=document.createElement('div');nm.className='nm';nm.title=r.name;nm.textContent=r.name;d.appendChild(nm);
+    const bd=document.createElement('div');bd.className='badge '+(r.verdict==='good'?'good':'bad');
+    bd.textContent=`${r.verdict.toUpperCase()} · ${r.score.toFixed(0)}`;d.appendChild(bd);
+    if(r.overridden){const c=document.createElement('span');c.className='chip ov';c.textContent='override';d.appendChild(c);}
+    (r.flags||[]).slice(0,3).forEach(f=>{const c=document.createElement('span');c.className='chip';c.textContent=f;d.appendChild(c);});
+    g.appendChild(d);drawSpark(cv,r.spark);});}
+
+function drawSpark(cv,spark){const ctx=cv.getContext('2d');const w=cv.width,h=cv.height;ctx.clearRect(0,0,w,h);
+  if(!spark||!spark.q||spark.q.length<2)return;
+  const pts=[];for(let i=0;i<spark.q.length;i++){const q=spark.q[i],I=spark.I[i];if(q>0&&I>0)pts.push([Math.log10(q),Math.log10(I)]);}
+  if(pts.length<2)return;const xs=pts.map(p=>p[0]),ys=pts.map(p=>p[1]);
+  const xmn=Math.min(...xs),xmx=Math.max(...xs),ymn=Math.min(...ys),ymx=Math.max(...ys);
+  const sx=x=>(x-xmn)/((xmx-xmn)||1)*(w-8)+4, sy=y=>h-4-(y-ymn)/((ymx-ymn)||1)*(h-8);
+  ctx.strokeStyle=getComputedStyle(document.documentElement).getPropertyValue('--accent')||'#B83A4B';
+  ctx.lineWidth=1.5;ctx.beginPath();pts.forEach((p,i)=>{const X=sx(p[0]),Y=sy(p[1]);i?ctx.lineTo(X,Y):ctx.moveTo(X,Y);});ctx.stroke();}
+
+async function selectProfile(path){SEL=path;renderGallery();
+  const r=await api('/api/profile?path='+encodeURIComponent(path));
+  if(r.error){$('d-title').textContent='Could not load';return;}
+  const rec=r.record||{};$('d-title').textContent=r.name;
+  drawPlot($('d-plot'),r.q,r.I,r.sigma);
+  const m=rec.metrics||{};
+  let html='<div style="margin-top:6px"><span class="badge '+(rec.verdict==='good'?'good':'bad')+'">'+
+    (rec.verdict?rec.verdict.toUpperCase():'?')+' · '+(rec.score!=null?rec.score.toFixed(0):'?')+'/100</span></div>';
+  html+='<table class="mtable">';
+  const rows=[['SNR (median I/σ)',m.snr],['% negative',m.pct_negative],['q decades',m.q_decades],
+    ['dynamic range',m.dyn_range],['spike fraction',m.spike_frac],['points',m.n_points]];
+  rows.forEach(([k,v])=>{if(v!==undefined)html+=`<tr><td>${k}</td><td>${v}</td></tr>`;});
+  html+='</table>';
+  if(rec.reasons&&rec.reasons.length){html+='<ul class="reasons">'+rec.reasons.map(x=>`<li>${esc(x)}</li>`).join('')+'</ul>';}
+  if(rec.llm_note){html+='<div class="llm">🧠 '+esc(rec.llm_note)+'</div>';}
+  html+='<div class="ovrow"><input id="ov-note" placeholder="override note (optional)">'+
+    '<button class="btn btn-ok" onclick="override(\'good\')">Good</button>'+
+    '<button class="btn btn-ghost" style="background:var(--err);color:#fff" onclick="override(\'bad\')">Bad</button></div>';
+  html+='<button class="btn btn-ghost" style="margin-top:6px;width:100%" onclick="aiRegrade()">🧠 Re-grade this profile with AI</button>';
+  $('d-body').innerHTML=html;}
+
+function drawPlot(cv,q,I,sig){const ctx=cv.getContext('2d');const w=cv.width,h=cv.height;ctx.clearRect(0,0,w,h);
+  const P=[];for(let i=0;i<(q||[]).length;i++){if(q[i]>0&&I[i]>0)P.push([Math.log10(q[i]),Math.log10(I[i]),(sig&&sig[i]>0)?sig[i]:0,I[i]]);}
+  if(P.length<2){ctx.fillStyle='#888';ctx.font='12px sans-serif';ctx.fillText('no positive points to plot',12,h/2);return;}
+  const xs=P.map(p=>p[0]),ys=P.map(p=>p[1]);
+  const xmn=Math.min(...xs),xmx=Math.max(...xs),ymn=Math.min(...ys),ymx=Math.max(...ys);
+  const padL=38,padB=24,padT=8,padR=8;
+  const sx=x=>(x-xmn)/((xmx-xmn)||1)*(w-padL-padR)+padL, sy=y=>h-padB-(y-ymn)/((ymx-ymn)||1)*(h-padT-padB);
+  const cs=getComputedStyle(document.documentElement);
+  // gridlines + tick labels at integer decades
+  ctx.strokeStyle=cs.getPropertyValue('--border')||'#ddd';ctx.fillStyle=cs.getPropertyValue('--muted')||'#888';
+  ctx.lineWidth=1;ctx.font='9px sans-serif';
+  for(let d=Math.ceil(xmn);d<=Math.floor(xmx);d++){const X=sx(d);ctx.globalAlpha=.5;ctx.beginPath();ctx.moveTo(X,padT);ctx.lineTo(X,h-padB);ctx.stroke();ctx.globalAlpha=1;ctx.fillText('1e'+d,X-7,h-6);}
+  for(let d=Math.ceil(ymn);d<=Math.floor(ymx);d++){const Y=sy(d);ctx.globalAlpha=.5;ctx.beginPath();ctx.moveTo(padL,Y);ctx.lineTo(w-padR,Y);ctx.stroke();ctx.globalAlpha=1;ctx.fillText('1e'+d,2,Y+3);}
+  ctx.strokeStyle=cs.getPropertyValue('--border-strong')||'#aaa';ctx.strokeRect(padL,padT,w-padL-padR,h-padT-padB);
+  ctx.fillText('log q  [nm⁻¹]',w/2-18,h-1);
+  // error band (±σ in log space)
+  const acc=(cs.getPropertyValue('--accent')||'#B83A4B').trim();
+  const band=P.filter(p=>p[2]>0);
+  if(band.length>2){ctx.fillStyle=acc;ctx.globalAlpha=.16;ctx.beginPath();
+    band.forEach((p,i)=>{const X=sx(p[0]),Y=sy(Math.log10(p[3]+p[2]));i?ctx.lineTo(X,Y):ctx.moveTo(X,Y);});
+    for(let i=band.length-1;i>=0;i--){const p=band[i],X=sx(p[0]),Y=sy(Math.log10(Math.max(p[3]-p[2],1e-30)));ctx.lineTo(X,Y);}
+    ctx.closePath();ctx.fill();ctx.globalAlpha=1;}
+  // curve
+  ctx.strokeStyle=acc;ctx.lineWidth=1.6;ctx.beginPath();
+  P.forEach((p,i)=>{const X=sx(p[0]),Y=sy(p[1]);i?ctx.lineTo(X,Y):ctx.moveTo(X,Y);});ctx.stroke();}
+
+/* keyboard navigation: ↑↓←→ move selection, g/b override */
+document.addEventListener('keydown',e=>{
+  if(/INPUT|SELECT|TEXTAREA/.test((e.target.tagName||'')))return;
+  if(!FILTERED.length)return;
+  let i=FILTERED.findIndex(r=>r.path===SEL);
+  if(['ArrowRight','ArrowDown'].includes(e.key)){e.preventDefault();i=Math.min((i<0?-1:i)+1,FILTERED.length-1);selectProfile(FILTERED[i].path);scrollSel();}
+  else if(['ArrowLeft','ArrowUp'].includes(e.key)){e.preventDefault();i=Math.max((i<0?1:i)-1,0);selectProfile(FILTERED[i].path);scrollSel();}
+  else if(e.key==='g'&&SEL){override('good');}
+  else if(e.key==='b'&&SEL){override('bad');}
+});
+function scrollSel(){const el=document.querySelector('.gcard.sel');if(el)el.scrollIntoView({block:'nearest'});}
+
+async function override(verdict){if(!SEL)return;const note=($('ov-note')?$('ov-note').value:'').trim();
+  const r=await api('/api/override',{path:SEL,verdict,note});applyResults(r);selectProfile(SEL);}
+
+async function exportReport(){const r=await api('/api/report');
+  let msg=`Good: ${r.counts.good} · Bad: ${r.counts.bad} · Total: ${r.counts.total}`;
+  if(r.saved_to)msg+='\nSaved to: '+r.saved_to;else msg+='\n(no project folder set — not saved to disk)';
+  alert(msg);}
+
+function esc(s){return (s+'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+
+refresh();
+</script>
+</body>
+</html>

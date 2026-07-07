@@ -1,0 +1,91 @@
+# Flow Synthesis — reactor / pump-control configuration
+# ─────────────────────────────────────────────────────────────────────────────
+# Edit these values to match your rig.  All flow rates are in µL/min.
+# The app reads this file on startup; nothing here requires code changes.
+
+# ── Pumps ────────────────────────────────────────────────────────────────────
+# One entry per pump.  `address` is the serial port (/dev/ttyUSB* or COM*),
+# `pump_id` the Mitos bus id (0 = broadcast).  `sensor_min`/`max_flow` come from
+# the installed Dolomite LG16 flow sensor (µL/min) and are HARD LIMITS: a recipe
+# whose computed setpoint for a pump is nonzero-but-below `sensor_min`, or above
+# `max_flow`, is REJECTED (nothing is clamped or sent to hardware).  A true 0
+# (pump off) is always allowed.  Set these to your real sensor min/max.
+pumps:
+  # ── 30–1000 µL/min sensors (LG16-1000) — high-flow pumps ──
+  pd_top_precursor:
+    address:   "/dev/ttyUSB0"
+    pump_id:   0
+    sensor:    "LG16-1000"
+    sensor_min: 30.0
+    max_flow:   1000.0
+    max_pressure: 10000.0       # mbar — pump pressure ceiling (SET to your pump's real max)
+  ode_flush:
+    address:   "/dev/ttyUSB4"
+    pump_id:   0
+    sensor:    "LG16-1000"
+    sensor_min: 30.0
+    max_flow:   1000.0
+    max_pressure: 10000.0
+  # ── 1–50 µL/min sensors (LG16-0480) — low-flow reagent pumps ──
+  oleylamine:
+    address:   "/dev/ttyUSB1"
+    pump_id:   0
+    sensor:    "LG16-0480"
+    sensor_min: 1.0
+    max_flow:   50.0
+    max_pressure: 10000.0
+  top:
+    address:   "/dev/ttyUSB2"
+    pump_id:   0
+    sensor:    "LG16-0480"
+    sensor_min: 1.0
+    max_flow:   50.0
+    max_pressure: 10000.0
+  ode_dilution:
+    address:   "/dev/ttyUSB3"
+    pump_id:   0
+    sensor:    "LG16-0480"
+    sensor_min: 1.0
+    max_flow:   50.0
+    max_pressure: 10000.0
+
+# ── Recipe validation bounds (editable) ──────────────────────────────────────
+bounds:
+  T_reac:  [180.0, 300.0]     # °C
+  F_tot:   [40.0, 120.0]      # µL/min
+  x_each:  [0.0, 0.3]         # each of x_ODE, x_TOP, x_oley
+  x_sum_max: 0.9              # x_ODE + x_TOP + x_oley ≤ this
+
+# ── Hard safety caps (independent of recipe bounds) ──────────────────────────
+# A breach at submit time is rejected; a breach detected at runtime trips E-stop.
+safety:
+  T_max:        320.0         # °C absolute ceiling
+  F_tot_max:    150.0         # µL/min absolute ceiling
+  per_pump_max: 1000.0        # µL/min absolute per-pump ceiling
+  max_pressure: 10000.0       # mbar absolute ceiling; a per-pump max_pressure overrides per pump
+
+# ── Temperature gate (no active heater control — read-only) ──────────────────
+temperature:
+  tolerance:    2.0           # °C: |current − target| within this = "at temperature"
+  stable_hold:  5.0           # s: must stay in-band this long before flowing
+  timeout:      900.0         # s: give up arming after this → abort
+  mock_ramp:    5.0           # °C/s convergence rate for the MOCK reading only
+
+# ── Run lifecycle ────────────────────────────────────────────────────────────
+run:
+  default_duration: 600.0     # s fallback run time = 10 min (recipe may override)
+  end_on_measurement: true    # end the run when a new SAXS averaged file appears
+
+# ── Flush / clean ────────────────────────────────────────────────────────────
+flush:
+  rate:      100.0            # µL/min on ode_flush
+  duration:  1200.0          # s = 20 min
+
+# ── Folders (relative to the project root unless absolute) ───────────────────
+folders:
+  recipes:   "reactor/recipes"        # watched for incoming *.json recipes
+  processed: "reactor/recipes/done"   # recipes moved here after intake
+  feedback:  "reactor/feedback"       # <recipe_id>.done.json written here
+  averaged_watch: "1D/SAXS/Averaged"  # backstop watch for run-end (bus is primary)
+
+poll_interval: 3.0            # s, folder polling

@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SWAXS Analysis</title>
+<script src="/static/vendor/plotly.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f5f7fa;--surface:#ffffff;--surface2:#f0f2f5;--border:#e5e7eb;--border-strong:#c3c9d1;
+  --text:#1f2937;--text-strong:#111827;--muted:#4b5563;--faint:#6b7280;
+  --accent:#B1040E;--accent-d:#8C1515;--accent-lt:#fbe9ea;
+  --sidebar:#eef1f5;--sidebar-h:#e3e7ed;--sf:31,41,55;
+  --sidebar-active-bg:rgba(177,4,14,.10);--sidebar-active-fg:#8C1515;
+  --green:#16a34a;--ok-text:#15803d;--warn-text:#b45309;--err-text:#b91c1c;--info-text:#1d4ed8;
+  --font:'Inter','Segoe UI',system-ui,-apple-system,sans-serif;--mono:'JetBrains Mono',monospace;
+  --fs-2xs:.6875rem;--fs-xs:.75rem;--fs-sm:.8125rem;--fs-md:.875rem;--fs-lg:1.125rem;
+  --radius:8px;--ls-label:.06em;
+}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--font);font-size:18px}
+.shell{display:flex;flex-direction:column;height:100vh;overflow:hidden}
+.topbar{display:flex;align-items:center;gap:14px;padding:0 18px;height:50px;background:var(--surface);border-bottom:1px solid var(--border)}
+.topbar h1{font-size:var(--fs-lg);font-weight:700}.topbar h1 span{color:var(--accent)}
+.topbar .sub{font-size:var(--fs-sm);color:var(--muted)}
+.spacer{flex:1}
+.btn{padding:6px 12px;border:1px solid var(--border-strong);background:var(--surface);border-radius:6px;font-size:var(--fs-sm);font-weight:600;cursor:pointer;color:var(--text)}
+.btn:hover{border-color:var(--accent);color:var(--accent)}
+.btn-primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+.btn-primary:hover{background:var(--accent-d);color:#fff}
+.body{display:flex;flex:1;min-height:0;overflow:hidden}
+.nav{width:250px;background:var(--sidebar);display:flex;flex-direction:column;padding:16px 14px;gap:2px;flex-shrink:0}
+.nav .lbl{font-size:var(--fs-2xs);font-weight:700;letter-spacing:var(--ls-label);text-transform:uppercase;color:rgba(var(--sf),.55);margin:2px 8px 4px}
+.navtab{display:flex;align-items:center;gap:8px;border:none;border-left:3px solid transparent;background:transparent;border-radius:0 6px 6px 0;padding:8px 10px;cursor:pointer;font-size:var(--fs-sm);font-weight:600;color:rgba(var(--sf),.78);text-align:left}
+.navtab:hover{background:var(--sidebar-h);color:var(--sidebar-active-fg)}
+.navtab.active{background:var(--sidebar-active-bg);color:var(--sidebar-active-fg);border-left-color:var(--accent)}
+.navtab:disabled{opacity:.5;cursor:not-allowed}
+.navtab .soon{font-size:var(--fs-2xs);opacity:.7;margin-left:auto}
+.main{flex:1;display:flex;flex-direction:column;min-width:0;overflow:hidden}
+.toptabbar{display:flex;gap:2px;padding:0 16px;background:var(--surface2);border-bottom:2px solid var(--border);flex-shrink:0}
+.toptab{padding:9px 15px;border:none;background:transparent;color:var(--muted);font-size:var(--fs-sm);font-weight:600;cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px}
+.toptab:hover{color:var(--text)}.toptab.active{color:var(--accent);font-weight:700;border-bottom-color:var(--accent)}
+.page{flex:1;min-height:0;overflow:auto;padding:22px 30px 22px 48px;display:none}
+.page.active{display:block}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;margin-bottom:14px}
+.card h3{font-size:var(--fs-md);font-weight:700;margin-bottom:10px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+label{font-size:var(--fs-sm);color:var(--muted)}
+select,input[type=text],input[type=number]{background:#fff;border:1px solid var(--border-strong);border-radius:6px;padding:6px 9px;font-size:var(--fs-sm);color:var(--text)}
+input[type=number]{width:96px}
+.seg{display:inline-flex;border:1px solid var(--border-strong);border-radius:6px;overflow:hidden}
+.seg button{padding:6px 14px;border:none;background:var(--surface2);color:var(--muted);font-size:var(--fs-sm);font-weight:600;cursor:pointer;border-right:1px solid var(--border)}
+.seg button:last-child{border-right:none}.seg button.active{background:var(--accent);color:#fff}
+.filelist{max-height:300px;overflow:auto;border:1px solid var(--border);border-radius:6px}
+.fl-row{display:flex;align-items:center;gap:8px;padding:5px 10px;border-bottom:1px solid var(--border);font-size:var(--fs-sm);cursor:pointer}
+.fl-row:last-child{border-bottom:none}.fl-row:hover{background:var(--surface2)}
+.fl-row.sel{background:var(--accent-lt)}
+.fl-row .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#plot{width:100%;height:430px}
+table.res{width:100%;border-collapse:collapse;font-size:var(--fs-sm)}
+table.res td{padding:5px 10px;border-top:1px solid var(--border)}
+table.res td:first-child{color:var(--muted);width:45%}
+table.res td:last-child{font-family:var(--mono);font-weight:600}
+.badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:var(--fs-xs);font-weight:700}
+.badge.PASS{background:#dcfce7;color:var(--ok-text)}.badge.WARN{background:#fef3c7;color:var(--warn-text)}.badge.FAIL{background:#fee2e2;color:var(--err-text)}
+.warn{font-size:var(--fs-sm);color:var(--warn-text);margin-top:6px}
+.muted{color:var(--muted);font-size:var(--fs-sm)}
+.bigtable{width:100%;border-collapse:collapse;font-size:var(--fs-sm)}
+.bigtable th{background:var(--accent);color:#fff;text-align:left;padding:6px 10px;position:sticky;top:0}
+.bigtable td{padding:5px 10px;border-top:1px solid var(--border)}
+.bigtable tr:nth-child(even){background:var(--surface2)}
+/* ===== SWAXS theme v2 · charcoal sidebar · cardinal accent · dark mode ===== */
+:root[data-theme="dark"]{
+  --bg:#15161a;--surface:#1f2126;--surface2:#272a31;--border:#343842;--border-strong:#4c515c;
+  --text:#e7e9ee;--text-strong:#f5f7fa;--muted:#a4abb6;--faint:#7d848f;
+  --accent:#d44a55;--accent-d:#b1040e;--accent-lt:#3a2023;
+  --sidebar:#1f2126;--sidebar-h:#2a2d34;--sf:231,233,238;
+  --sidebar-active-bg:rgba(212,74,85,.22);--sidebar-active-fg:#f0a6ab;
+}
+.theme-toggle{display:inline-flex;align-items:center;justify-content:center;width:34px;height:30px;border:1px solid var(--border-strong);border-radius:7px;background:var(--surface);color:var(--text);cursor:pointer;font-size:15px;line-height:1}
+.theme-toggle:hover{background:var(--surface2)}
+/* larger left-nav text */
+.nav .lbl{font-size:var(--fs-sm)}
+.navtab{font-size:var(--fs-base)}
+</style>
+</head>
+<body>
+<div class="shell">
+  <header class="topbar">
+    <h1>SWAXS <span>Analysis</span></h1>
+    <span class="sub" id="projSub">no project</span>
+    <div class="spacer"></div>
+    <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" title="Toggle light / dark">☾</button>
+    <a href="http://localhost:5000" style="text-decoration:none"><button class="btn">← Hub</button></a>
+  </header>
+  <div class="body">
+    <nav class="nav">
+      <div class="lbl">SAXS</div>
+      <button class="navtab active" data-cat="classical" onclick="setCat('classical')">⬡ Classical</button>
+      <button class="navtab" data-cat="sasview" onclick="setCat('sasview')">◎ SASView</button>
+      <button class="navtab" data-cat="atsas" onclick="setCat('atsas')">⚛ ATSAS</button>
+      <div class="lbl" style="margin-top:10px">WAXS</div>
+      <button class="navtab" data-cat="peaks" onclick="setCat('peaks')">⌁ Peak fitting</button>
+    </nav>
+    <div class="main">
+      <div class="toptabbar">
+        <button class="toptab active" data-tab="setup" onclick="showTab('setup')">Setup</button>
+        <button class="toptab" data-tab="result" onclick="showTab('result')">Result</button>
+        <button class="toptab" data-tab="batch" onclick="showTab('batch')">Batch</button>
+      </div>
+
+      <section class="page active" id="page-setup">
+        <div class="card">
+          <h3>1 · Sample</h3>
+          <div class="row">
+            <label>Detector</label>
+            <span class="badge" id="detBadge" title="Set automatically from the analysis you select (SAXS analyses → SAXS; Peak fitting → WAXS).">SAXS</span>
+            <span class="muted" style="font-size:.85em">follows the selected analysis</span>
+            <label>Filter</label>
+            <input type="text" id="kw" placeholder="keyword…" oninput="loadFiles()" style="width:140px">
+            <button class="btn" onclick="loadFiles()">&#8635;</button>
+          </div>
+          <div class="row">
+            <label>Folder</label>
+            <input type="text" id="folder" placeholder="(defaults to the project Subtracted folder; type a path to override)" style="flex:1;min-width:260px" oninput="folderEdited()" onchange="loadFiles()">
+          </div>
+          <div class="filelist" id="files"><div class="fl-row"><span class="muted">Loading…</span></div></div>
+        </div>
+        <div class="card" id="card-classical">
+          <h3>2 · Classical analysis</h3>
+          <div class="row">
+            <label>Type</label>
+            <select id="analysis" onchange="onAnalysisChange()">
+              <option value="guinier">Guinier (Rg, I&#8320;)</option>
+              <option value="kratky">Kratky</option>
+              <option value="dimensionless_kratky">Dimensionless Kratky</option>
+              <option value="porod">Porod (exponent)</option>
+              <option value="pair_distance">p(r) &amp; Dmax</option>
+              <option value="invariant">Invariant (Q, Vp, MW, Vc)</option>
+            </select>
+            <label><input type="checkbox" id="auto" checked onchange="toggleAuto()"> auto q-range</label>
+            <label>q_min</label><input type="number" id="qmin" step="0.001" disabled>
+            <label>q_max</label><input type="number" id="qmax" step="0.001" disabled>
+            <span id="dmaxWrap" style="display:none"><label>Dmax</label><input type="number" id="dmax" step="0.5" placeholder="nm"></span>
+          </div>
+          <div class="row">
+            <button class="btn btn-primary" onclick="runClassical()">Run fit</button>
+            <span class="muted" id="runStatus"></span>
+          </div>
+        </div>
+
+        <div class="card" id="card-sasview" style="display:none">
+          <h3>2 · SASView model fit</h3>
+          <div class="row">
+            <label>Model</label>
+            <select id="model" onchange="loadModelParams()" style="min-width:170px"><option>loading…</option></select>
+            <label>S(q)</label>
+            <select id="sf">
+              <option value="">none</option><option value="hardsphere">hardsphere</option>
+              <option value="hayter_msa">hayter_msa</option><option value="stickyhardsphere">stickyhardsphere</option>
+              <option value="squarewell">squarewell</option>
+            </select>
+            <label>q_min</label><input type="number" id="mqmin" step="0.001">
+            <label>q_max</label><input type="number" id="mqmax" step="0.001">
+            <label title="Unit of q in your data. sasmodels works in Å⁻¹, so nm⁻¹ data is converted before fitting and sizes are reported in Å.">q unit</label>
+            <select id="mqunit"><option value="nm^-1">nm⁻¹ (platform)</option><option value="A^-1">Å⁻¹</option></select>
+          </div>
+          <div class="muted" style="margin:4px 0 8px">Check <b>fit</b> to optimise a parameter; set bounds (optional). Polydispersity params (e.g. <code>radius_pd</code>) appear in the list. <b>Units:</b> sasmodels is native in Å⁻¹ — q is converted accordingly, so fitted lengths (radius, length…) are in <b>Å</b> and SLDs in <b>1e-6 Å⁻²</b>.</div>
+          <div style="max-height:260px;overflow:auto;border:1px solid var(--border);border-radius:6px">
+            <table class="bigtable" id="paramTable"><tr><td class="muted">Select a model…</td></tr></table>
+          </div>
+          <div class="row" style="margin-top:10px">
+            <button class="btn btn-primary" onclick="runModel()">Run fit</button>
+            <span class="muted" id="modelStatus"></span>
+          </div>
+        </div>
+
+        <div class="card" id="card-peaks" style="display:none">
+          <h3>2 · WAXS peak fitting</h3>
+          <div class="row">
+            <label>Shape</label>
+            <select id="pshape"><option value="gaussian">Gaussian</option><option value="lorentzian">Lorentzian</option><option value="voigt">Voigt (pseudo)</option></select>
+            <label>Peaks</label>
+            <select id="pmode" onchange="document.getElementById('npk').style.display=this.value==='manual'?'inline':'none'"><option value="auto">auto-detect</option><option value="manual">fixed N</option></select>
+            <input type="number" id="npk" min="1" max="12" value="2" style="width:64px;display:none">
+            <label>Source</label>
+            <select id="pstage" onchange="setPeakStage(this.value)"><option value="Subtracted">Subtracted</option><option value="Averaged">Averaged</option></select>
+          </div>
+          <div class="row">
+            <label>q_min</label><input type="number" id="pqmin" step="0.1">
+            <label>q_max</label><input type="number" id="pqmax" step="0.1">
+            <span class="muted">d-spacing = 2π/q reported in nm and Å.</span>
+          </div>
+          <div class="row">
+            <button class="btn btn-primary" onclick="runPeaks()">Fit peaks</button>
+            <span class="muted" id="peakStatus"></span>
+          </div>
+        </div>
+
+        <div class="card" id="card-atsas" style="display:none">
+          <h3>2 · ATSAS</h3>
+          <div class="muted" id="atsasAvail" style="margin-bottom:8px">Checking ATSAS…</div>
+          <div class="row">
+            <label>Tool</label>
+            <select id="atool" onchange="onAtsasTool()">
+              <option value="autorg">AUTORG (Rg, I₀)</option>
+              <option value="gnom">GNOM p(r) &amp; Dmax (datgnom)</option>
+              <option value="datporod">DATPOROD (volume)</option>
+              <option value="datvc">DATVC (Vc, MW)</option>
+              <option value="datmw">DATMW (MW)</option>
+              <option value="dammif">DAMMIF bead model (slow)</option>
+            </select>
+            <span id="rgWrap" style="display:none"><label>Rg hint</label><input type="number" id="argg" step="0.1" placeholder="nm"></span>
+            <span id="mwWrap" style="display:none"><label>method</label>
+              <select id="amethod"><option>vc</option><option>vp</option><option>bayes</option><option>shape</option></select></span>
+          </div>
+          <div class="row">
+            <button class="btn btn-primary" onclick="runAtsas()">Run</button>
+            <span class="muted" id="atsasStatus"></span>
+          </div>
+          <div class="muted" id="dammifNote" style="display:none">DAMMIF can take minutes — it runs a GNOM first, then bead modelling; models are written to Analysed/ATSAS/.</div>
+        </div>
+      </section>
+
+      <section class="page" id="page-result">
+        <div class="card"><div id="plot"></div></div>
+        <div class="card">
+          <h3>Results <span id="qcBadge"></span></h3>
+          <table class="res"><tbody id="resTable"></tbody></table>
+          <div id="qcWarn"></div>
+          <div class="row" style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px">
+            <button class="btn btn-primary" id="saveBtn" onclick="saveResult()" disabled>&#128190; Save to Analysed</button>
+            <span class="muted" id="savedInfo">Review the fit; save only when it's good.</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="page" id="page-batch">
+        <div class="card">
+          <h3>Batch by keyword</h3>
+          <div class="row">
+            <label>Detector</label>
+            <span class="badge" id="bdetBadge" title="Set automatically from the selected analysis.">SAXS</span>
+            <label>Keyword</label><input type="text" id="bkw" placeholder="e.g. 12CE" style="width:160px">
+            <label>Type</label>
+            <select id="banalysis">
+              <option value="guinier">Guinier</option><option value="kratky">Kratky</option>
+              <option value="dimensionless_kratky">Dimensionless Kratky</option>
+              <option value="porod">Porod</option><option value="pair_distance">p(r) &amp; Dmax</option>
+              <option value="invariant">Invariant</option>
+            </select>
+            <button class="btn btn-primary" onclick="runBatch()">Run batch</button>
+          </div>
+          <div class="muted" id="batchStatus"></div>
+        </div>
+        <div class="card" id="batchCard" style="display:none">
+          <h3>Batch results <span class="muted" id="batchSummary"></span></h3>
+          <div style="max-height:380px;overflow:auto"><table class="bigtable" id="batchTable"></table></div>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script>
+let PROJ="", DET="SAXS", BDET="SAXS", CURRENT=null;
+
+fetch('/api/project').then(r=>r.json()).then(d=>{
+  PROJ=d.project_root||"";
+  document.getElementById('projSub').textContent = PROJ ? PROJ : 'no project — set it in the Hub';
+  loadFiles();
+}).catch(()=>loadFiles());
+
+let CAT="classical", MODELS_LOADED=false, STAGE="Subtracted";
+function setCat(c){
+  CAT=c;
+  document.querySelectorAll('.navtab[data-cat]').forEach(b=>b.classList.toggle('active',b.dataset.cat===c));
+  document.getElementById('card-classical').style.display = c==='classical'?'block':'none';
+  document.getElementById('card-sasview').style.display   = c==='sasview'?'block':'none';
+  document.getElementById('card-peaks').style.display     = c==='peaks'?'block':'none';
+  document.getElementById('card-atsas').style.display     = c==='atsas'?'block':'none';
+  if(c==='sasview' && !MODELS_LOADED) loadModels();
+  if(c==='atsas' && !ATSAS_CHECKED) loadAtsasAvail();
+  // Detector is bound to the analysis regime: WAXS peak fitting → WAXS,
+  // every SAXS analysis (Classical/SASView/ATSAS) → SAXS.
+  if(c==='peaks'){ STAGE=document.getElementById('pstage').value; setDet('WAXS'); setBDet('WAXS'); }
+  else { STAGE='Subtracted'; setDet('SAXS'); setBDet('SAXS'); }
+}
+function setPeakStage(s){ STAGE=s; loadFiles(); }
+let LAST=null;
+function detOf(p){ p=(p||'').toUpperCase(); return (p.indexOf('/WAXS/')>=0||p.indexOf('_WAXS')>=0)?'waxs':'saxs'; }
+function setLast(atype, results, params, fitCurve){
+  LAST={path:CURRENT, detector:detOf(CURRENT), analysis_type:atype, params:params||{}, results:results||{}, fit_curve:fitCurve||null};
+  const b=document.getElementById('saveBtn'); if(b) b.disabled=false;
+  document.getElementById('savedInfo').textContent='Fit ready — click Save if it looks good.';
+}
+function saveResult(){
+  if(!LAST){ return; }
+  document.getElementById('savedInfo').textContent='Saving…';
+  fetch('/api/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(LAST)})
+    .then(r=>r.json()).then(d=>{
+      if(d.error){ document.getElementById('savedInfo').textContent='✗ '+d.error; return; }
+      const s=d.saved||{};
+      document.getElementById('savedInfo').textContent='✓ Saved to '+(s.json||'').split('/').slice(-3).join('/')+(s.annotated?' · .dat annotated':'')+(s.analysis_id?' · registered in manifest':'');
+    }).catch(e=>document.getElementById('savedInfo').textContent='✗ '+e.message);
+}
+let ATSAS_CHECKED=false;
+function loadAtsasAvail(){
+  fetch('/api/atsas/available').then(r=>r.json()).then(d=>{
+    ATSAS_CHECKED=true; const t=d.tools||{};
+    const note=document.getElementById('atsasAvail');
+    if(!d.any){ note.innerHTML='<span style="color:var(--err-text)">ATSAS not found on PATH — install/activate it, then restart this app.</span>'; return; }
+    note.innerHTML='Detected: '+Object.entries(t).filter(([k,v])=>v).map(([k])=>k).join(', ');
+    const map={autorg:'autorg',gnom:'datgnom',datporod:'datporod',datvc:'datvc',datmw:'datmw',dammif:'dammif'};
+    [...document.querySelectorAll('#atool option')].forEach(o=>{ const bin=map[o.value]; if(bin && !t[bin]){ o.disabled=true; o.text+=' (missing)'; }});
+  }).catch(()=>{document.getElementById('atsasAvail').textContent='Could not query ATSAS.';});
+}
+function onAtsasTool(){
+  const t=document.getElementById('atool').value;
+  document.getElementById('rgWrap').style.display=['gnom','datporod','dammif'].includes(t)?'inline':'none';
+  document.getElementById('mwWrap').style.display=t==='datmw'?'inline':'none';
+  document.getElementById('dammifNote').style.display=t==='dammif'?'block':'none';
+}
+function runAtsas(){
+  if(!CURRENT){ document.getElementById('atsasStatus').textContent='Select a file first.'; return; }
+  const tool=document.getElementById('atool').value;
+  const body={path:CURRENT, tool, save:false};
+  const rg=parseFloat(document.getElementById('argg').value); if(!isNaN(rg)) body.rg=rg;
+  if(tool==='datmw') body.method=document.getElementById('amethod').value;
+  document.getElementById('atsasStatus').textContent = tool==='dammif'?'Running DAMMIF (may take minutes)…':'Running…';
+  fetch('/api/atsas',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    .then(r=>r.json()).then(d=>{
+      if(d.error){ document.getElementById('atsasStatus').textContent='✗ '+d.error; return; }
+      document.getElementById('atsasStatus').textContent='✓ done';
+      renderAtsas(tool,d); setLast('atsas', d.results, {tool}, (d.plot&&d.plot.r?[d.plot.r,d.plot.pr]:null)); showTab('result');
+    }).catch(e=>document.getElementById('atsasStatus').textContent='✗ '+e.message);
+}
+function renderAtsas(tool,d){
+  const res=d.results||{}, pl=d.plot;
+  if(pl && pl.r){
+    Plotly.newPlot('plot',[{x:pl.r,y:pl.pr,mode:'lines',fill:'tozeroy',name:'p(r)',line:{color:'#1565C0'}}],
+      {template:'plotly_white',height:430,margin:{t:44,l:64,r:18,b:48},title:{text:'GNOM p(r) · Dmax='+(pl.Dmax||res.Dmax)+' nm',x:.5},xaxis:{title:{text:'r (nm)'}},yaxis:{title:{text:'p(r)'}}},{responsive:false,displaylogo:false});
+  } else {
+    Plotly.purge('plot'); document.getElementById('plot').innerHTML='<div class="muted" style="padding:40px;text-align:center">'+tool+' — see results below'+(res.models?' · model PDB(s) saved':'')+'</div>';
+  }
+  const skip=new Set(['r','pr','raw','plot','out_file','models','tool']);
+  let html=Object.entries(res).filter(([k,v])=>!skip.has(k) && (typeof v==='number'||typeof v==='string')).map(([k,v])=>`<tr><td>${k}</td><td>${typeof v==='number'?(+v).toPrecision(5):v}</td></tr>`).join('');
+  if(res.models) html+='<tr><td>models</td><td>'+res.models.map(m=>m.split('/').slice(-1)[0]).join(', ')+'</td></tr>';
+  document.getElementById('resTable').innerHTML=html||'<tr><td class="muted">no parsed values — see raw</td></tr>';
+  document.getElementById('qcBadge').innerHTML=''; document.getElementById('qcWarn').innerHTML = res.raw?('<div class="muted" style="margin-top:8px;white-space:pre-wrap;font-family:var(--mono);font-size:var(--fs-xs);max-height:160px;overflow:auto">'+res.raw.replace(/[<>]/g,'')+'</div>'):'';
+  const s=d.saved; document.getElementById('savedInfo').textContent=s?('Saved to '+(s.json||'').split('/').slice(-3).join('/')+(s.annotated?' · .dat annotated':'')+(s.analysis_id?' · registered':'')):'';
+}
+function loadModels(){
+  fetch('/api/sasmodels/list').then(r=>r.json()).then(d=>{
+    const sel=document.getElementById('model');
+    if(!d.models||!d.models.length){ sel.innerHTML='<option value="">sasmodels not installed</option>'; return; }
+    MODELS_LOADED=true;
+    const common=['sphere','core_shell_sphere','ellipsoid','cylinder','core_shell_cylinder','flexible_cylinder','lamellar','lamellar_stack_paracrystal','broad_peak','correlation_length','power_law','guinier_porod','mass_fractal'];
+    const inCat=common.filter(m=>d.models.includes(m));
+    const rest=d.models.filter(m=>!inCat.includes(m));
+    sel.innerHTML='<optgroup label="common">'+inCat.map(m=>`<option>${m}</option>`).join('')+'</optgroup>'+
+                  '<optgroup label="all">'+rest.map(m=>`<option>${m}</option>`).join('')+'</optgroup>';
+    loadModelParams();
+  }).catch(()=>{document.getElementById('model').innerHTML='<option value="">list failed</option>';});
+}
+function loadModelParams(){
+  const m=document.getElementById('model').value; if(!m) return;
+  document.getElementById('paramTable').innerHTML='<tr><td class="muted">loading params…</td></tr>';
+  fetch('/api/sasmodels/params?model='+encodeURIComponent(m)).then(r=>r.json()).then(d=>{
+    if(d.error){ document.getElementById('paramTable').innerHTML='<tr><td class="muted">'+d.error+'</td></tr>'; return; }
+    const head='<tr><th>fit</th><th>parameter</th><th>value</th><th>lower</th><th>upper</th><th>units</th></tr>';
+    const rows=d.parameters.map(p=>{
+      const fitDefault=['scale','background','radius','length','thickness','sld','rg'].includes(p.name);
+      return `<tr>
+        <td><input type="checkbox" class="pfit" data-n="${p.name}" ${fitDefault?'checked':''}></td>
+        <td title="${(p.description||'').replace(/"/g,'')}">${p.name}</td>
+        <td><input type="number" class="pval" data-n="${p.name}" value="${p.default!=null?p.default:''}" step="any" style="width:90px"></td>
+        <td><input type="number" class="plo" data-n="${p.name}" value="${p.lower!=null?p.lower:''}" step="any" style="width:80px"></td>
+        <td><input type="number" class="phi" data-n="${p.name}" value="${p.upper!=null?p.upper:''}" step="any" style="width:80px"></td>
+        <td class="muted">${p.units||''}</td></tr>`;
+    }).join('');
+    document.getElementById('paramTable').innerHTML=head+rows;
+  }).catch(()=>{document.getElementById('paramTable').innerHTML='<tr><td class="muted">params failed</td></tr>';});
+}
+function _collectModel(){
+  const params={}, free=[], bounds={};
+  document.querySelectorAll('#paramTable .pval').forEach(inp=>{
+    const n=inp.dataset.n; const v=parseFloat(inp.value);
+    if(!isNaN(v)) params[n]=v;
+  });
+  document.querySelectorAll('#paramTable .pfit').forEach(cb=>{ if(cb.checked) free.push(cb.dataset.n); });
+  document.querySelectorAll('#paramTable .plo').forEach(inp=>{
+    const n=inp.dataset.n; const lo=parseFloat(inp.value);
+    const hiInp=document.querySelector('#paramTable .phi[data-n="'+n+'"]'); const hi=parseFloat(hiInp?hiInp.value:'');
+    if(!isNaN(lo)||!isNaN(hi)) bounds[n]=[isNaN(lo)?null:lo, isNaN(hi)?null:hi];
+  });
+  const body={path:CURRENT, model_name:document.getElementById('model').value,
+              structure_factor:document.getElementById('sf').value, params, free, bounds, save:false,
+              q_unit:(document.getElementById('mqunit')||{}).value||'nm^-1'};
+  const qmin=parseFloat(document.getElementById('mqmin').value), qmax=parseFloat(document.getElementById('mqmax').value);
+  if(!isNaN(qmin)) body.q_min=qmin; if(!isNaN(qmax)) body.q_max=qmax;
+  return body;
+}
+function runModel(){
+  if(!CURRENT){ document.getElementById('modelStatus').textContent='Select a file first.'; return; }
+  document.getElementById('modelStatus').textContent='Fitting…';
+  fetch('/api/sasview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(_collectModel())})
+    .then(r=>r.json()).then(d=>{
+      if(d.error){ document.getElementById('modelStatus').textContent='✗ '+d.error; return; }
+      document.getElementById('modelStatus').textContent='✓ done';
+      renderModelResult(d); { const m=_collectModel(); const pl=(d.results&&d.results.plot)||{}; setLast('model', d.results, {model_name:m.model_name,free:m.free,bounds:m.bounds,structure_factor:m.structure_factor}, (pl.q_fit?[pl.q_fit,pl.I_fit]:null)); } showTab('result');
+    }).catch(e=>document.getElementById('modelStatus').textContent='✗ '+e.message);
+}
+function renderModelResult(d){
+  const res=d.results||{}, p=res.plot||{};
+  // interpolate model onto data q for residuals
+  const qd=p.q_data||[], Id=p.I_data||[], qf=p.q_fit||[], If=p.I_fit||[];
+  const interp=(x)=>{ if(qf.length<2) return NaN; let i=0; while(i<qf.length-1 && qf[i+1]<x) i++; const t=(x-qf[i])/((qf[i+1]-qf[i])||1); return If[i]+t*(If[i+1]-If[i]); };
+  const resid=qd.map((x,k)=>{ const m=interp(x); return m? (Id[k]-m)/(Math.abs(Id[k])*0.03+1e-12):0; });
+  const fig={data:[
+    {x:qd,y:Id,xaxis:'x',yaxis:'y',mode:'markers',name:'data',marker:{size:3,color:'#1565C0'}},
+    {x:qf,y:If,xaxis:'x',yaxis:'y',mode:'lines',name:res.model+' fit',line:{color:'#E53935',width:2}},
+    {x:qd,y:resid,xaxis:'x',yaxis:'y2',mode:'markers',name:'resid',marker:{size:3,color:'#1565C0'}}],
+    layout:{template:'plotly_white',height:460,margin:{t:40,l:64,r:18,b:46},showlegend:true,
+      title:{text:'Model fit: '+res.model+'  (χ²ᵣ='+res.chi2+')',x:.5},
+      xaxis:{domain:[0,1],anchor:'y2',type:'log',title:{text:'q ('+(res.q_unit==='A^-1'?'Å⁻¹':'nm⁻¹')+')'}},
+      yaxis:{domain:[0.32,1],type:'log',title:{text:'I(q)'}},
+      yaxis2:{domain:[0,0.22],title:{text:'Δ/σ'},zeroline:true}}};
+  Plotly.newPlot('plot', fig.data, fig.layout, {responsive:false,displaylogo:false});
+  const pr=res.params||{};
+  const trs=Object.entries(pr).map(([k,v])=>`<tr><td>${k}</td><td>${(+v).toPrecision(5)}</td></tr>`).join('')+
+    `<tr><td>reduced χ²</td><td>${res.chi2}</td></tr><tr><td>converged</td><td>${res.converged}</td></tr>`+
+    `<tr><td class="muted" colspan="2" style="font-size:.85em">lengths in Å · SLD in 1e-6 Å⁻² (sasmodels native; q was ${res.q_unit||'nm^-1'})</td></tr>`;
+  document.getElementById('resTable').innerHTML=trs;
+  const qc=d.qc; const badge=document.getElementById('qcBadge'); const warn=document.getElementById('qcWarn');
+  if(qc){ badge.innerHTML=`<span class="badge ${qc.verdict}">${qc.verdict}</span>`; warn.innerHTML=(qc.warnings||[]).map(w=>`<div class="warn">⚠ ${w}</div>`).join(''); }
+  const s=d.saved; document.getElementById('savedInfo').textContent = s ? ('Saved to '+(s.json||'').split('/').slice(-3).join('/')+(s.annotated?' · source .dat annotated':'')+(s.analysis_id?' · registered':'')) : '';
+}
+function runPeaks(){
+  if(!CURRENT){ document.getElementById('peakStatus').textContent='Select a file first.'; return; }
+  const body={path:CURRENT, shape:document.getElementById('pshape').value, save:false};
+  if(document.getElementById('pmode').value==='manual'){ const n=parseInt(document.getElementById('npk').value); if(n) body.n_peaks=n; }
+  const qmin=parseFloat(document.getElementById('pqmin').value), qmax=parseFloat(document.getElementById('pqmax').value);
+  if(!isNaN(qmin)) body.q_min=qmin; if(!isNaN(qmax)) body.q_max=qmax;
+  document.getElementById('peakStatus').textContent='Fitting…';
+  fetch('/api/waxs_peaks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    .then(r=>r.json()).then(d=>{
+      if(d.error){ document.getElementById('peakStatus').textContent='✗ '+d.error; return; }
+      document.getElementById('peakStatus').textContent='✓ '+d.results.n_peaks+' peak(s)';
+      renderPeaks(d); { const pl=(d.results&&d.results.plot)||{}; setLast('peaks', d.results, {shape:document.getElementById('pshape').value}, (pl.q_fit?[pl.q_fit,pl.I_fit]:null)); } showTab('result');
+    }).catch(e=>document.getElementById('peakStatus').textContent='✗ '+e.message);
+}
+function renderPeaks(d){
+  const res=d.results||{}, p=res.plot||{};
+  const traces=[{x:p.q_data,y:p.I_data,mode:'markers',name:'data',marker:{size:3,color:'#1565C0'}},
+                {x:p.q_fit,y:p.I_fit,mode:'lines',name:'total fit',line:{color:'#E53935',width:2}}];
+  (p.components||[]).forEach((c,i)=>traces.push({x:p.q_data,y:c,mode:'lines',name:'peak '+(i+1),line:{width:1,dash:'dot'},opacity:.7}));
+  Plotly.newPlot('plot',traces,{template:'plotly_white',height:430,margin:{t:44,l:64,r:18,b:48},showlegend:true,
+    title:{text:'WAXS peaks ('+res.shape+')',x:.5},xaxis:{title:{text:'q (nm⁻¹)'}},yaxis:{title:{text:'I(q)'}}},{responsive:false,displaylogo:false});
+  let html='<tr><td>shape</td><td>'+res.shape+'</td></tr><tr><td>reduced χ²</td><td>'+res.chi2+'</td></tr>';
+  (res.peaks||[]).forEach((pk,i)=>{ html+='<tr><td>peak '+(i+1)+': q₀ · FWHM · d</td><td>'+pk.q0+' nm⁻¹ · '+pk.fwhm+' · '+pk.d_nm+' nm ('+pk.d_A+' Å)'+(pk.eta!==undefined?' · η='+pk.eta:'')+'</td></tr>'; });
+  document.getElementById('resTable').innerHTML=html;
+  const qc=d.qc,badge=document.getElementById('qcBadge'),warn=document.getElementById('qcWarn');
+  if(qc){ badge.innerHTML='<span class="badge '+qc.verdict+'">'+qc.verdict+'</span>'; warn.innerHTML=(qc.warnings||[]).map(w=>'<div class="warn">⚠ '+w+'</div>').join(''); }
+  const s=d.saved; document.getElementById('savedInfo').textContent = s ? ('Saved to '+(s.json||'').split('/').slice(-3).join('/')+(s.annotated?' · .dat annotated':'')+(s.analysis_id?' · registered':'')) : '';
+}
+function showTab(t){
+  document.querySelectorAll('.toptab').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.getElementById('page-'+t).classList.add('active');
+}
+function setDet(d){ DET=d; const b=document.getElementById('detBadge'); if(b) b.textContent=d; loadFiles(); }
+function setBDet(d){ BDET=d; const b=document.getElementById('bdetBadge'); if(b) b.textContent=d; }
+function toggleAuto(){ const a=document.getElementById('auto').checked; document.getElementById('qmin').disabled=a; document.getElementById('qmax').disabled=a; }
+function onAnalysisChange(){ document.getElementById('dmaxWrap').style.display = document.getElementById('analysis').value==='pair_distance'?'inline':'none'; }
+
+// The Folder field defaults to the project's resolved Subtracted path (and
+// follows the detector/stage). AUTO_FOLDER=true means "managed by us"; once the
+// user types a path it becomes an override. Clearing it reverts to the default.
+let AUTO_FOLDER=true;
+function folderEdited(){ AUTO_FOLDER = document.getElementById('folder').value.trim()===''; }
+function loadFiles(){
+  const fEl=document.getElementById('folder');
+  const kw=encodeURIComponent(document.getElementById('kw').value.trim());
+  const dir = AUTO_FOLDER ? '' : encodeURIComponent((fEl.value||'').trim());
+  fetch(`/api/list_subtracted?detector=${DET}&keyword=${kw}&stage=${STAGE}&dir=${dir}`).then(r=>r.json()).then(d=>{
+    if(AUTO_FOLDER) fEl.value = d.dir || '';   // show the resolved project Subtracted path
+    const el=document.getElementById('files');
+    if(!d.files||!d.files.length){ el.innerHTML='<div class="fl-row"><span class="muted">No Subtracted '+DET+' files'+(PROJ?'':' (set project in Hub)')+'.</span></div>'; return; }
+    el.innerHTML=d.files.map(f=>`<div class="fl-row" data-path="${f.path}" onclick="selFile(this)"><span class="nm" title="${f.name}">${f.name}</span></div>`).join('');
+  }).catch(()=>{document.getElementById('files').innerHTML='<div class="fl-row"><span class="muted">Could not list files.</span></div>';});
+}
+function selFile(row){
+  document.querySelectorAll('#files .fl-row').forEach(r=>r.classList.remove('sel'));
+  row.classList.add('sel'); CURRENT=row.dataset.path;
+}
+
+function runClassical(){
+  if(!CURRENT){ document.getElementById('runStatus').textContent='Select a file first.'; return; }
+  const analysis=document.getElementById('analysis').value;
+  const auto=document.getElementById('auto').checked;
+  const body={path:CURRENT, analysis, auto_range:auto, save:false};
+  if(!auto){ body.q_min=parseFloat(document.getElementById('qmin').value)||null; body.q_max=parseFloat(document.getElementById('qmax').value)||null; }
+  if(analysis==='pair_distance'){ const d=parseFloat(document.getElementById('dmax').value); if(d) body.dmax=d; }
+  document.getElementById('runStatus').textContent='Running…';
+  fetch('/api/classical',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    .then(r=>r.json()).then(d=>{
+      if(d.error){ document.getElementById('runStatus').textContent='✗ '+d.error; return; }
+      document.getElementById('runStatus').textContent='✓ done';
+      renderResult(analysis, d); setLast(analysis, d.results, body, d.fit_curve); showTab('result');
+    }).catch(e=>document.getElementById('runStatus').textContent='✗ '+e.message);
+}
+
+function renderResult(analysis, d){
+  const res=d.results||{}, fig=plotFor(analysis,res);
+  Plotly.newPlot('plot', fig.data, fig.layout, {responsive:false,displaylogo:false});
+  const skip=new Set(['plot','q2_data','lnI_data','q2_fit','lnI_fit','lnq_data','lnq_fit','q','Iq2','r','pr','q_fit','I_fit','qRg','y']);
+  const rows=Object.entries(res).filter(([k,v])=>!skip.has(k) && (typeof v==='number'||typeof v==='string'||typeof v==='boolean'));
+  document.getElementById('resTable').innerHTML=rows.map(([k,v])=>`<tr><td>${k}</td><td>${typeof v==='number'?(+v).toPrecision(5):v}</td></tr>`).join('');
+  const qc=d.qc; const badge=document.getElementById('qcBadge'); const warn=document.getElementById('qcWarn');
+  if(qc){ badge.innerHTML=`<span class="badge ${qc.verdict}">${qc.verdict}</span>`; warn.innerHTML=(qc.warnings||[]).map(w=>`<div class="warn">⚠ ${w}</div>`).join(''); }
+  else { badge.innerHTML=''; warn.innerHTML=''; }
+  const s=d.saved; document.getElementById('savedInfo').textContent = s ? ('Saved to '+ (s.json||'').split('/').slice(-3).join('/') + (s.annotated?' · source .dat annotated':'') + (s.analysis_id?' · registered in manifest':'')) : '';
+}
+
+function plotFor(a, res){
+  const L=(t,xt,yt)=>({title:{text:t,x:.5},template:'plotly_white',height:430,margin:{t:46,l:64,r:18,b:50},
+    xaxis:{title:{text:xt}},yaxis:{title:{text:yt}},showlegend:true});
+  const p=res.plot||{};
+  if(a==='guinier') return {data:[
+      {x:p.q2_data,y:p.lnI_data,mode:'markers',name:'data',marker:{size:4,color:'#1565C0'}},
+      {x:p.q2_fit,y:p.lnI_fit,mode:'lines',name:'fit',line:{color:'#E53935',width:2}}],
+      layout:L('Guinier','q² (nm⁻²)','ln I')};
+  if(a==='porod') return {data:[
+      {x:p.lnq_data,y:p.lnI_data,mode:'markers',name:'data',marker:{size:4,color:'#1565C0'}},
+      {x:p.lnq_fit,y:p.lnI_fit,mode:'lines',name:'fit n='+res.n,line:{color:'#E53935',width:2}}],
+      layout:L('Porod (log–log)','ln q','ln I')};
+  if(a==='kratky') return {data:[{x:res.q,y:res.Iq2,mode:'lines',name:'I·q²',line:{color:'#1565C0'}}],
+      layout:L('Kratky','q (nm⁻¹)','I·q²')};
+  if(a==='dimensionless_kratky') return {data:[
+      {x:res.qRg,y:res.y,mode:'lines',name:'(qRg)²·I/I₀',line:{color:'#1565C0'}},
+      {x:[res.ideal_peak_qRg],y:[res.ideal_peak_y],mode:'markers',name:'ideal globular',marker:{size:10,color:'#E53935',symbol:'x'}}],
+      layout:L('Dimensionless Kratky','q·Rg','(q·Rg)²·I/I₀')};
+  if(a==='pair_distance') return {data:[{x:res.r,y:res.pr,mode:'lines',name:'p(r)',fill:'tozeroy',line:{color:'#1565C0'}}],
+      layout:L('p(r)  ·  Dmax='+res.Dmax+' nm','r (nm)','p(r)')};
+  return {data:[], layout:L('Invariant — see results table','q','I')};
+}
+
+function runBatch(){
+  const kw=document.getElementById('bkw').value.trim();
+  let url, body;
+  if(CAT==='sasview'){
+    const m=_collectModel(); delete m.path; delete m.save;
+    body=Object.assign({keyword:kw, detector:BDET}, m);
+    url='/api/sasview/batch';
+    document.getElementById('batchStatus').textContent='Running model batch ('+body.model_name+')…';
+  } else if(CAT==='peaks'){
+    body={keyword:kw, detector:'WAXS', stage:STAGE, shape:document.getElementById('pshape').value};
+    if(document.getElementById('pmode').value==='manual'){ const n=parseInt(document.getElementById('npk').value); if(n) body.n_peaks=n; }
+    url='/api/waxs_peaks/batch';
+    document.getElementById('batchStatus').textContent='Running peak batch…';
+  } else if(CAT==='atsas'){
+    const tool=document.getElementById('atool').value;
+    body={keyword:kw, detector:BDET, tool};
+    const rg=parseFloat(document.getElementById('argg').value); if(!isNaN(rg)) body.rg=rg;
+    if(tool==='datmw') body.method=document.getElementById('amethod').value;
+    url='/api/atsas/batch';
+    document.getElementById('batchStatus').textContent='Running ATSAS batch ('+tool+')…';
+  } else {
+    body={analysis:document.getElementById('banalysis').value, keyword:kw, detector:BDET};
+    url='/api/classical/batch';
+    document.getElementById('batchStatus').textContent='Running batch…';
+  }
+  fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    .then(r=>r.json()).then(d=>{
+      if(d.error){ document.getElementById('batchStatus').textContent='✗ '+d.error; return; }
+      document.getElementById('batchStatus').textContent='✓ '+d.n_ok+' fitted, '+d.n_error+' errors';
+      const rows=d.rows||[];
+      document.getElementById('batchCard').style.display='block';
+      document.getElementById('batchSummary').textContent = d.summary ? ('summary: '+(d.summary.csv||'').split('/').slice(-1)[0]) : '';
+      if(!rows.length){ document.getElementById('batchTable').innerHTML='<tr><td>no results</td></tr>'; return; }
+      const cols=[]; rows.forEach(r=>Object.keys(r).forEach(k=>{if(!cols.includes(k))cols.push(k);}));
+      const head='<tr>'+cols.map(c=>'<th>'+c+'</th>').join('')+'</tr>';
+      const trs=rows.map(r=>'<tr>'+cols.map(c=>'<td>'+(r[c]!==undefined?(typeof r[c]==='number'?(+r[c]).toPrecision(5):r[c]):'')+'</td>').join('')+'</tr>').join('');
+      document.getElementById('batchTable').innerHTML=head+trs;
+    }).catch(e=>document.getElementById('batchStatus').textContent='✗ '+e.message);
+}
+</script>
+<script>
+(function(){var K='swaxs-theme',s=localStorage.getItem(K),
+ d=s?s==='dark':matchMedia('(prefers-color-scheme:dark)').matches;
+ function ap(x){document.documentElement.setAttribute('data-theme',x?'dark':'light');
+  var b=document.getElementById('themeToggle');if(b)b.textContent=x?'☀':'☾';}
+ ap(d);window.toggleTheme=function(){d=!d;localStorage.setItem(K,d?'dark':'light');ap(d);};})();
+</script>
+</body>
+</html>

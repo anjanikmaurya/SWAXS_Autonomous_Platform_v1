@@ -1,0 +1,14 @@
+# Nota: C-Order, 1 refers to the Y axis, 2 to the X axis
+# Calibration done on Fri May 22 00:45:02 2026
+poni_version: 2.1
+Detector: Pilatus1M
+Detector_config: {"orientation": 3}
+Distance: 2.864065201852659
+Poni1: 0.11793425459206125
+Poni2: 0.09408206895247549
+Rot1: 0.0
+Rot2: 0.0
+Rot3: 0.0
+Wavelength: 1.0332016536100021e-10
+# Calibrant: AgBh
+# Image: fabio:///Users/akmaurya/Library/CloudStorage/GoogleDrive-akmaurya@stanford.edu/My Drive/Data/Membrane/poni/Standards/cbf_output/sone_Standards_03_AgBeh_60s_x-62_y87_ctr0_scan1_0000.cbf

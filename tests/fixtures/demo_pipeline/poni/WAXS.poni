@@ -1,0 +1,14 @@
+# Nota: C-Order, 1 refers to the Y axis, 2 to the X axis
+# Calibration done on Fri May 22 00:49:08 2026
+poni_version: 2.1
+Detector: Pilatus100k
+Detector_config: {"orientation": 3}
+Distance: 0.1695473940591372
+Poni1: 0.025001692597630066
+Poni2: 0.03789556614945672
+Rot1: -0.47095049497349045
+Rot2: -0.001873813046515823
+Rot3: 0.0
+Wavelength: 1.0332016536100021e-10
+# Calibrant: LaB6
+# Image: fabio:///Users/akmaurya/Library/CloudStorage/GoogleDrive-akmaurya@stanford.edu/My Drive/Data/Membrane/poni/Standards/cbf_output/b_tassone_Standards_03_Lab6_60s_x-112_y87_ctr0_scan1_0000.cbf

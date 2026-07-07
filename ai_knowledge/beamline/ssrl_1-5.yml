@@ -1,0 +1,138 @@
+# SSRL Beamline 1-5 — Facility Knowledge
+# Stanford Synchrotron Radiation Lightsource
+# Small/Wide Angle X-ray Scattering (SWAXS) endstation
+
+beamline:
+  id: ssrl_1-5
+  name: "SSRL BL 1-5 SWAXS"
+  facility: "Stanford Synchrotron Radiation Lightsource (SSRL)"
+  location: "SLAC National Accelerator Laboratory, Menlo Park, CA"
+  contact: "ssrl-smbx@slac.stanford.edu"
+
+source:
+  type: wiggler
+  energy_range_keV: [5, 18]
+  typical_energy_keV: 12.0
+  bandwidth_dE_over_E: 2.0e-4   # Si(111) monochromator
+  flux_photons_per_sec: 1.0e12  # approximate at 12 keV
+
+detectors:
+  saxs:
+    model: "Rayonix MX225-HE"
+    pixel_size_mm: 0.073         # 73 µm pixels
+    array_size: [3072, 3072]
+    typical_shape: [1043, 981]   # after ROI / binning used in practice
+    distance_range_mm: [1000, 5000]
+    typical_distance_mm: 3500
+    q_range_nm_inv: [0.005, 0.7]
+    notes: >
+      SAXS detector is offset from beam center to maximize q range.
+      Beamstop shadow appears at low q — always apply mask.
+      Detector can exhibit a horizontal seam artefact at y ≈ 1535 pixels;
+      include in mask if present.
+  waxs:
+    model: "Pilatus 100K"
+    pixel_size_mm: 0.172         # 172 µm pixels
+    array_size: [195, 487]
+    typical_shape: [195, 487]
+    distance_range_mm: [80, 300]
+    typical_distance_mm: 150
+    q_range_nm_inv: [0.5, 25.0]
+    notes: >
+      WAXS detector is mounted close to the sample.
+      Pilatus detectors have a panel gap — mask horizontal gap at row 97.
+      Hot pixels occur occasionally; regenerate mask if new hot pixels appear.
+
+calibration:
+  standard: "Silver behenate (AgBeh)"
+  d_spacing_nm: 5.838
+  calibration_frequency: "Each run cycle or after detector move"
+  poni_file_naming: "{beamline}_{detector}_{date}.poni"
+  mask_naming: "RT_{detector}_mask_{version}.edf"
+  notes: >
+    Always calibrate after any detector translation.
+    Use pyFAI-calib2 GUI with AgBeh and verify q-positions of peaks 1–3.
+
+sample_environment:
+  flow_cell:
+    type: "Quartz capillary, 1.5 mm ID"
+    volume_uL: 40
+    concentration_range: "0.5–20 mg/mL protein"
+    exposure_time_range_s: [0.1, 5.0]
+    typical_exposure_s: 1.0
+    flow_rate_uL_min: 30
+  batch:
+    volume_uL: 30
+    capillary: "0.5 mm quartz or borosilicate"
+  typical_transmission_range: [0.3, 0.95]
+
+typical_metadata_fields:
+  i0: "Upstream ion chamber (counts/s, ICO1)"
+  bstop: "Beamstop diode (counts/s)"
+  exposure: "Integration time (seconds)"
+  transmission: "Computed T = bstop_corr / i0_corr (or vs air)"
+  keyword: "Sample label / condition"
+
+correction_notes:
+  offsets: >
+    I0 offset and beamstop offset are dark currents measured with beam off.
+    Measure at the start of each session. Typical values: i0_offset ~50,
+    bstop_offset ~5 (arbitrary units; depends on amplifier gain setting).
+  air_transmission: >
+    Measure with empty beam (no capillary) at start of session.
+    i0_air and bstop_air are the steady-state values over 5 frames.
+    If air path changes (e.g. hutch opened), re-measure.
+  radiation_damage: >
+    Proteins: check for increase in I(q=0) over successive 1-second frames.
+    RNA/DNA: more sensitive — use 0.5 s frames, discard after 5× dose.
+    Glycoproteins: very radiation-sensitive — use 0.3 s, cryo if possible.
+    Mitigation: flow sample continuously; use 10–100 ms frames if beam is bright.
+
+common_artefacts:
+  - name: "Beamstop shadow"
+    description: >
+      The semi-circular shadow of the beamstop appears at q < 0.006 nm⁻¹.
+      Always use a mask. The shadow edge is not perfectly sharp — extend mask
+      a few pixels beyond the visible shadow.
+  - name: "Detector seam (SAXS Rayonix)"
+    description: >
+      A horizontal line artefact at the detector panel boundary (row ~1535).
+      Add a ±2-pixel wide horizontal band to the mask.
+  - name: "Pilatus panel gap (WAXS)"
+    description: >
+      A horizontal gap of ~17 pixels between the two WAXS detector panels.
+      Appears at row 97. Mask this region.
+  - name: "Ice rings"
+    description: >
+      Sharp rings at q ≈ 19.5 and 21.6 nm⁻¹ from ice on cryo samples.
+      Remove affected q range from 1D curves before analysis.
+  - name: "Air scattering"
+    description: >
+      Increases at q < 0.02 nm⁻¹ in air path.
+      Mitigated by helium beam path at BL 1-5.
+  - name: "Fluorescence background"
+    description: >
+      Elevated flat background at all q from sample X-ray fluorescence.
+      Occurs when sample contains heavy metals (Fe, Zn, etc.) and beam
+      energy is above the edge. Use energy below the edge if possible.
+
+data_format:
+  raw_extension: ".raw"
+  metadata_extension: ".raw.pdi"
+  pdi_format: "tab-separated key=value pairs, one per line"
+  typical_pdi_fields:
+    - "I0 = 123456.7"
+    - "BStop = 8765.4"
+    - "Exposure = 1.000"
+    - "Keyword = BSA_10mg"
+    - "Filename = BSA_10mg_001.raw"
+
+beamtime_tips: >
+  1. Request at least 1 hour of extra time for calibration and troubleshooting.
+  2. Bring AgBeh and water standards for every session.
+  3. Measure background before sample (radiation hardier).
+  4. Re-measure background after every 4 samples or 30 minutes.
+  5. At 12 keV, 1 mg/mL BSA needs ~1 second exposure for good statistics to
+     q = 5 nm⁻¹ on the SAXS detector.
+  6. Use a minimum of 5 frames per condition to average; 10+ for publication data.
+  7. If Rg is unknown, start with wide Guinier range and auto-select.

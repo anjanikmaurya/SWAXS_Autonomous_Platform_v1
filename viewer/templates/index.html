@@ -1,0 +1,2557 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SWAXS Data Viewer — SLAC/SSRL</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.26.0/plotly.min.js"></script>
+<style>
+/* ── Design tokens (identical to pipeline app) ───────── */
+:root {
+  /* ── SWAXS shared design system — Light theme ───────── */
+  --bg:        #f5f7fa;
+  --surface:   #ffffff;
+  --surface2:  #f0f2f5;
+  --sidebar:   #eef1f5;   /* light rail (matches content by day) */
+  --sidebar-h: #e3e7ed;
+  --sf:        31,41,55;   /* sidebar foreground RGB (dark text by day) */
+  --sidebar-active-bg:rgba(177,4,14,.10);
+  --sidebar-active-fg:#8C1515;
+  --accent:    #B1040E;   /* bright cardinal (primary) */
+  --accent-d:  #8C1515;   /* deep cardinal (hover) */
+  --accent-lt: #fee2e2;
+  /* Semantic — fills / dots / borders */
+  --ok:        #16a34a;  --ok-lt:   #dcfce7;
+  --warn:      #d97706;  --warn-lt: #fef3c7;
+  --err:       #dc2626;  --err-lt:  #fee2e2;
+  /* Semantic — accessible text (≥4.5:1 on white) */
+  --ok-text:   #15803d;
+  --warn-text: #b45309;
+  --err-text:  #b91c1c;
+  --info-text: #1d4ed8;
+  /* Text & lines */
+  --txt:       #1f2937;   /* primary  14.7:1 */
+  --txt-strong:#111827;
+  --muted:     #4b5563;   /* secondary 7.6:1 */
+  --faint:     #6b7280;   /* tertiary  4.8:1 */
+  --disabled:  #9ca3af;   /* decoration/disabled only */
+  --border:    #e5e7eb;
+  --border-strong:#c3c9d1;
+  /* Typography scale (shared across all SWAXS apps) */
+  --font:      'Inter','Segoe UI',system-ui,-apple-system,sans-serif;
+  --mono:      "JetBrains Mono","Fira Code","Courier New",monospace;
+  --fs-2xs:.6875rem; --fs-xs:.75rem; --fs-sm:.8125rem; --fs-md:.875rem;
+  --fs-base:1rem;    --fs-lg:1.125rem; --fs-xl:1.375rem; --fs-2xl:1.75rem;
+  --fw-regular:400; --fw-medium:500; --fw-semibold:600; --fw-bold:700;
+  --lh-tight:1.25; --lh-snug:1.4; --lh-normal:1.5; --ls-label:.06em;
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:24px; --sp-6:32px;
+  --radius:    8px;
+  --lw:        185px;
+}
+*,*::before,*::after { box-sizing:border-box; margin:0; padding:0 }
+html,body {
+  height:100%;
+  font-family:var(--font);
+  font-size:16px; line-height:var(--lh-normal); color:var(--txt); background:var(--bg);
+}
+
+/* ── App shell ──────────────────────────────────────── */
+#app { display:flex; height:100vh; overflow:hidden }
+
+/* ════════════════════════════════════════════════════
+   SIDEBAR  (same dark-red style as pipeline app)
+════════════════════════════════════════════════════ */
+#sidebar {
+  width:220px; flex-shrink:0;
+  background:var(--sidebar);
+  display:flex; flex-direction:column;
+}
+#logo {
+  padding:18px 16px 14px;
+  border-bottom:1px solid rgba(var(--sf),.10);
+}
+#logo-badge { font-size:12px; font-weight:700; letter-spacing:.14em;
+              text-transform:uppercase; color:rgba(var(--sf),.6); margin-bottom:4px }
+#logo-name  { font-size:20px; font-weight:700; color:rgba(var(--sf),.95); line-height:1.15 }
+#logo-sub   { font-size:14px; color:rgba(var(--sf),.5); margin-top:3px }
+
+.nav-section-label {
+  padding:14px 16px 5px;
+  font-size:13px; font-weight:700; letter-spacing:.12em;
+  text-transform:uppercase; color:rgba(var(--sf),.45);
+}
+.nav-btn {
+  display:flex; align-items:center; gap:10px;
+  padding:12px 16px; border:none; background:transparent;
+  color:rgba(var(--sf),.72); font-size:16px; font-weight:500;
+  text-align:left; width:100%; cursor:pointer;
+  transition:background .15s, color .15s;
+  border-left:3px solid transparent;
+}
+.nav-btn:hover   { background:var(--sidebar-h); color:var(--sidebar-active-fg) }
+.nav-btn.active  { background:var(--sidebar-active-bg); color:var(--sidebar-active-fg);
+                   border-left-color:var(--accent); font-weight:700 }
+.nav-icon { font-size:19px; width:24px; text-align:center; flex-shrink:0 }
+
+#sidebar-foot {
+  margin-top:auto; padding:10px 14px 12px;
+  border-top:1px solid rgba(var(--sf),.10);
+  font-size:13px; color:rgba(var(--sf),.4); line-height:1.6;
+}
+#sb-status {
+  padding:6px 9px; border-radius:4px; margin-bottom:4px;
+  background:rgba(var(--sf),.08); font-size:14px;
+  color:rgba(var(--sf),.55); word-break:break-word; line-height:1.4;
+}
+#sb-status.ok   { color:#86efac }
+#sb-status.err  { color:#fca5a5 }
+#sb-status.warn { color:#fde68a }
+#sb-status.info { color:#93c5fd }
+
+/* ════════════════════════════════════════════════════
+   MAIN AREA
+════════════════════════════════════════════════════ */
+#main { flex:1; display:flex; flex-direction:column; overflow:hidden; min-width:0 }
+
+/* Topbar */
+#topbar {
+  height:44px; flex-shrink:0;
+  background:var(--surface); border-bottom:1px solid var(--border);
+  display:flex; align-items:center; padding:0 22px; gap:14px;
+}
+#tb-mode   { font-weight:700; color:var(--txt); font-size:17px }
+#tb-detail { font-size:15px; font-family:var(--mono); color:var(--accent);
+             flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
+
+/* ── Mode panels (2D / 1D) ────────────────────────── */
+.mode-panel { display:none; flex:1; flex-direction:column; overflow:hidden }
+.mode-panel.active { display:flex }
+
+/* ── Inner tab bar (within each mode) ────────────── */
+.itab-bar {
+  display:flex; gap:0; padding:0 20px;
+  background:var(--surface2); border-bottom:2px solid var(--border);
+  flex-shrink:0;
+}
+.itab {
+  padding:11px 22px; border:none; background:transparent;
+  color:var(--muted); font-size:16px; font-weight:500; cursor:pointer;
+  border-bottom:3px solid transparent; margin-bottom:-2px;
+  transition:color .15s, border-color .15s;
+  white-space:nowrap;
+}
+.itab:hover  { color:var(--txt) }
+.itab.active { color:var(--accent); font-weight:700; border-bottom-color:var(--accent) }
+
+/* ── Inner panels (within each mode) ─────────────── */
+.ipanel { display:none }
+.ipanel.active { display:flex; flex-direction:column; flex:1; overflow:hidden }
+
+/* Scrollable inner panel (Setup etc.) */
+.ipanel-scroll { flex:1; overflow-y:auto; padding:22px 22px 22px 48px; display:flex; flex-direction:column; gap:18px }
+
+/* Fixed inner panel (charts, images) */
+.ipanel-fixed { flex:1; overflow:hidden; display:flex; flex-direction:column }
+
+/* ════════════════════════════════════════════════════
+   SHARED: Cards, forms, inputs (pipeline-app style)
+════════════════════════════════════════════════════ */
+.card {
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:var(--radius); padding:20px 22px;
+}
+.card-hd {
+  font-size:15px; font-weight:700; letter-spacing:.08em;
+  text-transform:uppercase; color:var(--accent);
+  margin-bottom:16px; padding-bottom:10px;
+  border-bottom:1px solid var(--border);
+}
+.two-col { display:grid; grid-template-columns:1fr 1fr; gap:18px }
+
+.fg {
+  display:grid; grid-template-columns:var(--lw) 1fr;
+  gap:10px 16px; align-items:start;
+}
+.fg > label {
+  text-align:right; padding-top:8px;
+  font-size:15px; color:var(--muted); font-weight:500; line-height:1.3;
+}
+.fg > .cell { display:flex; flex-direction:column; gap:4px }
+.ir { display:flex; gap:6px; align-items:center }
+.ir input,
+.ir select { flex:1 }
+.fnote { font-size:14px; color:var(--muted); padding-left:2px }
+
+input[type="text"],
+input[type="number"],
+select {
+  width:100%; padding:7px 10px;
+  background:var(--surface2); border:1px solid var(--border-strong);
+  border-radius:5px; font-size:15px; color:var(--txt);
+  transition:border-color .15s, box-shadow .15s; appearance:auto;
+}
+input:focus, select:focus {
+  outline:none; border-color:var(--accent);
+  box-shadow:0 0 0 3px rgba(140,21,21,.12); background:#fff;
+}
+
+/* Buttons */
+.btn {
+  padding:7px 15px; border:none; border-radius:5px;
+  font-size:15px; font-weight:600; cursor:pointer;
+  transition:opacity .15s; white-space:nowrap; display:inline-flex;
+  align-items:center; gap:6px;
+}
+.btn:hover    { opacity:.86 }
+.btn:disabled { opacity:.35; cursor:not-allowed }
+.btn-primary  { background:var(--accent); color:#fff }
+.btn-ghost    { background:var(--surface2); color:var(--txt); border:1px solid var(--border) }
+.btn-ok       { background:var(--ok); color:#fff }
+.btn-sm  { padding:5px 14px; font-size:15px }
+.btn-xs  { padding:3px 10px; font-size:14px }
+.btn-grp { display:flex; gap:8px; flex-wrap:wrap; align-items:center }
+
+/* Spinner */
+.spin {
+  display:none; width:12px; height:12px; border-radius:50%;
+  border:2px solid rgba(255,255,255,.3); border-top-color:#fff;
+  animation:rot .7s linear infinite;
+}
+.btn-ghost .spin { border-color:rgba(0,0,0,.2); border-top-color:var(--txt) }
+@keyframes rot { to { transform:rotate(360deg) } }
+
+/* ════════════════════════════════════════════════════
+   2D VIEWER specific styles
+════════════════════════════════════════════════════ */
+
+/* ── Single merged control bar for 2D image tabs ── */
+.img-ctrl {
+  flex-shrink:0; background:var(--surface); border-bottom:1px solid var(--border);
+  padding:7px 16px; display:flex; align-items:center; gap:7px; flex-wrap:wrap;
+}
+/* Prev / Next step buttons */
+.img-nav-btn {
+  padding:6px 15px; background:var(--surface2); border:1px solid var(--border);
+  border-radius:5px; cursor:pointer; font-size:16px; font-weight:600; color:var(--txt);
+  white-space:nowrap; flex-shrink:0;
+}
+.img-nav-btn:hover { background:var(--accent); color:#fff; border-color:var(--accent) }
+/* Compact "N / total" counter between Prev and Next */
+.img-count {
+  font-size:15px; font-family:var(--mono); color:var(--muted);
+  min-width:60px; text-align:center; flex-shrink:0;
+}
+/* Thin vertical divider */
+.img-sep {
+  width:1px; height:22px; background:var(--border); flex-shrink:0; margin:0 3px;
+}
+/* Load button */
+.img-load-btn {
+  padding:6px 16px; background:var(--accent); color:#fff; border:none;
+  border-radius:5px; cursor:pointer; font-size:16px; font-weight:600;
+  white-space:nowrap; flex-shrink:0;
+}
+.img-load-btn:hover { opacity:.88 }
+/* Filter text input */
+.img-filter {
+  flex:0 0 180px; padding:6px 10px; font-size:16px;
+  background:var(--surface2); border:1px solid var(--border);
+  border-radius:5px; color:var(--txt);
+}
+.img-filter::placeholder { color:#b0b7c3 }
+.img-filter:focus { outline:none; border-color:var(--accent);
+                    box-shadow:0 0 0 3px rgba(140,21,21,.1); background:#fff }
+/* File dropdown — grows to fill remaining space */
+.img-select {
+  flex:1; min-width:160px; padding:6px 9px; font-size:16px; font-family:var(--mono);
+  background:var(--surface2); border:1px solid var(--border);
+  border-radius:5px; color:var(--txt); cursor:pointer;
+}
+.img-select:focus { outline:none; border-color:var(--accent); background:#fff }
+
+/* image display — white background, aspect-ratio preserved */
+.img-display {
+  flex:1; min-height:0; background:#ffffff;
+  border-top:1px solid var(--border);
+  display:flex; align-items:center; justify-content:center;
+  position:relative; overflow:auto;
+}
+.img-display img {
+  max-width:100%; max-height:100%;
+  width:auto; height:auto;
+  object-fit:contain; display:block;
+}
+.img-placeholder {
+  color:var(--muted); text-align:center; font-size:15px;
+  display:flex; flex-direction:column; align-items:center; gap:10px;
+}
+.img-placeholder .ico { font-size:44px; opacity:.25 }
+.img-spinner {
+  position:absolute; inset:0; background:rgba(255,255,255,.82);
+  display:flex; align-items:center; justify-content:center;
+  color:var(--muted); font-size:13px;
+}
+
+/* save action bar — sits between image and stats */
+.img-save-bar {
+  flex-shrink:0; background:var(--surface2); border-top:1px solid var(--border);
+  padding:6px 16px; display:flex; align-items:center; gap:8px;
+}
+.img-save-bar .save-lbl {
+  font-size:15px; color:var(--muted); margin-right:4px;
+}
+.btn-save-cur {
+  padding:5px 14px; background:var(--ok); color:#fff; border:none;
+  border-radius:5px; cursor:pointer; font-size:15px; font-weight:600;
+  display:inline-flex; align-items:center; gap:5px;
+}
+.btn-save-cur:hover { opacity:.88 }
+.btn-save-cur:disabled { opacity:.35; cursor:not-allowed }
+.btn-save-avg {
+  padding:5px 14px; background:var(--accent); color:#fff; border:none;
+  border-radius:5px; cursor:pointer; font-size:15px; font-weight:600;
+  display:inline-flex; align-items:center; gap:5px;
+}
+.btn-save-avg:hover { opacity:.88 }
+.btn-save-avg:disabled { opacity:.35; cursor:not-allowed }
+.save-result {
+  font-size:14px; font-family:var(--mono); color:var(--ok-text);
+  flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.save-result.err { color:var(--err) }
+
+/* stats bar — light theme matching app */
+.img-stats {
+  flex-shrink:0; background:var(--surface2); border-top:1px solid var(--border);
+  padding:6px 22px; display:flex; gap:24px; align-items:center;
+}
+.img-stats.hidden { display:none }
+.stat .s-l { font-size:12px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted) }
+.stat .s-v { font-size:15px; font-weight:700; color:var(--txt); font-family:var(--mono) }
+
+/* ════════════════════════════════════════════════════
+   1D VIEWER specific styles
+════════════════════════════════════════════════════ */
+
+/* Chart container inside 1D panels */
+.chart-wrap { flex:1; display:flex; flex-direction:column; overflow:hidden }
+.chart-topbar {
+  flex-shrink:0; background:var(--surface); border-bottom:1px solid var(--border);
+  padding:8px 20px; display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+}
+.chart-title { font-size:15px; font-weight:700; text-transform:uppercase;
+               letter-spacing:.07em; color:var(--muted) }
+.chart-count { font-size:15px; color:var(--muted) }
+.chart-area  { flex:1; min-height:0 }
+
+.hidden-bar {
+  display:none; flex-shrink:0;
+  background:#fffbeb; border-bottom:1px solid #fde68a;
+  padding:6px 20px; font-size:15px; color:#92400e;
+  align-items:center; gap:10px;
+}
+.hidden-bar.show { display:flex }
+.restore-lnk { background:none; border:none; color:#b45309;
+               cursor:pointer; font-size:15px; text-decoration:underline; padding:0 }
+
+/* averaged controls bar */
+.avg-ctrlbar {
+  flex-shrink:0; background:var(--surface); border-bottom:1px solid var(--border);
+  padding:8px 20px; display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+}
+.avg-ctrlbar label { display:flex; align-items:center; gap:5px; font-size:15px; cursor:pointer }
+.avg-ctrlbar label input { accent-color:var(--accent) }
+.avg-ctrlbar .chart-title { margin-right:6px }
+
+/* keywords */
+#chips { display:flex; flex-wrap:wrap; gap:4px; min-height:14px; margin-bottom:4px }
+.chip {
+  display:inline-flex; align-items:center; gap:3px;
+  background:var(--surface2); border:1.5px solid; border-radius:10px;
+  padding:3px 9px 3px 7px; font-size:15px;
+}
+.chip-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0 }
+.chip-txt { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:120px }
+.chip-cnt { background:#e5e7eb; border-radius:8px; padding:0 5px;
+            font-size:13px; color:var(--muted); white-space:nowrap }
+.chip-cnt.zero { background:var(--err-lt); color:var(--err) }
+.chip-x { background:none; border:none; color:var(--muted); cursor:pointer; font-size:15px; line-height:1; padding:0 }
+.chip-x:hover { color:var(--err) }
+#paste-wrap { display:none; margin-top:5px }
+#paste-ta {
+  width:100%; height:60px; font-size:15px; font-family:var(--mono); resize:vertical;
+  background:var(--surface2); border:1px solid var(--border);
+  border-radius:var(--radius); padding:5px 8px; color:var(--txt);
+}
+/* ── keyword discovery panel ── */
+#disc-list {
+  max-height:230px; overflow-y:auto;
+  border:1px solid var(--border); border-radius:var(--radius); margin-top:10px;
+}
+.disc-row {
+  display:flex; align-items:center; gap:7px; padding:5px 10px;
+  border-bottom:1px solid #f3f3f3; font-size:16px;
+}
+.disc-row:last-child { border-bottom:none }
+.disc-row:hover { background:var(--surface2) }
+.disc-row input[type=checkbox] { flex-shrink:0; accent-color:var(--accent); cursor:pointer }
+.disc-label {
+  flex:1; font-family:var(--mono); font-size:15px;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  cursor:default;
+}
+.disc-badge {
+  border-radius:8px; padding:2px 8px; font-size:14px;
+  white-space:nowrap; flex-shrink:0; font-weight:600;
+}
+.disc-badge.s { background:#dbeafe; color:#1d4ed8 }
+.disc-badge.w { background:#dcfce7; color:#15803d }
+.disc-badge.zero { background:#f3f4f6; color:var(--muted) }
+.disc-edit {
+  background:none; border:none; cursor:pointer; color:var(--muted);
+  font-size:15px; padding:0 2px; line-height:1; flex-shrink:0;
+}
+.disc-edit:hover { color:var(--accent) }
+#disc-footer {
+  display:none; margin-top:8px; align-items:center; gap:7px; flex-wrap:wrap;
+}
+/* ── Metadata cards ─────────────────────────────────────────────────── */
+.mc{border:1px solid var(--border);border-radius:8px;margin-bottom:14px;overflow:hidden}
+.mc-hd{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:10px 16px;background:var(--surface2);
+  cursor:pointer;font-weight:700;font-size:16px;user-select:none;
+}
+.mc-hd:hover{background:var(--accent-lt)}
+.mc-tog{font-size:14px;color:var(--muted)}
+.mc-body{
+  display:grid;grid-template-columns:300px 1fr;
+  gap:16px;padding:14px 16px;
+}
+.mc-chart{min-width:0;min-height:200px}
+.mc-stats{overflow-x:auto}
+.mc-tbl{
+  width:100%;font-size:14px;border-collapse:collapse;
+  font-family:var(--mono,monospace);
+}
+.mc-tbl th{
+  color:var(--muted);font-weight:600;text-align:left;
+  padding:4px 8px;border-bottom:1px solid var(--border);
+  font-family:inherit;font-size:14px;white-space:nowrap;
+}
+.mc-tbl td{padding:5px 8px;vertical-align:middle;max-width:150px;
+           overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mc-tbl tbody tr:not(:last-child) td{border-bottom:1px solid #f0f0f0}
+.mc-kw-dot{
+  display:inline-block;width:10px;height:10px;border-radius:50%;
+  margin-right:6px;vertical-align:middle;flex-shrink:0;
+}
+.mc-cv-ok  {color:var(--ok-text);font-weight:600}
+.mc-cv-warn{color:var(--warn-text);font-weight:600}
+.mc-cv-bad {color:var(--err-text);font-weight:600}
+.mc-no-data{font-size:14px;color:var(--muted);font-style:italic}
+
+/* I0 frame filter */
+.i0-filter-params { margin-top:8px; display:flex; align-items:center; gap:7px; flex-wrap:wrap }
+.i0-reject-note {
+  display:none; margin-top:7px; padding:5px 10px; border-radius:5px;
+  background:#fef2f2; border:1px solid #fecaca; font-size:15px; color:#991b1b;
+}
+.i0-reject-note.show { display:block }
+
+/* 3-column token-trim controls */
+.disc-ctrl-grid {
+  display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:10px;
+}
+.disc-ctrl { display:flex; flex-direction:column; gap:4px }
+.disc-ctrl-lbl {
+  font-size:14px; font-weight:700; text-transform:uppercase;
+  letter-spacing:.04em; color:var(--muted);
+}
+.disc-ctrl-row { display:flex; align-items:center; gap:5px }
+.disc-ctrl-row input[type=number] { width:58px }
+.disc-ctrl-row span { font-size:15px; color:var(--muted) }
+.disc-ctrl input[type=text].disc-mid {
+  width:100%; font-family:var(--mono); font-size:15px;
+}
+
+/* misc */
+.empty { display:flex; align-items:center; justify-content:center;
+         height:100%; min-height:200px; color:var(--muted); font-style:italic; font-size:16px }
+.hint  { font-size:14px; color:var(--muted) }
+.inline { display:flex; gap:8px; align-items:center; flex-wrap:wrap }
+/* .plt removed — was unused dead CSS (averaged plots use flex-fill layout) */
+
+::-webkit-scrollbar { width:5px; height:5px }
+::-webkit-scrollbar-track { background:transparent }
+::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px }
+::-webkit-scrollbar-thumb:hover { background:var(--muted) }
+
+/* ════════════════════════════════════════════════════
+   FOLDER BROWSER MODAL
+════════════════════════════════════════════════════ */
+#modal-bg {
+  display:none; position:fixed; inset:0; background:rgba(0,0,0,.45);
+  z-index:900; align-items:center; justify-content:center;
+}
+#modal-bg.open { display:flex }
+#modal-box {
+  background:#fff; border-radius:10px; width:560px; max-height:72vh;
+  display:flex; flex-direction:column; box-shadow:0 4px 24px rgba(0,0,0,.2); overflow:hidden;
+}
+#modal-head {
+  background:var(--accent); color:#fff; padding:11px 16px;
+  display:flex; align-items:center; justify-content:space-between;
+  font-size:15px; font-weight:700;
+}
+#modal-head button { background:none; border:none; color:rgba(255,255,255,.75); font-size:20px; cursor:pointer }
+#modal-nav {
+  display:flex; align-items:center; gap:8px; padding:8px 14px;
+  background:#f8f8f8; border-bottom:1px solid var(--border);
+}
+#modal-up {
+  padding:4px 11px; background:transparent; border:1px solid var(--border);
+  border-radius:var(--radius); font-size:14px; cursor:pointer; color:var(--muted);
+}
+#modal-up:hover { background:#eee }
+#modal-path { font-size:14px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1 }
+#modal-list { overflow-y:auto; flex:1 }
+.dir-item, .file-item {
+  display:flex; align-items:center; gap:8px; padding:8px 14px;
+  cursor:pointer; font-size:15px; border-bottom:1px solid #f3f3f3;
+}
+.dir-item:hover, .file-item:hover { background:var(--surface2) }
+.dir-item.sel, .file-item.sel { background:var(--accent-lt); color:var(--accent); font-weight:600 }
+.dir-item::before  { content:'📁'; font-size:15px }
+.file-item::before { content:'📄'; font-size:15px }
+.file-item { font-family:var(--mono); color:var(--txt) }
+#modal-foot {
+  display:flex; align-items:center; gap:8px; padding:10px 14px;
+  background:#f8f8f8; border-top:1px solid var(--border);
+}
+#modal-cur { font-size:14px; color:#666; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+.m-btn { padding:7px 16px; border-radius:var(--radius); font-size:15px; font-weight:600; cursor:pointer; border:none }
+.m-sel { background:var(--accent); color:#fff } .m-sel:hover { opacity:.88 }
+.m-can { background:transparent; color:var(--muted); border:1px solid var(--border) } .m-can:hover { background:#eee }
+
+/* curve popup */
+#curve-pop {
+  display:none; position:fixed; z-index:800;
+  background:#fff; border:1px solid var(--border); border-radius:var(--radius);
+  padding:10px 14px; box-shadow:0 4px 18px rgba(0,0,0,.18); min-width:200px; max-width:300px;
+}
+#pop-fname { font-size:14px; color:var(--muted); margin-bottom:8px; word-break:break-all; line-height:1.4 }
+.pop-btns { display:flex; gap:6px }
+.pop-hide { flex:1; padding:6px 10px; background:var(--err); color:#fff; border:none;
+            border-radius:var(--radius); font-size:15px; font-weight:600; cursor:pointer }
+.pop-hide:hover { opacity:.88 }
+.pop-cancel { padding:6px 10px; background:transparent; color:var(--muted);
+              border:1px solid var(--border); border-radius:var(--radius); font-size:15px; cursor:pointer }
+/* Accessibility — visible keyboard focus ring (WCAG 2.4.7) */
+a:focus-visible,button:focus-visible,[role="button"]:focus-visible,
+input:focus-visible,select:focus-visible,textarea:focus-visible{
+  outline:2px solid var(--accent);outline-offset:2px;border-radius:4px;
+}
+/* ===== SWAXS theme v2 · charcoal sidebar · cardinal accent · dark mode ===== */
+:root[data-theme="dark"]{
+  --bg:#15161a;--surface:#1f2126;--surface2:#272a31;--border:#343842;--border-strong:#4c515c;
+  --txt:#e7e9ee;--txt-strong:#f5f7fa;--muted:#a4abb6;--faint:#7d848f;--disabled:#5a606b;
+  --accent:#d44a55;--accent-d:#b1040e;--accent-lt:#3a2023;
+  --sidebar:#1f2126;--sidebar-h:#2a2d34;--sf:231,233,238;
+  --sidebar-active-bg:rgba(212,74,85,.22);--sidebar-active-fg:#f0a6ab;
+}
+.theme-toggle{display:inline-flex;align-items:center;justify-content:center;width:34px;height:30px;border:1px solid var(--border-strong);border-radius:7px;background:var(--surface);color:var(--txt);cursor:pointer;font-size:15px;line-height:1}
+.theme-toggle:hover{background:var(--surface2)}
+/* larger left-nav text */
+.nav-btn{font-size:18px}
+.nav-section-label{font-size:15px}
+#logo-name{font-size:22px}
+</style>
+</head>
+
+<body>
+<div id="app">
+
+<!-- ══════════════════════════════════════════════════
+     SIDEBAR — only two options
+══════════════════════════════════════════════════ -->
+<nav id="sidebar">
+  <div id="logo">
+    <div id="logo-badge">SLAC · SSRL</div>
+    <div id="logo-name">SWAXS<br>Viewer</div>
+    <div id="logo-sub">Data Viewer · :5002</div>
+  </div>
+
+  <div class="nav-section-label">Select Viewer</div>
+
+  <button class="nav-btn active" data-mode="2d" onclick="switchMode('2d')">
+    <span class="nav-icon">▦</span> 2D Viewer
+  </button>
+  <button class="nav-btn" data-mode="1d" onclick="switchMode('1d')">
+    <span class="nav-icon">〜</span> 1D Viewer
+  </button>
+  <button class="nav-btn" data-mode="auto" onclick="switchMode('auto')">
+    <span class="nav-icon">🤖</span> Auto-Average
+  </button>
+
+  <div id="sidebar-foot">
+    <div id="sb-status">Select a viewer →</div>
+    SWAXS Data Viewer
+  </div>
+</nav>
+
+
+<!-- ══════════════════════════════════════════════════
+     MAIN  — two independent mode panels
+══════════════════════════════════════════════════ -->
+<div id="main">
+
+  <div id="topbar">
+    <span id="tb-mode">2D Raw Image Viewer</span>
+    <span id="tb-detail"></span>
+    <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" title="Toggle light / dark">☾</button>
+  </div>
+
+  <!-- ╔══════════════════════════════════════════════╗
+       ║   MODE: 2D VIEWER                           ║
+       ╚══════════════════════════════════════════════╝ -->
+  <div id="mode-2d" class="mode-panel active">
+
+    <!-- Inner tab bar -->
+    <div class="itab-bar">
+      <button class="itab active" data-t="2d-setup" onclick="switch2D('2d-setup')">⚙ Setup</button>
+      <button class="itab"        data-t="saxs-img"  onclick="switch2D('saxs-img')">SAXS Image</button>
+      <button class="itab"        data-t="waxs-img"  onclick="switch2D('waxs-img')">WAXS Image</button>
+    </div>
+
+    <!-- ── 2D Setup ─────────────────────────────── -->
+    <div id="tab-2d-setup" class="ipanel active">
+      <div class="ipanel-scroll">
+
+        <div class="two-col">
+          <!-- Raw folders -->
+          <div class="card">
+            <div class="card-hd">📁 Raw Data Folders</div>
+            <div class="fg">
+              <label>SAXS raw folder</label>
+              <div class="cell">
+                <div class="ir">
+                  <input type="text" id="raw-saxs-dir" placeholder="/…/2D/SAXS">
+                  <button class="btn btn-ghost btn-sm" onclick="openBrowser('raw-saxs-dir')">Browse…</button>
+                </div>
+                <span class="fnote">Folder containing SAXS .raw detector files</span>
+              </div>
+
+              <label>WAXS raw folder</label>
+              <div class="cell">
+                <div class="ir">
+                  <input type="text" id="raw-waxs-dir" placeholder="/…/2D/WAXS">
+                  <button class="btn btn-ghost btn-sm" onclick="openBrowser('raw-waxs-dir')">Browse…</button>
+                </div>
+                <span class="fnote">Folder containing WAXS .raw detector files</span>
+              </div>
+            </div>
+
+            <div class="btn-grp" style="margin-top:16px; padding-top:14px; border-top:1px solid var(--border)">
+              <button class="btn btn-primary btn-sm" onclick="loadOvFiles('saxs')">
+                <span class="spin" id="sp-saxs-load"></span>Load SAXS files
+              </button>
+              <button class="btn btn-primary btn-sm" onclick="loadOvFiles('waxs')">
+                <span class="spin" id="sp-waxs-load"></span>Load WAXS files
+              </button>
+              <button class="btn btn-ghost btn-sm" onclick="loadOvFiles('saxs');loadOvFiles('waxs')">Load both</button>
+            </div>
+          </div>
+
+          <!-- Detector shapes -->
+          <div class="card">
+            <div class="card-hd">📐 Detector Pixel Dimensions</div>
+            <div class="fg">
+              <label>SAXS rows</label>
+              <div class="cell"><input type="number" id="raw-saxs-rows" value="1043" min="1"></div>
+
+              <label>SAXS cols</label>
+              <div class="cell"><input type="number" id="raw-saxs-cols" value="981" min="1"></div>
+
+              <label>WAXS rows</label>
+              <div class="cell"><input type="number" id="raw-waxs-rows" value="195" min="1"></div>
+
+              <label>WAXS cols</label>
+              <div class="cell"><input type="number" id="raw-waxs-cols" value="487" min="1"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- PONI calibration (optional, q-space axes) -->
+        <div class="card">
+          <div class="card-hd">📡 q-Space Calibration <span style="font-weight:400;font-size:0.82em;color:var(--muted)">(optional)</span></div>
+          <p class="fnote" style="margin:0 0 12px">
+            Provide PONI calibration files to display 2D images with
+            <em>q</em><sub>x</sub> / <em>q</em><sub>y</sub> axes (nm⁻¹)
+            instead of pixel indices.  Leave blank to keep pixel axes.
+          </p>
+          <div class="two-col">
+            <div class="fg">
+              <label>SAXS PONI file</label>
+              <div class="cell">
+                <div class="ir">
+                  <input type="text" id="poni-saxs" placeholder="/…/poni/atT_SAXS.poni"
+                         oninput="scheduleRender()" style="font-family:var(--mono);font-size:.82em">
+                  <button class="btn btn-ghost btn-sm" onclick="openFileBrowser('poni-saxs','.poni')">Browse…</button>
+                </div>
+                <span class="fnote">Full path to the SAXS .poni calibration file</span>
+              </div>
+            </div>
+            <div class="fg">
+              <label>WAXS PONI file</label>
+              <div class="cell">
+                <div class="ir">
+                  <input type="text" id="poni-waxs" placeholder="/…/poni/atT_WAXS.poni"
+                         oninput="scheduleRender()" style="font-family:var(--mono);font-size:.82em">
+                  <button class="btn btn-ghost btn-sm" onclick="openFileBrowser('poni-waxs','.poni')">Browse…</button>
+                </div>
+                <span class="fnote">Full path to the WAXS .poni calibration file</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Display options (full width) -->
+        <div class="card">
+          <div class="card-hd">🎨 Display Options</div>
+          <div class="two-col">
+            <div class="fg">
+              <label>Colormap</label>
+              <div class="cell">
+                <select id="raw-cmap" onchange="scheduleRender()">
+                  <option value="viridis" selected>Viridis</option>
+                  <option value="inferno">Inferno</option>
+                  <option value="hot">Hot</option>
+                  <option value="plasma">Plasma</option>
+                  <option value="gray">Grayscale</option>
+                  <option value="RdBu_r">RdBu (diverging)</option>
+                </select>
+              </div>
+
+              <label>Intensity scale</label>
+              <div class="cell">
+                <select id="raw-log" onchange="scheduleRender()">
+                  <option value="true" selected>Log₁₀ (recommended)</option>
+                  <option value="false">Linear</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="fg">
+              <label>Contrast clip %</label>
+              <div class="cell">
+                <div class="ir">
+                  <input type="range" id="raw-clip" min="0" max="10" step="0.5" value="2"
+                         oninput="document.getElementById('clip-disp').textContent=this.value+'%';scheduleRender()"
+                         style="flex:1;accent-color:var(--accent)">
+                  <span id="clip-disp"
+                        style="min-width:32px;text-align:right;font-weight:700;color:var(--accent)">2%</span>
+                </div>
+                <span class="fnote">Clips top/bottom % of pixels for contrast</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div><!-- /tab-2d-setup -->
+
+
+    <!-- ── SAXS Image Viewer ──────────────────────── -->
+    <div id="tab-saxs-img" class="ipanel">
+      <div class="ipanel-fixed">
+        <!-- Single merged control bar -->
+        <div class="img-ctrl">
+          <input  class="img-filter" type="text" id="ov-saxs-search"
+                  placeholder="🔍 filter filenames…" oninput="filterOvList('saxs')">
+          <select class="img-select" id="ov-saxs-select" onchange="ovSelect('saxs')">
+            <option disabled selected>— load a folder first (Setup tab) —</option>
+          </select>
+          <div class="img-sep" style="margin-left:auto"></div>
+          <button class="img-nav-btn" onclick="ovNav('saxs',-1)">◀ Prev</button>
+          <span class="img-count" id="ov-saxs-count">—</span>
+          <button class="img-nav-btn" onclick="ovNav('saxs',+1)">Next ▶</button>
+          <div class="img-sep"></div>
+          <button class="img-load-btn" id="ov-saxs-load-btn" onclick="loadOvFiles('saxs')">📂 Load all</button>
+        </div>
+        <div class="img-display" id="ov-saxs-body">
+          <div class="img-placeholder">
+            <span class="ico">▦</span>
+            <span>Go to Setup, set the SAXS raw folder, click Load SAXS files</span>
+          </div>
+        </div>
+        <!-- Save actions -->
+        <div class="img-save-bar">
+          <span class="save-lbl">💾 Save:</span>
+          <button class="btn-save-cur" id="saxs-save-cur"
+                  onclick="saveCurrentImage('saxs')" disabled>
+            Current image
+          </button>
+          <button class="btn-save-avg" id="saxs-save-avg"
+                  onclick="saveAverageImages('saxs')" disabled>
+            Average all <span id="saxs-avg-count"></span> filtered
+          </button>
+          <span class="save-result" id="saxs-save-result"></span>
+        </div>
+        <div class="img-stats hidden" id="ov-saxs-stats">
+          <div class="stat"><div class="s-l">Min</div><div class="s-v" id="ss-min">—</div></div>
+          <div class="stat"><div class="s-l">Max</div><div class="s-v" id="ss-max">—</div></div>
+          <div class="stat"><div class="s-l">Mean</div><div class="s-v" id="ss-mean">—</div></div>
+          <div class="stat"><div class="s-l">Shape</div><div class="s-v" id="ss-shape">—</div></div>
+          <span style="margin-left:auto;font-size:14px;color:var(--muted)">
+            Colormap / scale / clip — Setup tab
+          </span>
+        </div>
+      </div>
+    </div><!-- /tab-saxs-img -->
+
+
+    <!-- ── WAXS Image Viewer ──────────────────────── -->
+    <div id="tab-waxs-img" class="ipanel">
+      <div class="ipanel-fixed">
+        <!-- Single merged control bar -->
+        <div class="img-ctrl">
+          <input  class="img-filter" type="text" id="ov-waxs-search"
+                  placeholder="🔍 filter filenames…" oninput="filterOvList('waxs')">
+          <select class="img-select" id="ov-waxs-select" onchange="ovSelect('waxs')">
+            <option disabled selected>— load a folder first (Setup tab) —</option>
+          </select>
+          <div class="img-sep" style="margin-left:auto"></div>
+          <button class="img-nav-btn" onclick="ovNav('waxs',-1)">◀ Prev</button>
+          <span class="img-count" id="ov-waxs-count">—</span>
+          <button class="img-nav-btn" onclick="ovNav('waxs',+1)">Next ▶</button>
+          <div class="img-sep"></div>
+          <button class="img-load-btn" id="ov-waxs-load-btn" onclick="loadOvFiles('waxs')">📂 Load all</button>
+        </div>
+        <div class="img-display" id="ov-waxs-body">
+          <div class="img-placeholder">
+            <span class="ico">▦</span>
+            <span>Go to Setup, set the WAXS raw folder, click Load WAXS files</span>
+          </div>
+        </div>
+        <!-- Save actions -->
+        <div class="img-save-bar">
+          <span class="save-lbl">💾 Save:</span>
+          <button class="btn-save-cur" id="waxs-save-cur"
+                  onclick="saveCurrentImage('waxs')" disabled>
+            Current image
+          </button>
+          <button class="btn-save-avg" id="waxs-save-avg"
+                  onclick="saveAverageImages('waxs')" disabled>
+            Average all <span id="waxs-avg-count"></span> filtered
+          </button>
+          <span class="save-result" id="waxs-save-result"></span>
+        </div>
+        <div class="img-stats hidden" id="ov-waxs-stats">
+          <div class="stat"><div class="s-l">Min</div><div class="s-v" id="ws-min">—</div></div>
+          <div class="stat"><div class="s-l">Max</div><div class="s-v" id="ws-max">—</div></div>
+          <div class="stat"><div class="s-l">Mean</div><div class="s-v" id="ws-mean">—</div></div>
+          <div class="stat"><div class="s-l">Shape</div><div class="s-v" id="ws-shape">—</div></div>
+          <span style="margin-left:auto;font-size:14px;color:var(--muted)">
+            Colormap / scale / clip — Setup tab
+          </span>
+        </div>
+      </div>
+    </div><!-- /tab-waxs-img -->
+
+  </div><!-- /mode-2d -->
+
+
+  <!-- ╔══════════════════════════════════════════════╗
+       ║   MODE: 1D VIEWER                           ║
+       ╚══════════════════════════════════════════════╝ -->
+  <div id="mode-1d" class="mode-panel">
+
+    <!-- Inner tab bar -->
+    <div class="itab-bar">
+      <button class="itab active" data-t="1d-setup"   onclick="switch1D('1d-setup')">⚙ Setup</button>
+      <button class="itab"        data-t="1d-saxs"    onclick="switch1D('1d-saxs')">SAXS 1D</button>
+      <button class="itab"        data-t="1d-waxs"    onclick="switch1D('1d-waxs')">WAXS 1D</button>
+      <button class="itab"        data-t="1d-meta"    onclick="switch1D('1d-meta')">Metadata</button>
+      <button class="itab"        data-t="1d-averaged"onclick="switch1D('1d-averaged')">Averaged</button>
+    </div>
+
+    <!-- ── 1D Setup ─────────────────────────────── -->
+    <div id="tab-1d-setup" class="ipanel active">
+      <div class="ipanel-scroll">
+
+        <div class="two-col">
+          <!-- Folders -->
+          <div class="card">
+            <div class="card-hd">📁 Processed Data Folders</div>
+            <div class="fg">
+              <label>SAXS Reduction folder</label>
+              <div class="cell">
+                <div class="ir">
+                  <input type="text" id="saxs-dir" placeholder="/…/1D/SAXS/Reduction">
+                  <button class="btn btn-ghost btn-sm" onclick="openBrowser('saxs-dir')">Browse…</button>
+                </div>
+                <span class="fnote">.dat files from SAXS detector</span>
+              </div>
+
+              <label>WAXS Reduction folder</label>
+              <div class="cell">
+                <div class="ir">
+                  <input type="text" id="waxs-dir" placeholder="/…/1D/WAXS/Reduction">
+                  <button class="btn btn-ghost btn-sm" onclick="openBrowser('waxs-dir')">Browse…</button>
+                </div>
+                <span class="fnote">.dat files from WAXS detector</span>
+              </div>
+
+              <label>Output folder</label>
+              <div class="cell">
+                <div class="ir">
+                  <input type="text" id="out-dir" placeholder="(same as source)">
+                  <button class="btn btn-ghost btn-sm" onclick="openBrowser('out-dir')">Browse…</button>
+                </div>
+                <span class="fnote">Where averaged files are written</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Keywords -->
+          <div class="card">
+            <div class="card-hd">🔑 Keywords / Sample IDs</div>
+            <div class="fg" style="margin-bottom:10px">
+              <label>Add keyword</label>
+              <div class="cell">
+                <div class="ir">
+                  <input type="text" id="kw-in" placeholder="e.g. PIP_TMC_Run1 …">
+                  <button class="btn btn-ghost btn-sm" onclick="addKwInput()">+ Add</button>
+                </div>
+              </div>
+            </div>
+            <div id="chips"></div>
+            <div class="inline" style="margin-top:6px; gap:6px">
+              <button class="btn btn-ghost btn-xs" onclick="togglePaste()">Paste list…</button>
+              <button class="btn btn-xs"
+                      style="background:var(--err-lt);color:var(--err);border:1px solid var(--err-lt)"
+                      onclick="clearKw()">✕ Clear all</button>
+            </div>
+            <div id="paste-wrap">
+              <textarea id="paste-ta" placeholder="One keyword per line…"></textarea>
+              <button class="btn btn-ghost btn-xs" onclick="addPasted()" style="margin-top:4px">Add all lines</button>
+            </div>
+            <div id="kw-summary" style="margin-top:8px;font-size:15px;color:var(--muted)"></div>
+          </div>
+        </div>
+
+        <!-- ── Discover Sample IDs ──────────────────── -->
+        <div class="card">
+          <div class="card-hd">🔍 Discover Sample IDs</div>
+          <p class="fnote" style="margin:0 0 10px">
+            Scan your 1D folders and extract unique sample identifiers from filenames.
+            Use <strong>Trim start</strong> / <strong>Trim end</strong> to remove leading or trailing
+            tokens (e.g. run index, detector suffix) and <strong>Contains</strong> to filter by a
+            substring — then click any prefix to use it as a keyword.
+          </p>
+
+          <!-- controls 3-column grid -->
+          <div class="disc-ctrl-grid">
+            <!-- col 1: trim start -->
+            <div class="disc-ctrl">
+              <span class="disc-ctrl-lbl">Trim start</span>
+              <div class="disc-ctrl-row">
+                <input type="number" id="disc-strip-first" value="0" min="0" max="12"
+                       oninput="scheduleDiscover()">
+                <span>token(s)</span>
+              </div>
+            </div>
+            <!-- col 2: trim end + separator -->
+            <div class="disc-ctrl">
+              <span class="disc-ctrl-lbl">Trim end &amp; separator</span>
+              <div class="disc-ctrl-row">
+                <input type="number" id="disc-strip" value="1" min="0" max="12"
+                       oninput="scheduleDiscover()">
+                <span>token(s)</span>
+                <span style="margin-left:4px">sep:</span>
+                <input type="text" id="disc-delim" value="_" maxlength="3"
+                       style="width:28px;text-align:center" oninput="scheduleDiscover()">
+              </div>
+            </div>
+            <!-- col 3: contains filter -->
+            <div class="disc-ctrl">
+              <span class="disc-ctrl-lbl">Contains</span>
+              <input type="text" id="disc-middle" class="disc-mid"
+                     placeholder="substring filter…" oninput="scheduleDiscover()">
+            </div>
+          </div>
+          <!-- scan button row -->
+          <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+            <button class="btn btn-primary btn-sm" onclick="discoverKw()">
+              <span class="spin" id="sp-disc" style="display:none"></span>Scan folders
+            </button>
+          </div>
+
+          <!-- example preview line — shown after first scan -->
+          <div id="disc-preview" class="fnote" style="margin-top:6px;min-height:15px"></div>
+
+          <!-- results list -->
+          <div id="disc-list" style="display:none"></div>
+
+          <!-- footer: select-all / add button -->
+          <div id="disc-footer">
+            <button class="btn btn-ghost btn-xs" onclick="discSelectAll(true)">✓ All</button>
+            <button class="btn btn-ghost btn-xs" onclick="discSelectAll(false)">✕ None</button>
+            <button class="btn btn-sm" id="disc-add-btn"
+                    style="background:var(--ok);color:#fff;border:none;cursor:pointer;padding:6px 14px;border-radius:var(--radius);font-size:15px;font-weight:600"
+                    onclick="discAddSelected()">
+              ＋ Add selected as keywords
+            </button>
+            <span id="disc-status" class="fnote" style="margin:0"></span>
+          </div>
+        </div>
+
+        <!-- Display options -->
+        <div class="card">
+          <div class="card-hd">📐 Display Options</div>
+          <div class="two-col">
+            <div class="fg">
+              <label>q range — min</label>
+              <div class="cell">
+                <div class="ir">
+                  <input type="number" id="qmin" step=".01" placeholder="auto">
+                  <select id="q-unit" style="width:68px;flex:none" onchange="onUnitChange()">
+                    <option value="nm">nm⁻¹</option>
+                    <option value="A">Å⁻¹</option>
+                  </select>
+                </div>
+              </div>
+
+              <label>q range — max</label>
+              <div class="cell">
+                <input type="number" id="qmax" step=".01" placeholder="auto">
+              </div>
+
+              <label>Axis scale</label>
+              <div class="cell">
+                <select id="scan-axis" onchange="refreshScans();try{localStorage.setItem('swaxs_view_axis',this.value)}catch(e){}">
+                  <option value="loglog">Log–Log</option>
+                  <option value="semilogy">Semilog (lin q, log I)</option>
+                  <option value="linear">Linear</option>
+                </select>
+              </div>
+            </div>
+            <div class="fg">
+              <label>Max scans / keyword</label>
+              <div class="cell">
+                <input type="number" id="opt-max" value="50" min="1">
+              </div>
+
+              <label>Display points</label>
+              <div class="cell">
+                <input type="number" id="opt-pts" value="300" min="50">
+                <span class="fnote">Downsample for speed</span>
+              </div>
+
+              <label>Error bands</label>
+              <div class="cell" style="padding-top:9px">
+                <label class="inline" style="font-size:15px;cursor:pointer">
+                  <input type="checkbox" id="opt-err" checked
+                         style="accent-color:var(--accent);width:auto">
+                  Show on averaged curves
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- I0 Frame Filter -->
+        <div class="card">
+          <div class="card-hd">🔬 I0 Frame Filter</div>
+          <label class="inline" style="font-size:15px;cursor:pointer;display:flex;align-items:center;gap:8px">
+            <input type="checkbox" id="i0-filter-on"
+                   style="accent-color:var(--accent);width:auto"
+                   onchange="onI0FilterToggle()">
+            Filter frames by I0 stability
+          </label>
+          <p class="fnote" style="margin-top:5px">
+            Exclude frames whose I0 deviates too far from the per-keyword median.
+            Applies to both plotting and averaging.
+          </p>
+          <div id="i0-filter-params" class="i0-filter-params" style="display:none">
+            <span class="form-lbl">Reject if I0 deviates more than</span>
+            <input type="number" id="i0-threshold" value="20" min="1" max="99" step="1"
+                   style="width:58px">
+            <span class="form-lbl">% from the median</span>
+          </div>
+          <div id="i0-reject-note" class="i0-reject-note"></div>
+        </div>
+
+        <!-- Truncate saved q-range -->
+        <div class="card">
+          <div class="card-hd">✂ Truncate saved q-range</div>
+          <label class="inline" style="font-size:15px;cursor:pointer;display:flex;align-items:center;gap:8px">
+            <input type="checkbox" id="trim-on" style="accent-color:var(--accent);width:auto">
+            Save only data within a q-range
+          </label>
+          <p class="fnote" style="margin-top:5px">When on, the averaged file is truncated to [q-min, q-max] (nm⁻¹) before saving.</p>
+          <div class="two-col">
+            <div class="fg"><label>q-min (nm⁻¹)</label><div class="cell"><input type="number" id="trim-qmin" step="0.01" placeholder="auto"></div></div>
+            <div class="fg"><label>q-max (nm⁻¹)</label><div class="cell"><input type="number" id="trim-qmax" step="0.01" placeholder="auto"></div></div>
+          </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="card">
+          <div class="card-hd">▶ Actions</div>
+          <div class="btn-grp">
+            <button class="btn btn-ghost" id="btn-scan" onclick="scanFiles()" disabled>
+              <span class="spin" id="sp-scan"></span>🔍 Scan Files
+            </button>
+            <button class="btn btn-primary" id="btn-load" onclick="loadAndPlot()" disabled>
+              <span class="spin" id="sp-load"></span>📈 Load &amp; Plot
+            </button>
+            <button class="btn btn-ok" id="btn-avg" onclick="doAverage()" disabled>
+              <span class="spin" id="sp-avg"></span>∑ Average &amp; Save
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div><!-- /tab-1d-setup -->
+
+
+    <!-- ── SAXS 1D ─────────────────────────────── -->
+    <div id="tab-1d-saxs" class="ipanel">
+      <div class="chart-wrap">
+        <div class="chart-topbar">
+          <span class="chart-title">SAXS — Individual Scans</span>
+          <span class="chart-count" id="pbar-saxs"></span>
+        </div>
+        <div class="hidden-bar" id="hidden-bar">
+          <span>🚫 <b id="hidden-count">0</b> curve(s) hidden</span>
+          <button class="restore-lnk" onclick="restoreAll()">Restore all</button>
+        </div>
+        <div class="chart-area" id="plot-saxs">
+          <div class="empty">Load data in Setup to view SAXS curves.</div>
+        </div>
+      </div>
+    </div>
+
+
+    <!-- ── WAXS 1D ─────────────────────────────── -->
+    <div id="tab-1d-waxs" class="ipanel">
+      <div class="chart-wrap">
+        <div class="chart-topbar">
+          <span class="chart-title">WAXS — Individual Scans</span>
+          <span class="chart-count" id="pbar-waxs"></span>
+        </div>
+        <div class="chart-area" id="plot-waxs">
+          <div class="empty">Load data in Setup to view WAXS curves.</div>
+        </div>
+      </div>
+    </div>
+
+
+    <!-- ── Metadata ───────────────────────────── -->
+    <div id="tab-1d-meta" class="ipanel">
+      <div class="ipanel-scroll" style="padding:14px 18px">
+        <p class="fnote" style="margin:0 0 10px">
+          Per-scan metadata — one card per field. Click a header to collapse.
+          Stats use SAXS when available, WAXS otherwise.
+        </p>
+        <div style="display:flex;align-items:center;gap:8px;margin:0 0 12px">
+          <label style="font-size:14px;color:var(--muted);font-weight:600">X-axis</label>
+          <select id="meta-x" onchange="onMetaXChange()"
+            style="padding:5px 9px;font-size:15px;border:1px solid var(--border-strong);border-radius:6px;background:var(--surface);color:var(--txt)">
+            <option value="scan_idx">Scan index</option>
+          </select>
+          <span class="fnote" style="margin:0">points are sorted by the chosen axis</span>
+        </div>
+        <div id="plot-meta">
+          <div class="empty">Load data in Setup first.</div>
+        </div>
+      </div>
+    </div>
+
+
+    <!-- ── Averaged ───────────────────────────── -->
+    <div id="tab-1d-averaged" class="ipanel">
+      <div class="chart-wrap">
+        <div class="avg-ctrlbar">
+          <span class="chart-title">Averaged Curves</span>
+          <label><input type="checkbox" id="avg-stitch" checked onchange="replotAvg()"> Stitch SAXS+WAXS</label>
+          <label><input type="checkbox" id="avg-err"    checked onchange="replotAvg()"> Error bands</label>
+          <label>Axis <select id="avg-axis" onchange="replotAvg();try{localStorage.setItem('swaxs_view_axis',this.value)}catch(e){}"><option value="loglog">Log–Log</option><option value="semilogy">Semilog</option><option value="linear">Linear</option></select></label>
+        </div>
+        <div class="chart-area" id="avg-content" style="overflow-y:auto;padding:16px 20px">
+          <div class="empty">Click "Average &amp; Save" in Setup to compute averages.</div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /mode-1d -->
+
+  <!-- ╔══════════════════════════════════════════════╗
+       ║   MODE: AUTO-AVERAGE                        ║
+       ╚══════════════════════════════════════════════╝ -->
+  <div id="mode-auto" class="mode-panel">
+    <div style="padding:18px 22px;overflow-y:auto;height:100%">
+
+      <div class="card">
+        <div class="card-hd">🤖 Automated Averaging</div>
+        <p class="fnote" style="margin:0">
+          Watch the Reduction folder(s) and average each sample automatically in
+          <strong>rolling batches</strong>: every time a sample gains <strong>N</strong>
+          new frames, one averaged file is written to the Averaged folder. Leave
+          keywords blank to auto-average every sample found.
+        </p>
+      </div>
+
+      <div class="card">
+        <div class="card-hd">📁 Reduction folders</div>
+        <div class="fg">
+          <label>SAXS Reduction folder</label>
+          <div class="cell"><div class="ir">
+            <input type="text" id="aa-saxs-dir" placeholder="/…/1D/SAXS/Reduction">
+            <button class="btn btn-ghost btn-sm" onclick="openBrowser('aa-saxs-dir')">Browse…</button>
+          </div></div>
+          <label>WAXS Reduction folder</label>
+          <div class="cell"><div class="ir">
+            <input type="text" id="aa-waxs-dir" placeholder="/…/1D/WAXS/Reduction">
+            <button class="btn btn-ghost btn-sm" onclick="openBrowser('aa-waxs-dir')">Browse…</button>
+          </div></div>
+          <label>Output folder (blank = each detector's Averaged/)</label>
+          <div class="cell"><div class="ir">
+            <input type="text" id="aa-out-dir" placeholder="(default: …/Averaged)">
+            <button class="btn btn-ghost btn-sm" onclick="openBrowser('aa-out-dir')">Browse…</button>
+          </div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-hd">⚙ Averaging options</div>
+        <div class="two-col">
+          <div class="fg">
+            <label>Frames per average (N)</label>
+            <div class="cell"><input type="number" id="aa-n" value="30" min="1"></div>
+            <label>Check interval (seconds)</label>
+            <div class="cell"><input type="number" id="aa-interval" value="10" min="1"></div>
+          </div>
+          <div class="fg">
+            <label>Keywords (optional, comma-separated)</label>
+            <div class="cell"><input type="text" id="aa-keywords" placeholder="blank = all samples"></div>
+            <label>I0 filter % (0 = off)</label>
+            <div class="cell"><input type="number" id="aa-i0" value="0" min="0" max="99"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-hd">✂ Truncate saved q-range</div>
+        <label class="inline" style="font-size:15px;cursor:pointer;display:flex;align-items:center;gap:8px">
+          <input type="checkbox" id="aa-qtrim-on" style="accent-color:var(--accent);width:auto">
+          Save only data within a q-range
+        </label>
+        <p class="fnote" style="margin:5px 0 8px">When on, each averaged file is truncated to [q-min, q-max] (nm⁻¹) before saving.</p>
+        <div class="two-col">
+          <div class="fg"><label>q-min (nm⁻¹)</label><div class="cell"><input type="number" id="aa-qmin" step="0.01" placeholder="auto"></div></div>
+          <div class="fg"><label>q-max (nm⁻¹)</label><div class="cell"><input type="number" id="aa-qmax" step="0.01" placeholder="auto"></div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-hd">▶ Monitor</div>
+        <div class="btn-grp" style="align-items:center">
+          <button class="btn btn-ok" id="aa-start" onclick="startAutoAvg()">▶ Start auto-averaging</button>
+          <button class="btn btn-ghost" id="aa-stop" onclick="stopAutoAvg()" disabled>⏹ Stop</button>
+          <span id="aa-state" style="padding:3px 12px;border-radius:999px;font-size:14px;font-weight:600;background:var(--surface2);color:var(--muted)">Idle</span>
+          <span id="aa-count" class="fnote" style="margin:0"></span>
+        </div>
+        <div id="aa-log"
+             style="display:none;margin-top:10px;max-height:260px;overflow-y:auto;
+                    padding:10px 12px;background:var(--surface2);border:1px solid var(--border);
+                    border-radius:var(--radius);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+                    font-size:13px;line-height:1.5"></div>
+      </div>
+
+    </div>
+  </div><!-- /mode-auto -->
+
+</div><!-- #main -->
+</div><!-- #app -->
+
+
+<!-- ═══════════ FOLDER BROWSER ═══════════ -->
+<div id="modal-bg" onclick="if(event.target===this)closeBrowser()">
+  <div id="modal-box">
+    <div id="modal-head">
+      <span id="modal-title">📂 Select Folder</span>
+      <button onclick="closeBrowser()">✕</button>
+    </div>
+    <div id="modal-nav">
+      <button id="modal-up" onclick="browseUp()">↑ Up</button>
+      <span id="modal-path">/</span>
+    </div>
+    <div id="modal-list"></div>
+    <div id="modal-foot">
+      <span id="modal-cur"></span>
+      <button class="m-btn m-can" onclick="closeBrowser()">Cancel</button>
+      <button class="m-btn m-sel" id="modal-sel-btn" onclick="selectFolder()">Select Folder</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ CURVE POPUP ═══════════ -->
+<div id="curve-pop">
+  <div id="pop-fname"></div>
+  <div class="pop-btns">
+    <button class="pop-hide" id="pop-hide-btn">Hide this curve</button>
+    <button class="pop-cancel" onclick="closePop()">Cancel</button>
+  </div>
+</div>
+
+
+<script>
+"use strict";
+/* ═══════════════════════════════════════════════════
+   Palette & constants
+═══════════════════════════════════════════════════ */
+const PAL=[
+  '#1565C0','#C62828','#2E7D32','#E65100','#6A1B9A',
+  '#00838F','#558B2F','#AD1457','#0277BD','#827717',
+  '#4527A0','#00695C','#4E342E','#283593','#BF360C',
+  '#006064','#37474F','#880E4F','#1A237E','#33691E',
+];
+const META_DEFS=[
+  {key:'i0',                   lbl:'I₀',             unit:'counts', scale:1},
+  {key:'bstop',                lbl:'Bstop',           unit:'counts', scale:1},
+  {key:'__T__',                lbl:'T = Bstop / I₀', unit:'',       scale:1},
+  {key:'CTEMP',                lbl:'CTEMP',           unit:'°C',     scale:1},
+  {key:'Timer',                lbl:'Timer',           unit:'s',      scale:1},
+  {key:'thickness_m',          lbl:'Thickness',       unit:'mm',     scale:1000},
+  {key:'normalization_factor', lbl:'Norm. factor',    unit:'',       scale:1},
+];
+
+/* ═══════════════════════════════════════════════════
+   App state
+═══════════════════════════════════════════════════ */
+const S   ={kws:[],colors:{},counts:null,data:null,avgData:null,hidden:new Set()};
+// allFiles = full folder scan; files = filter-applied working set; idx = position in files
+const OV  ={saxs:{allFiles:[],files:[],idx:0},waxs:{allFiles:[],files:[],idx:0}};
+let _renderTimer=null;
+// Metadata X-axis: scan_idx by default, or a time field (Timer/Time/epoch).
+let META_DATA=null, META_X='scan_idx';
+const META_TIME_FIELDS=[
+  {key:'Timer', lbl:'Timer (s)'},
+  {key:'Time',  lbl:'Time (s)'},
+  {key:'epoch', lbl:'Epoch (s)'},
+  {key:'Epoch', lbl:'Epoch (s)'},
+];
+function _metaXLabel(){
+  if(META_X==='scan_idx') return 'Scan index';
+  const f=META_TIME_FIELDS.find(t=>t.key===META_X);
+  return f?f.lbl:META_X;
+}
+
+/* ═══════════════════════════════════════════════════
+   Color
+═══════════════════════════════════════════════════ */
+function col(kw){
+  if(!S.colors[kw])S.colors[kw]=PAL[Object.keys(S.colors).length%PAL.length];
+  return S.colors[kw];
+}
+function hex2rgba(h,a){
+  const r=parseInt(h.slice(1,3),16),g=parseInt(h.slice(3,5),16),b=parseInt(h.slice(5,7),16);
+  return`rgba(${r},${g},${b},${a})`;
+}
+
+/* ═══════════════════════════════════════════════════
+   Top-level mode switching  (2D / 1D)
+═══════════════════════════════════════════════════ */
+function switchMode(m){
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.mode===m));
+  document.querySelectorAll('.mode-panel').forEach(p=>p.classList.toggle('active',p.id===`mode-${m}`));
+  document.getElementById('tb-mode').textContent=
+    m==='2d'?'2D Raw Image Viewer':m==='auto'?'Automated Averaging':'1D Processed Data Viewer';
+  document.getElementById('tb-detail').textContent='';
+  setTimeout(()=>window.dispatchEvent(new Event('resize')),80);
+}
+
+/* ═══════════════════════════════════════════════════
+   Inner tab switching
+═══════════════════════════════════════════════════ */
+function switch2D(t){
+  const bar=document.querySelector('#mode-2d .itab-bar');
+  bar.querySelectorAll('.itab').forEach(b=>b.classList.toggle('active',b.dataset.t===t));
+  document.querySelectorAll('#mode-2d .ipanel').forEach(p=>p.classList.toggle('active',p.id===`tab-${t}`));
+  setTimeout(()=>window.dispatchEvent(new Event('resize')),80);
+}
+function switch1D(t){
+  const bar=document.querySelector('#mode-1d .itab-bar');
+  bar.querySelectorAll('.itab').forEach(b=>b.classList.toggle('active',b.dataset.t===t));
+  document.querySelectorAll('#mode-1d .ipanel').forEach(p=>p.classList.toggle('active',p.id===`tab-${t}`));
+  setTimeout(()=>window.dispatchEvent(new Event('resize')),80);
+}
+
+/* ═══════════════════════════════════════════════════
+   2D Viewer — load / navigate / render
+═══════════════════════════════════════════════════ */
+async function loadOvFiles(det){
+  const dir=document.getElementById('raw-'+det+'-dir').value.trim();
+  if(!dir){
+    setSt(`Set the ${det.toUpperCase()} raw folder in 2D Setup first.`,'warn');
+    switch2D('2d-setup'); return;
+  }
+  const sp=document.getElementById('sp-'+det+'-load');
+  if(sp)sp.style.display='inline-block';
+  setSt(`Scanning ${det.toUpperCase()} folder…`,'info');
+  try{
+    const d=await api(`/api/list-raw?dir=${encodeURIComponent(dir)}`);
+    OV[det].allFiles=d.files??[];
+    if(!OV[det].allFiles.length){
+      setSt('No .raw files found in this folder.','warn'); return;
+    }
+    // Apply filter at load time — filter text already entered before clicking Load
+    const q=(document.getElementById('ov-'+det+'-search')?.value||'').toLowerCase().trim();
+    OV[det].files=q
+      ? OV[det].allFiles.filter(f=>f.toLowerCase().includes(q))
+      : [...OV[det].allFiles];
+    OV[det].idx=0;
+    const n=OV[det].files.length, total=OV[det].allFiles.length;
+    setSt(q
+      ? `${n} of ${total} files matched "${q}" — ${det.toUpperCase()}`
+      : `${n} files loaded — ${det.toUpperCase()}`
+    , 'ok');
+    switch2D(det+'-img');
+    populateOvSelect(det);
+    if(OV[det].files.length) renderOvImage(det);
+  }catch(e){setSt('Load error: '+e,'err');}
+  finally{if(sp)sp.style.display='none';}
+}
+
+function ovNav(det,delta){
+  const ov=OV[det]; if(!ov.files.length)return;
+  ov.idx=((ov.idx+delta)+ov.files.length)%ov.files.length;
+  renderOvImage(det);
+}
+
+async function renderOvImage(det){
+  const ov=OV[det]; if(!ov.files.length)return;
+  const dir=document.getElementById('raw-'+det+'-dir').value.trim(); if(!dir)return;
+  const fname=ov.files[ov.idx];
+  const rows =parseInt(document.getElementById('raw-'+det+'-rows').value)||(det==='saxs'?1043:195);
+  const cols =parseInt(document.getElementById('raw-'+det+'-cols').value)||(det==='saxs'?981:487);
+  const cmap =document.getElementById('raw-cmap').value;
+  const log  =document.getElementById('raw-log').value;
+  const clip =document.getElementById('raw-clip').value;
+  const poni =(document.getElementById('poni-'+det)?.value||'').trim();
+
+  const prefix = det==='saxs'?'ss':'ws';
+  populateOvSelect(det);  // updates counter + dropdown highlight
+
+  const body=document.getElementById('ov-'+det+'-body');
+  let sp=body.querySelector('.img-spinner');
+  if(!sp){sp=document.createElement('div');sp.className='img-spinner';body.appendChild(sp);}
+  sp.textContent='Rendering…'; sp.style.display='flex';
+
+  try{
+    const p=new URLSearchParams({file:dir+'/'+fname,rows,cols,cmap,log,clip,poni});
+    const d=await api(`/api/raw-image?${p}`);
+    if(d.error){
+      body.innerHTML=`<div class="img-placeholder"><span class="ico">⚠</span><span>${esc(d.error)}</span></div>`;
+      return;
+    }
+    body.innerHTML=`<img src="data:image/png;base64,${d.image}" alt="${esc(fname)}"
+      style="max-width:100%;max-height:100%;display:block;object-fit:contain">`;
+    const st=document.getElementById('ov-'+det+'-stats');
+    st.classList.remove('hidden');
+    document.getElementById(prefix+'-min').textContent  =d.min.toLocaleString();
+    document.getElementById(prefix+'-max').textContent  =d.max.toLocaleString();
+    document.getElementById(prefix+'-mean').textContent =d.mean.toLocaleString();
+    document.getElementById(prefix+'-shape').textContent=`${d.shape[0]} × ${d.shape[1]}`;
+  }catch(e){
+    body.innerHTML=`<div class="img-placeholder"><span class="ico">⚠</span><span>${esc(String(e))}</span></div>`;
+  }
+}
+
+/* ── File list: filter / select / populate ──────── */
+
+// Populate the dropdown from OV[det].files (already the working set).
+// Also updates the counter badge.
+function populateOvSelect(det){
+  const sel    =document.getElementById('ov-'+det+'-select');
+  const counter=document.getElementById('ov-'+det+'-count');
+  if(!sel) return;
+  const files   =OV[det].files;
+  const allCount=OV[det].allFiles.length;
+  // No folder loaded yet
+  if(!allCount){
+    sel.innerHTML='<option disabled>— load a folder first (Setup tab) —</option>';
+    if(counter) counter.textContent='—';
+    return;
+  }
+  // Nothing passes the current filter
+  if(!files.length){
+    sel.innerHTML='<option disabled>No files match — try a different filter or reload</option>';
+    if(counter) counter.textContent=`0 / ${allCount}`;
+    return;
+  }
+  // Normal: list files in working set
+  sel.innerHTML=files
+    .map((f,i)=>`<option value="${i}"${i===OV[det].idx?' selected':''}>${esc(f)}</option>`)
+    .join('');
+  // Counter: "3 / 12  (47 in folder)" when filtered, "3 / 47" when not
+  if(counter){
+    const filtered=files.length<allCount;
+    counter.textContent=filtered
+      ? `${OV[det].idx+1} / ${files.length}  (${allCount} total)`
+      : `${OV[det].idx+1} / ${files.length}`;
+  }
+  updateSaveButtons(det);
+}
+
+// Called live as user types in the filter input.
+// Re-filters allFiles → updates files → tries to keep current file selected.
+function filterOvList(det){
+  updateLoadLabel(det);                       // update Load button label
+  if(!OV[det].allFiles.length) return;        // nothing loaded yet; nothing to filter
+  const q=(document.getElementById('ov-'+det+'-search')?.value||'').toLowerCase().trim();
+  const currentFile=OV[det].files[OV[det].idx]; // remember what's on screen
+  OV[det].files=q
+    ? OV[det].allFiles.filter(f=>f.toLowerCase().includes(q))
+    : [...OV[det].allFiles];
+  // Try to keep the same file visible; otherwise jump to first
+  const newIdx=OV[det].files.indexOf(currentFile);
+  OV[det].idx=newIdx>=0?newIdx:0;
+  populateOvSelect(det);
+  if(OV[det].files.length) renderOvImage(det);
+}
+
+// Enable/disable save buttons and update the "N filtered" count badge.
+function updateSaveButtons(det){
+  const files  =OV[det].files;
+  const hasCur =files.length>0;
+  const curBtn =document.getElementById(det+'-save-cur');
+  const avgBtn =document.getElementById(det+'-save-avg');
+  const cntEl  =document.getElementById(det+'-avg-count');
+  if(curBtn) curBtn.disabled=!hasCur;
+  if(avgBtn) avgBtn.disabled=!hasCur;
+  if(cntEl)  cntEl.textContent=files.length>0?`(${files.length})`:'';
+}
+
+// Update Load button text to reflect what will happen on click.
+function updateLoadLabel(det){
+  const btn=document.getElementById('ov-'+det+'-load-btn');
+  if(!btn) return;
+  const q=(document.getElementById('ov-'+det+'-search')?.value||'').trim();
+  btn.textContent=q?'📂 Load filtered':'📂 Load all';
+}
+
+// User picks a file directly from the dropdown.
+function ovSelect(det){
+  const sel=document.getElementById('ov-'+det+'-select');
+  if(!sel||sel.value==='') return;
+  OV[det].idx=parseInt(sel.value);
+  renderOvImage(det);
+}
+/* ─────────────────────────────────────────────────── */
+
+/* ── Save functions ─────────────────────────────── */
+function _renderParams(det){
+  return{
+    rows: parseInt(document.getElementById('raw-'+det+'-rows').value)||(det==='saxs'?1043:195),
+    cols: parseInt(document.getElementById('raw-'+det+'-cols').value)||(det==='saxs'?981:487),
+    cmap: document.getElementById('raw-cmap').value,
+    log:  document.getElementById('raw-log').value,
+    clip: document.getElementById('raw-clip').value,
+    poni: (document.getElementById('poni-'+det)?.value||'').trim(),
+  };
+}
+function _setSaveResult(det, msg, isErr=false){
+  const el=document.getElementById(det+'-save-result');
+  if(!el) return;
+  el.textContent=msg; el.className='save-result'+(isErr?' err':'');
+}
+
+async function saveCurrentImage(det){
+  const ov=OV[det]; if(!ov.files.length) return;
+  const dir=document.getElementById('raw-'+det+'-dir').value.trim();
+  if(!dir) return;
+  const fname=ov.files[ov.idx];
+  const btn=document.getElementById(det+'-save-cur');
+  btn.disabled=true; btn.textContent='Saving…';
+  try{
+    const r=await api('/api/save-image',{
+      file:dir+'/'+fname, ..._renderParams(det)
+    });
+    if(r.error){ _setSaveResult(det,'Error: '+r.error,true); return; }
+    _setSaveResult(det,`✓ Saved → Saved_2D/${r.png}  +  ${r.svg}`);
+    setSt('Saved: '+r.png+' + '+r.svg,'ok');
+  }catch(e){ _setSaveResult(det,'Error: '+e,true); }
+  finally{ btn.disabled=false; btn.textContent='Current image'; }
+}
+
+async function saveAverageImages(det){
+  const ov=OV[det]; if(!ov.files.length) return;
+  const dir=document.getElementById('raw-'+det+'-dir').value.trim();
+  if(!dir) return;
+  const btn=document.getElementById(det+'-save-avg');
+  const n=ov.files.length;
+  btn.disabled=true; btn.innerHTML=`<span style="display:inline-block;width:11px;height:11px;
+    border-radius:50%;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;
+    animation:rot .7s linear infinite"></span> Averaging ${n} files…`;
+  _setSaveResult(det,`Computing pixel average of ${n} files…`);
+  try{
+    const r=await api('/api/save-average',{
+      dir, files:ov.files, ..._renderParams(det)
+    });
+    if(r.error){ _setSaveResult(det,'Error: '+r.error,true); return; }
+    const skip=r.skipped?.length?`  (${r.skipped.length} skipped)`:'';
+    _setSaveResult(det,`✓ Averaged ${r.n_files} files → Saved_2D/${r.png}  +  ${r.svg}${skip}`);
+    setSt('Average saved: '+r.png+' + '+r.svg,'ok');
+  }catch(e){ _setSaveResult(det,'Error: '+e,true); }
+  finally{
+    btn.disabled=false;
+    btn.innerHTML=`Average all <span id="${det}-avg-count">(${n})</span> filtered`;
+  }
+}
+/* ─────────────────────────────────────────────────── */
+
+function scheduleRender(){
+  clearTimeout(_renderTimer);
+  _renderTimer=setTimeout(()=>{
+    ['saxs','waxs'].forEach(det=>{ if(OV[det].files.length)renderOvImage(det); });
+  },420);
+}
+
+/* ═══════════════════════════════════════════════════
+   Keywords
+═══════════════════════════════════════════════════ */
+function addKwInput(){const i=document.getElementById('kw-in');addKw(i.value);i.value='';i.focus()}
+function addKw(kw){
+  kw=kw.trim(); if(!kw||S.kws.includes(kw))return;
+  S.kws.push(kw); col(kw); renderChips(); updBtns();
+}
+function rmKw(kw){S.kws=S.kws.filter(k=>k!==kw);renderChips();updBtns()}
+function clearKw(){S.kws=[];S.counts=null;renderChips();updBtns()}
+function togglePaste(){
+  const w=document.getElementById('paste-wrap');
+  w.style.display=w.style.display==='none'?'block':'none';
+}
+function addPasted(){
+  document.getElementById('paste-ta').value.split('\n').forEach(l=>addKw(l));
+  document.getElementById('paste-ta').value='';
+  document.getElementById('paste-wrap').style.display='none';
+}
+document.getElementById('kw-in').addEventListener('keydown',e=>{if(e.key==='Enter')addKwInput()});
+
+/* ═══════════════════════════════════════════════════
+   Keyword Discovery
+═══════════════════════════════════════════════════ */
+let _discData = [];      // last scan results
+let _discTimer = null;   // debounce timer for strip/delimiter changes
+
+// Debounced re-scan when strip or delimiter inputs change
+function scheduleDiscover(){
+  clearTimeout(_discTimer);
+  _discTimer = setTimeout(()=>{ if(_discData.length||hasDiscFolders()) discoverKw(); }, 500);
+}
+function hasDiscFolders(){
+  return !!(document.getElementById('saxs-dir').value.trim() ||
+            document.getElementById('waxs-dir').value.trim());
+}
+
+async function discoverKw(){
+  const saxsDir = document.getElementById('saxs-dir').value.trim();
+  const waxsDir = document.getElementById('waxs-dir').value.trim();
+  if(!saxsDir && !waxsDir){
+    document.getElementById('disc-preview').textContent =
+      'Set at least one folder above, then click Scan folders.';
+    return;
+  }
+  const stripFirst  = Math.max(0, parseInt(document.getElementById('disc-strip-first').value)||0);
+  const stripLast   = Math.max(0, parseInt(document.getElementById('disc-strip').value)||0);
+  const delim       = document.getElementById('disc-delim').value || '_';
+  const midFilter   = (document.getElementById('disc-middle').value||'').trim();
+
+  // Spinner on
+  const sp = document.getElementById('sp-disc');
+  sp.style.display = 'inline-block';
+  document.getElementById('disc-preview').textContent = 'Scanning…';
+
+  try{
+    const data = await api('/api/discover-keywords',
+      {saxs_folder: saxsDir, waxs_folder: waxsDir,
+       strip_first: stripFirst, strip_last: stripLast,
+       delimiter: delim, middle_filter: midFilter});
+
+    _discData = data.prefixes || [];
+    _renderDiscList(_discData);
+
+    // Preview line: show an example transformation
+    const previewEl = document.getElementById('disc-preview');
+    if(_discData.length){
+      // Find an example: pick a row that has a non-trivial example
+      const ex = _discData.find(d=>d.examples?.length) || _discData[0];
+      const origStem = ex?.examples?.[0]?.replace(/\.dat$/i,'') ?? '';
+      if((stripFirst > 0 || stripLast > 0) && origStem && origStem !== ex.label){
+        previewEl.innerHTML =
+          `e.g. <code style="background:var(--surface2);padding:1px 4px;border-radius:3px">`+
+          `${esc(origStem)}</code> → <strong>${esc(ex.label)}</strong>  `+
+          `(${_discData.length} unique prefix${_discData.length!==1?'es':''})`;
+      } else {
+        previewEl.textContent = `${_discData.length} unique stem${_discData.length!==1?'s':''}`;
+      }
+      if(data.errors?.length)
+        previewEl.textContent += '  ⚠ '+data.errors.join('; ');
+    } else {
+      previewEl.textContent = data.errors?.length
+        ? '⚠ '+data.errors.join('; ')
+        : 'No .dat files found.';
+    }
+  }catch(e){
+    document.getElementById('disc-preview').textContent = 'Error: '+e;
+  }finally{
+    sp.style.display = 'none';
+  }
+}
+
+function _renderDiscList(prefixes){
+  const list   = document.getElementById('disc-list');
+  const footer = document.getElementById('disc-footer');
+  list.innerHTML = '';
+
+  if(!prefixes.length){
+    list.style.display = 'none';
+    footer.style.display = 'none';
+    return;
+  }
+
+  prefixes.forEach(item => {
+    const alreadyAdded = S.kws.includes(item.label);
+    const row = document.createElement('div');
+    row.className = 'disc-row' + (alreadyAdded ? ' disc-added' : '');
+    if(alreadyAdded) row.style.opacity = '0.45';
+
+    const sBadge = item.saxs
+      ? `<span class="disc-badge s" title="${item.saxs} SAXS file(s)">${item.saxs}S</span>` : '';
+    const wBadge = item.waxs
+      ? `<span class="disc-badge w" title="${item.waxs} WAXS file(s)">${item.waxs}W</span>` : '';
+    const exTitle = (item.examples||[]).join('\n');
+
+    row.innerHTML =
+      `<input type="checkbox" class="disc-cb" value="${esc(item.label)}"${alreadyAdded?'':' checked'}${alreadyAdded?' disabled':''}>`+
+      `<span class="disc-label" title="${esc(exTitle)}">${esc(item.label)}</span>`+
+      sBadge + wBadge +
+      `<button class="disc-edit" title="Edit then add to keywords"
+               onclick="discPrefill('${escJ(item.label)}')">✏</button>`;
+    list.appendChild(row);
+  });
+
+  list.style.display = 'block';
+  footer.style.display = 'flex';
+  _discUpdateAddBtn();
+}
+
+// Count how many checkboxes are checked → update Add button label
+function _discUpdateAddBtn(){
+  const checked = document.querySelectorAll('.disc-cb:not(:disabled):checked').length;
+  const btn = document.getElementById('disc-add-btn');
+  btn.textContent = checked
+    ? `＋ Add ${checked} selected as keyword${checked!==1?'s':''}`
+    : '＋ Add selected as keywords';
+  btn.disabled = checked === 0;
+  btn.style.opacity = checked ? '1' : '0.5';
+}
+// Wire checkbox changes to update button
+document.addEventListener('change', e => {
+  if(e.target.classList.contains('disc-cb')) _discUpdateAddBtn();
+});
+
+function discSelectAll(val){
+  document.querySelectorAll('.disc-cb:not(:disabled)').forEach(cb=>{cb.checked=val;});
+  _discUpdateAddBtn();
+}
+
+function discAddSelected(){
+  let added = 0;
+  document.querySelectorAll('.disc-cb:not(:disabled):checked').forEach(cb=>{
+    addKw(cb.value); added++;
+  });
+  // Grey out the ones just added
+  _renderDiscList(_discData);
+  const st = document.getElementById('disc-status');
+  st.textContent = added ? `✓ Added ${added} keyword${added!==1?'s':''}` : '';
+  setTimeout(()=>{st.textContent='';}, 3000);
+}
+
+// Pre-fill the keyword input with this prefix so user can edit before adding
+function discPrefill(label){
+  const inp = document.getElementById('kw-in');
+  inp.value = label;
+  inp.focus();
+  inp.select();
+  // Scroll to keyword card (in case it's above)
+  inp.scrollIntoView({behavior:'smooth', block:'nearest'});
+}
+
+function renderChips(){
+  const c=document.getElementById('chips'); c.innerHTML='';
+  S.kws.forEach(kw=>{
+    const sc=S.counts?.saxs?.[kw]??null,wc=S.counts?.waxs?.[kw]??null;
+    let badge='';
+    if(sc!==null||wc!==null){
+      const s=sc??0,w=wc??0,cls='chip-cnt'+(s+w===0?' zero':'');
+      badge=`<span class="${cls}" title="SAXS:${s} WAXS:${w}">${s}S / ${w}W</span>`;
+    }
+    const d=document.createElement('div');
+    d.className='chip'; d.style.borderColor=col(kw);
+    d.innerHTML=`<span class="chip-dot" style="background:${col(kw)}"></span>
+      <span class="chip-txt" title="${esc(kw)}">${esc(short(kw,24))}</span>
+      ${badge}
+      <button class="chip-x" onclick="rmKw('${escJ(kw)}')">&times;</button>`;
+    c.appendChild(d);
+  });
+  const sum=document.getElementById('kw-summary');
+  if(S.counts){
+    let ts=0,tw=0;
+    S.kws.forEach(k=>{ts+=S.counts.saxs?.[k]??0;tw+=S.counts.waxs?.[k]??0});
+    sum.textContent=`Found: ${ts} SAXS files, ${tw} WAXS files`;
+    sum.style.color=ts+tw>0?'var(--ok)':'var(--err)';
+  }else{
+    sum.textContent='';
+  }
+  // Update topbar detail
+  document.getElementById('tb-detail').textContent=
+    S.kws.length?`${S.kws.length} keyword${S.kws.length>1?'s':''}: `+S.kws.map(k=>short(k,18)).join(', '):'';
+}
+
+function updBtns(){
+  const ok=S.kws.length>0;
+  document.getElementById('btn-scan').disabled=!ok;
+  document.getElementById('btn-load').disabled=!ok;
+}
+
+/* ═══════════════════════════════════════════════════
+   Config & API
+═══════════════════════════════════════════════════ */
+function cfg(){
+  const i0On  = document.getElementById('i0-filter-on').checked;
+  const i0Pct = i0On ? (+document.getElementById('i0-threshold').value || 20) : 0;
+  const trimOn = document.getElementById('trim-on') && document.getElementById('trim-on').checked;
+  const tqmin  = document.getElementById('trim-qmin') ? document.getElementById('trim-qmin').value.trim() : '';
+  const tqmax  = document.getElementById('trim-qmax') ? document.getElementById('trim-qmax').value.trim() : '';
+  return{
+    saxs_folder:   document.getElementById('saxs-dir').value.trim(),
+    waxs_folder:   document.getElementById('waxs-dir').value.trim(),
+    output_dir:    document.getElementById('out-dir').value.trim(),
+    keywords:      S.kws,
+    max_per_kw:    +document.getElementById('opt-max').value||50,
+    n_display:     +document.getElementById('opt-pts').value||300,
+    i0_filter_pct: i0Pct,
+    q_min:         (trimOn && tqmin!=='') ? +tqmin : null,
+    q_max:         (trimOn && tqmax!=='') ? +tqmax : null,
+  };
+}
+function onI0FilterToggle(){
+  const on = document.getElementById('i0-filter-on').checked;
+  document.getElementById('i0-filter-params').style.display = on ? '' : 'none';
+  if(!on){
+    document.getElementById('i0-reject-note').classList.remove('show');
+    document.getElementById('i0-reject-note').textContent='';
+  }
+}
+async function api(url,body=null){
+  const o={method:body?'POST':'GET',headers:{}};
+  if(body){o.headers['Content-Type']='application/json';o.body=JSON.stringify(body);}
+  const r=await fetch(url,o); if(!r.ok)throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+
+/* ═══════════════════════════════════════════════════
+   Actions
+═══════════════════════════════════════════════════ */
+async function scanFiles(){
+  if(!S.kws.length){setSt('Add keywords first.','warn');return}
+  spinBtn('scan',true); setSt('Scanning…','info');
+  try{
+    S.counts=await api('/api/scan',cfg()); renderChips();
+    let ts=0,tw=0; S.kws.forEach(k=>{ts+=S.counts.saxs?.[k]??0;tw+=S.counts.waxs?.[k]??0});
+    setSt(`Found: ${ts} SAXS + ${tw} WAXS files`,'ok');
+    document.getElementById('btn-load').disabled=(ts+tw===0);
+  }catch(e){setSt('Scan error: '+e.message,'err');}
+  finally{spinBtn('scan',false);}
+}
+
+async function loadAndPlot(){
+  if(!S.kws.length){setSt('Add keywords first.','warn');return}
+  spinBtn('load',true); setSt('Loading…','info');
+  try{
+    const d=await api('/api/load',cfg());
+    S.data=d; S.hidden.clear();
+    const ns=nCurves(d.saxs), nw=nCurves(d.waxs);
+
+    // Tally rejected frames across all keywords and detectors
+    let nb=0, badLines=[];
+    for(const[det,kd] of[['SAXS',d.saxs],['WAXS',d.waxs]]){
+      if(!kd) continue;
+      for(const[kw,kwo] of Object.entries(kd)){
+        const bad=kwo.bad_frames||[];
+        if(bad.length){
+          nb+=bad.length;
+          const med=kwo.median_i0!=null?` (median I₀=${kwo.median_i0.toFixed(4)})`:''
+          badLines.push(`${det} "${short(kw,20)}": ${bad.length} frame${bad.length>1?'s':''} rejected${med}`);
+        }
+      }
+    }
+    // Update reject note div
+    const note=document.getElementById('i0-reject-note');
+    if(nb>0){
+      note.innerHTML='⚠ I0 filter rejected '+nb+' frame'+(nb>1?'s':'')+
+        ':<ul style="margin:4px 0 0 16px;padding:0">'+
+        badLines.map(l=>`<li>${esc(l)}</li>`).join('')+'</ul>';
+      note.classList.add('show');
+    } else {
+      note.classList.remove('show'); note.textContent='';
+    }
+
+    const filtMsg = nb>0 ? ` — ⚠ ${nb} frame${nb>1?'s':''} rejected by I0 filter` : '';
+    if(d.errors?.length) setSt('Loaded with warnings: '+d.errors[0],'warn');
+    else setSt(`Loaded: ${ns} SAXS + ${nw} WAXS curves${filtMsg}`, nb>0?'warn':'ok');
+    document.getElementById('btn-avg').disabled=false;
+    document.getElementById('pbar-saxs').textContent=`${ns} curves`;
+    document.getElementById('pbar-waxs').textContent=`${nw} curves`;
+    updateHiddenBar(); plotScans(d); plotMeta(d);
+    switch1D('1d-saxs');
+  }catch(e){setSt('Load error: '+e.message,'err');}
+  finally{spinBtn('load',false);}
+}
+
+async function doAverage(){
+  spinBtn('avg',true); setSt('Averaging…','info');
+  try{
+    const r=await api('/api/average',cfg());
+    S.avgData=r;
+    if(r.errors?.length) setSt('Warning: '+r.errors[0],'warn');
+    else setSt(`Saved: ${r.saved.length} averaged file(s)`,'ok');
+    switch1D('1d-averaged'); renderAvg(r);
+  }catch(e){setSt('Average error: '+e.message,'err');}
+  finally{spinBtn('avg',false);}
+}
+
+/* ═══════════════════════════════════════════════════
+   Auto-Average Monitor
+═══════════════════════════════════════════════════ */
+let _aaES=null;
+function aaSetState(txt,on){
+  const el=document.getElementById('aa-state');
+  el.textContent=txt;
+  el.style.background = on ? 'var(--ok)' : 'var(--surface2)';
+  el.style.color      = on ? '#fff'      : 'var(--muted)';
+}
+function aaLog(line){
+  const box=document.getElementById('aa-log');
+  box.style.display='block';
+  const colors={ok:'var(--ok)',error:'var(--err)',warn:'#b8860b',info:'var(--muted)'};
+  const div=document.createElement('div');
+  div.style.color=colors[line.tag]||'var(--txt)';
+  div.textContent=`[${line.ts}]  ${line.msg}`;
+  box.appendChild(div);
+  while(box.childNodes.length>500) box.removeChild(box.firstChild);
+  box.scrollTop=box.scrollHeight;
+}
+function aaOpenStream(){
+  if(_aaES) _aaES.close();
+  _aaES=new EventSource('/api/monitor/stream');
+  _aaES.onmessage=e=>{ try{ aaLog(JSON.parse(e.data)); }catch(_){} };
+  // EventSource auto-reconnects on error; nothing to do.
+}
+function aaVal(id){const e=document.getElementById(id);return e?e.value.trim():'';}
+async function startAutoAvg(){
+  const sx=aaVal('aa-saxs-dir'), wx=aaVal('aa-waxs-dir'), out=aaVal('aa-out-dir');
+  if(!sx && !wx){setSt('Set a Reduction folder first.','warn');return;}
+  const kws=aaVal('aa-keywords').split(/[,\n]+/).map(s=>s.trim()).filter(Boolean);
+  const trim=document.getElementById('aa-qtrim-on')&&document.getElementById('aa-qtrim-on').checked;
+  const qmin=aaVal('aa-qmin'), qmax=aaVal('aa-qmax');
+  const body={
+    frames_per_average: +aaVal('aa-n')||30,
+    interval:           +aaVal('aa-interval')||10,
+    saxs_folder:        sx,
+    waxs_folder:        wx,
+    output_dir_saxs:    out,
+    output_dir_waxs:    out,
+    i0_filter_pct:      +aaVal('aa-i0')||0,
+    keywords:           kws,
+    q_min:              trim&&qmin!==''?+qmin:null,
+    q_max:              trim&&qmax!==''?+qmax:null,
+  };
+  try{
+    const r=await api('/api/monitor/start',body);
+    if(!r.ok){setSt('Auto-average: '+(r.error||'failed'),'err');return;}
+    document.getElementById('aa-start').disabled=true;
+    document.getElementById('aa-stop').disabled=false;
+    document.getElementById('aa-log').innerHTML='';
+    aaSetState('Running',true);
+    aaOpenStream();
+    aaPollStatus();
+    setSt('Auto-averaging started','ok');
+  }catch(e){setSt('Auto-average error: '+e.message,'err');}
+}
+async function stopAutoAvg(){
+  try{ await api('/api/monitor/stop',{}); }catch(_){}
+  if(_aaES){ _aaES.close(); _aaES=null; }
+  document.getElementById('aa-start').disabled=false;
+  document.getElementById('aa-stop').disabled=true;
+  aaSetState('Idle',false);
+}
+async function aaPollStatus(){
+  try{
+    const s=await api('/api/monitor/status');
+    const cnt=document.getElementById('aa-count');
+    if(s.monitoring){
+      cnt.textContent=`${s.batches} batch${s.batches===1?'':'es'} written`
+        +(s.last?` · last: ${s.last}`:'');
+      document.getElementById('aa-start').disabled=true;
+      document.getElementById('aa-stop').disabled=false;
+      aaSetState('Running',true);
+      if(!_aaES) aaOpenStream();
+      setTimeout(aaPollStatus,3000);
+    }else{
+      cnt.textContent=s.batches?`${s.batches} batch${s.batches===1?'':'es'} written (stopped)`:'';
+      document.getElementById('aa-start').disabled=false;
+      document.getElementById('aa-stop').disabled=true;
+      aaSetState('Idle',false);
+    }
+  }catch(_){ setTimeout(aaPollStatus,5000); }
+}
+// On load, reflect a monitor that may already be running (e.g. after reload).
+window.addEventListener('DOMContentLoaded',()=>{ try{ aaPollStatus(); }catch(_){} });
+
+/* ═══════════════════════════════════════════════════
+   Plot helpers
+═══════════════════════════════════════════════════ */
+function qMul(){return document.getElementById('q-unit').value==='A'?0.1:1}
+function qLbl(){return document.getElementById('q-unit').value==='A'?'q  [Å⁻¹]':'q  [nm⁻¹]'}
+
+function applyQRange(q,I,sig){
+  const mn=parseFloat(document.getElementById('qmin').value),
+        mx=parseFloat(document.getElementById('qmax').value);
+  if(isNaN(mn)&&isNaN(mx))return[q,I,sig];
+  const m=q.map(v=>(isNaN(mn)||v>=mn)&&(isNaN(mx)||v<=mx));
+  return[q.filter((_,i)=>m[i]),I.filter((_,i)=>m[i]),sig.filter((_,i)=>m[i])];
+}
+
+
+// Axis-scale presets shared by the 1D plots: loglog | semilogy | linear
+function axisFlags(mode){return mode==='linear'?[false,false]:mode==='semilogy'?[false,true]:[true,true];}
+(function restoreViewerAxis(){try{const a=localStorage.getItem('swaxs_view_axis');if(a){const s1=document.getElementById('scan-axis'),s2=document.getElementById('avg-axis');if(s1)s1.value=a;if(s2)s2.value=a;}}catch(e){}})();
+function baseLayout(title,xl,yl,logX=true,logY=true){
+  return{
+    paper_bgcolor:'transparent',plot_bgcolor:'#ffffff',
+    title:{text:title,font:{size:18,color:'#333'},x:.5,xanchor:'center'},
+    xaxis:{type:logX?'log':'linear',title:{text:xl,font:{size:16}},
+           showgrid:true,gridcolor:'#e8e8e8',showline:true,linecolor:'#aaa',
+           linewidth:1.5,mirror:true,ticks:'outside',tickfont:{size:14},zeroline:false},
+    yaxis:{type:logY?'log':'linear',title:{text:yl,font:{size:16}},
+           showgrid:true,gridcolor:'#e8e8e8',showline:true,linecolor:'#aaa',
+           linewidth:1.5,mirror:true,ticks:'outside',tickfont:{size:14},zeroline:false},
+    legend:{bgcolor:'rgba(255,255,255,.9)',bordercolor:'#ccc',borderwidth:1,
+            font:{size:13},x:0.98,y:0.99,xanchor:'right',yanchor:'top'},
+    hovermode:'closest',margin:{t:52,l:80,r:22,b:70},autosize:true,
+  };
+}
+const PCFG={responsive:true,displayModeBar:true,
+  modeBarButtonsToRemove:['sendDataToCloud'],
+  toImageButtonOptions:{format:'svg',width:900,height:600}};
+
+/* ═══════════════════════════════════════════════════
+   plotScans
+═══════════════════════════════════════════════════ */
+function plotScans(data){
+  ['saxs','waxs'].forEach(det=>{
+    const divId='plot-'+det, kd=data[det];
+    if(!kd||!Object.keys(kd).length){
+      Plotly.purge(divId);
+      document.getElementById(divId).innerHTML=
+        `<div class="empty">No ${det.toUpperCase()} data loaded.</div>`;
+      return;
+    }
+    const qm=qMul(), traces=[];
+    for(const[kw,kwo]of Object.entries(kd)){
+      const c=col(kw),n=kwo.curves.length;
+      const alpha=Math.max(0.12,Math.min(0.9,1-.013*n));
+      kwo.curves.forEach((curve,i)=>{
+        if(S.hidden.has(curve.name))return;
+        // Convert q to current unit first so applyQRange filters in the same
+        // unit space as the user-entered qmin/qmax bounds (matches buildAvgTraces).
+        let[q,I,sig]=applyQRange(curve.q.map(v=>v*qm),curve.I,curve.sigma);
+        if(!q.length)return;
+        traces.push({
+          x:q,y:I,type:'scattergl',mode:'lines',
+          line:{color:hex2rgba(c,alpha),width:1},
+          name:short(kw,28),legendgroup:kw,showlegend:i===0,
+          meta:{filename:curve.name,keyword:kw,scan_idx:curve.scan_idx},
+          hovertemplate:`<b>${esc(short(kw,35))}</b><br>scan ${curve.scan_idx}<br>`+
+                        `q=%{x:.4f}<br>I=%{y:.3e}<extra></extra>`,
+        });
+      });
+    }
+    const [lx,ly]=axisFlags((document.getElementById('scan-axis')||{}).value||'loglog');
+    const lay=baseLayout(det.toUpperCase()+' — Individual Scans',qLbl(),'Intensity  [a.u.]',lx,ly);
+    Plotly.react(divId,traces,lay,PCFG);
+    const el=document.getElementById(divId);
+    el.removeAllListeners?.('plotly_click');
+    el.on('plotly_click',onCurveClick);
+  });
+}
+function refreshScans(){if(S.data)plotScans(S.data)}
+
+/* ═══════════════════════════════════════════════════
+   Curve hide popup
+═══════════════════════════════════════════════════ */
+function onCurveClick(ev){
+  const pt=ev.points?.[0]; if(!pt)return;
+  const meta=pt.data?.meta; if(!meta?.filename)return;
+  const px=ev.event.clientX,py=ev.event.clientY;
+  const pop=document.getElementById('curve-pop');
+  document.getElementById('pop-fname').innerHTML=
+    `<b>${esc(meta.keyword)}</b><br>
+     <span style="font-family:var(--mono);font-size:14px">${esc(meta.filename)}</span>`;
+  pop.style.display='block';
+  pop.style.left=Math.min(px+10,window.innerWidth-260)+'px';
+  pop.style.top =Math.min(py-10,window.innerHeight-100)+'px';
+  document.getElementById('pop-hide-btn').onclick=()=>{
+    S.hidden.add(meta.filename); closePop(); updateHiddenBar(); refreshScans();
+  };
+}
+function closePop(){document.getElementById('curve-pop').style.display='none'}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closePop()});
+
+function updateHiddenBar(){
+  const n=S.hidden.size;
+  document.getElementById('hidden-bar').classList.toggle('show',n>0);
+  document.getElementById('hidden-count').textContent=n;
+}
+function restoreAll(){S.hidden.clear();updateHiddenBar();refreshScans()}
+
+/* ═══════════════════════════════════════════════════
+   Metadata cards  (replaces old stacked plotMeta)
+═══════════════════════════════════════════════════ */
+function _metaStats(vals){
+  const v=vals.filter(x=>x!=null&&isFinite(x));
+  if(!v.length) return null;
+  const mean=v.reduce((a,b)=>a+b,0)/v.length;
+  const std=Math.sqrt(v.map(x=>(x-mean)**2).reduce((a,b)=>a+b,0)/v.length);
+  const cv=mean!==0?Math.abs(std/mean)*100:null;
+  return{n:v.length,mean,std,cv,min:Math.min(...v),max:Math.max(...v)};
+}
+function _sf(v,s=4){
+  if(v==null||!isFinite(v)) return '—';
+  const abs=Math.abs(v);
+  // Use scientific for very small/large values
+  if(abs>0&&(abs<0.001||abs>=1e6)) return v.toExponential(2);
+  return parseFloat(v.toPrecision(s)).toString();
+}
+function toggleMc(di){
+  const body=document.getElementById('mc-body-'+di);
+  const tog =document.getElementById('mc-tog-'+di);
+  if(!body) return;
+  const open=body.style.display!=='none';
+  body.style.display=open?'none':'';
+  tog.textContent=open?'▼':'▲';
+}
+
+function plotMeta(data){ renderMetaCards(data); }   // backward-compat alias
+
+function onMetaXChange(){
+  META_X=document.getElementById('meta-x').value||'scan_idx';
+  if(META_DATA) renderMetaCards(META_DATA);
+}
+
+function renderMetaCards(data){
+  META_DATA=data;
+  const kd=Object.keys(data.saxs??{}).length?data.saxs:data.waxs;
+  const container=document.getElementById('plot-meta');
+  if(!kd||!Object.keys(kd).length){
+    container.innerHTML='<div class="empty">No metadata.</div>'; return;
+  }
+  // Determine which fields have at least one real value
+  const present=new Set();
+  for(const kwo of Object.values(kd))
+    for(const row of kwo.meta) Object.keys(row).forEach(k=>k!=='scan_idx'&&present.add(k));
+
+  // Populate the X-axis selector: scan index + any time field that's present.
+  const sel=document.getElementById('meta-x');
+  if(sel){
+    const timeOpts=META_TIME_FIELDS.filter(t=>present.has(t.key));
+    if(!timeOpts.some(t=>t.key===META_X) && META_X!=='scan_idx') META_X='scan_idx';
+    // Default to a time axis on first load if one exists.
+    if(META_X==='scan_idx' && timeOpts.length && !sel.dataset.userSet) META_X=timeOpts[0].key;
+    sel.innerHTML='<option value="scan_idx">Scan index</option>'+
+      timeOpts.map(t=>`<option value="${t.key}">${t.lbl}</option>`).join('');
+    sel.value=META_X;
+    sel.onchange=()=>{ sel.dataset.userSet='1'; onMetaXChange(); };
+  }
+  const defs=META_DEFS.filter(d=>{
+    if(d.key==='__T__') return present.has('i0')&&present.has('bstop');
+    return present.has(d.key);
+  });
+  if(!defs.length){
+    container.innerHTML='<div class="empty">No numeric metadata in files.</div>'; return;
+  }
+  // Build card shells, then fill each asynchronously so the page doesn't freeze
+  const unitSpan=u=>u?` <span style="font-weight:400;font-size:.82em;color:var(--muted)">[${esc(u)}]</span>`:'';
+  container.innerHTML=defs.map((def,di)=>
+    `<div class="mc" id="mc-${di}">
+       <div class="mc-hd" onclick="toggleMc(${di})">
+         <span>${esc(def.lbl)}${unitSpan(def.unit)}</span>
+         <span class="mc-tog" id="mc-tog-${di}">▲</span>
+       </div>
+       <div class="mc-body" id="mc-body-${di}">
+         <div class="mc-stats" id="mc-stats-${di}"></div>
+         <div class="mc-chart" id="mc-chart-${di}"></div>
+       </div>
+     </div>`
+  ).join('');
+
+  const i0On = document.getElementById('i0-filter-on').checked;
+  const i0Pct= i0On?(+document.getElementById('i0-threshold').value||20):0;
+  // Fill cards — stagger to keep UI responsive
+  defs.forEach((def,di)=>setTimeout(()=>_fillMetaCard(di,def,kd,i0On,i0Pct),di*30));
+}
+
+function _fillMetaCard(di,def,kd,i0On,i0Pct){
+  const statsDiv=document.getElementById('mc-stats-'+di);
+  const chartId ='mc-chart-'+di;
+  if(!statsDiv||!document.getElementById(chartId)) return;
+  const traces=[];
+  let rows='';
+
+  const xf=META_X;                       // 'scan_idx' or a time field
+  const xLbl=_metaXLabel();
+  for(const[kw,kwo] of Object.entries(kd)){
+    const c=col(kw);
+    // Sort each scan series by the chosen x (time or scan index); drop rows
+    // missing the x value so a time axis stays clean.
+    const sorted=[...kwo.meta]
+      .filter(r=>r[xf]!=null&&isFinite(r[xf]))
+      .sort((a,b)=>a[xf]-b[xf]);
+    const xs=sorted.map(r=>r[xf]);
+    let ys;
+    if(def.key==='__T__') ys=sorted.map(r=>r.i0>0?r.bstop/r.i0:null);
+    else ys=sorted.map(r=>r[def.key]!=null?r[def.key]*def.scale:null);
+
+    // ── Main trace ──────────────────────────────────────────────────────
+    traces.push({
+      x:xs,y:ys,type:'scatter',mode:'markers',
+      marker:{color:c,size:7,opacity:0.85},
+      name:short(kw,26),legendgroup:kw,showlegend:true,
+      hovertemplate:`<b>${esc(short(kw,32))}</b><br>${esc(xLbl)}=%{x}<br>`+
+        `${esc(def.lbl+(def.unit?' ['+def.unit+']':''))}=%{y:.4g}<extra></extra>`,
+    });
+
+    // ── I0 extras: bad-frame ✕ and threshold band ───────────────────────
+    if(def.key==='i0'){
+      // Bad frames carry their own numeric metadata so they place on any axis.
+      const bad=(kwo.bad_frames||[])
+        .map(b=>({x: xf==='scan_idx'?b.scan_idx:(b.meta?b.meta[xf]:null), i0:b.i0}))
+        .filter(b=>b.i0!=null&&b.x!=null&&isFinite(b.x))
+        .sort((a,b)=>a.x-b.x);
+      const med=kwo.median_i0;
+      if(bad.length){
+        traces.push({
+          x:bad.map(b=>b.x),y:bad.map(b=>b.i0),
+          customdata:bad.map(()=>med),
+          type:'scatter',mode:'markers',
+          marker:{symbol:'x-thin',size:12,color:'#dc2626',
+                  line:{width:2.5,color:'#dc2626'}},
+          name:short(kw,18)+' ⚠',legendgroup:kw+'_bad',showlegend:true,
+          hovertemplate:`<b>⚠ Rejected — ${esc(short(kw,28))}</b><br>${esc(xLbl)}=%{x}<br>`+
+            `I₀=%{y:.4g}`+(med!=null?`<br>median=%{customdata:.4g}`:'')+'<extra></extra>',
+        });
+      }
+      if(i0On&&i0Pct>0&&med!=null){
+        const allX=[...xs,...bad.map(b=>b.x)];
+        const xlo=Math.min(...allX),xhi=Math.max(...allX);
+        [[med*(1+i0Pct/100),'+'],[med*(1-i0Pct/100),'-']].forEach(([yv,sign])=>{
+          traces.push({
+            x:[xlo,xhi],y:[yv,yv],type:'scatter',mode:'lines',
+            line:{color:'#dc2626',width:1.2,dash:'dot'},
+            name:sign+i0Pct+'% threshold',showlegend:false,hoverinfo:'skip',
+          });
+        });
+      }
+    }
+
+    // ── Summary stats row ───────────────────────────────────────────────
+    const st=_metaStats(ys);
+    if(st){
+      const cvCls=st.cv==null?'':(st.cv<2?'mc-cv-ok':st.cv<10?'mc-cv-warn':'mc-cv-bad');
+      rows+=`<tr>
+        <td title="${esc(kw)}"><span class="mc-kw-dot" style="background:${c}"></span>${esc(short(kw,16))}</td>
+        <td>${_sf(st.mean)}</td>
+        <td>${_sf(st.std)}</td>
+        <td class="${cvCls}">${st.cv!=null?st.cv.toFixed(1)+'%':'—'}</td>
+        <td style="white-space:nowrap">${_sf(st.min)} – ${_sf(st.max)}</td>
+      </tr>`;
+    } else {
+      rows+=`<tr><td colspan="5" class="mc-no-data">${esc(short(kw,22))} — no data</td></tr>`;
+    }
+  }
+
+  statsDiv.innerHTML=
+    `<table class="mc-tbl">
+       <thead><tr>
+         <th>Keyword</th><th>Mean</th><th>Std</th><th>CV%</th><th>Min – Max</th>
+       </tr></thead>
+       <tbody>${rows}</tbody>
+     </table>`;
+
+  Plotly.react(chartId,traces,{
+    paper_bgcolor:'transparent',plot_bgcolor:'#ffffff',
+    margin:{t:8,l:66,r:12,b:52},
+    xaxis:{title:{text:_metaXLabel(),font:{size:13}},showgrid:true,gridcolor:'#e8e8e8',
+           showline:true,linecolor:'#aaa',linewidth:1,mirror:true,
+           ticks:'outside',tickfont:{size:12},zeroline:false},
+    yaxis:{title:{text:def.lbl+(def.unit?' ['+def.unit+']':''),font:{size:13}},
+           showgrid:true,gridcolor:'#e8e8e8',showline:true,linecolor:'#aaa',
+           linewidth:1,mirror:true,ticks:'outside',tickfont:{size:12},zeroline:false},
+    legend:{bgcolor:'rgba(255,255,255,.85)',bordercolor:'#ccc',borderwidth:1,
+            font:{size:12},x:1.02,xanchor:'left',y:1},
+    showlegend:true,hovermode:'closest',height:220,
+  },{responsive:true,displayModeBar:false});
+}
+
+/* ═══════════════════════════════════════════════════
+   Averaged
+═══════════════════════════════════════════════════ */
+function renderAvg(data){S.avgData=data;replotAvg()}
+function replotAvg(){
+  const data=S.avgData; if(!data)return;
+  const stitch=document.getElementById('avg-stitch').checked;
+  const errB  =document.getElementById('avg-err').checked;
+  const [lx,ly]=axisFlags((document.getElementById('avg-axis')||{}).value||'loglog');
+  const qm=qMul(),ql=qLbl();
+  const allKws=[...new Set([...Object.keys(data.saxs??{}),...Object.keys(data.waxs??{})])];
+  const cont=document.getElementById('avg-content');
+
+  if(stitch){
+    // Full-screen: fill all available height just like the SAXS 1D / WAXS 1D panels
+    cont.style.cssText='overflow:hidden;padding:0;flex:1;min-height:0;';
+    cont.innerHTML=`<div style="height:100%;display:flex;flex-direction:column;padding:14px;box-sizing:border-box">
+      <div class="card-hd" style="flex-shrink:0;margin-bottom:8px">∑ SAXS + WAXS — Averaged</div>
+      <div id="plot-avg" style="flex:1;min-height:0"></div></div>`;
+    Plotly.react('plot-avg',buildAvgTraces(allKws,data,qm,errB),
+      baseLayout('Averaged — SAXS + WAXS',ql,'Intensity  [a.u.]',lx,ly),PCFG);
+  }else{
+    // Side-by-side: full-height flex layout (same as stitch and individual panels)
+    cont.style.cssText='overflow:hidden;padding:0;flex:1;min-height:0;';
+    cont.innerHTML=`<div style="height:100%;display:flex;gap:18px;padding:14px;box-sizing:border-box">
+      <div class="card" style="flex:1;padding:14px;display:flex;flex-direction:column;min-height:0">
+        <div class="card-hd" style="flex-shrink:0;margin-bottom:8px">SAXS — Averaged</div>
+        <div id="plot-avg-saxs" style="flex:1;min-height:0"></div></div>
+      <div class="card" style="flex:1;padding:14px;display:flex;flex-direction:column;min-height:0">
+        <div class="card-hd" style="flex-shrink:0;margin-bottom:8px">WAXS — Averaged</div>
+        <div id="plot-avg-waxs" style="flex:1;min-height:0"></div></div></div>`;
+    ['saxs','waxs'].forEach(det=>{
+      Plotly.react('plot-avg-'+det,buildAvgDetTraces(allKws,data[det]??{},qm,errB),
+        baseLayout(det.toUpperCase()+' — Averaged',ql,'Intensity  [a.u.]',lx,ly),PCFG);
+    });
+  }
+}
+
+function buildAvgTraces(kws,data,qm,errB){
+  const tr=[];
+  kws.forEach(kw=>{
+    const c=col(kw),lb=short(kw,30); let first=true;
+    [['SAXS',data.saxs??{}],['WAXS',data.waxs??{}]].forEach(([det,obj])=>{
+      const avg=obj[kw]; if(!avg)return;
+      let[q,I,sig]=applyQRange(avg.q.map(v=>v*qm),avg.I,avg.sigma);
+      if(errB)pushBand(tr,q,I,sig,c,kw);
+      tr.push({x:q,y:I,type:'scatter',mode:'lines',line:{color:c,width:2.2},
+        name:lb,legendgroup:kw,showlegend:first,
+        hovertemplate:`<b>${esc(kw)}</b> (${det})<br>q=%{x:.4f}<br>I=%{y:.3e}<extra></extra>`});
+      first=false;
+    });
+  });
+  return tr;
+}
+function buildAvgDetTraces(kws,obj,qm,errB){
+  const tr=[];
+  kws.forEach(kw=>{
+    const avg=obj[kw]; if(!avg)return;
+    const c=col(kw);
+    let[q,I,sig]=applyQRange(avg.q.map(v=>v*qm),avg.I,avg.sigma);
+    if(errB)pushBand(tr,q,I,sig,c,kw);
+    tr.push({x:q,y:I,type:'scatter',mode:'lines',line:{color:c,width:2.2},
+      name:short(kw,30),legendgroup:kw,showlegend:true,
+      hovertemplate:`<b>${esc(kw)}</b><br>q=%{x:.4f}<br>I=%{y:.3e}<extra></extra>`});
+  });
+  return tr;
+}
+function pushBand(tr,q,I,sig,c,kw){
+  const up=I.map((v,i)=>v+sig[i]),lo=I.map((v,i)=>Math.max(v-sig[i],v*1e-9));
+  tr.push({x:q,y:up,mode:'lines',line:{width:0},showlegend:false,legendgroup:kw,hoverinfo:'skip',type:'scatter'});
+  tr.push({x:q,y:lo,mode:'lines',line:{width:0},fill:'tonexty',fillcolor:hex2rgba(c,.16),
+    showlegend:false,legendgroup:kw,hoverinfo:'skip',type:'scatter'});
+}
+
+/* ═══════════════════════════════════════════════════
+   Folder browser
+═══════════════════════════════════════════════════ */
+const B={target:null,data:null,fileMode:false,filesExt:''};
+// ── Folder / file browser modal ──────────────────────────────────────────────
+// B.fileMode = false → folder mode (existing behaviour)
+// B.fileMode = true  → file mode: dirs navigate, files are selectable
+function _openModal(id, fileMode, ext){
+  B.target=id; B.fileMode=!!fileMode; B.filesExt=ext||'';
+  const title=fileMode?'📄 Select File':'📂 Select Folder';
+  document.getElementById('modal-title').textContent=title;
+  document.getElementById('modal-sel-btn').textContent=fileMode?'Select File':'Select Folder';
+  document.getElementById('modal-bg').classList.add('open');
+  const cur=document.getElementById(id).value.trim();
+  // In file mode seed from parent dir if value already contains a file path
+  const seed=fileMode&&cur?String(cur).replace(/\/[^/]+\.poni$/i,''):cur;
+  fetchDir(seed||null);
+}
+function openBrowser(id)          { _openModal(id, false, ''); }
+function openFileBrowser(id, ext) { _openModal(id, true,  ext||'.poni'); }
+
+function closeBrowser(){document.getElementById('modal-bg').classList.remove('open')}
+
+async function fetchDir(path){
+  try{
+    // Build URL with URLSearchParams so ? vs & is always correct
+    const params=new URLSearchParams();
+    if(path) params.set('path', path);
+    if(B.filesExt) params.set('files_ext', B.filesExt);
+    const url=`/api/browse?${params}`;
+    B.data=await api(url);
+    document.getElementById('modal-path').textContent=B.data.current;
+    // In folder mode, the current dir is the default selection; in file mode start blank
+    if(!B.fileMode){
+      document.getElementById('modal-cur').textContent=B.data.current;
+      document.getElementById('modal-cur').title=B.data.current;
+    } else {
+      document.getElementById('modal-cur').textContent='';
+      document.getElementById('modal-cur').title='';
+    }
+    document.getElementById('modal-up').disabled=!B.data.parent;
+    const list=document.getElementById('modal-list'); list.innerHTML='';
+
+    // ── Directories
+    B.data.dirs.forEach(name=>{
+      const it=document.createElement('div');
+      it.className='dir-item'; it.textContent=name;
+      const nav=()=>fetchDir(B.data.current+'/'+name);
+      if(B.fileMode){
+        // In file mode a single click navigates into the dir
+        it.onclick=nav; it.ondblclick=nav;
+      } else {
+        // In folder mode a single click selects it, double-click navigates
+        it.ondblclick=nav;
+        it.onclick=()=>{
+          document.querySelectorAll('.dir-item,.file-item').forEach(x=>x.classList.remove('sel'));
+          it.classList.add('sel');
+          const sel=B.data.current+'/'+name;
+          document.getElementById('modal-cur').textContent=sel;
+          document.getElementById('modal-cur').title=sel;
+        };
+      }
+      list.appendChild(it);
+    });
+
+    // ── Files (only in file mode)
+    if(B.fileMode && B.data.files?.length){
+      B.data.files.forEach(name=>{
+        const it=document.createElement('div');
+        it.className='file-item'; it.textContent=name;
+        it.onclick=()=>{
+          document.querySelectorAll('.dir-item,.file-item').forEach(x=>x.classList.remove('sel'));
+          it.classList.add('sel');
+          const sel=B.data.current+'/'+name;
+          document.getElementById('modal-cur').textContent=sel;
+          document.getElementById('modal-cur').title=sel;
+        };
+        it.ondblclick=()=>{ it.click(); selectFolder(); };   // double-click = pick immediately
+        list.appendChild(it);
+      });
+    } else if(B.fileMode && !B.data.files?.length){
+      // Show a hint when no matching files in this directory
+      const hint=document.createElement('div');
+      hint.style.cssText='padding:10px 14px;font-size:15px;color:var(--muted);font-style:italic';
+      hint.textContent=`No ${B.filesExt} files here — navigate to the folder containing your calibration file.`;
+      list.appendChild(hint);
+    }
+  }catch(e){console.error('browse',e);}
+}
+
+function browseUp(){if(B.data?.parent)fetchDir(B.data.parent)}
+function selectFolder(){
+  const chosen=document.getElementById('modal-cur').textContent.trim();
+  if(chosen&&B.target)document.getElementById(B.target).value=chosen;
+  closeBrowser();
+  if(!B.fileMode) updBtns();
+  else scheduleRender();   // re-render with new PONI path
+}
+
+/* ═══════════════════════════════════════════════════
+   Utilities
+═══════════════════════════════════════════════════ */
+function setSt(msg,type='info'){
+  const s=document.getElementById('sb-status');
+  s.textContent=msg; s.className=type;
+}
+function spinBtn(which,on){
+  const m={scan:['sp-scan','btn-scan'],load:['sp-load','btn-load'],avg:['sp-avg','btn-avg']};
+  const[sid,bid]=m[which];
+  const sp=document.getElementById(sid); if(sp)sp.style.display=on?'inline-block':'none';
+  const bt=document.getElementById(bid); if(bt)bt.disabled=on;
+}
+function nCurves(det){
+  if(!det)return 0;
+  return Object.values(det).reduce((s,kw)=>s+(kw.curves?.length??0),0);
+}
+function onUnitChange(){if(S.data)plotScans(S.data);if(S.avgData)replotAvg()}
+
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+function escJ(s){return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'")}
+function short(s,n){if(s.length<=n)return s;const h=Math.floor((n-3)/2);return s.slice(0,h)+'…'+s.slice(-h)}
+
+window.addEventListener('resize',()=>{
+  ['plot-saxs','plot-waxs','plot-meta','plot-avg','plot-avg-saxs','plot-avg-waxs']
+  .forEach(id=>{const el=document.getElementById(id);if(el?._fullLayout)Plotly.Plots.resize(el)});
+});
+
+updBtns();
+</script>
+<script>
+/* Auto-fill folder paths from the hub project root (resets on project change). */
+(function(){
+  let last=null;
+  const strip=s=>s.replace(/\/+$/,'');
+  const set=(id,v)=>{const e=document.getElementById(id); if(e) e.value=v;};
+  function apply(root){
+    root=strip(root);
+    set('raw-saxs-dir', root+'/2D/SAXS');
+    set('raw-waxs-dir', root+'/2D/WAXS');
+    set('saxs-dir',     root+'/1D/SAXS/Reduction');
+    set('waxs-dir',     root+'/1D/WAXS/Reduction');
+    set('aa-saxs-dir',  root+'/1D/SAXS/Reduction');
+    set('aa-waxs-dir',  root+'/1D/WAXS/Reduction');
+  }
+  async function poll(){
+    try{const d=await (await fetch('/api/project')).json();
+      const r=(d.project_root||'').trim();
+      if(r && r!==last){last=r; apply(r);}
+    }catch(e){}
+  }
+  poll(); setInterval(poll,3000);
+})();
+</script>
+<script>
+(function(){var K='swaxs-theme',s=localStorage.getItem(K),
+ d=s?s==='dark':matchMedia('(prefers-color-scheme:dark)').matches;
+ function ap(x){document.documentElement.setAttribute('data-theme',x?'dark':'light');
+  var b=document.getElementById('themeToggle');if(b)b.textContent=x?'☀':'☾';}
+ ap(d);window.toggleTheme=function(){d=!d;localStorage.setItem(K,d?'dark':'light');ap(d);};})();
+</script>
+</body>
+</html>

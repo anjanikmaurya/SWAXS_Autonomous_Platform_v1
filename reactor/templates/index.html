@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SWAXS · Flow Synthesis</title>
+<style>
+/* Font scale bumped up across the app; sizes are rem-based off html. */
+html{font-size:18px}
+:root{
+  --fs-xs:.82rem;--fs-sm:.94rem;--fs-md:1.05rem;--fs-lg:1.45rem;--radius:9px;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+  /* light theme (default) */
+  --bg:#f4f5f7;--surface:#ffffff;--surface2:#eef0f3;--border:#d8dce2;--border-strong:#b9c0ca;
+  --text:#1c2128;--muted:#5c6470;--accent:#B83A4B;--accent-d:#8c1515;
+  --ok:#15803d;--warn:#b45309;--err:#b3261e;--info:#1d4ed8;
+}
+:root[data-theme="dark"]{
+  --bg:#15161a;--surface:#1f2126;--surface2:#272a31;--border:#343842;--border-strong:#4c515c;
+  --text:#e7e9ee;--muted:#a4abb6;--accent:#d44a55;--accent-d:#b1040e;
+  --ok:#4ade80;--warn:#d8a657;--err:#f87171;--info:#7da9d8;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--text);font-size:1.02rem}
+.topbar{display:flex;align-items:center;gap:12px;padding:10px 18px;background:#1a1c21;border-bottom:1px solid var(--border)}
+.topbar h1{font-size:var(--fs-lg);font-weight:700;margin:0}
+.topbar h1 span{color:#f0a6ab;font-weight:500}
+.topbar .sub{font-size:var(--fs-xs);color:var(--muted)}
+.topbar a{color:#f0a6ab;text-decoration:none}
+.proj{font-size:var(--fs-xs);color:var(--muted);font-family:var(--mono);max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.state-pill{padding:4px 14px;border-radius:999px;font-size:var(--fs-sm);font-weight:800;text-transform:uppercase;letter-spacing:.04em;background:var(--surface2);color:var(--muted)}
+.state-idle{background:#3a3d44;color:#c9ced6}
+.state-arming{background:#3a3120;color:var(--warn)}
+.state-running{background:#1f3a29;color:var(--ok)}
+.state-flushing{background:#1d2f3a;color:var(--info)}
+.state-ready{background:#23303a;color:#8fc3e0}
+.state-estop{background:#3a2023;color:var(--err)}
+.wrap{padding:16px 32px;display:grid;grid-template-columns:500px 1fr;gap:20px;align-items:start}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;margin-bottom:14px}
+.card-hd{font-size:var(--fs-sm);font-weight:700;margin-bottom:10px}
+label{font-size:var(--fs-xs);color:var(--muted);font-weight:600;display:block;margin-bottom:3px}
+input{width:100%;background:var(--surface2);border:1px solid var(--border-strong);border-radius:6px;color:var(--text);padding:6px 9px;font-size:var(--fs-sm)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.btn{padding:7px 12px;border:none;border-radius:var(--radius);font-size:var(--fs-sm);font-weight:600;cursor:pointer;color:#fff;background:var(--surface2)}
+.btn-accent{background:var(--accent)} .btn-ok{background:#1f7a44} .btn-warn{background:#a4691a}
+.btn-err{background:var(--accent-d)} .btn-ghost{background:var(--surface2);border:1px solid var(--border-strong)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.pump{margin-bottom:10px}
+.pump-top{display:flex;justify-content:space-between;font-size:var(--fs-sm)}
+.pump-name{font-family:var(--mono)}
+.pump-val{color:var(--muted)}
+.bar{height:9px;background:var(--surface2);border-radius:6px;overflow:hidden;margin-top:4px}
+.bar > i{display:block;height:100%;background:var(--accent);width:0;transition:width .3s}
+.bar.flush > i{background:var(--info)}
+.bar.press > i{background:var(--info)}
+.bar.press.hot > i{background:var(--err)}
+.temp-big{font-size:1.8rem;font-weight:800}
+.temp-sub{font-size:var(--fs-xs);color:var(--muted)}
+.kv{display:flex;justify-content:space-between;font-size:var(--fs-sm);padding:3px 0;border-bottom:1px solid var(--border)}
+.kv b{font-weight:700}
+.chips{display:flex;gap:5px;flex-wrap:wrap;margin-top:4px}
+.chip{font-size:var(--fs-xs);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:2px 8px;font-family:var(--mono)}
+.log{max-height:300px;overflow-y:auto;background:#16181c;border:1px solid var(--border);border-radius:8px;padding:8px 11px;font-family:var(--mono);font-size:var(--fs-xs);line-height:1.55}
+.toggle{display:flex;align-items:center;gap:8px;font-size:var(--fs-sm);cursor:pointer}
+.theme-toggle{width:34px;height:30px;border:1px solid rgba(255,255,255,.25);border-radius:7px;background:transparent;color:#fff;cursor:pointer;font-size:1rem}
+.theme-toggle:hover{background:rgba(255,255,255,.1)}
+.lim-row{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:6px;align-items:center;margin-bottom:6px}
+.lim-row .pn{font-family:var(--mono);font-size:var(--fs-xs)}
+.lim-row input{padding:5px 7px;font-size:var(--fs-xs)}
+.muted{color:var(--muted);font-size:var(--fs-xs)}
+.estop-btn{width:100%;margin-top:8px;font-size:var(--fs-md);padding:10px}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <h1>SWAXS <span>Flow Synthesis</span></h1>
+  <span class="state-pill" id="state">idle</span>
+  <div style="flex:1"></div>
+  <span class="proj" id="proj"></span>
+  <button class="theme-toggle" id="themeBtn" onclick="toggleTheme()" title="Toggle light / dark">☾</button>
+  <span class="sub">Port 5007 · <a href="http://localhost:5000">← Hub</a> · <span id="backend"></span></span>
+</div>
+
+<div class="wrap">
+  <!-- LEFT: recipe + controls -->
+  <div>
+    <div class="card">
+      <div class="card-hd">🧪 Submit recipe</div>
+      <div class="grid2">
+        <div><label>T_reac (°C)</label><input type="number" id="T_reac" value="240" step="1"></div>
+        <div><label>F_tot (µL/min)</label><input type="number" id="F_tot" value="80" step="1"></div>
+      </div>
+      <div class="grid3" style="margin-top:8px">
+        <div><label>x_ODE</label><input type="number" id="x_ODE" value="0.2" step="0.01"></div>
+        <div><label>x_TOP</label><input type="number" id="x_TOP" value="0.1" step="0.01"></div>
+        <div><label>x_oley</label><input type="number" id="x_oley" value="0.1" step="0.01"></div>
+      </div>
+      <div id="preview" class="muted" style="margin-top:8px"></div>
+      <div class="btn-row">
+        <button class="btn btn-accent" onclick="submitRecipe()">＋ Queue recipe</button>
+        <label class="toggle" style="margin-left:auto"><input type="checkbox" id="auto" onchange="setAuto()"> Auto-run</label>
+      </div>
+      <div id="form-err" style="color:var(--err);font-size:var(--fs-xs);margin-top:6px"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-hd">⏱ Timing</div>
+      <div><label>Synthesis run duration (seconds — blank = config default)</label>
+        <input type="number" id="run_duration" placeholder="default (s)" step="1" min="1"></div>
+      <div class="grid2" style="margin-top:8px">
+        <div><label>Flush rate (µL/min)</label><input type="number" id="flush_rate" step="1" min="0"></div>
+        <div><label>Flush duration (seconds)</label><input type="number" id="flush_duration" step="1" min="1"></div>
+      </div>
+      <div class="muted" style="margin-top:5px">All durations are in <b>seconds</b>; flush rate is in <b>µL/min</b>. These apply to queued recipes and to the Flush&nbsp;now / Prime buttons.</div>
+    </div>
+
+    <div class="card">
+      <div class="card-hd">▶ Controls</div>
+      <div class="btn-row">
+        <button class="btn btn-ok"   id="b-start" onclick="post('/api/start')">Start</button>
+        <button class="btn btn-warn"  id="b-stop"  onclick="post('/api/stop')">Stop</button>
+        <button class="btn btn-ghost" onclick="post('/api/abort')">Abort → flush</button>
+        <button class="btn btn-ghost" onclick="doFlush('/api/flush')">Flush now</button>
+        <button class="btn btn-ghost" onclick="doFlush('/api/prime')">Prime lines</button>
+        <button class="btn btn-ghost" onclick="post('/api/reset')">Reset</button>
+      </div>
+      <button class="btn btn-err estop-btn" onclick="post('/api/estop')">🛑 EMERGENCY STOP</button>
+    </div>
+
+    <div class="card">
+      <div class="card-hd">🎚 Pump flow limits (µL/min)</div>
+      <div class="lim-row muted"><span>pump</span><span>min</span><span>max</span></div>
+      <div id="limits"></div>
+      <div class="btn-row">
+        <button class="btn btn-accent" onclick="applyLimits()">Apply limits</button>
+      </div>
+      <div class="muted" style="margin-top:5px">Hard limits: a recipe whose pump flow is nonzero-below-min or above-max is rejected. Saved to the project.</div>
+      <div id="lim-msg" style="font-size:var(--fs-xs);margin-top:5px"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-hd">🌡 Reactor temperature</div>
+      <div class="temp-big"><span id="t-cur">—</span> <span class="temp-sub">/ target <span id="t-tgt">—</span> °C</span></div>
+      <div class="temp-sub" id="t-stable"></div>
+      <div class="muted" style="margin-top:4px">Gate-only — this app does not drive the heater.</div>
+    </div>
+  </div>
+
+  <!-- RIGHT: live state -->
+  <div>
+    <div class="card">
+      <div class="card-hd">⛽ Pumps</div>
+      <div id="pumps"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-hd">🧯 Pump pressure (mbar)</div>
+      <div id="pressures"></div>
+      <div class="muted" style="margin-top:4px">Each pump's chamber pressure vs its ceiling. Exceeding the limit trips the emergency stop.</div>
+    </div>
+
+    <div class="card">
+      <div class="card-hd">📊 Run status</div>
+      <div class="kv"><span>State</span><b id="s-state">idle</b></div>
+      <div class="kv"><span>Current recipe</span><b id="s-recipe">—</b></div>
+      <div class="kv"><span>Elapsed / duration</span><b id="s-elapsed">—</b></div>
+      <div class="kv"><span>Flush remaining</span><b id="s-flush">—</b></div>
+      <div class="kv"><span>Runs completed</span><b id="s-runs">0</b></div>
+      <div style="margin-top:6px;display:flex;align-items:center;gap:8px">
+        <span class="muted">Queue:</span>
+        <div class="chips" id="s-queue" style="flex:1"></div>
+        <button class="btn btn-ghost" id="b-clearq" style="padding:4px 10px;font-size:var(--fs-xs)" onclick="post('/api/queue/clear')">🗑 Clear queue</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-hd">📜 Activity log</div>
+      <div class="log" id="log"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+let CFG=null;
+function $(id){return document.getElementById(id);}
+async function api(u,b){const o={method:b?'POST':'GET',headers:{}};if(b){o.headers['Content-Type']='application/json';o.body=JSON.stringify(b);}return (await fetch(u,o)).json();}
+async function post(u,b){try{const r=await api(u,b||{});if(r&&r.error)$('form-err').textContent=r.error;}catch(e){}}
+
+/* theme (default dark, remembered) */
+(function(){const K='swaxs-theme';let d=localStorage.getItem(K)?localStorage.getItem(K)==='dark':true;
+ function ap(x){document.documentElement.setAttribute('data-theme',x?'dark':'light');const b=$('themeBtn');if(b)b.textContent=x?'☀':'☾';}
+ ap(d);window.toggleTheme=function(){d=!d;localStorage.setItem(K,d?'dark':'light');ap(d);};})();
+
+(async()=>{CFG=await api('/api/config');$('backend').textContent='backend: '+CFG.backend;
+  // prefill flush defaults (units shown in labels)
+  if(CFG.flush){if(CFG.flush.rate!=null)$('flush_rate').placeholder=CFG.flush.rate+' (default)';
+    if(CFG.flush.duration!=null)$('flush_duration').placeholder=CFG.flush.duration+' (default)';}
+})();
+
+function flushBody(){const b={};const r=$('flush_rate').value.trim(),d=$('flush_duration').value.trim();
+  if(r)b.rate=+r; if(d)b.duration=+d; return b;}
+async function doFlush(url){await post(url,flushBody());}
+
+/* pump flow-limit editor */
+let LIMITS=null;
+async function loadLimits(){const d=await api('/api/pumps');LIMITS=d.limits;renderLimits();}
+function renderLimits(){if(!LIMITS)return;
+  $('limits').innerHTML=Object.entries(LIMITS).map(([n,l])=>
+    `<div class="lim-row"><span class="pn">${n}</span>
+      <input type="number" step="0.1" id="lim-min-${n}" value="${l.sensor_min}">
+      <input type="number" step="0.1" id="lim-max-${n}" value="${l.max_flow}"></div>`).join('');}
+async function applyLimits(){
+  const limits={};Object.keys(LIMITS).forEach(n=>{limits[n]={
+    sensor_min:+$('lim-min-'+n).value, max_flow:+$('lim-max-'+n).value};});
+  const r=await api('/api/pumps',{limits});
+  const m=$('lim-msg');
+  if(r.ok){LIMITS=r.limits;renderLimits();m.style.color='var(--ok)';m.textContent='✓ limits saved';}
+  else{m.style.color='var(--err)';m.textContent='⚠ '+(r.error||'failed');}
+}
+loadLimits();
+(async function poll(){try{const d=await api('/api/project');if(d.project_root)$('proj').textContent=d.project_root;}catch(e){}setTimeout(poll,4000);})();
+
+function preview(){
+  const F=+$('F_tot').value||0, xo=+$('x_ODE').value||0, xt=+$('x_TOP').value||0, xl=+$('x_oley').value||0;
+  const xp=1-xo-xt-xl;
+  $('preview').innerHTML='→ ode_dilution '+(xo*F).toFixed(1)+' · top '+(xt*F).toFixed(1)+
+    ' · oleylamine '+(xl*F).toFixed(1)+' · pd_top_precursor '+(xp*F).toFixed(1)+' µL/min'+
+    (xp<0?' <span style="color:var(--err)">(precursor negative!)</span>':'');
+}
+['F_tot','x_ODE','x_TOP','x_oley'].forEach(id=>$(id).addEventListener('input',preview));
+
+async function submitRecipe(){
+  $('form-err').textContent='';
+  const body={T_reac:+$('T_reac').value,F_tot:+$('F_tot').value,
+    x_ODE:+$('x_ODE').value,x_TOP:+$('x_TOP').value,x_oley:+$('x_oley').value};
+  const rd=$('run_duration').value.trim(); if(rd)body.run_duration=+rd;
+  const fr=$('flush_rate').value.trim();    if(fr)body.flush_rate=+fr;
+  const fd=$('flush_duration').value.trim();if(fd)body.flush_duration=+fd;
+  const r=await api('/api/recipe',body);
+  if(!r.ok){$('form-err').textContent=r.error||'rejected';}
+}
+async function setAuto(){await api('/api/auto_run',{on:$('auto').checked});}
+
+function pumpRow(name,p){
+  const pct=p.max_flow?Math.min(100,100*p.actual/p.max_flow):0;
+  const isFlush=name==='ode_flush';
+  return `<div class="pump"><div class="pump-top"><span class="pump-name">${name}</span>
+    <span class="pump-val">${p.actual.toFixed(1)} / ${p.target.toFixed(1)} µL/min</span></div>
+    <div class="bar ${isFlush?'flush':''}"><i style="width:${pct}%"></i></div></div>`;
+}
+function pressRow(name,p){
+  const mx=p.max_pressure||0; const pct=mx?Math.min(100,100*p.pressure/mx):0;
+  const hot=mx&&p.pressure>0.85*mx;
+  return `<div class="pump"><div class="pump-top"><span class="pump-name">${name}</span>
+    <span class="pump-val"${hot?' style="color:var(--err)"':''}>${p.pressure.toFixed(0)} / ${mx.toFixed(0)} mbar</span></div>
+    <div class="bar press ${hot?'hot':''}"><i style="width:${pct}%"></i></div></div>`;
+}
+function fmtDur(s){if(s==null)return '—';const m=Math.floor(s/60),ss=Math.round(s%60);return m+'m '+ss+'s';}
+
+function render(st){
+  $('state').textContent=st.state; $('state').className='state-pill state-'+st.state;
+  $('s-state').textContent=st.state;
+  $('auto').checked=st.auto_run;
+  // pumps + pressures
+  $('pumps').innerHTML=Object.entries(st.pumps).map(([n,p])=>pumpRow(n,p)).join('');
+  $('pressures').innerHTML=Object.entries(st.pumps).map(([n,p])=>pressRow(n,p)).join('');
+  // temp
+  $('t-cur').textContent=st.temperature.current.toFixed(1);
+  $('t-tgt').textContent=st.temperature.target.toFixed(1);
+  $('t-stable').textContent=st.temperature.target>0?
+    (st.temperature.stable?'✓ at temperature':'… ramping / stabilizing'):'';
+  // run status
+  $('s-recipe').textContent=st.current_recipe?st.current_recipe.recipe_id:'—';
+  $('s-elapsed').textContent=st.elapsed_s!=null?(fmtDur(st.elapsed_s)+' / '+fmtDur(st.duration_s)):'—';
+  $('s-flush').textContent=st.flush_remaining_s!=null?fmtDur(st.flush_remaining_s):'—';
+  $('s-runs').textContent=st.runs_completed;
+  $('s-queue').innerHTML=st.queue.length?st.queue.map(q=>`<span class="chip">${q}</span>`).join(''):'<span class="muted">empty</span>';
+  // disable start when busy
+  $('b-start').disabled=!(st.state==='idle'||st.state==='ready')||!st.queue.length;
+  $('b-stop').disabled=st.state!=='running';
+}
+function logLines(lines){const box=$('log');const c={ok:'var(--ok)',error:'var(--err)',warn:'var(--warn)',info:'var(--muted)'};
+  lines.forEach(l=>{const d=document.createElement('div');d.style.color=c[l.tag]||'var(--text)';
+    d.textContent=`[${l.ts}]  ${l.msg}`;box.appendChild(d);});
+  while(box.childNodes.length>500)box.removeChild(box.firstChild);box.scrollTop=box.scrollHeight;}
+
+const es=new EventSource('/api/stream');
+es.onmessage=e=>{try{const d=JSON.parse(e.data);if(d.status)render(d.status);if(d.logs&&d.logs.length)logLines(d.logs);}catch(_){}};
+preview();
+</script>
+</body>
+</html>

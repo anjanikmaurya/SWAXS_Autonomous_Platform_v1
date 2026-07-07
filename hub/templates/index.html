@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SWAXS Platform Hub</title>
+<style>
+/* ── Reset & base ───────────────────────────────────────────────────────── */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  /* ── SWAXS shared design system — Dark theme (Hub) ──── */
+  --bg:        #0d1117;
+  --surface:   #161b22;
+  --surface2:  #1c2128;
+  --border:    #30363d;
+  --border-strong:#6b7280;   /* control outlines (3:1) */
+  --text:      #e6edf3;      /* primary   16:1  */
+  --muted:     #8b949e;      /* secondary 6.2:1 */
+  --disabled:  #6e7681;
+  --accent:    #C5202C;      /* cardinal — large/brand fills only */
+  --accent-d:  #8C1515;
+  --accent-text:#ff7b8a;     /* accessible small accent text 7.6:1 */
+  --green:     #3fb950;
+  --yellow:    #d29922;
+  --red:       #f85149;
+  /* Accessible semantic text (already ≥4.5:1 on dark) */
+  --ok-text:#3fb950; --warn-text:#d29922; --err-text:#f85149; --info-text:#58a6ff;
+  /* Typography scale (shared across all SWAXS apps) */
+  --font:      'Inter','Segoe UI',system-ui,-apple-system,sans-serif;
+  --mono:      'JetBrains Mono','Fira Code','Cascadia Code',monospace;
+  --fs-2xs:.6875rem; --fs-xs:.75rem; --fs-sm:.8125rem; --fs-md:.875rem;
+  --fs-base:1rem;    --fs-lg:1.125rem; --fs-xl:1.375rem; --fs-2xl:1.75rem;
+  --fw-regular:400; --fw-medium:500; --fw-semibold:600; --fw-bold:700;
+  --lh-tight:1.25; --lh-snug:1.4; --lh-normal:1.5; --ls-label:.06em;
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:24px; --sp-6:32px;
+  --radius:    8px;
+}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--font);font-size:16px}
+
+/* ── Layout ─────────────────────────────────────────────────────────────── */
+.shell{display:flex;flex-direction:column;height:100vh}
+.topbar{
+  display:flex;align-items:center;gap:12px;padding:0 24px;
+  height:56px;background:var(--surface);border-bottom:1px solid var(--border);
+  flex-shrink:0;
+}
+.topbar-logo{font-size:20px;font-weight:700;letter-spacing:-.5px;color:var(--text)}
+.topbar-logo span{color:var(--accent)}
+.topbar-sub{font-size:14px;color:var(--muted);margin-top:2px}
+.topbar-spacer{flex:1}
+.corner-brand{
+  position:fixed;bottom:14px;right:20px;z-index:50;
+  text-align:right;pointer-events:none;
+}
+.corner-brand .cb-name{font-size:14px;font-weight:700;color:var(--muted);letter-spacing:.02em}
+.corner-brand .cb-dept{font-size:13px;color:#484f58;margin-top:1px}
+.project-pill{
+  display:flex;align-items:center;gap:8px;
+  background:#21262d;border:1px solid var(--border);border-radius:8px;
+  padding:6px 12px;cursor:pointer;transition:border-color .15s;max-width:380px;
+}
+.project-pill:hover{border-color:var(--accent)}
+.project-pill .picon{font-size:16px}
+.project-pill .ppath{font-size:14px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:300px}
+.project-pill .pchange{font-size:13px;color:var(--accent-text);white-space:nowrap}
+
+/* ── Event bus badge ─────────────────────────────────────────────────────── */
+.bus-badge{
+  display:flex;align-items:center;gap:6px;
+  background:#21262d;border:1px solid var(--border);border-radius:6px;
+  padding:5px 10px;font-size:13px;color:var(--muted);
+  cursor:default;user-select:none;white-space:nowrap;
+  transition:border-color .3s;
+}
+.bus-badge.connected{border-color:#3fb95055}
+.bus-badge .bdot{
+  width:7px;height:7px;border-radius:50%;
+  background:var(--muted);flex-shrink:0;transition:background .3s,box-shadow .3s;
+}
+.bus-badge.connected .bdot{background:var(--green);box-shadow:0 0 5px var(--green)}
+.bus-badge .bcount{
+  color:var(--text);font-weight:600;
+  background:#30363d;border-radius:3px;padding:0 4px;font-size:12px;
+}
+
+/* ── Main content area ───────────────────────────────────────────────────── */
+.main{
+  flex:1;overflow:hidden;padding:24px 32px 20px 48px;
+  display:flex;flex-direction:column;
+}
+
+/* ── Section titles ──────────────────────────────────────────────────────── */
+.section-title{
+  font-size:13px;font-weight:600;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--muted);
+  margin-bottom:14px;flex-shrink:0;
+}
+.section-hint{
+  font-size:14px;color:var(--muted);margin:-6px 0 16px;
+  line-height:1.7;flex-shrink:0;
+}
+.section-hint b{color:var(--text);font-weight:600}
+.section-hint .arrow{color:#484f58;margin:0 2px}
+.log-empty{color:#484f58;font-size:13px;padding:14px 4px;font-style:italic}
+
+/* ── App grid ────────────────────────────────────────────────────────────── */
+.app-grid{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));
+  gap:14px;margin-bottom:22px;flex-shrink:0;
+}
+.app-card{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+  padding:18px 18px 14px;display:flex;flex-direction:column;gap:10px;
+  transition:border-color .2s,box-shadow .2s;position:relative;overflow:hidden;
+}
+.app-card:hover{border-color:#484f58;box-shadow:0 4px 24px #0006}
+.app-card::before{
+  content:'';position:absolute;top:0;left:0;right:0;height:3px;
+  background:var(--card-color,#888);
+}
+.card-header{display:flex;align-items:flex-start;gap:12px}
+.card-icon{font-size:26px;line-height:1;flex-shrink:0}
+.card-meta{flex:1;min-width:0}
+.card-name{font-size:15px;font-weight:600}
+.card-desc{font-size:13px;color:var(--muted);margin-top:2px;line-height:1.5}
+.card-status{display:flex;align-items:center;gap:6px;margin-top:6px}
+.status-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.status-dot.healthy{background:var(--green);box-shadow:0 0 6px var(--green)}
+.status-dot.starting{background:var(--yellow);animation:pulse 1s infinite}
+.status-dot.stopped{background:var(--muted)}
+.status-dot.error{background:var(--red)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.status-label{font-size:13px;color:var(--muted)}
+.qbadge{display:inline-block;margin-left:8px;padding:1px 8px;border-radius:999px;background:#0003;border:1px solid #ffffff14;font-size:12px;font-weight:700}
+.card-footer{display:flex;gap:8px;margin-top:2px}
+.btn{
+  padding:5px 12px;border-radius:6px;border:1px solid transparent;
+  font-size:13px;font-weight:600;cursor:pointer;transition:all .15s;
+  text-decoration:none;display:inline-flex;align-items:center;gap:5px;
+}
+.btn-start{background:#1f6feb22;border-color:#1f6feb88;color:#58a6ff}
+.btn-start:hover{background:#1f6feb44;border-color:#1f6feb}
+.btn-stop{background:#f8514922;border-color:#f8514988;color:#f85149}
+.btn-stop:hover{background:#f8514944;border-color:#f85149}
+.btn-open{background:#3fb95022;border-color:#3fb95088;color:#3fb950}
+.btn-open:hover{background:#3fb95044;border-color:#3fb950}
+.btn-open[disabled]{opacity:.4;pointer-events:none}
+.btn-primary{background:var(--accent);border-color:var(--accent-d);color:#fff;padding:8px 18px;font-size:15px}
+.btn-primary:hover{background:var(--accent-d)}
+.btn-ghost{background:transparent;border-color:var(--border);color:var(--text);padding:8px 18px;font-size:15px}
+.btn-ghost:hover{background:#21262d}
+
+/* ── Log area ────────────────────────────────────────────────────────────── */
+.log-header{
+  display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:10px;flex-shrink:0;
+}
+.log-meta{display:flex;align-items:center;gap:10px}
+.log-count{font-size:13px;color:#484f58}
+.log-actions{display:flex;gap:6px}
+.btn-xs{
+  padding:3px 9px;border-radius:4px;border:1px solid var(--border);
+  font-size:12px;font-weight:600;cursor:pointer;background:transparent;
+  color:var(--muted);transition:all .15s;
+}
+.btn-xs:hover{border-color:var(--accent);color:var(--text)}
+
+.log-panel{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+  padding:10px 14px;font-family:'JetBrains Mono','Fira Code',monospace;font-size:13px;
+  color:var(--muted);overflow-y:auto;flex:1;min-height:160px;
+}
+.log-entry{
+  display:flex;align-items:baseline;flex-wrap:nowrap;
+  margin-bottom:2px;line-height:1.8;border-bottom:1px solid #1c2128;padding-bottom:1px;
+}
+.log-entry:last-child{border-bottom:none}
+.log-entry .ts{color:#484f58;margin-right:8px;white-space:nowrap;font-size:12px;flex-shrink:0}
+.log-entry .ev-detail{color:var(--muted);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ── Event chips ─────────────────────────────────────────────────────────── */
+.ev-chip{
+  display:inline-block;padding:0 5px;border-radius:3px;
+  font-size:12px;font-weight:700;letter-spacing:.02em;
+  margin-right:5px;white-space:nowrap;flex-shrink:0;line-height:1.6;
+}
+.ev-app            {background:#21262d;color:var(--muted)}
+.ev-file-reduced   {background:#0d2b0d;color:#3fb950}
+.ev-file-averaged  {background:#0a2430;color:#39c5d8}
+.ev-file-stitched  {background:#0a2430;color:#39c5d8}
+.ev-file-subtracted{background:#2e1d00;color:#d29922}
+.ev-analysis       {background:#1a1434;color:#a78bfa}
+.ev-watch          {background:#2b2000;color:#e3b341}
+.ev-ai             {background:#270d3a;color:#c084fc}
+.ev-app-start      {background:#0d2b0d;color:#3fb950}
+.ev-app-stop       {background:#2b0d0d;color:#f85149}
+.ev-project        {background:#2b0d14;color:var(--accent-text)}
+.ev-default        {background:#21262d;color:var(--muted)}
+
+/* ── Modal ──────────────────────────────────────────────────────────────── */
+.modal-backdrop{
+  display:none;position:fixed;inset:0;background:#000a;z-index:100;
+  align-items:center;justify-content:center;
+}
+.modal-backdrop.open{display:flex}
+.modal{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+  width:540px;max-height:70vh;display:flex;flex-direction:column;overflow:hidden;
+  box-shadow:0 20px 60px #000a;
+}
+.modal-head{
+  padding:16px 20px;border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;
+}
+.modal-head h2{font-size:15px;font-weight:600}
+.modal-close{background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;padding:0 4px;line-height:1}
+.modal-close:hover{color:var(--text)}
+.modal-body{padding:16px 20px;flex:1;overflow-y:auto}
+.path-crumb{
+  display:flex;align-items:center;gap:4px;flex-wrap:wrap;
+  font-size:14px;color:var(--muted);margin-bottom:12px;
+}
+.crumb-sep{color:var(--border)}
+.dir-list{display:flex;flex-direction:column;gap:4px}
+.dir-item{
+  display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:6px;
+  cursor:pointer;transition:background .1s;
+}
+.dir-item:hover{background:#21262d}
+.dir-item .dicon{font-size:15px;color:var(--muted)}
+.dir-item .dname{font-size:14px}
+.modal-foot{
+  padding:12px 20px;border-top:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+}
+.curr-path{font-size:14px;color:var(--muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Accessibility — visible keyboard focus ring (WCAG 2.4.7) */
+a:focus-visible,button:focus-visible,[role="button"]:focus-visible,
+input:focus-visible,select:focus-visible,textarea:focus-visible,
+.app-card:focus-visible,.dir-item:focus-visible,.project-pill:focus-visible{
+  outline:2px solid var(--accent-text);outline-offset:2px;border-radius:4px;
+}
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- Top bar -->
+  <header class="topbar">
+    <div>
+      <div class="topbar-logo">SWAXS <span>Platform</span></div>
+      <div class="topbar-sub">Modular X-ray Scattering Analysis Suite</div>
+    </div>
+    <div class="topbar-spacer"></div>
+    <!-- Event bus connectivity badge -->
+    <div class="bus-badge" id="busBadge" title="WebSocket event bus — receives live events from all apps">
+      <div class="bdot" id="busDot"></div>
+      <span>Bus</span>
+      <span class="bcount" id="busCount" style="display:none">0</span>
+    </div>
+    <div class="project-pill" id="projectPill" onclick="openBrowser()">
+      <span class="picon">📁</span>
+      <span class="ppath" id="projectPath">No project selected — click to choose</span>
+      <span class="pchange">Change</span>
+    </div>
+  </header>
+
+  <!-- Main -->
+  <main class="main">
+    <div class="section-title">Applications</div>
+    <div class="section-hint">
+      New here? First pick your project folder (top-right), then work through in order:
+      <b>⚙️ Reduction</b><span class="arrow">→</span><b>📊 Viewer</b><span class="arrow">→</span><b>🔬 Background</b><span class="arrow">→</span><b>📈 Analysis</b>.
+      The <b>🤖 Assistant</b> can help at any step. Click <b>▶ Start</b> on a card, then <b>↗ Open</b>.
+    </div>
+
+    <div class="app-grid" id="appGrid">
+      {% for a in apps %}
+      <div class="app-card" id="card-{{ a.id }}" style="--card-color:{{ a.color }}">
+        <div class="card-header">
+          <div class="card-icon">{% if a.icon_image %}<img src="{{ a.icon_image }}" alt="{{ a.name }} icon" style="width:34px;height:34px;border-radius:8px;object-fit:cover;display:block">{% else %}{{ a.icon }}{% endif %}</div>
+          <div class="card-meta">
+            <div class="card-name">{{ a.name }}</div>
+            <div class="card-desc">{{ a.description }}</div>
+          </div>
+        </div>
+        <div class="card-status">
+          <div class="status-dot stopped" id="dot-{{ a.id }}"></div>
+          <span class="status-label" id="lbl-{{ a.id }}">Stopped</span>
+        </div>
+        <div class="card-footer">
+          <button class="btn btn-start" onclick="startApp('{{ a.id }}')">▶ Start</button>
+          <button class="btn btn-stop"  onclick="stopApp('{{ a.id }}')">■ Stop</button>
+          <a class="btn btn-open" id="open-{{ a.id }}"
+             href="http://localhost:{{ a.port }}" target="_blank" disabled>↗ Open</a>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <!-- Live Event Log -->
+    <div class="log-header">
+      <div class="section-title" style="margin-bottom:0">Live Event Log</div>
+      <div class="log-meta">
+        <span class="log-count" id="logCount"></span>
+        <div class="log-actions">
+          <button class="btn-xs" onclick="clearLog()">Clear</button>
+        </div>
+      </div>
+    </div>
+    <div class="log-panel" id="logPanel">
+      <div class="log-empty" id="logEmpty">No events yet — start an app or pick a project folder to see live activity here.</div>
+    </div>
+  </main>
+
+</div>
+
+<!-- Bottom-right branding -->
+<div class="corner-brand">
+  <div class="cb-name">Tassone Group</div>
+  <div class="cb-dept">ESD / SLAC</div>
+</div>
+
+<!-- Folder browser modal -->
+<div class="modal-backdrop" id="browserModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>Select Project Folder</h2>
+      <button class="modal-close" onclick="closeBrowser()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="path-crumb" id="pathCrumb"></div>
+      <div class="dir-list" id="dirList"></div>
+    </div>
+    <div class="modal-foot">
+      <span class="curr-path" id="currPath"></span>
+      <button class="btn btn-ghost" onclick="closeBrowser()">Cancel</button>
+      <button class="btn btn-primary" onclick="selectCurrent()">Select This Folder</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+let _currentBrowsePath = '';
+let _projectRoot       = '';
+let _logCount          = 0;
+let _busWs             = null;
+let _busRetryTimer     = null;
+
+// ── Event-type → chip CSS class ────────────────────────────────────────────
+const _TYPE_CLASS = {
+  'file.reduced':      'ev-file-reduced',
+  'file.averaged':     'ev-file-averaged',
+  'file.stitched':     'ev-file-stitched',
+  'file.subtracted':   'ev-file-subtracted',
+  'analysis.complete': 'ev-analysis',
+  'watch.new_raw':     'ev-watch',
+  'ai.hint':           'ev-ai',
+  'app.started':       'ev-app-start',
+  'app.stopped':       'ev-app-stop',
+  'project.set':       'ev-project',
+};
+
+// ── SSE status stream ──────────────────────────────────────────────────────
+const es = new EventSource('/api/status/stream');
+es.onmessage = (e) => {
+  const data = JSON.parse(e.data);
+  _projectRoot = data.project_root || '';
+  document.getElementById('projectPath').textContent =
+    _projectRoot || 'No project selected — click to choose';
+  for (const [id, info] of Object.entries(data.apps)) {
+    updateCard(id, info);
+  }
+  // Show connected sub-app count from SSE payload
+  if (typeof data.ws_clients === 'number') {
+    const el = document.getElementById('busCount');
+    if (el) {
+      // Subtract 1 for this browser tab itself if bus is connected
+      const subApps = Math.max(0, data.ws_clients - (_busWs ? 1 : 0));
+      el.textContent  = data.ws_clients;
+      el.title        = `${data.ws_clients} WebSocket client(s) connected to bus (incl. this tab)`;
+      el.style.display = data.ws_clients > 0 ? '' : 'none';
+    }
+  }
+};
+es.onerror = () => log('SSE connection lost — retrying…', 'err');
+
+function updateCard(id, info) {
+  const dot  = document.getElementById(`dot-${id}`);
+  const lbl  = document.getElementById(`lbl-${id}`);
+  const open = document.getElementById(`open-${id}`);
+  if (!dot) return;
+
+  dot.className = 'status-dot';
+  if (info.healthy) {
+    dot.classList.add('healthy');
+    lbl.textContent = `Running  ·  port ${info.port}`;
+    if (info.summary && (info.summary.good || info.summary.bad)) {
+      const s = info.summary;
+      lbl.insertAdjacentHTML('beforeend',
+        `<span class="qbadge" title="${s.graded||0} profiles graded">` +
+        `<b style="color:var(--green)">✅ ${s.good}</b> / <b style="color:var(--red)">⚑ ${s.bad}</b></span>`);
+    }
+    open.removeAttribute('disabled');
+  } else if (info.running) {
+    dot.classList.add('starting');
+    lbl.textContent = 'Starting…';
+    open.setAttribute('disabled', '');
+  } else {
+    dot.classList.add('stopped');
+    lbl.textContent = 'Stopped';
+    open.setAttribute('disabled', '');
+  }
+}
+
+// ── WebSocket event bus ────────────────────────────────────────────────────
+function connectBus() {
+  if (_busRetryTimer) { clearTimeout(_busRetryTimer); _busRetryTimer = null; }
+
+  const wsUrl = `ws://${location.host}/ws`;
+  let ws;
+  try { ws = new WebSocket(wsUrl); }
+  catch (e) { scheduleBusReconnect(); return; }
+
+  _busWs = ws;
+
+  ws.onopen = () => {
+    updateBusBadge(true);
+    log(`Event bus connected (${wsUrl})`, 'ok');
+  };
+
+  ws.onmessage = (e) => {
+    try { logEvent(JSON.parse(e.data)); }
+    catch { /* ignore malformed */ }
+  };
+
+  ws.onclose = () => {
+    _busWs = null;
+    updateBusBadge(false);
+    scheduleBusReconnect();
+  };
+
+  ws.onerror = () => {
+    // onclose fires immediately after onerror — let it handle reconnect
+    updateBusBadge(false);
+  };
+}
+
+function scheduleBusReconnect() {
+  if (_busRetryTimer) return;
+  _busRetryTimer = setTimeout(() => {
+    _busRetryTimer = null;
+    connectBus();
+  }, 4000);
+}
+
+function updateBusBadge(connected) {
+  const badge = document.getElementById('busBadge');
+  if (badge) badge.classList.toggle('connected', connected);
+}
+
+// ── Rich event log (from WebSocket bus) ───────────────────────────────────
+function _base(fp) {
+  return fp ? String(fp).split('/').pop() : '?';
+}
+
+function _esc(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function _summarize(type, data) {
+  switch (type) {
+    case 'file.reduced':
+      return `${data.keyword||'?'} scan ${data.scan_idx??''} [${data.detector||''}] → ${_base(data.file_path)}`;
+    case 'file.averaged':
+      return `${data.keyword||'?'} [${data.detector||''}] → ${_base(data.file_path)} (${data.n_files} files)`;
+    case 'file.stitched':
+      return `${data.keyword||'?'} → ${_base(data.file_path)} (scale=${(+data.scale_factor).toFixed(4)})`;
+    case 'file.subtracted':
+      return `${data.keyword||'?'} scale=${data.scale} [${data.mode}] → ${_base(data.file_path)}`;
+    case 'analysis.complete':
+      return `${data.analysis_type} on ${_base(data.file_path)}`;
+    case 'watch.new_raw':
+      return `new raw: ${_base(data.file_path)} [${data.detector}]`;
+    case 'ai.hint':
+      return String(data.hint || '').slice(0, 120);
+    case 'app.started':
+      return `${data.app_id} started (PID ${data.pid})`;
+    case 'app.stopped':
+      return `${data.app_id} stopped`;
+    case 'project.set':
+      return `project → ${data.path}`;
+    default:
+      return JSON.stringify(data).slice(0, 100);
+  }
+}
+
+function logEvent(evt) {
+  const type  = evt.type       || 'unknown';
+  const src   = evt.source_app || '?';
+  const data  = evt.data       || {};
+  const ts    = evt.timestamp
+    ? new Date(evt.timestamp).toLocaleTimeString()
+    : new Date().toLocaleTimeString();
+
+  const chipCls = _TYPE_CLASS[type] || 'ev-default';
+  const summary = _summarize(type, data);
+
+  _insertLogRow(
+    ts,
+    `<span class="ev-chip ev-app">${_esc(src)}</span>` +
+    `<span class="ev-chip ${chipCls}">${_esc(type)}</span>` +
+    `<span class="ev-detail">${_esc(summary)}</span>`
+  );
+}
+
+function _insertLogRow(ts, innerHtml) {
+  const panel = document.getElementById('logPanel');
+  const empty = document.getElementById('logEmpty');
+  if (empty) empty.remove();
+  const el    = document.createElement('div');
+  el.className = 'log-entry';
+  el.innerHTML = `<span class="ts">${ts}</span>${innerHtml}`;
+  panel.prepend(el);
+  _logCount++;
+  const countEl = document.getElementById('logCount');
+  if (countEl) countEl.textContent = `${_logCount} event${_logCount !== 1 ? 's' : ''}`;
+  // Cap at 300 entries
+  while (panel.children.length > 300) panel.lastChild.remove();
+}
+
+function clearLog() {
+  document.getElementById('logPanel').innerHTML =
+    '<div class="log-empty" id="logEmpty">No events yet — start an app or pick a project folder to see live activity here.</div>';
+  _logCount = 0;
+  const countEl = document.getElementById('logCount');
+  if (countEl) countEl.textContent = '';
+}
+
+// ── Local UI log (start/stop button feedback) ──────────────────────────────
+function log(msg, cls = 'info') {
+  const ts    = new Date().toLocaleTimeString();
+  const color = cls === 'ok'  ? 'var(--green)'
+              : cls === 'err' ? 'var(--red)'
+              : 'var(--text)';
+  _insertLogRow(
+    ts,
+    `<span class="ev-chip ev-default">hub</span>` +
+    `<span class="ev-chip ev-default">ui</span>` +
+    `<span class="ev-detail" style="color:${color}">${_esc(msg)}</span>`
+  );
+}
+
+// ── App control ────────────────────────────────────────────────────────────
+async function startApp(id) {
+  log(`Starting ${id}…`, 'info');
+  const r = await fetch(`/api/start/${id}`, {method: 'POST'});
+  const j = await r.json();
+  log(j.ok ? `${id}: ${j.message}` : `${id} failed: ${j.message}`, j.ok ? 'ok' : 'err');
+}
+async function stopApp(id) {
+  log(`Stopping ${id}…`, 'info');
+  const r = await fetch(`/api/stop/${id}`, {method: 'POST'});
+  const j = await r.json();
+  log(j.ok ? `${id} stopped` : `${id} stop failed: ${j.message}`, j.ok ? 'ok' : 'err');
+}
+
+// ── Folder browser ─────────────────────────────────────────────────────────
+function openBrowser() {
+  document.getElementById('browserModal').classList.add('open');
+  browseTo(_projectRoot || '');
+}
+function closeBrowser() {
+  document.getElementById('browserModal').classList.remove('open');
+}
+async function browseTo(path) {
+  const res  = await fetch(`/api/browse?path=${encodeURIComponent(path)}`);
+  const data = await res.json();
+  _currentBrowsePath = data.current;
+  document.getElementById('currPath').textContent = data.current;
+
+  // Breadcrumb
+  const parts = data.current.split('/').filter(Boolean);
+  const crumb = document.getElementById('pathCrumb');
+  crumb.innerHTML = '';
+  let acc = '';
+  parts.forEach((p, i) => {
+    acc += '/' + p;
+    const span = document.createElement('span');
+    const captured = acc;
+    if (i < parts.length - 1) {
+      span.style.cursor = 'pointer';
+      span.style.color  = 'var(--accent)';
+      span.onclick = () => browseTo(captured);
+    }
+    span.textContent = p;
+    crumb.appendChild(span);
+    if (i < parts.length - 1) {
+      const sep = document.createElement('span');
+      sep.className = 'crumb-sep'; sep.textContent = '/';
+      crumb.appendChild(sep);
+    }
+  });
+
+  // Directory list
+  const list = document.getElementById('dirList');
+  list.innerHTML = '';
+  if (data.parent) {
+    const up = document.createElement('div');
+    up.className = 'dir-item';
+    up.innerHTML = '<span class="dicon">⬆</span><span class="dname">..</span>';
+    up.onclick = () => browseTo(data.parent);
+    list.appendChild(up);
+  }
+  data.dirs.forEach(d => {
+    const item = document.createElement('div');
+    item.className = 'dir-item';
+    item.innerHTML = `<span class="dicon">📁</span><span class="dname">${_esc(d)}</span>`;
+    item.onclick = () => {
+      _currentBrowsePath = _currentBrowsePath + '/' + d;
+      browseTo(_currentBrowsePath);
+    };
+    list.appendChild(item);
+  });
+}
+async function selectCurrent() {
+  const path = _currentBrowsePath;
+  const res  = await fetch('/api/set_project', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({path}),
+  });
+  const j = await res.json();
+  if (j.ok) {
+    _projectRoot = path;
+    document.getElementById('projectPath').textContent = path;
+    log(`Project set: ${path}`, 'ok');
+    closeBrowser();
+  } else {
+    log(`Failed to set project: ${j.message}`, 'err');
+  }
+}
+
+// Close modal on backdrop click
+document.getElementById('browserModal').addEventListener('click', e => {
+  if (e.target.id === 'browserModal') closeBrowser();
+});
+
+// ── Boot ───────────────────────────────────────────────────────────────────
+connectBus();
+</script>
+</body>
+</html>

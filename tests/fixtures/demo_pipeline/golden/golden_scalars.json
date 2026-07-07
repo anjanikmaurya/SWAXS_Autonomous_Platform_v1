@@ -1,0 +1,287 @@
+{
+  "averaged_keywords_saxs": [
+    "Run1_12CE_TMC_013_c_PES_support_dark_x-113.06_y61.78_dy-1_ctr0_scan1",
+    "Run1_12CE_TMC_013_c_PES_support_x-113.06_y61.78_dy-1_ctr0_scan1",
+    "Run1_PES_support_x-165.15_y89.20_dy1_ctr0_scan1"
+  ],
+  "averaged_keywords_waxs": [
+    "Run1_12CE_TMC_013_c_PES_support_dark_x-113.06_y61.78_dy-1_ctr0_scan1",
+    "Run1_12CE_TMC_013_c_PES_support_x-113.06_y61.78_dy-1_ctr0_scan1",
+    "Run1_PES_support_x-165.15_y89.20_dy1_ctr0_scan1"
+  ],
+  "corrections": {
+    "b_tassone_Run1_12CE_TMC_013_c_PES_support_dark_x-113.06_y61.78_dy-1_ctr0_scan1_0000.raw": {
+      "bstop": 0.11006,
+      "bstop_corrected": 0.11006,
+      "calibration_factor": 1.0,
+      "i0": 1.88306,
+      "i0_corrected": 1.88306,
+      "normalization_factor": 0.11006,
+      "thickness_m": 0.024191421162853513,
+      "transmission": 0.058447420687604223
+    },
+    "b_tassone_Run1_12CE_TMC_013_c_PES_support_dark_x-113.06_y61.78_dy-1_ctr0_scan1_0001.raw": {
+      "bstop": 0.11307,
+      "bstop_corrected": 0.11307,
+      "calibration_factor": 1.0,
+      "i0": 1.91484,
+      "i0_corrected": 1.91484,
+      "normalization_factor": 0.11307,
+      "thickness_m": 0.02410413772739212,
+      "transmission": 0.059049320047628
+    },
+    "b_tassone_Run1_12CE_TMC_013_c_PES_support_dark_x-113.06_y61.78_dy-1_ctr0_scan1_0002.raw": {
+      "bstop": 0.11171,
+      "bstop_corrected": 0.11171,
+      "calibration_factor": 1.0,
+      "i0": 1.89063,
+      "i0_corrected": 1.89063,
+      "normalization_factor": 0.11171,
+      "thickness_m": 0.024098829459294504,
+      "transmission": 0.0590861247309098
+    },
+    "b_tassone_Run1_12CE_TMC_013_c_PES_support_x-113.06_y61.78_dy-1_ctr0_scan1_0000.raw": {
+      "bstop": 8.98758,
+      "bstop_corrected": 8.98758,
+      "calibration_factor": 1.0,
+      "i0": 21.6784,
+      "i0_corrected": 21.6784,
+      "normalization_factor": 8.98758,
+      "thickness_m": 0.007500943498899364,
+      "transmission": 0.4145868698796959
+    },
+    "b_tassone_Run1_12CE_TMC_013_c_PES_support_x-113.06_y61.78_dy-1_ctr0_scan1_0001.raw": {
+      "bstop": 8.97122,
+      "bstop_corrected": 8.97122,
+      "calibration_factor": 1.0,
+      "i0": 21.6371,
+      "i0_corrected": 21.6371,
+      "normalization_factor": 8.97122,
+      "thickness_m": 0.007500219444325864,
+      "transmission": 0.41462210739886585
+    },
+    "b_tassone_Run1_12CE_TMC_013_c_PES_support_x-113.06_y61.78_dy-1_ctr0_scan1_0002.raw": {
+      "bstop": 8.95918,
+      "bstop_corrected": 8.95918,
+      "calibration_factor": 1.0,
+      "i0": 21.6451,
+      "i0_corrected": 21.6451,
+      "normalization_factor": 8.95918,
+      "thickness_m": 0.007514809787112361,
+      "transmission": 0.41391261763632414
+    },
+    "b_tassone_Run1_PES_support_x-165.15_y89.20_dy1_ctr0_scan1_0000.raw": {
+      "bstop": 8.89462,
+      "bstop_corrected": 8.89462,
+      "calibration_factor": 1.0,
+      "i0": 21.3889,
+      "i0_corrected": 21.3889,
+      "normalization_factor": 8.89462,
+      "thickness_m": 0.007474983275522326,
+      "transmission": 0.41585214760927397
+    },
+    "b_tassone_Run1_PES_support_x-165.15_y89.20_dy1_ctr0_scan1_0001.raw": {
+      "bstop": 8.87289,
+      "bstop_corrected": 8.87289,
+      "calibration_factor": 1.0,
+      "i0": 21.3886,
+      "i0_corrected": 21.3886,
+      "normalization_factor": 8.87289,
+      "thickness_m": 0.007495702135170591,
+      "transmission": 0.4148420186454466
+    },
+    "b_tassone_Run1_PES_support_x-165.15_y89.20_dy1_ctr0_scan1_0002.raw": {
+      "bstop": 8.86682,
+      "bstop_corrected": 8.86682,
+      "calibration_factor": 1.0,
+      "i0": 21.3352,
+      "i0_corrected": 21.3352,
+      "normalization_factor": 8.86682,
+      "thickness_m": 0.007480236009891489,
+      "transmission": 0.4155958228654993
+    },
+    "sone_Run1_12CE_TMC_013_c_PES_support_dark_x-113.06_y61.78_dy-1_ctr0_scan1_0000.raw": {
+      "bstop": 0.11006,
+      "bstop_corrected": 0.11006,
+      "calibration_factor": 1.0,
+      "i0": 1.88306,
+      "i0_corrected": 1.88306,
+      "normalization_factor": 0.11006,
+      "thickness_m": 0.024191421162853513,
+      "transmission": 0.058447420687604223
+    },
+    "sone_Run1_12CE_TMC_013_c_PES_support_dark_x-113.06_y61.78_dy-1_ctr0_scan1_0001.raw": {
+      "bstop": 0.11307,
+      "bstop_corrected": 0.11307,
+      "calibration_factor": 1.0,
+      "i0": 1.91484,
+      "i0_corrected": 1.91484,
+      "normalization_factor": 0.11307,
+      "thickness_m": 0.02410413772739212,
+      "transmission": 0.059049320047628
+    },
+    "sone_Run1_12CE_TMC_013_c_PES_support_dark_x-113.06_y61.78_dy-1_ctr0_scan1_0002.raw": {
+      "bstop": 0.11171,
+      "bstop_corrected": 0.11171,
+      "calibration_factor": 1.0,
+      "i0": 1.89063,
+      "i0_corrected": 1.89063,
+      "normalization_factor": 0.11171,
+      "thickness_m": 0.024098829459294504,
+      "transmission": 0.0590861247309098
+    },
+    "sone_Run1_12CE_TMC_013_c_PES_support_x-113.06_y61.78_dy-1_ctr0_scan1_0000.raw": {
+      "bstop": 8.98758,
+      "bstop_corrected": 8.98758,
+      "calibration_factor": 1.0,
+      "i0": 21.6784,
+      "i0_corrected": 21.6784,
+      "normalization_factor": 8.98758,
+      "thickness_m": 0.007500943498899364,
+      "transmission": 0.4145868698796959
+    },
+    "sone_Run1_12CE_TMC_013_c_PES_support_x-113.06_y61.78_dy-1_ctr0_scan1_0001.raw": {
+      "bstop": 8.97122,
+      "bstop_corrected": 8.97122,
+      "calibration_factor": 1.0,
+      "i0": 21.6371,
+      "i0_corrected": 21.6371,
+      "normalization_factor": 8.97122,
+      "thickness_m": 0.007500219444325864,
+      "transmission": 0.41462210739886585
+    },
+    "sone_Run1_12CE_TMC_013_c_PES_support_x-113.06_y61.78_dy-1_ctr0_scan1_0002.raw": {
+      "bstop": 8.95918,
+      "bstop_corrected": 8.95918,
+      "calibration_factor": 1.0,
+      "i0": 21.6451,
+      "i0_corrected": 21.6451,
+      "normalization_factor": 8.95918,
+      "thickness_m": 0.007514809787112361,
+      "transmission": 0.41391261763632414
+    },
+    "sone_Run1_PES_support_x-165.15_y89.20_dy1_ctr0_scan1_0000.raw": {
+      "bstop": 8.89462,
+      "bstop_corrected": 8.89462,
+      "calibration_factor": 1.0,
+      "i0": 21.3889,
+      "i0_corrected": 21.3889,
+      "normalization_factor": 8.89462,
+      "thickness_m": 0.007474983275522326,
+      "transmission": 0.41585214760927397
+    },
+    "sone_Run1_PES_support_x-165.15_y89.20_dy1_ctr0_scan1_0001.raw": {
+      "bstop": 8.87289,
+      "bstop_corrected": 8.87289,
+      "calibration_factor": 1.0,
+      "i0": 21.3886,
+      "i0_corrected": 21.3886,
+      "normalization_factor": 8.87289,
+      "thickness_m": 0.007495702135170591,
+      "transmission": 0.4148420186454466
+    },
+    "sone_Run1_PES_support_x-165.15_y89.20_dy1_ctr0_scan1_0002.raw": {
+      "bstop": 8.86682,
+      "bstop_corrected": 8.86682,
+      "calibration_factor": 1.0,
+      "i0": 21.3352,
+      "i0_corrected": 21.3352,
+      "normalization_factor": 8.86682,
+      "thickness_m": 0.007480236009891489,
+      "transmission": 0.4155958228654993
+    }
+  },
+  "guinier": {
+    "I0": 370.7,
+    "R2": 0.34734,
+    "Rg": 9.6322,
+    "intercept": 5.915,
+    "qRg_max": 4.803,
+    "q_range": [
+      0.006420332,
+      0.498601921
+    ],
+    "slope": -30.93
+  },
+  "pipeline_counts": {
+    "saxs_count": 9,
+    "stopped": false,
+    "waxs_count": 9
+  },
+  "porod": {
+    "K": 0.07885,
+    "R2": 0.98166,
+    "interpretation": "smooth interface",
+    "n": -3.914,
+    "q_range": [
+      0.301337743,
+      1.89824158
+    ]
+  },
+  "quality__saxs": {
+    "flags": [
+      "spikes"
+    ],
+    "name": "Run1_12CE_TMC_013_c_PES_support_x-113.06_y61.78_dy-1_ctr0_scan1_sub.dat",
+    "reasons": [
+      "28% spiky/outlier points"
+    ],
+    "score": 85.0,
+    "usable": true,
+    "verdict": "good"
+  },
+  "quality__waxs": {
+    "flags": [
+      "over_subtraction",
+      "narrow_q",
+      "spikes"
+    ],
+    "name": "Run1_12CE_TMC_013_c_PES_support_x-113.06_y61.78_dy-1_ctr0_scan1_sub.dat",
+    "reasons": [
+      "12% negative points (over-subtraction)",
+      "narrow q-range (0.52 decades)",
+      "38% spiky/outlier points"
+    ],
+    "score": 61.4,
+    "usable": true,
+    "verdict": "good"
+  },
+  "reduced_filenames": {
+    "saxs": [
+      "Run1_12CE_TMC_013_c_PES_support_dark_x-113.06_y61.78_dy-1_ctr0_scan1_0000_SAXS.dat",
+      "Run1_12CE_TMC_013_c_PES_support_dark_x-113.06_y61.78_dy-1_ctr0_scan1_0001_SAXS.dat",
+      "Run1_12CE_TMC_013_c_PES_support_dark_x-113.06_y61.78_dy-1_ctr0_scan1_0002_SAXS.dat",
+      "Run1_12CE_TMC_013_c_PES_support_x-113.06_y61.78_dy-1_ctr0_scan1_0000_SAXS.dat",
+      "Run1_12CE_TMC_013_c_PES_support_x-113.06_y61.78_dy-1_ctr0_scan1_0001_SAXS.dat",
+      "Run1_12CE_TMC_013_c_PES_support_x-113.06_y61.78_dy-1_ctr0_scan1_0002_SAXS.dat",
+      "Run1_PES_support_x-165.15_y89.20_dy1_ctr0_scan1_0000_SAXS.dat",
+      "Run1_PES_support_x-165.15_y89.20_dy1_ctr0_scan1_0001_SAXS.dat",
+      "Run1_PES_support_x-165.15_y89.20_dy1_ctr0_scan1_0002_SAXS.dat"
+    ],
+    "waxs": [
+      "Run1_12CE_TMC_013_c_PES_support_dark_x-113.06_y61.78_dy-1_ctr0_scan1_0000_WAXS.dat",
+      "Run1_12CE_TMC_013_c_PES_support_dark_x-113.06_y61.78_dy-1_ctr0_scan1_0001_WAXS.dat",
+      "Run1_12CE_TMC_013_c_PES_support_dark_x-113.06_y61.78_dy-1_ctr0_scan1_0002_WAXS.dat",
+      "Run1_12CE_TMC_013_c_PES_support_x-113.06_y61.78_dy-1_ctr0_scan1_0000_WAXS.dat",
+      "Run1_12CE_TMC_013_c_PES_support_x-113.06_y61.78_dy-1_ctr0_scan1_0001_WAXS.dat",
+      "Run1_12CE_TMC_013_c_PES_support_x-113.06_y61.78_dy-1_ctr0_scan1_0002_WAXS.dat",
+      "Run1_PES_support_x-165.15_y89.20_dy1_ctr0_scan1_0000_WAXS.dat",
+      "Run1_PES_support_x-165.15_y89.20_dy1_ctr0_scan1_0001_WAXS.dat",
+      "Run1_PES_support_x-165.15_y89.20_dy1_ctr0_scan1_0002_WAXS.dat"
+    ]
+  },
+  "scale__saxs": {
+    "n_clipped": 2,
+    "n_points": 48,
+    "q_max": 2.561712,
+    "q_min": 1.922889083,
+    "scale": 1.0929265708785092
+  },
+  "scale__waxs": {
+    "n_clipped": 0,
+    "n_points": 161,
+    "q_max": 41.78487,
+    "q_min": 34.4944725,
+    "scale": 0.8122421537014337
+  }
+}

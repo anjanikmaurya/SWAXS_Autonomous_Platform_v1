@@ -1,0 +1,1039 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Background Subtraction — SWAXS</title>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f5f7fa;--surface:#ffffff;--surface2:#f0f2f5;--border:#e5e7eb;--border-strong:#c3c9d1;
+  --text:#1f2937;--text-strong:#111827;--muted:#4b5563;--faint:#6b7280;--disabled:#9ca3af;
+  --accent:#B1040E;--accent-d:#8C1515;--accent-lt:#fbe9ea;
+  --sidebar:#eef1f5;--sidebar-h:#e3e7ed;--sf:31,41,55;
+  --sidebar-active-bg:rgba(177,4,14,.10);--sidebar-active-fg:#8C1515;
+  --green:#16a34a;--yellow:#d97706;--red:#dc2626;--blue:#2563eb;
+  --ok-text:#15803d;--warn-text:#b45309;--err-text:#b91c1c;--info-text:#1d4ed8;
+  --font:'Inter','Segoe UI',system-ui,-apple-system,sans-serif;--mono:'JetBrains Mono','Fira Code',monospace;
+  --fs-2xs:.6875rem;--fs-xs:.75rem;--fs-sm:.8125rem;--fs-md:.875rem;--fs-base:1rem;--fs-lg:1.125rem;--fs-xl:1.375rem;
+  --fw-semibold:600;--fw-bold:700;--ls-label:.06em;--radius:8px;
+}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--font);font-size:18px}
+.shell{display:grid;grid-template-rows:56px 1fr;height:100vh}
+.topbar{display:flex;align-items:center;gap:14px;padding:0 20px;background:var(--surface);border-bottom:1px solid var(--border)}
+.topbar h1{font-size:var(--fs-lg);font-weight:700}.topbar h1 span{color:var(--accent)}
+.topbar-sub{font-size:14px;color:var(--muted)}
+.proj{font-size:13px;color:var(--faint);font-family:var(--mono);max-width:40ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.body{display:grid;grid-template-columns:242px 1fr;height:100%;overflow:hidden}
+
+/* Left mode rail — viewer-style Cardinal sidebar (subtle active state) */
+.nav{background:var(--sidebar);border-right:1px solid var(--sidebar-h);padding:14px 12px;display:flex;flex-direction:column;gap:2px}
+.nav .lbl{font-size:var(--fs-2xs);font-weight:700;letter-spacing:var(--ls-label);text-transform:uppercase;color:rgba(var(--sf),.55);margin:2px 8px 4px}
+.navtab{display:flex;align-items:center;gap:8px;text-align:left;border:none;border-left:3px solid transparent;background:transparent;border-radius:0 6px 6px 0;padding:7px 10px;cursor:pointer;font-size:var(--fs-sm);font-weight:600;color:rgba(var(--sf),.78);transition:all .12s}
+.navtab:hover{background:var(--sidebar-h);color:var(--sidebar-active-fg)}
+.navtab.active{background:var(--sidebar-active-bg);color:var(--sidebar-active-fg);border-left-color:var(--accent)}
+.navtab .ic{font-size:14px;width:16px;text-align:center}
+
+/* Top horizontal view tabs — underline style (viewer .itab) */
+.toptabbar{display:flex;gap:2px;padding:0 16px;background:var(--surface2);border-bottom:2px solid var(--border);flex-shrink:0}
+.toptab{padding:9px 15px;border:none;background:transparent;color:var(--muted);font-size:var(--fs-sm);font-weight:600;cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px;transition:color .15s,border-color .15s}
+.toptab:hover{color:var(--text)}
+.toptab.active{color:var(--accent);font-weight:700;border-bottom-color:var(--accent)}
+
+/* Content */
+.content{overflow:hidden;display:flex;flex-direction:column}
+.page{display:none;flex:1;overflow:hidden}
+.page.active{display:flex}
+
+/* Setup: two-col inputs + plot */
+.setup{display:grid;grid-template-columns:430px 1fr;flex:1;overflow:hidden}
+.inputs{overflow-y:auto;padding:20px 18px 20px 48px;display:flex;flex-direction:column;gap:14px;border-right:1px solid var(--border)}
+.section{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px}
+.section-title{font-size:var(--fs-xs);font-weight:700;letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--muted);margin-bottom:10px}
+.field{display:flex;flex-direction:column;gap:4px;margin-bottom:8px}.field:last-child{margin-bottom:0}
+.field label{font-size:var(--fs-md);color:var(--muted);font-weight:600}
+.field input,.field select{background:var(--surface2);border:1px solid var(--border-strong);border-radius:6px;color:var(--text);padding:7px 10px;font-size:var(--fs-md);width:100%;transition:border-color .15s,box-shadow .15s}
+.field input:focus,.field select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(140,21,21,.15)}
+.browse-row{display:flex;gap:6px}.browse-row input{flex:1}
+.seg{display:flex;gap:0;border:1px solid var(--border-strong);border-radius:var(--radius);overflow:hidden;max-width:340px}
+.seg button{flex:1;padding:8px;border:none;background:var(--surface2);color:var(--muted);font-size:var(--fs-sm);font-weight:600;cursor:pointer;border-right:1px solid var(--border)}
+.seg button:last-child{border-right:none}
+.seg button.active{background:var(--accent);color:#fff}
+.btn{padding:7px 14px;border-radius:6px;border:1px solid transparent;font-size:var(--fs-md);font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:5px;white-space:nowrap;transition:all .15s}
+.btn-primary{background:var(--accent);border-color:var(--accent-d);color:#fff}.btn-primary:hover{background:var(--accent-d)}
+.btn-ghost{background:var(--surface);border-color:var(--border-strong);color:var(--accent)}.btn-ghost:hover{background:var(--surface2)}
+.btn-sm{padding:6px 10px;font-size:var(--fs-sm);background:var(--surface2);border-color:var(--border-strong);color:var(--muted)}
+.btn-sm:hover{color:var(--text);border-color:var(--accent)}
+.btn-full{width:100%;justify-content:center;padding:9px}
+.actions{display:flex;gap:8px}
+.actions .btn{flex:1;justify-content:center;padding:9px}
+.hint{font-size:var(--fs-sm);color:var(--muted);margin-top:6px}
+.scale-row{display:flex;align-items:center;gap:10px;max-width:340px}.scale-row input[type=range]{flex:1;accent-color:var(--accent)}
+.scale-val{font-size:var(--fs-md);font-weight:700;color:var(--accent);min-width:46px;text-align:right}
+
+/* file list + suggest table */
+.filelist{border:1px solid var(--border);border-radius:6px;max-height:200px;overflow-y:auto;background:var(--surface2)}
+.fl-row{display:flex;align-items:center;gap:8px;padding:6px 9px;border-bottom:1px solid var(--border);cursor:pointer;font-size:var(--fs-sm)}
+.fl-row:last-child{border-bottom:none}.fl-row:hover{background:#eef1f5}.fl-row.sel{background:var(--accent-lt)}
+.fl-row.bgrow{background:rgba(217,119,6,.12)}
+.fl-row .nm{flex:1;min-width:0;font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bgpick{display:inline-flex;align-items:center;gap:3px;font-size:var(--fs-2xs);color:var(--muted);cursor:pointer;flex-shrink:0}
+.bgpick input{accent-color:var(--warn)}
+.rbadge{font-size:var(--fs-2xs);font-weight:700;padding:1px 8px;border-radius:20px;flex-shrink:0}
+.rbadge.bg{background:var(--warn);color:#fff}
+.rbadge.sample{background:var(--accent);color:#fff}
+.fl-empty{padding:12px;font-size:var(--fs-sm);color:var(--faint);text-align:center}
+.fl-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.fl-count{font-size:var(--fs-xs);color:var(--faint)}
+table.tbl{width:100%;border-collapse:collapse;font-size:var(--fs-sm)}
+table.tbl th{text-align:left;font-size:var(--fs-2xs);font-weight:700;letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--muted);padding:7px 8px;border-bottom:1px solid var(--border-strong);position:sticky;top:0;background:var(--surface)}
+table.tbl td{padding:6px 8px;border-bottom:1px solid var(--border);font-family:var(--mono);white-space:nowrap}
+.tblwrap{overflow:auto;flex:1}
+
+/* QC */
+.qc{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.qc-item{font-size:var(--fs-sm);padding:7px 10px;border-radius:6px;border-left:3px solid}
+.qc-ok{background:rgba(22,163,74,.07);border-color:var(--green);color:var(--ok-text)}
+.qc-warning{background:rgba(217,119,6,.08);border-color:var(--yellow);color:var(--warn-text)}
+.qc-error{background:rgba(220,38,38,.07);border-color:var(--red);color:var(--err-text)}
+.qcdot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:middle}
+.qcdot.ok{background:var(--green)}.qcdot.warning{background:var(--yellow)}.qcdot.error{background:var(--red)}
+.chip-ok{display:inline-block;font-size:var(--fs-sm);font-weight:600;color:var(--ok-text);background:rgba(22,163,74,.10);border:1px solid rgba(22,163,74,.3);border-radius:20px;padding:3px 12px}
+.metrics{display:flex;gap:14px;flex-wrap:wrap;font-size:var(--fs-sm);color:var(--muted);margin-top:6px}
+.metrics b{color:var(--text)}
+
+/* plot */
+.plotwrap{display:flex;flex-direction:column;overflow:hidden}
+.plotbar{display:flex;align-items:center;gap:14px;padding:8px 14px;border-bottom:1px solid var(--border);background:var(--surface2);flex-wrap:wrap}
+.plotbar label{font-size:var(--fs-sm);color:var(--muted);display:flex;align-items:center;gap:5px}
+.viewseg{display:inline-flex;border:1px solid var(--border-strong);border-radius:6px;overflow:hidden}
+.viewseg button{padding:4px 11px;border:none;background:var(--surface);color:var(--muted);font-size:var(--fs-xs);font-weight:600;cursor:pointer;border-right:1px solid var(--border)}
+.viewseg button:last-child{border-right:none}
+.viewseg button.active{background:var(--accent);color:#fff}
+.plot-div{flex:1;width:100%}
+.status-bar{padding:7px 16px;background:var(--surface);border-top:1px solid var(--border);font-size:var(--fs-md);color:var(--muted);display:flex;align-items:center;gap:8px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}.dot.ok{background:var(--green)}.dot.err{background:var(--red)}.dot.busy{background:var(--yellow);animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+
+/* modal */
+.modal-backdrop{display:none;position:fixed;inset:0;background:#000a;z-index:100;align-items:center;justify-content:center}
+.modal-backdrop.open{display:flex}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);width:520px;max-height:68vh;display:flex;flex-direction:column;box-shadow:0 20px 60px #000a}
+.modal-head{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.modal-head h2{font-size:var(--fs-md);font-weight:600}
+.modal-close{background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer}
+.modal-body{padding:14px 18px;flex:1;overflow-y:auto}
+.dir-item{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:6px;cursor:pointer}.dir-item:hover{background:var(--surface2)}.dir-item.file{color:var(--info-text)}
+.modal-foot{padding:10px 18px;border-top:1px solid var(--border);display:flex;gap:8px;align-items:center;justify-content:flex-end}
+.curr-path{font-size:var(--fs-sm);color:var(--muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono)}
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+/* ===== SWAXS theme v2 · charcoal sidebar · cardinal accent · dark mode ===== */
+:root[data-theme="dark"]{
+  --bg:#15161a;--surface:#1f2126;--surface2:#272a31;--border:#343842;--border-strong:#4c515c;
+  --text:#e7e9ee;--text-strong:#f5f7fa;--muted:#a4abb6;--faint:#7d848f;--disabled:#5a606b;
+  --accent:#d44a55;--accent-d:#b1040e;--accent-lt:#3a2023;
+  --sidebar:#1f2126;--sidebar-h:#2a2d34;--sf:231,233,238;
+  --sidebar-active-bg:rgba(212,74,85,.22);--sidebar-active-fg:#f0a6ab;
+}
+.theme-toggle{display:inline-flex;align-items:center;justify-content:center;width:34px;height:30px;border:1px solid var(--border-strong);border-radius:7px;background:var(--surface);color:var(--text);cursor:pointer;font-size:15px;line-height:1}
+.theme-toggle:hover{background:var(--surface2)}
+/* larger left-nav text */
+.nav .lbl{font-size:var(--fs-sm)}
+.navtab{font-size:var(--fs-base)}
+.navtab .ic{font-size:16px}
+</style>
+</head>
+<body>
+<div class="shell">
+  <header class="topbar">
+    <h1>SWAXS <span>Subtraction</span></h1>
+    <div style="flex:1"></div>
+    <span class="proj" id="projPath"></span>
+    <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" title="Toggle light / dark">☾</button>
+    <span class="topbar-sub">Port 5003 · <a href="http://localhost:5000" style="color:var(--accent);text-decoration:none">← Hub</a></span>
+  </header>
+
+  <div class="body">
+    <!-- Left nav -->
+    <nav class="nav">
+      <div class="lbl">Mode</div>
+      <button class="navtab active" id="m-individual" onclick="setMode('individual')"><span class="ic">📄</span> Individual</button>
+      <button class="navtab" id="m-batch" onclick="setMode('batch')"><span class="ic">🔗</span> Scan</button>
+      <button class="navtab" id="m-suggest" onclick="setMode('suggest')"><span class="ic">✨</span> Suggested</button>
+      <button class="navtab" id="m-auto" onclick="setMode('auto')"><span class="ic">🤖</span> Automated</button>
+      <div class="lbl" id="modeHint" style="text-transform:none;letter-spacing:0;font-weight:400;color:rgba(var(--sf),.65);line-height:1.5;margin-top:8px">Pick specific sample file(s) and one background file.</div>
+    </nav>
+
+    <div class="content">
+      <div class="toptabbar">
+        <button class="toptab active" data-tab="setup" onclick="showPage('setup')">Setup</button>
+        <button class="toptab" data-tab="saxs" onclick="showPage('saxs')">BG-Sub 1D SAXS</button>
+        <button class="toptab" data-tab="waxs" onclick="showPage('waxs')">BG-Sub 1D WAXS</button>
+        <button class="toptab" data-tab="meta" onclick="showPage('meta')">Average Metadata</button>
+      </div>
+      <!-- ===== SETUP ===== -->
+      <div class="page active" id="page-setup" style="flex-direction:column">
+          <section class="inputs" style="border-right:none;flex:1">
+           <div id="manual-setup">
+            <div class="hint" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;color:var(--muted)">
+              <b>1.</b> Pick a mode (left) &nbsp;·&nbsp; <b>2.</b> set folders &amp; background &nbsp;·&nbsp; <b>3.</b> choose method &nbsp;·&nbsp; <b>4.</b> Preview &amp; plot → Subtract &amp; Save
+            </div>
+            <div class="section">
+              <div class="section-title">Detector</div>
+              <div class="seg">
+                <button id="det-saxs" class="active" onclick="setDetector('saxs')">SAXS</button>
+                <button id="det-waxs" onclick="setDetector('waxs')">WAXS</button>
+              </div>
+              <div class="hint">Tags output and routes results to the matching BG-Sub tab.</div>
+            </div>
+
+            <!-- folders -->
+            <div class="section">
+              <div class="section-title">Folders</div>
+              <div class="field">
+                <label>Sample folder</label>
+                <div class="browse-row">
+                  <input type="text" id="sam-folder" placeholder="/…/1D/SAXS/Averaged">
+                  <button class="btn btn-sm" onclick="openBrowser('sam-folder')">📁</button>
+                  <button class="btn btn-sm" onclick="listSamples()">List</button>
+                </div>
+              </div>
+              <div class="field" id="row-bkg-folder" style="display:none">
+                <label>Background folder</label>
+                <div class="browse-row">
+                  <input type="text" id="bkg-folder" placeholder="/…/1D/SAXS/Averaged">
+                  <button class="btn btn-sm" onclick="openBrowser('bkg-folder')">📁</button>
+                </div>
+              </div>
+              <div class="field" id="row-bkg-file">
+                <label>Background file (.dat)</label>
+                <div class="browse-row">
+                  <input type="text" id="bkg-file" placeholder="/…/buffer_avg.dat">
+                  <button class="btn btn-sm" onclick="openBrowser('bkg-file',true)">📁</button>
+                </div>
+              </div>
+              <div class="field">
+                <label>Output folder (blank = sample/Subtracted)</label>
+                <div class="browse-row">
+                  <input type="text" id="out-folder" placeholder="optional">
+                  <button class="btn btn-sm" onclick="openBrowser('out-folder')">📁</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- individual file list -->
+            <div class="section" id="sec-files">
+              <div class="fl-head">
+                <span class="section-title" style="margin:0">Files in folder</span>
+                <span class="fl-count" id="sam-count">none listed</span>
+              </div>
+              <div class="hint" style="margin:0 0 6px">Mark one file as <b style="color:var(--warn-text)">BG</b> (background); check the rest as <b style="color:var(--accent)">samples</b>.</div>
+              <div class="filelist" id="sam-filelist"><div class="fl-empty">Click “List” to load .dat files</div></div>
+              <button class="btn btn-sm" style="margin-top:6px" onclick="toggleAll()">Select all samples</button>
+            </div>
+
+            <!-- shared match & review (Scan + Suggested) -->
+            <div class="section" id="sec-suggest" style="display:none">
+              <div class="section-title" id="match-title">Match &amp; review</div>
+
+              <!-- Suggested-mode control -->
+              <div id="suggest-controls">
+                <div class="field">
+                  <label>Match by filename token (optional)</label>
+                  <input type="text" id="suggest-hint" placeholder="e.g. buffer · blank · or a shared run id">
+                </div>
+              </div>
+
+              <!-- Scan-mode controls: group by keyword, pair by counter number -->
+              <div id="scan-controls" style="display:none">
+                <div class="row">
+                  <div class="field"><label>Sample keyword</label><input type="text" id="scan-sam-kw" placeholder="e.g. Nylon6"></div>
+                  <div class="field"><label>Background keyword</label><input type="text" id="scan-bkg-kw" placeholder="e.g. Empty"></div>
+                  <div class="field"><label>Match number after</label><input type="text" id="scan-counter" placeholder="e.g. ctr"></div>
+                </div>
+                <div class="hint" style="margin:4px 0 0">Samples whose name contains the <b>sample keyword</b> are paired with backgrounds containing the <b>background keyword</b>, by the number right after the <b>match token</b> — e.g. <code>…ctr0…</code> ↔ <code>…ctr0…</code>. Pairs are listed in order of that number for easy checking. Leave a keyword blank to include all files.</div>
+              </div>
+
+              <div class="fl-head" style="margin-top:8px">
+                <span class="fl-count" id="suggest-count">No matches yet</span>
+                <span style="display:flex;gap:6px">
+                  <button class="btn btn-sm" onclick="reviewRows()">🔎 Review</button>
+                  <button class="btn btn-primary btn-sm" id="match-btn" onclick="runMatch()">✨ Match</button>
+                </span>
+              </div>
+              <div class="tblwrap" style="max-height:240px;border:1px solid var(--border);border-radius:6px">
+                <table class="tbl" id="suggestTbl"><tbody><tr><td class="fl-empty">Set folders, then “Match”.</td></tr></tbody></table>
+              </div>
+              <div class="hint">Edit any background in the table before applying. “Review” fills the per-row scale + QC.</div>
+            </div>
+
+            <!-- method + scale -->
+            <div class="section">
+              <div class="section-title">Subtraction method</div>
+              <div class="seg">
+                <button id="meth-manual" class="active" onclick="setMethod('manual')">Manual scale</button>
+                <button id="meth-auto" onclick="setMethod('auto_highq')">Auto high-q</button>
+              </div>
+              <div id="manualScale" style="margin-top:10px;max-width:340px">
+                <div class="scale-row">
+                  <input type="range" id="scaleSlider" min="0" max="2" step="0.01" value="1" oninput="updateScale(this.value)">
+                  <span class="scale-val" id="scaleVal">1.00</span>
+                </div>
+                <div class="field" style="margin-top:8px"><label>Exact value</label>
+                  <input type="number" id="scaleNum" value="1.0" min="0" step="0.01" oninput="syncScale(this.value)"></div>
+              </div>
+              <div id="autoWindow" style="margin-top:10px;display:none">
+                <div class="row">
+                  <div class="field"><label>High-q window q-min</label><input type="number" id="auto-qmin" step="0.01" placeholder="auto (top 25%)"></div>
+                  <div class="field"><label>q-max</label><input type="number" id="auto-qmax" step="0.01" placeholder="auto (max q)"></div>
+                </div>
+              </div>
+              <div class="hint" id="methHint">I<sub>sub</sub> = I<sub>sample</sub> − <b>scale</b> × I<sub>background</sub></div>
+            </div>
+
+            <div class="actions">
+              <button class="btn btn-ghost" onclick="preview()">🔍 Preview &amp; plot</button>
+              <button class="btn btn-primary" id="btnRun" onclick="run()">✓ Subtract &amp; Save</button>
+            </div>
+           </div><!-- /manual-setup -->
+
+           <!-- ===== AUTOMATED (mode) ===== -->
+           <div id="auto-setup" style="display:none">
+            <div class="hint" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;color:var(--muted)">
+              Watches the <b>Averaged</b> folder(s) and subtracts each new sample automatically.
+              Backgrounds are detected by name (<code>buffer · blank · empty · solvent · water · bkg</code>);
+              every unsubtracted sample is paired with its <b>nearest-index</b> background, the scale is
+              auto-set to zero the high-q residual (bounded near the high-q least-squares fit), and the
+              result is written to <code>Subtracted/</code>. Files that still trip QC are saved as the
+              best attempt and flagged in the manifest.
+            </div>
+
+            <div class="section">
+              <div class="section-title">Averaged folders to watch</div>
+              <div class="field">
+                <label>SAXS Averaged folder</label>
+                <div class="browse-row">
+                  <input type="text" id="auto-saxs-folder" placeholder="/…/1D/SAXS/Averaged">
+                  <button class="btn btn-sm" onclick="openBrowser('auto-saxs-folder')">📁</button>
+                </div>
+              </div>
+              <div class="field">
+                <label>WAXS Averaged folder</label>
+                <div class="browse-row">
+                  <input type="text" id="auto-waxs-folder" placeholder="/…/1D/WAXS/Averaged">
+                  <button class="btn btn-sm" onclick="openBrowser('auto-waxs-folder')">📁</button>
+                </div>
+              </div>
+              <div class="hint" style="margin:0">Leave a folder blank to skip that detector. Output goes to <code>1D/&lt;DET&gt;/Subtracted/</code> (a sibling of Averaged).</div>
+            </div>
+
+            <div class="section">
+              <div class="section-title">Sample &amp; background keywords (optional)</div>
+              <div class="row">
+                <div class="field"><label>Sample keyword</label>
+                  <input type="text" id="auto-sample-kw" placeholder="e.g. PIP_TMC  ·  blank = all non-background"></div>
+                <div class="field"><label>Background keyword</label>
+                  <input type="text" id="auto-bkg-kw" placeholder="e.g. buffer  ·  blank = auto-detect"></div>
+              </div>
+              <div class="hint" style="margin:4px 0 0">Background keyword overrides name-token detection (buffer/blank/empty/…). Sample keyword restricts which files are treated as samples.</div>
+            </div>
+
+            <div class="section">
+              <div class="section-title">Scale</div>
+              <div class="seg">
+                <button id="auto-meth-auto" class="active" onclick="setAutoScaleMode('auto')">Auto high-q</button>
+                <button id="auto-meth-fixed" onclick="setAutoScaleMode('fixed')">Fixed value</button>
+              </div>
+              <div class="field" id="auto-fixed-row" style="display:none;max-width:220px;margin-top:8px">
+                <label>Scale value</label>
+                <input type="number" id="auto-fixed-scale" value="1.0" min="0" step="0.01">
+              </div>
+              <div class="hint" style="margin:4px 0 0" id="auto-scale-hint">Auto: scale is set to zero the high-q residual, bounded near the high-q least-squares fit.</div>
+            </div>
+
+            <div class="section">
+              <div class="section-title">Schedule</div>
+              <div class="field" style="max-width:220px">
+                <label>Check interval (seconds)</label>
+                <input type="number" id="auto-interval" value="10" min="1">
+              </div>
+            </div>
+
+            <div class="actions" style="align-items:center">
+              <button class="btn btn-primary" id="auto-start" onclick="startAutoSub()">▶ Start auto-subtraction</button>
+              <button class="btn btn-ghost" id="auto-stop" onclick="stopAutoSub()" disabled>⏹ Stop</button>
+              <span id="auto-state" style="padding:3px 12px;border-radius:999px;font-size:var(--fs-sm);font-weight:600;background:var(--surface2);color:var(--muted)">Idle</span>
+              <span id="auto-count" class="hint" style="margin:0"></span>
+            </div>
+
+            <div id="auto-log"
+                 style="display:none;margin-top:4px;max-height:300px;overflow-y:auto;
+                        padding:10px 12px;background:var(--surface2);border:1px solid var(--border);
+                        border-radius:var(--radius);font-family:var(--mono);font-size:13px;line-height:1.55"></div>
+           </div><!-- /auto-setup -->
+          </section>
+          <div class="status-bar"><div class="dot" id="statusDot"></div><span id="statusMsg">Ready</span></div>
+      </div>
+
+      <!-- ===== SAXS RESULTS ===== -->
+      <div class="page" id="page-saxs">
+        <div class="plotwrap" style="flex:1">
+          <div class="plotbar">
+            <b style="font-size:var(--fs-sm)">Background-subtracted 1D SAXS</b>
+            <span class="viewseg" id="saxs-viewseg"><button data-v="overlay" class="active" onclick="setView('saxs','overlay')">Overlay</button><button data-v="residual" onclick="setView('saxs','residual')">Residual</button><button data-v="ratio" onclick="setView('saxs','ratio')">Ratio</button></span>
+            <span class="viewseg" id="saxs-axisseg"><button data-a="loglog" class="active" onclick="setAxis('saxs','loglog')">Log–Log</button><button data-a="semilogy" onclick="setAxis('saxs','semilogy')">Semilog</button><button data-a="linear" onclick="setAxis('saxs','linear')">Linear</button></span>
+            <label><input type="checkbox" id="saxs-raw" checked onchange="redraw('saxs')"> raw+bkg</label>
+            <label><input type="checkbox" id="saxs-sub" checked onchange="redraw('saxs')"> subtracted</label>
+            <button class="btn btn-sm" onclick="compareMethods('saxs')">⇄ Compare methods</button>
+            <span style="flex:1"></span>
+            <label>scale <input type="range" id="saxs-scale" min="0" max="2" step="0.01" value="1" style="width:120px;accent-color:var(--accent)" oninput="rescale('saxs',this.value)"> <b id="saxs-scaleval">1.00</b></label>
+          </div>
+          <div id="saxs-qc" class="qc" style="padding:0 14px"></div>
+          <div class="plot-div" id="saxsPlot"></div>
+        </div>
+      </div>
+
+      <!-- ===== WAXS RESULTS ===== -->
+      <div class="page" id="page-waxs">
+        <div class="plotwrap" style="flex:1">
+          <div class="plotbar">
+            <b style="font-size:var(--fs-sm)">Background-subtracted 1D WAXS</b>
+            <span class="viewseg" id="waxs-viewseg"><button data-v="overlay" class="active" onclick="setView('waxs','overlay')">Overlay</button><button data-v="residual" onclick="setView('waxs','residual')">Residual</button><button data-v="ratio" onclick="setView('waxs','ratio')">Ratio</button></span>
+            <span class="viewseg" id="waxs-axisseg"><button data-a="loglog" class="active" onclick="setAxis('waxs','loglog')">Log–Log</button><button data-a="semilogy" onclick="setAxis('waxs','semilogy')">Semilog</button><button data-a="linear" onclick="setAxis('waxs','linear')">Linear</button></span>
+            <label><input type="checkbox" id="waxs-raw" checked onchange="redraw('waxs')"> raw+bkg</label>
+            <label><input type="checkbox" id="waxs-sub" checked onchange="redraw('waxs')"> subtracted</label>
+            <button class="btn btn-sm" onclick="compareMethods('waxs')">⇄ Compare methods</button>
+            <span style="flex:1"></span>
+            <label>scale <input type="range" id="waxs-scale" min="0" max="2" step="0.01" value="1" style="width:120px;accent-color:var(--accent)" oninput="rescale('waxs',this.value)"> <b id="waxs-scaleval">1.00</b></label>
+          </div>
+          <div id="waxs-qc" class="qc" style="padding:0 14px"></div>
+          <div class="plot-div" id="waxsPlot"></div>
+        </div>
+      </div>
+
+      <!-- ===== METADATA ===== -->
+      <div class="page" id="page-meta">
+        <div class="plotwrap" style="flex:1">
+          <div class="plotbar"><b style="font-size:var(--fs-sm)">Average metadata</b>
+            <button class="btn btn-sm" onclick="loadMetadata()">Refresh from sample folder</button>
+            <span class="hint" id="metaInfo"></span></div>
+          <div class="tblwrap" style="padding:0 14px"><table class="tbl" id="metaTbl"><tbody><tr><td class="fl-empty">Click “Refresh” to load metadata for the sample folder.</td></tr></tbody></table></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- browser modal -->
+<div class="modal-backdrop" id="browserModal">
+  <div class="modal">
+    <div class="modal-head"><h2 id="modalTitle">Browse</h2><button class="modal-close" onclick="closeBrowser()">✕</button></div>
+    <div class="modal-body"><div id="dirList" style="display:flex;flex-direction:column;gap:3px"></div></div>
+    <div class="modal-foot"><span class="curr-path" id="currPath"></span>
+      <button class="btn btn-sm" onclick="closeBrowser()">Cancel</button>
+      <button class="btn btn-primary" onclick="selectCurrent()">Select</button></div>
+  </div>
+</div>
+
+<script>
+const WHITE='#ffffff';
+const COLORS=['#1d4ed8','#15803d','#B83A4B','#b45309','#7c3aed','#0e7490','#be123c','#0891b2'];
+const state={tab:'setup',mode:'individual',detector:'saxs',method:'manual',
+  preview:{saxs:null,waxs:null},          // {sample_file,bkg_file}
+  results:{saxs:null,waxs:null},          // last /api/preview, compare, or batch payload
+  view:{saxs:'overlay',waxs:'overlay'},   // overlay | residual | ratio
+  axis:{saxs:'loglog',waxs:'loglog'}};    // loglog | semilogy | linear (axis scale)
+
+// ── Navigation ────────────────────────────────────────────────────────────────
+function showPage(t){state.tab=t;document.querySelectorAll('.toptab').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));document.getElementById('page-'+t).classList.add('active');window.dispatchEvent(new Event('resize'));}
+function setDetector(d){
+  state.detector=d;
+  document.getElementById('det-saxs').classList.toggle('active',d==='saxs');
+  document.getElementById('det-waxs').classList.toggle('active',d==='waxs');
+  if(window._projRoot){               // re-derive folder defaults for this detector
+    const D=d.toUpperCase(), root=window._projRoot;
+    document.getElementById('sam-folder').value=root+'/1D/'+D+'/Averaged';
+    document.getElementById('bkg-folder').value=root+'/1D/'+D+'/Averaged';
+    document.getElementById('out-folder').value=root+'/1D/'+D+'/Subtracted';
+  }
+}
+function setMode(m){
+  state.mode=m;
+  ['individual','batch','suggest','auto'].forEach(x=>{const b=document.getElementById('m-'+x); if(b) b.classList.toggle('active',x===m);});
+  const isAuto=(m==='auto');
+  const ms=document.getElementById('manual-setup'); if(ms) ms.style.display=isAuto?'none':'';
+  const as=document.getElementById('auto-setup');   if(as) as.style.display=isAuto?'':'none';
+  if(isAuto){
+    document.getElementById('modeHint').textContent='Watch the Averaged folder(s) and subtract each new sample automatically.';
+    showPage('setup');   // bring the setup page forward if we were on a results tab
+    return;
+  }
+  const review=(m==='batch'||m==='suggest');
+  document.getElementById('sec-files').style.display   = m==='individual'?'':'none';
+  document.getElementById('sec-suggest').style.display = review?'':'none';
+  document.getElementById('row-bkg-folder').style.display = review?'':'none';
+  document.getElementById('row-bkg-file').style.display   = 'none';   // individual picks BG from the list
+  // toggle the controls inside the shared review section
+  document.getElementById('suggest-controls').style.display = m==='suggest'?'':'none';
+  document.getElementById('scan-controls').style.display    = m==='batch'?'':'none';
+  document.getElementById('match-title').textContent = m==='batch' ? 'Match by number & review' : 'Match & review';
+  const mb=document.getElementById('match-btn'); if(mb) mb.textContent = m==='batch' ? '🔢 Match by number' : '✨ Suggest backgrounds';
+  document.getElementById('modeHint').textContent = m==='individual'
+    ? 'List the Averaged folder, mark one file as BG (background) and check the rest as samples.'
+    : m==='batch' ? 'Group by a keyword then pair by counter — e.g. Nylon6*ctr ↔ Empty*ctr — then review.'
+    : 'Auto-match each sample to a background by filename/keywords (review before applying).';
+  document.getElementById('btnRun').textContent = m==='individual'
+    ? '✓ Subtract selected & Save'
+    : m==='batch' ? '✓ Subtract matched & Save'
+    : '✓ Apply suggested & Save';
+}
+function runMatch(){ return state.mode==='batch' ? runMatchToken() : runSuggest(); }
+async function runMatchToken(){
+  const sf=document.getElementById('sam-folder').value.trim(), bf=document.getElementById('bkg-folder').value.trim();
+  if(!sf||!bf){setStatus('Set sample and background folders','err');return;}
+  const sk=document.getElementById('scan-sam-kw').value.trim(),
+        bk=document.getElementById('scan-bkg-kw').value.trim(),
+        ct=document.getElementById('scan-counter').value.trim();
+  if(!ct){setStatus('Enter the match token to read the number after (e.g. ctr)','err');return;}
+  setStatus('Matching by number…','busy');
+  try{
+    const d=await post('/api/match_token',{sample_folder:sf,bkg_folder:bf,
+      sample_keyword:sk,bkg_keyword:bk,counter:ct});
+    if(d.error){setStatus(d.error,'err');return;}
+    _suggest=d.pairs; _suggestBkgs=d.backgrounds||[]; _suggestBkgFolder=(d.bkg_folder||bf).replace(/\/+$/,'');
+    renderSuggest();
+    const matched=d.pairs.filter(p=>p.suggested).length;
+    const grp = (sk||bk) ? `${sk||'all'}→${bk||'all'} · ` : '';
+    const msg=`Matched ${matched}/${d.pairs.length} sample(s) (${grp}by ${ct})`;
+    document.getElementById('suggest-count').textContent=msg; setStatus(msg, matched?'ok':'err');
+  }catch(e){setStatus('Match error: '+e,'err');}
+}
+function setMethod(m){
+  state.method=m;
+  document.getElementById('meth-manual').classList.toggle('active',m==='manual');
+  document.getElementById('meth-auto').classList.toggle('active',m==='auto_highq');
+  document.getElementById('manualScale').style.display = m==='manual'?'':'none';
+  document.getElementById('autoWindow').style.display  = m==='auto_highq'?'':'none';
+  document.getElementById('methHint').innerHTML = m==='manual'
+    ? 'I<sub>sub</sub> = I<sub>sample</sub> − <b>scale</b> × I<sub>background</sub>'
+    : 'Scale chosen by least-squares match in a high-q window (solvent-dominated region).';
+}
+function autoWin(){
+  const a=parseFloat(document.getElementById('auto-qmin').value),
+        b=parseFloat(document.getElementById('auto-qmax').value), o={};
+  if(!isNaN(a))o.qmin=a; if(!isNaN(b))o.qmax=b; return o;
+}
+
+// ── Scale ───────────────────────────────────────────────────────────────────
+function updateScale(v){document.getElementById('scaleVal').textContent=(+v).toFixed(2);document.getElementById('scaleNum').value=(+v).toFixed(2);}
+function syncScale(v){const f=+v||1;document.getElementById('scaleSlider').value=Math.min(Math.max(f,0),2);document.getElementById('scaleVal').textContent=f.toFixed(2);}
+function getScale(){return +document.getElementById('scaleNum').value||1.0;}
+function setStatus(m,c=''){document.getElementById('statusMsg').textContent=m;document.getElementById('statusDot').className='dot '+c;}
+
+// ── File listing (individual): one file = background, the rest = samples ────────
+let _samFiles=[], _bgIndex=-1;
+async function listSamples(){
+  const folder=document.getElementById('sam-folder').value.trim();
+  if(!folder){setStatus('Set a folder','err');return;}
+  setStatus('Listing…','busy');
+  try{
+    const d=await post('/api/scan',{folder});
+    if(d.error){setStatus(d.error,'err');return;}
+    _samFiles=(d.files||[]).map(f=>({name:f.name,path:folder.replace(/\/+$/,'')+'/'+f.name}));
+    _bgIndex=-1;
+    renderSamples();setStatus(`${_samFiles.length} file(s)`,'ok');
+  }catch(e){setStatus('List error: '+e,'err');}
+}
+function renderSamples(){
+  const box=document.getElementById('sam-filelist');
+  if(!_samFiles.length){box.innerHTML='<div class="fl-empty">No .dat files</div>';return;}
+  box.innerHTML='';
+  _samFiles.forEach((f,i)=>{
+    const r=document.createElement('div'); r.className='fl-row'; r.id='flrow-'+i;
+    r.innerHTML=
+      `<label class="bgpick" title="Use this file as the background"><input type="radio" name="bgpick" onchange="setBg(${i})">BG</label>`+
+      `<input type="checkbox" class="samp" data-i="${i}" onchange="updCount(event)">`+
+      `<span class="nm" title="${f.name}">${f.name}</span>`+
+      `<span class="rbadge" id="rbadge-${i}"></span>`;
+    r.querySelector('.nm').onclick=()=>{
+      if(i===_bgIndex){setStatus('That file is the background — click a sample to preview','');return;}
+      if(_bgIndex<0){setStatus('Mark one file as BG (background) first','err');return;}
+      const cb=r.querySelector('input.samp'); cb.checked=true; updCount();
+      previewPair(f.path, selectedBg());
+    };
+    box.appendChild(r);
+  });
+  refreshRoles(); updCount();
+}
+function setBg(i){
+  _bgIndex=i;
+  const cb=document.querySelector(`#sam-filelist input.samp[data-i="${i}"]`); if(cb) cb.checked=false;
+  refreshRoles(); updCount();
+}
+function refreshRoles(){
+  _samFiles.forEach((f,i)=>{
+    const row=document.getElementById('flrow-'+i); if(!row)return;
+    const cb=row.querySelector('input.samp'); const isBg=(i===_bgIndex);
+    cb.disabled=isBg;
+    row.classList.toggle('bgrow',isBg);
+    row.classList.toggle('sel',!isBg && cb.checked);
+    const b=document.getElementById('rbadge-'+i);
+    b.className='rbadge'+(isBg?' bg':(cb.checked?' sample':''));
+    b.textContent=isBg?'Background':(cb.checked?'Sample':'');
+  });
+}
+function updCount(ev){
+  refreshRoles();
+  const n=selectedSamples().length;
+  const bg=_bgIndex>=0?` · BG: ${_samFiles[_bgIndex].name}`:' · no background set';
+  document.getElementById('sam-count').textContent=`${n} sample(s)${bg}`;
+}
+function toggleAll(){
+  document.querySelectorAll('#sam-filelist input.samp').forEach(x=>{ if(!x.disabled) x.checked=true; });
+  updCount();
+}
+function selectedSamples(){return [...document.querySelectorAll('#sam-filelist input.samp:checked')].map(x=>_samFiles[+x.dataset.i].path);}
+function selectedBg(){return _bgIndex>=0?_samFiles[_bgIndex].path:'';}
+
+// ── Auto-suggest ───────────────────────────────────────────────────────────────
+let _suggest=[], _suggestBkgs=[], _suggestBkgFolder='';
+async function runSuggest(){
+  const sf=document.getElementById('sam-folder').value.trim(), bf=document.getElementById('bkg-folder').value.trim();
+  if(!sf||!bf){setStatus('Set sample and background folders','err');return;}
+  const hint=document.getElementById('suggest-hint').value.trim();
+  setStatus('Matching…','busy');
+  try{
+    const d=await post('/api/suggest',{sample_folder:sf,bkg_folder:bf,match_token:hint});
+    if(d.error){setStatus(d.error,'err');return;}
+    _suggest=d.pairs; _suggestBkgs=d.backgrounds||[]; _suggestBkgFolder=(d.bkg_folder||bf).replace(/\/+$/,'');
+    renderSuggest();
+    const msg=`Matched ${d.pairs.length} sample(s) to ${d.n_backgrounds} background(s)`+(hint?` · token “${hint}”`:'');
+    document.getElementById('suggest-count').textContent=msg;
+    setStatus(msg,'ok');
+  }catch(e){setStatus('Suggest error: '+e,'err');}
+}
+function renderSuggest(){
+  const t=document.getElementById('suggestTbl');
+  if(!_suggest.length){t.innerHTML='<tbody><tr><td class="fl-empty">No samples.</td></tr></tbody>';return;}
+  const opts=sel=>'<option value="">— none —</option>'+_suggestBkgs.map(b=>`<option ${b===sel?'selected':''}>${b}</option>`).join('');
+  let h='<thead><tr><th>Sample</th><th>Background (used for this sample)</th><th>Scale</th><th>QC</th><th>why</th></tr></thead><tbody>';
+  _suggest.forEach((p,i)=>{const sel=p.suggested?p.suggested.name:'';
+    h+=`<tr><td title="${p.sample}">${p.sample}</td>`+
+       `<td><select data-i="${i}" style="width:100%;font-family:var(--mono);font-size:var(--fs-xs);padding:4px 5px;border:1px solid var(--border-strong);border-radius:4px">${opts(sel)}</select></td>`+
+       `<td id="rev-scale-${i}" style="color:var(--faint)">—</td>`+
+       `<td id="rev-qc-${i}" style="color:var(--faint)">—</td>`+
+       `<td style="color:var(--faint);font-family:var(--font);white-space:normal">${p.suggested?p.suggested.reason:'—'}</td></tr>`;});
+  t.innerHTML=h+'</tbody>';
+}
+async function reviewRows(){
+  if(!_suggest.length){setStatus('Run “Suggest backgrounds” first','err');return;}
+  setStatus('Reviewing pairs (scale + QC)…','busy');
+  const method=state.method, scale=getScale();
+  let attention=0, done=0;
+  for(let i=0;i<_suggest.length;i++){
+    const bname=document.querySelector(`#suggestTbl select[data-i="${i}"]`)?.value;
+    const sc=document.getElementById('rev-scale-'+i), qcc=document.getElementById('rev-qc-'+i);
+    if(!bname){if(sc)sc.textContent='—';if(qcc)qcc.innerHTML='<span style="color:var(--faint)">skipped</span>';continue;}
+    try{
+      const d=await post('/api/pair_qc',{sample_file:_suggest[i].sample_path,bkg_file:_suggestBkgFolder+'/'+bname,method,scale,...autoWin()});
+      if(d.error){if(qcc)qcc.innerHTML='<span class="qcdot error"></span>error';attention++;continue;}
+      const sev=d.qc.warnings.some(w=>w.severity==='error')?'error':d.qc.warnings.some(w=>w.severity==='warning')?'warning':'ok';
+      if(sev!=='ok')attention++;
+      if(sc) sc.textContent=d.scale;
+      if(qcc)qcc.innerHTML=`<span class="qcdot ${sev}"></span>${d.qc.pct_negative}% neg`;
+      done++;
+    }catch(e){if(qcc)qcc.innerHTML='<span class="qcdot error"></span>err';attention++;}
+  }
+  setStatus(`Reviewed ${done} pair(s)${attention?` · ${attention} need attention`:' · all look OK'}`, attention?'err':'ok');
+}
+
+// ── Preview ─────────────────────────────────────────────────────────────────
+async function previewPair(sample,bkg){
+  if(!sample||!bkg){setStatus('Need sample + background file','err');return;}
+  state.preview[state.detector]={sample_file:sample,bkg_file:bkg};
+  await doPreview(sample,bkg);
+}
+async function preview(){
+  const det=state.detector;
+  if(state.mode==='individual'){
+    const bkg=selectedBg();
+    if(!bkg){setStatus('Mark one file as BG (background) in the list','err');return;}
+    const sel=selectedSamples();const sample=sel[0];
+    if(!sample){setStatus('Check at least one file as a sample','err');return;}
+    state.preview[det]={sample_file:sample,bkg_file:bkg};
+    await doPreview(sample,bkg);
+  }else{
+    // batch (token match) / suggest: preview the first matched pair from the review table
+    if(!_suggest.length) await runMatch();
+    const idx=_suggest.findIndex(x=>x.suggested);
+    if(idx<0){setStatus('No matched pair — run Match first','err');return;}
+    const p=_suggest[idx];
+    const bname=document.querySelector(`#suggestTbl select[data-i="${idx}"]`)?.value || (p.suggested&&p.suggested.name);
+    if(!bname){setStatus('No background chosen for this sample','err');return;}
+    state.preview[det]={sample_file:p.sample_path,bkg_file:_suggestBkgFolder+'/'+bname};
+    await doPreview(p.sample_path, _suggestBkgFolder+'/'+bname);
+  }
+}
+async function doPreview(sample_file,bkg_file){
+  setStatus('Loading preview…','busy');
+  const det=state.detector;
+  const payload={sample_file,bkg_file,method:state.method,scale:getScale(),...autoWin()};
+  try{
+    const d=await post('/api/preview',payload);
+    if(d.error){setStatus(d.error,'err');return;}
+    state.results[det]={kind:'preview',data:d,sample_file,bkg_file};
+    renderResult(det);
+    renderQC(det,d.qc,d.scale_used);
+    syncResultScale(det,d.scale_used);
+    showPage(det);   // show the plot on the BG-Sub SAXS/WAXS tab
+    const win=d.window?` · window q∈[${d.window.q_min.toFixed(3)}, ${d.window.q_max.toFixed(3)}]`:'';
+    setStatus(`Preview ${sample_file.split('/').pop()} — scale=${d.scale_used} (${d.method})${win}`,'ok');
+  }catch(e){setStatus('Preview error: '+e,'err');}
+}
+
+// ── Run (save) ────────────────────────────────────────────────────────────────
+async function run(){
+  const det=state.detector;let endpoint,body;
+  const common={method:state.method,detector:det,scale:getScale(),output_folder:document.getElementById('out-folder').value.trim(),...autoWin()};
+  if(state.mode==='individual'){
+    const bkg=selectedBg();
+    if(!bkg){setStatus('Mark one file as BG (background) in the list','err');return;}
+    const files=selectedSamples();
+    if(!files.length){setStatus('Check at least one file as a sample','err');return;}
+    endpoint='/api/subtract/individual';body={...common,sample_files:files,bkg_file:bkg};
+  }else{ // batch (token match) / suggest → run each pair via individual, grouped by background
+    if(!_suggest.length){setStatus('Run “Match” first','err');return;}
+    const bf=(_suggestBkgFolder||document.getElementById('bkg-folder').value.trim().replace(/\/+$/,''));
+    const groups={};let unmatched=0;
+    _suggest.forEach((p,i)=>{const bname=document.querySelector(`#suggestTbl select[data-i="${i}"]`)?.value||(p.suggested&&p.suggested.name);
+      if(!bname){unmatched++;return;}const bpath=bf+'/'+bname;(groups[bpath]=groups[bpath]||[]).push(p.sample_path);});
+    if(!Object.keys(groups).length){setStatus('No sample has a background selected','err');return;}
+    setStatus('Subtracting suggested pairs…','busy');document.getElementById('btnRun').disabled=true;
+    let allSaved=[],allErrs=[],allRes=[];
+    try{
+      for(const [bpath,files] of Object.entries(groups)){
+        const d=await post('/api/subtract/individual',{...common,sample_files:files,bkg_file:bpath});
+        if(d.error){allErrs.push(d.error);continue;}
+        allSaved.push(...(d.saved||[])); allErrs.push(...(d.errors||[]));
+        if(d.results&&d.results.length) allRes.push(...d.results);   // collect EVERY subtracted curve
+      }
+      renderBatchResults(det,{saved:allSaved,errors:allErrs,results:allRes});
+      setStatus(`Done — ${allSaved.length} saved${allErrs.length?` (${allErrs.length} errors)`:''} · plotted ${allRes.length} curve(s)`,allErrs.length?'err':'ok');showPage(det);
+    }catch(e){setStatus('Error: '+e,'err');}finally{document.getElementById('btnRun').disabled=false;}
+    return;
+  }
+  setStatus('Subtracting…','busy');document.getElementById('btnRun').disabled=true;
+  try{
+    const d=await post(endpoint,body);
+    if(d.error){setStatus(d.error,'err');return;}
+    renderBatchResults(det,d);
+    const ne=(d.errors||[]).length;setStatus(`Done — ${d.saved.length} saved${ne?` (${ne} errors)`:''}${d.warning?' · '+d.warning:''}`,ne?'err':'ok');
+    showPage(det);
+  }catch(e){setStatus('Error: '+e,'err');}finally{document.getElementById('btnRun').disabled=false;}
+}
+
+// ── Plot helpers ──────────────────────────────────────────────────────────────
+function viewOf(det){return (state.view&&state.view[det])||'overlay';}
+function axisOf(det){return (state.axis&&state.axis[det])||'loglog';}
+function axisSpec(det){const a=axisOf(det);return a==='linear'?{x:'linear',y:'linear'}:a==='semilogy'?{x:'linear',y:'log'}:{x:'log',y:'log'};}
+function axisLayout(det,forceLinearY,zeroline){
+  const s=axisSpec(det), ytype=forceLinearY?'linear':s.y;
+  return{paper_bgcolor:WHITE,plot_bgcolor:WHITE,font:{color:'#1f2937',size:13},
+    margin:{t:24,b:52,l:66,r:18},legend:{orientation:'h',y:-0.18},
+    xaxis:{title:'q (nm⁻¹)',type:s.x,color:'#4b5563',gridcolor:'#e5e7eb'},
+    yaxis:{title:'I (a.u.)',type:ytype,color:'#4b5563',gridcolor:'#e5e7eb',
+           zeroline:!!zeroline,zerolinecolor:'#b91c1c',zerolinewidth:1.5},
+    hovermode:'closest'};
+}
+function setView(det,v){
+  state.view[det]=v;
+  try{localStorage.setItem('swaxs_bg_view_'+det,v)}catch(e){}
+  document.querySelectorAll(`#${det}-viewseg button`).forEach(b=>b.classList.toggle('active',b.dataset.v===v));
+  renderResult(det);
+}
+function setAxis(det,a){
+  state.axis[det]=a;
+  try{localStorage.setItem('swaxs_bg_axis_'+det,a)}catch(e){}
+  document.querySelectorAll(`#${det}-axisseg button`).forEach(b=>b.classList.toggle('active',b.dataset.a===a));
+  renderResult(det);
+}
+(function restoreAxisView(){   // remember axis/view choices across sessions
+  ['saxs','waxs'].forEach(det=>{
+    try{
+      const a=localStorage.getItem('swaxs_bg_axis_'+det);
+      if(a){state.axis[det]=a;document.querySelectorAll(`#${det}-axisseg button`).forEach(b=>b.classList.toggle('active',b.dataset.a===a));}
+      const v=localStorage.getItem('swaxs_bg_view_'+det);
+      if(v){state.view[det]=v;document.querySelectorAll(`#${det}-viewseg button`).forEach(b=>b.classList.toggle('active',b.dataset.v===v));}
+    }catch(e){}
+  });
+})();
+// Perceptual gradient (viridis) so a big family of curves reads as an ordered
+// progression (dark = first … bright = last) rather than a cycling palette.
+function viridis(t){
+  t=Math.max(0,Math.min(1,t||0));
+  const a=[[0,[68,1,84]],[0.25,[59,82,139]],[0.5,[33,145,140]],[0.75,[94,201,98]],[1,[253,231,37]]];
+  let i=0; while(i<a.length-1 && t>a[i+1][0]) i++;
+  const t0=a[i][0],c0=a[i][1],t1=a[i+1][0],c1=a[i+1][1];
+  const f=t1>t0?(t-t0)/(t1-t0):0;
+  return `rgb(${c0.map((v,k)=>Math.round(v+(c1[k]-v)*f)).join(',')})`;
+}
+function renderResult(det){
+  const r=state.results[det]; if(!r){Plotly.purge(det+'Plot');return;}
+  const view=viewOf(det);
+  if(view==='ratio'){
+    if(r.kind==='preview' && r.data.ratio){
+      const L=axisLayout(det,true,false);          // ratio: y always linear (around 1)
+      L.yaxis.title='I_sample / (scale·I_bkg)';
+      L.shapes=[{type:'line',xref:'paper',x0:0,x1:1,yref:'y',y0:1,y1:1,line:{color:'#15803d',width:1.5,dash:'dot'}}];
+      Plotly.react(det+'Plot',[{name:'I_sample / (scale·I_bkg)',x:r.data.ratio.q,y:r.data.ratio.ratio,
+        mode:'lines',line:{color:COLORS[3],width:2}}],L,{responsive:true,displaylogo:false});
+      return;
+    }
+    setStatus('Ratio view needs a single preview — showing overlay instead','');
+  }
+  const residual=(view==='residual');           // residual: y forced linear (+zero line) to show negatives
+  const logY=!residual && axisSpec(det).y==='log';
+  let tr=[];
+  if(r.kind==='compare'){
+    const d=r.data;
+    tr=[
+      {name:'Sample',x:d.sample.q,y:d.sample.I,mode:'lines',line:{color:COLORS[0],width:1}},
+      {name:'Background',x:d.background.q,y:d.background.I,mode:'lines',line:{color:COLORS[1],dash:'dash',width:1}},
+      {name:`Manual ×${d.manual_scale}`,x:d.manual.q,y:d.manual.I,mode:'lines',line:{color:COLORS[2],width:2}},
+      {name:`Auto high-q ×${d.auto_scale}`,x:d.auto.q,y:d.auto.I,mode:'lines',line:{color:COLORS[3],width:2}},
+    ];
+  }else if(r.kind==='preview'){
+    const d=r.data, raw=document.getElementById(det+'-raw').checked, sub=document.getElementById(det+'-sub').checked;
+    if(raw){tr.push({name:'Sample',x:d.sample.q,y:d.sample.I,mode:'lines',line:{color:COLORS[0]}});
+            tr.push({name:'Background',x:d.background.q,y:d.background.I,mode:'lines',line:{color:COLORS[1],dash:'dash'}});}
+    if(sub) tr.push({name:'Subtracted',x:d.result.q,y:d.result.I,mode:'lines',line:{color:COLORS[2],width:2}});
+  }else if(r.kind==='batch'){
+    const res=r.data.results||[];
+    const N=res.length, MAXC=400;
+    // Smart cap: for very large scan sets, draw at most MAXC curves (every k-th)
+    // so the browser stays responsive while still showing the whole family.
+    const step=N>MAXC?Math.ceil(N/MAXC):1;
+    const idxs=[]; for(let i=0;i<N;i+=step) idxs.push(i);
+    const many=idxs.length>15;                 // hide per-curve legend past this
+    tr=idxs.map(i=>{const x=res[i];return{
+      name:x.name, x:x.q, y:x.I, type:'scattergl', mode:'lines',
+      line:{color:viridis(N>1?i/(N-1):0), width:1},
+      showlegend:!many,
+      hovertemplate:`${(x.name||'').replace(/[<>]/g,'')}<br>q=%{x:.4f}<br>I=%{y:.3e}<extra></extra>`,
+    };});
+    // When legends are hidden, show a colorbar guide (first → last).
+    if(many) tr.push({x:[null],y:[null],type:'scattergl',mode:'markers',
+      marker:{color:[0,1],colorscale:'Viridis',cmin:0,cmax:1,showscale:true,
+        colorbar:{title:{text:'order'},thickness:10,len:0.55,tickvals:[0,1],ticktext:['first','last']}},
+      showlegend:false,hoverinfo:'skip'});
+  }
+  // log y-axis: drop all-non-positive data traces (keep the colorbar guide trace)
+  if(logY) tr=tr.filter(t=>(t.marker&&t.marker.showscale)||(t.y&&t.y.some(v=>v>0)));
+  Plotly.react(det+'Plot',tr,axisLayout(det,residual,residual),{responsive:true,displaylogo:false});
+}
+function renderBatchResults(det,d){
+  state.results[det]={kind:'batch',data:d};
+  renderResult(det);
+  const N=(d.results||[]).length, MAXC=400;
+  let shown=N; if(N>MAXC){ const step=Math.ceil(N/MAXC); shown=0; for(let i=0;i<N;i+=step) shown++; }
+  const plotted = N ? (shown<N ? ` · plotting ${shown} of ${N} (subsampled)` : ` · ${N} curve(s) plotted`) : '';
+  document.getElementById(det+'-qc').innerHTML=
+    `<span class="chip-ok">✓ ${d.saved.length} file(s) subtracted${(d.errors||[]).length?` · ${d.errors.length} error(s)`:''}${plotted}</span>`;
+}
+function renderQC(det,qc,scale){
+  const box=document.getElementById(det+'-qc');if(!qc){box.innerHTML='';return;}
+  const m=`<div class="metrics"><span>scale <b>${scale}</b></span><span>negatives <b>${qc.pct_negative}%</b></span>`+
+    (qc.highq_ratio!=null?`<span>high-q residual <b>${qc.highq_ratio}</b></span>`:'')+
+    (qc.lowq_slope!=null?`<span>low-q slope <b>${qc.lowq_slope}</b></span>`:'')+`</div>`;
+  box.innerHTML=m+qc.warnings.map(w=>`<div class="qc-item qc-${w.severity}">${w.msg}</div>`).join('');
+}
+function redraw(det){renderResult(det);}
+function syncResultScale(det,s){const sl=document.getElementById(det+'-scale');if(sl){sl.value=s;document.getElementById(det+'-scaleval').textContent=(+s).toFixed(2);}}
+async function rescale(det,v){
+  document.getElementById(det+'-scaleval').textContent=(+v).toFixed(2);
+  const r=state.results[det];if(!r||r.kind!=='preview')return;
+  clearTimeout(window['_rt'+det]);
+  window['_rt'+det]=setTimeout(async()=>{
+    const d=await post('/api/preview',{sample_file:r.sample_file,bkg_file:r.bkg_file,method:'manual',scale:+v});
+    if(d.error)return;state.results[det]={...r,data:d};renderResult(det);renderQC(det,d.qc,d.scale_used);
+  },180);
+}
+async function compareMethods(det){
+  const r=state.results[det], pv=state.preview[det];
+  const pair=(r&&r.sample_file)?{sample_file:r.sample_file,bkg_file:r.bkg_file}:pv;
+  if(!pair){setStatus('Preview a pair first, then compare methods','err');return;}
+  setStatus('Comparing manual vs auto high-q…','busy');
+  try{
+    const man=document.getElementById(det+'-scale').value||getScale();
+    const [m,a]=await Promise.all([
+      post('/api/preview',{...pair,method:'manual',scale:+man}),
+      post('/api/preview',{...pair,method:'auto_highq',...autoWin()}),
+    ]);
+    if(m.error||a.error){setStatus(m.error||a.error,'err');return;}
+    state.results[det]={kind:'compare',sample_file:pair.sample_file,bkg_file:pair.bkg_file,
+      data:{sample:m.sample,background:m.background,manual:m.result,auto:a.result,
+            manual_scale:m.scale_used,auto_scale:a.scale_used}};
+    renderResult(det);
+    renderQC(det,a.qc,`manual ×${m.scale_used} vs auto ×${a.scale_used}`);
+    setStatus(`Compared — manual ×${m.scale_used} vs auto high-q ×${a.scale_used}`,'ok');
+  }catch(e){setStatus('Compare error: '+e,'err');}
+}
+
+// ── Metadata ─────────────────────────────────────────────────────────────────
+async function loadMetadata(){
+  let files=selectedSamples();
+  if(!files.length)files=_samFiles.map(f=>f.path);
+  if(!files.length){const folder=document.getElementById('sam-folder').value.trim();if(folder){const d=await post('/api/scan',{folder});files=(d.files||[]).map(f=>folder.replace(/\/+$/,'')+'/'+f.name);}}
+  if(!files.length){document.getElementById('metaInfo').textContent='No files — list a sample folder first.';return;}
+  const d=await post('/api/metadata',{files});
+  const t=document.getElementById('metaTbl');
+  if(!d.rows.length){t.innerHTML='<tbody><tr><td class="fl-empty">No metadata.</td></tr></tbody>';return;}
+  let h='<thead><tr><th>File</th>'+d.keys.map(k=>`<th>${k}</th>`).join('')+'</tr></thead><tbody>';
+  d.rows.forEach(r=>{h+=`<tr><td title="${r.name}">${r.name}</td>`+d.keys.map(k=>`<td>${r.metadata[k]??''}</td>`).join('')+'</tr>';});
+  t.innerHTML=h+'</tbody>';
+  document.getElementById('metaInfo').textContent=`${d.rows.length} file(s), ${d.keys.length} field(s)`;
+}
+
+// ── Browser modal ─────────────────────────────────────────────────────────────
+let _bp='',_bt=null,_bfile=false;
+function openBrowser(id,fileMode=false){_bt=id;_bfile=fileMode;document.getElementById('modalTitle').textContent=fileMode?'Select file (.dat)':'Select folder';document.getElementById('browserModal').classList.add('open');browseTo(document.getElementById(id)?.value.trim()||'');}
+function closeBrowser(){document.getElementById('browserModal').classList.remove('open');}
+async function browseTo(path){
+  const data=await (await fetch('/api/browse?path='+encodeURIComponent(path))).json();
+  _bp=data.current;document.getElementById('currPath').textContent=data.current;
+  const list=document.getElementById('dirList');list.innerHTML='';
+  if(data.parent){const u=document.createElement('div');u.className='dir-item';u.innerHTML='<span>⬆</span><span>..</span>';u.onclick=()=>browseTo(data.parent);list.appendChild(u);}
+  (data.dirs||[]).forEach(d=>{const it=document.createElement('div');it.className='dir-item';it.innerHTML=`<span>📁</span><span>${d}</span>`;it.onclick=()=>browseTo(_bp.replace(/\/+$/,'')+'/'+d);list.appendChild(it);});
+  if(_bfile)(data.files||[]).forEach(f=>{const it=document.createElement('div');it.className='dir-item file';it.innerHTML=`<span>📄</span><span>${f}</span>`;it.onclick=()=>{document.getElementById(_bt).value=_bp.replace(/\/+$/,'')+'/'+f;closeBrowser();};list.appendChild(it);});
+}
+function selectCurrent(){if(_bt)document.getElementById(_bt).value=_bp;closeBrowser();}
+document.getElementById('browserModal').addEventListener('click',e=>{if(e.target.id==='browserModal')closeBrowser();});
+
+// ── util ──────────────────────────────────────────────────────────────────────
+async function post(url,body){return (await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();}
+
+/* ===== Automated subtraction monitor ===== */
+let _autoES=null;
+let _autoScaleMode='auto';
+function setAutoScaleMode(m){
+  _autoScaleMode=m;
+  document.getElementById('auto-meth-auto').classList.toggle('active',m==='auto');
+  document.getElementById('auto-meth-fixed').classList.toggle('active',m==='fixed');
+  document.getElementById('auto-fixed-row').style.display = m==='fixed'?'':'none';
+  document.getElementById('auto-scale-hint').textContent = m==='fixed'
+    ? 'Fixed: the value below is applied to every subtraction.'
+    : 'Auto: scale is set to zero the high-q residual, bounded near the high-q least-squares fit.';
+}
+function autoSetState(txt,on){
+  const el=document.getElementById('auto-state');
+  el.textContent=txt;
+  el.style.background = on ? 'var(--accent)' : 'var(--surface2)';
+  el.style.color      = on ? '#fff'          : 'var(--muted)';
+  const dot=document.getElementById('statusDot'); if(dot) dot.style.background = on ? 'var(--ok,#15803d)' : 'var(--muted)';
+}
+function autoLog(line){
+  const box=document.getElementById('auto-log');
+  box.style.display='block';
+  const colors={ok:'var(--ok,#15803d)',error:'var(--accent)',warn:'var(--warn-text,#b45309)',info:'var(--muted)'};
+  const div=document.createElement('div');
+  div.style.color=colors[line.tag]||'var(--text)';
+  div.textContent=`[${line.ts}]  ${line.msg}`;
+  box.appendChild(div);
+  while(box.childNodes.length>500) box.removeChild(box.firstChild);
+  box.scrollTop=box.scrollHeight;
+}
+function autoOpenStream(){
+  if(_autoES) _autoES.close();
+  _autoES=new EventSource('/api/monitor/stream');
+  _autoES.onmessage=e=>{ try{ autoLog(JSON.parse(e.data)); }catch(_){ } };
+}
+function autoMsg(t){const e=document.getElementById('statusMsg'); if(e) e.textContent=t;}
+async function startAutoSub(){
+  const sx=document.getElementById('auto-saxs-folder').value.trim();
+  const wx=document.getElementById('auto-waxs-folder').value.trim();
+  if(!sx && !wx){autoMsg('Set at least one Averaged folder.');return;}
+  const body={
+    interval:        +document.getElementById('auto-interval').value||10,
+    saxs_avg_folder: sx,
+    waxs_avg_folder: wx,
+    sample_keyword:  document.getElementById('auto-sample-kw').value.trim(),
+    bkg_keyword:     document.getElementById('auto-bkg-kw').value.trim(),
+    scale_mode:      _autoScaleMode,
+    fixed_scale:     +document.getElementById('auto-fixed-scale').value||1.0,
+  };
+  try{
+    const r=await post('/api/monitor/start',body);
+    if(!r.ok){autoMsg('Auto-subtraction: '+(r.error||'failed'));return;}
+    document.getElementById('auto-start').disabled=true;
+    document.getElementById('auto-stop').disabled=false;
+    document.getElementById('auto-log').innerHTML='';
+    autoSetState('Running',true);
+    autoOpenStream();
+    autoPollStatus();
+    autoMsg('Auto-subtraction started');
+  }catch(e){autoMsg('Auto-subtraction error: '+e.message);}
+}
+async function stopAutoSub(){
+  try{ await post('/api/monitor/stop',{}); }catch(_){ }
+  if(_autoES){ _autoES.close(); _autoES=null; }
+  document.getElementById('auto-start').disabled=false;
+  document.getElementById('auto-stop').disabled=true;
+  autoSetState('Idle',false);
+}
+async function autoPollStatus(){
+  try{
+    const s=await(await fetch('/api/monitor/status')).json();
+    const cnt=document.getElementById('auto-count');
+    const flagged=s.flagged?` · ${s.flagged} flagged`:'';
+    if(s.monitoring){
+      cnt.textContent=`${s.subtracted} subtracted${flagged}`+(s.last?` · last: ${s.last}`:'');
+      document.getElementById('auto-start').disabled=true;
+      document.getElementById('auto-stop').disabled=false;
+      autoSetState('Running',true);
+      if(!_autoES) autoOpenStream();
+      setTimeout(autoPollStatus,3000);
+    }else{
+      cnt.textContent=s.subtracted?`${s.subtracted} subtracted${flagged} (stopped)`:'';
+      document.getElementById('auto-start').disabled=false;
+      document.getElementById('auto-stop').disabled=true;
+      autoSetState('Idle',false);
+    }
+  }catch(_){ setTimeout(autoPollStatus,5000); }
+}
+window.addEventListener('DOMContentLoaded',()=>{ try{ autoPollStatus(); }catch(_){ } });
+</script>
+
+<script>
+/* Auto-fill folder paths from the hub project root (resets on project change). */
+(function(){
+  let last=null;const strip=s=>s.replace(/\/+$/,'');const set=(id,v)=>{const e=document.getElementById(id);if(e&&!e.value)e.value=v;};
+  function det(){return (document.getElementById('det-waxs')?.classList.contains('active'))?'WAXS':'SAXS';}
+  function apply(root){
+    root=strip(root);const D=det();
+    const s=(id,v)=>{const e=document.getElementById(id);if(e)e.value=v;};
+    s('sam-folder',root+'/1D/'+D+'/Averaged');
+    s('bkg-folder',root+'/1D/'+D+'/Averaged');
+    s('out-folder',root+'/1D/'+D+'/Subtracted');
+    // Automated mode watches both detectors' Averaged folders.
+    s('auto-saxs-folder',root+'/1D/SAXS/Averaged');
+    s('auto-waxs-folder',root+'/1D/WAXS/Averaged');
+    const p=document.getElementById('projPath');if(p)p.textContent=root;
+    window._projRoot=root;
+  }
+  async function poll(){try{const d=await(await fetch('/api/project')).json();const r=(d.project_root||'').trim();if(r&&r!==last){last=r;apply(r);}}catch(e){}}
+  poll();setInterval(poll,3000);
+  // re-derive folders when detector changes
+  window._reapplyDet=()=>{if(window._projRoot){last=null;}};
+})();
+</script>
+<script>
+(function(){var K='swaxs-theme',s=localStorage.getItem(K),
+ d=s?s==='dark':matchMedia('(prefers-color-scheme:dark)').matches;
+ function ap(x){document.documentElement.setAttribute('data-theme',x?'dark':'light');
+  var b=document.getElementById('themeToggle');if(b)b.textContent=x?'☀':'☾';}
+ ap(d);window.toggleTheme=function(){d=!d;localStorage.setItem(K,d?'dark':'light');ap(d);};})();
+</script>
+</body>
+</html>
