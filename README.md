@@ -8,17 +8,19 @@ Everything runs on your own machine. Your data never leaves your computer; the o
 
 ## What it does
 
-The platform is organized as five small web apps, launched from one central hub. You move through them roughly in order:
+The platform is organized as seven small web apps, launched from one central hub. You move through them roughly in order:
 
 | # | App | Port | What it's for |
 |---|-----|------|---------------|
 | ⚙️ | **Reduction & Correction** | 5001 | Convert raw 2D detector images → 1D I(q) curves (PyFAI integration, transmission/normalization corrections) |
 | 📊 | **Data Viewer** | 5002 | Visualize 2D & 1D data, average repeated scans, stitch SAXS+WAXS |
 | 🔬 | **Background Subtraction** | 5003 | Subtract buffer/background by keyword, scan-matching, or manual selection |
+| ✅ | **Quality Gate** | 5006 | AI good/bad grading of subtracted profiles — scoring, auto-sort into Good/NeedsReview, frame selection |
 | 📈 | **Data Analysis** | 5004 | Guinier, Porod, Kratky, pair-distance, peak fitting |
+| 🧪 | **Flow Synthesis** | 5007 | 5-pump continuous-flow reactor control — executes recipes, auto-flush |
 | 🤖 | **AI Assistant** | 5005 | Ask questions about your data, generate plots, get proactive quality hints |
 
-A typical session: **reduce → view & average → subtract background → analyze**, with the assistant available throughout.
+A typical data session: **reduce → view & average → subtract background → quality-gate → analyze**, with the assistant available throughout. (Flow Synthesis is an optional hardware-control app for continuous-flow experiments.)
 
 ---
 
@@ -33,8 +35,8 @@ A typical session: **reduce → view & average → subtract background → analy
 ### 2. Get the code and install dependencies
 
 ```bash
-git clone https://github.com/anjanikmaurya/SWAXS_data_correction_reduction_averaging
-cd SWAXS_data_correction_reduction_averaging
+git clone https://github.com/anjanikmaurya/SWAXS_Autonomous_Platform_v1.git
+cd SWAXS_Autonomous_Platform_v1
 
 # Create and activate a virtual environment
 python -m venv venv
@@ -59,8 +61,9 @@ nano ~/.claude/settings.json      # paste the KB0015379 JSON, insert your token
 chmod og-rwx ~/.claude/settings.json
 ```
 
-You must be **on the SLAC network or VPN**. Without a token the other four apps
-work normally — only the assistant is disabled.
+You must be **on the SLAC network or VPN**. Without a token the data-processing
+apps work normally — only the AI-powered features (AI Assistant and Quality Gate)
+are disabled.
 
 ### 4. Start the platform
 
@@ -89,8 +92,13 @@ Apps read and write inside a single project folder. The expected layout:
 ├── poni/                     # PyFAI calibration (*.poni) + detector masks (*.edf)
 ├── config.yml                # Reduction settings (see below)
 ├── 1D/                       # Created by the apps:
-│   ├── SAXS/{Reduction,Averaged}/
-│   └── WAXS/{Reduction,Averaged}/
+│   ├── SAXS/
+│   │   ├── {Reduction,Averaged}/
+│   │   └── Subtracted/{Good,NeedsReview}/   # NeedsReview/Good sorted by Quality Gate
+│   ├── WAXS/
+│   │   ├── {Reduction,Averaged}/
+│   │   └── Subtracted/{Good,NeedsReview}/
+│   └── QualityReports/       # Quality Gate CSV reports + accepted lists
 └── manifest.json             # Auto-managed shared state across apps
 ```
 
@@ -151,7 +159,7 @@ Its domain knowledge lives in `ai_knowledge/` and the per-app `knowledge.md` fil
 
 | Symptom | Likely cause / fix |
 |---|---|
-| Assistant says "ANTHROPIC_API_KEY is not set" | Add the key to `.env` in the project root and restart. |
+| Assistant/Quality Gate say the AI token isn't set | Add your token to `~/.claude/settings.json` (`ANTHROPIC_AUTH_TOKEN`, endpoint, model — see `SECURITY.md`) and restart. Do **not** put it in `.env`. You must also be on the SLAC network/VPN. |
 | "Bus" badge in the hub stays grey | `flask-sock` not installed (`pip install flask-sock`), or the hub was started a different way. The apps still work; only live events are affected. |
 | Reduction error: `'i0' not found in metadata` | `metadata_format` in `config.yml` doesn't match your files (`pdi` vs `csv`), or the metadata lacks an `i0`/`bstop` field. |
 | Transmission > 1.0 warning | Check `i0_air`/`bstop_air` and the offset values in `config.yml`. |
