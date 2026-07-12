@@ -17,3 +17,6 @@ TODO.md
 Demo_Data/
 venv/
 .git-old-backup/
+
+# AI-knowledge vector database - generated locally, rebuilt per machine.
+ai_knowledge/vector_db/

@@ -1,0 +1,36 @@
+# Normalize line endings across macOS and Windows.
+# Text files are stored as LF in the repo and checked out
+# with each OS's native endings. Binaries are left untouched.
+
+# Default: auto-detect text, store as LF in the repo.
+* text=auto eol=lf
+
+# Shell scripts MUST stay LF or they break on macOS/Linux.
+*.sh text eol=lf
+
+# Explicit text types (safety; already covered by text=auto).
+*.py    text eol=lf
+*.md    text eol=lf
+*.html  text eol=lf
+*.js    text eol=lf
+*.css   text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.json  text eol=lf
+*.csv   text eol=lf
+*.txt   text eol=lf
+*.poni  text eol=lf
+
+# Binary files — never touch line endings or try to diff.
+*.raw     binary
+*.bin     binary
+*.edf     binary
+*.npz     binary
+*.pickle  binary
+*.sqlite3 binary
+*.woff2   binary
+*.png     binary
+*.jpg     binary
+*.jpeg    binary
+*.gif     binary
+*.pdf     binary
