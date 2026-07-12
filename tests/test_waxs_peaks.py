@@ -32,6 +32,9 @@ if "scipy" not in sys.modules:
 import numpy as np  # noqa: E402
 from src.analysis.core import _detect_peaks, _peak_shapes  # noqa: E402
 
+# NumPy 2.0 renamed trapz -> trapezoid (old name deprecated).
+_trapezoid = getattr(np, "trapezoid", getattr(np, "trapz", None))
+
 
 def _two_peaks():
     q = np.linspace(8, 30, 500)
@@ -58,11 +61,11 @@ def test_shape_areas_match_numeric_integral():
     A, q0, f = 3.0, 0.0, 2.0
     for shape in ("gaussian", "lorentzian"):
         npar, unit, area = _peak_shapes(shape)
-        num = np.trapz(A * unit(q, q0, f), q)
+        num = _trapezoid(A * unit(q, q0, f), q)
         assert abs(area(A, f) - num) / num < 0.02, (shape, area(A, f), num)
     _, unitv, areav = _peak_shapes("voigt")
     for eta in (0.0, 0.5, 1.0):
-        num = np.trapz(A * unitv(q, q0, f, eta), q)
+        num = _trapezoid(A * unitv(q, q0, f, eta), q)
         assert abs(areav(A, f, eta) - num) / num < 0.02, (eta, areav(A, f, eta), num)
 
 

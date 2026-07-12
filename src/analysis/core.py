@@ -35,6 +35,11 @@ import numpy as np
 from scipy.optimize import curve_fit
 from scipy.stats import linregress
 
+# NumPy 2.0 renamed ``np.trapz`` to ``np.trapezoid`` and deprecated the old
+# name (removal expected in a future release). Use the new name where available
+# and fall back on older NumPy.
+_trapezoid = getattr(np, "trapezoid", getattr(np, "trapz", None))
+
 __all__ = [
     "guinier_fit",
     "porod_fit",
@@ -306,11 +311,11 @@ def pair_distance_ift(
         p = np.linalg.lstsq(M, b, rcond=None)[0]
     p = np.clip(p, 0.0, None)          # p(r) ≥ 0
 
-    integ = np.trapz(p, r)
+    integ = _trapezoid(p, r)
     if integ <= 0:
         return {"error": "p(r) solution non-positive — try a different Dmax."}
     I0 = float(4.0 * np.pi * integ)
-    Rg = float(np.sqrt(np.trapz(p * r**2, r) / (2.0 * integ)))
+    Rg = float(np.sqrt(_trapezoid(p * r**2, r) / (2.0 * integ)))
 
     I_fit = A @ p
     chi2  = float(np.sum(((I - I_fit) / sigma) ** 2) / max(len(I) - 1, 1))
@@ -376,14 +381,14 @@ def classical_invariants(q, I, Rg: float, I0: float) -> dict:
     qmin, qmax = float(q[0]), float(q[-1])
 
     # measured-range integrals (trapezoid)
-    Q_meas  = float(np.trapz(q ** 2 * I, q))
-    qI_meas = float(np.trapz(q * I, q))
+    Q_meas  = float(_trapezoid(q ** 2 * I, q))
+    qI_meas = float(_trapezoid(q * I, q))
 
     # low-q Guinier extrapolation (0 → qmin)
     qg = np.linspace(0.0, qmin, 64)
     Ig = I0 * np.exp(-(Rg ** 2) * qg ** 2 / 3.0)
-    Q_low  = float(np.trapz(qg ** 2 * Ig, qg))
-    qI_low = float(np.trapz(qg * Ig, qg))
+    Q_low  = float(_trapezoid(qg ** 2 * Ig, qg))
+    qI_low = float(_trapezoid(qg * Ig, qg))
 
     # high-q Porod tail: I ≈ Kp / q⁴ for q > qmax
     hi = q >= np.quantile(q, 0.85)
