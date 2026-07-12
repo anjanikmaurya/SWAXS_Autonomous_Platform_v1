@@ -176,7 +176,20 @@ class TempController:
             self._in_band_since = None
 
     def read(self) -> float:
-        # ⟵ REAL: read the reactor thermocouple / external controller here.
+        # ⟵ REAL DRIVER HOOK — reactor temperature source.
+        #
+        # This stub returns the last value (ambient) so nothing crashes. Until
+        # you wire a sensor, use *timed* arming mode (config `arming.default_mode:
+        # timed`, or per recipe) so runs don't depend on this reading.
+        #
+        # When a temperature source is available, replace the body with ONE of:
+        #   • USB/serial thermocouple:
+        #       return float(self._thermo.read_celsius())     # your reader object
+        #   • external controller writing a file:
+        #       return float(Path("/path/to/reactor_temp.txt").read_text().strip())
+        #   • network/PLC/Modbus query, etc.
+        # Return the current reactor temperature in °C. Keep it fast and
+        # non-blocking — this is polled ~5×/second by the control loop.
         return self.current
 
     def tick(self, dt: float) -> None:

@@ -57,6 +57,8 @@ class ReactorController:
         self._run_started = 0.0
         self._run_deadline = 0.0
         self._arm_deadline = 0.0
+        self._arm_mode = "temperature"   # active recipe's arming mode
+        self._arm_ready_at = 0.0         # when timed-arming completes
         self._flush_deadline = 0.0
         self._flush_kind = "flush"
         self._measure_done = False
@@ -66,6 +68,9 @@ class ReactorController:
         run = cfg.get("run", {})
         self.default_duration = float(run.get("default_duration", 600.0))
         self.end_on_measurement = bool(run.get("end_on_measurement", True))
+        arm = cfg.get("arming", {})
+        self.default_arm_mode = str(arm.get("default_mode", "temperature")).lower()
+        self.default_arm_wait = float(arm.get("default_wait_s", 120.0))
         fl = cfg.get("flush", {})
         self.flush_rate = float(fl.get("rate", 100.0))
         self.flush_duration = float(fl.get("duration", 300.0))
@@ -215,11 +220,22 @@ class ReactorController:
         self._measure_done = False
         self._stop_flag = False
         self._run_reason = ""
-        self.temp.set_temperature(recipe.T_reac)
+        self.temp.set_temperature(recipe.T_reac)   # recorded for display / gating
+        self._arm_mode = (recipe.arm_mode or self.default_arm_mode).lower()
+        now = time.time()
         self.state = "arming"
-        self._arm_deadline = time.time() + self.temp.timeout
-        self._log(f"🌡 arming {recipe.recipe_id}: waiting for {recipe.T_reac:g}°C "
-                  f"(±{self.temp.tolerance:g})", "info")
+        if self._arm_mode == "timed":
+            wait = (recipe.arm_wait_s if recipe.arm_wait_s is not None
+                    else self.default_arm_wait)
+            self._arm_ready_at = now + float(wait)
+            self._arm_deadline = 0.0    # no temperature timeout in timed mode
+            self._log(f"⏲ arming {recipe.recipe_id}: timed wait {float(wait):g}s "
+                      f"before pumps start (temperature gate off)", "info")
+        else:
+            self._arm_ready_at = 0.0
+            self._arm_deadline = now + self.temp.timeout
+            self._log(f"🌡 arming {recipe.recipe_id}: waiting for {recipe.T_reac:g}°C "
+                      f"(±{self.temp.tolerance:g})", "info")
 
     def _enter_running(self) -> None:
         self.pumps.set_all(self.setpoints)
@@ -308,7 +324,12 @@ class ReactorController:
                 self.temp.tick(dt)
                 self._safety_check()
                 if self.state == "arming":
-                    if self.temp.is_stable():
+                    if self._arm_mode == "timed":
+                        # start the pumps once the fixed wait elapses; no
+                        # temperature gating and no arm timeout in this mode.
+                        if now >= self._arm_ready_at:
+                            self._enter_running()
+                    elif self.temp.is_stable():
                         self._enter_running()
                     elif now > self._arm_deadline:
                         self._log(f"⚠ arm timeout — {self.current.recipe_id if self.current else '?'} "
@@ -353,9 +374,13 @@ class ReactorController:
             elapsed = round(now - self._run_started, 1) if self.state == "running" else None
             dur = (self.current.run_duration or self.default_duration) if self.current else None
             flush_left = round(self._flush_deadline - now, 1) if self.state == "flushing" else None
+            arm_left = (round(max(0.0, self._arm_ready_at - now), 1)
+                        if self.state == "arming" and self._arm_mode == "timed" else None)
             return {
                 "state": self.state,
                 "auto_run": self.auto_run,
+                "arm_mode": self._arm_mode if self.state == "arming" else None,
+                "arm_remaining_s": arm_left,
                 "pumps": self.pumps.state(),
                 "temperature": {"target": round(self.temp.target, 1),
                                 "current": round(self.temp.current, 1),

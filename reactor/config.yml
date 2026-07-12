@@ -71,6 +71,17 @@ temperature:
   timeout:      900.0         # s: give up arming after this → abort
   mock_ramp:    5.0           # °C/s convergence rate for the MOCK reading only
 
+# ── Arming mode (how a run decides it is ready to start the pumps) ────────────
+# Each recipe may override these (form radio / JSON "arm_mode" + "arm_wait_s").
+#   temperature — wait for the reactor to reach & hold T_reac (needs a wired
+#                 temperature reading; uses the temperature.* settings above).
+#   timed       — wait a fixed number of seconds, then start the pumps
+#                 regardless of temperature. Use when no thermocouple is
+#                 connected to this machine.
+arming:
+  default_mode:   "timed"     # "temperature" or "timed"
+  default_wait_s: 120.0       # s: wait in timed mode when a recipe omits arm_wait_s
+
 # ── Run lifecycle ────────────────────────────────────────────────────────────
 run:
   default_duration: 600.0     # s fallback run time = 10 min (recipe may override)

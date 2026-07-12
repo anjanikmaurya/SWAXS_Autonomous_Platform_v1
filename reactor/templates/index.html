@@ -97,6 +97,13 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
         <div><label>x_TOP</label><input type="number" id="x_TOP" value="0.1" step="0.01"></div>
         <div><label>x_oley</label><input type="number" id="x_oley" value="0.1" step="0.01"></div>
       </div>
+      <div class="arm-mode" style="margin-top:10px">
+        <label style="display:block;margin-bottom:4px">Start pumps when…</label>
+        <label class="toggle"><input type="radio" name="arm_mode" value="temperature" onchange="armModeChange()"> reactor reaches temperature</label>
+        <label class="toggle" style="margin-left:14px"><input type="radio" name="arm_mode" value="timed" checked onchange="armModeChange()"> after a fixed wait of</label>
+        <input type="number" id="arm_wait_s" value="120" step="1" min="0" style="width:78px;margin-left:6px"> s
+        <div class="muted" id="arm-hint" style="font-size:var(--fs-xs);margin-top:4px"></div>
+      </div>
       <div id="preview" class="muted" style="margin-top:8px"></div>
       <div class="btn-row">
         <button class="btn btn-accent" onclick="submitRecipe()">＋ Queue recipe</button>
@@ -238,8 +245,21 @@ async function submitRecipe(){
   const rd=$('run_duration').value.trim(); if(rd)body.run_duration=+rd;
   const fr=$('flush_rate').value.trim();    if(fr)body.flush_rate=+fr;
   const fd=$('flush_duration').value.trim();if(fd)body.flush_duration=+fd;
+  const mode=document.querySelector('input[name="arm_mode"]:checked');
+  body.arm_mode = mode ? mode.value : 'timed';
+  if(body.arm_mode==='timed'){
+    const w=$('arm_wait_s').value.trim(); if(w!=='')body.arm_wait_s=+w;
+  }
   const r=await api('/api/recipe',body);
   if(!r.ok){$('form-err').textContent=r.error||'rejected';}
+}
+function armModeChange(){
+  const mode=document.querySelector('input[name="arm_mode"]:checked');
+  const timed = mode && mode.value==='timed';
+  $('arm_wait_s').disabled = !timed;
+  $('arm-hint').textContent = timed
+    ? 'Pumps start after this wait — temperature is not required.'
+    : 'Pumps start only once the reactor reaches T_reac (needs a wired temperature reading).';
 }
 async function setAuto(){await api('/api/auto_run',{on:$('auto').checked});}
 
@@ -269,8 +289,12 @@ function render(st){
   // temp
   $('t-cur').textContent=st.temperature.current.toFixed(1);
   $('t-tgt').textContent=st.temperature.target.toFixed(1);
-  $('t-stable').textContent=st.temperature.target>0?
-    (st.temperature.stable?'✓ at temperature':'… ramping / stabilizing'):'';
+  if(st.state==='arming'&&st.arm_mode==='timed'){
+    $('t-stable').textContent='⏲ timed start — pumps in '+fmtDur(st.arm_remaining_s)+' (temperature not gating)';
+  }else{
+    $('t-stable').textContent=st.temperature.target>0?
+      (st.temperature.stable?'✓ at temperature':'… ramping / stabilizing'):'';
+  }
   // run status
   $('s-recipe').textContent=st.current_recipe?st.current_recipe.recipe_id:'—';
   $('s-elapsed').textContent=st.elapsed_s!=null?(fmtDur(st.elapsed_s)+' / '+fmtDur(st.duration_s)):'—';
@@ -289,6 +313,7 @@ function logLines(lines){const box=$('log');const c={ok:'var(--ok)',error:'var(-
 const es=new EventSource('/api/stream');
 es.onmessage=e=>{try{const d=JSON.parse(e.data);if(d.status)render(d.status);if(d.logs&&d.logs.length)logLines(d.logs);}catch(_){}};
 preview();
+armModeChange();
 </script>
 </body>
 </html>

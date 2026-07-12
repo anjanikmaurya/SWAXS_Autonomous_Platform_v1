@@ -36,6 +36,16 @@ class Recipe:
     run_duration: float | None = None     # s, optional override
     flush_rate: float | None = None       # µL/min, optional override
     flush_duration: float | None = None   # s, optional override
+    # Arming mode: how the run decides it's ready to start the pumps.
+    #   "temperature" — wait for the reactor to reach/hold T_reac (needs a real
+    #                   temperature reading; the gate-only default behaviour).
+    #   "timed"       — wait a fixed number of seconds, then start the pumps
+    #                   regardless of temperature (use when no thermocouple is
+    #                   wired to this machine). arm_wait_s sets the wait.
+    # Either may be None ("unspecified") → the controller falls back to the
+    # config defaults arming.default_mode / arming.default_wait_s.
+    arm_mode: str | None = None
+    arm_wait_s: float | None = None
     source: str = "api"
     received_at: float = field(default_factory=time.time)
     clamps: list = field(default_factory=list)   # setpoints raised to sensor min
@@ -53,6 +63,14 @@ class Recipe:
                 raise RecipeError(f"field {k} is not a number: {d[k]!r}")
         rid = str(d.get("recipe_id") or d.get("id") or "").strip() \
             or f"rcp_{time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+        arm_mode = str(d.get("arm_mode", "") or "").strip().lower()
+        if arm_mode and arm_mode not in ("temperature", "timed"):
+            raise RecipeError(
+                f"arm_mode must be 'temperature' or 'timed', got {arm_mode!r}")
+        arm_mode = arm_mode or None      # None → use config default
+        arm_wait_s = num("arm_wait_s", required=False)
+        if arm_wait_s is not None and arm_wait_s < 0:
+            raise RecipeError(f"arm_wait_s must be ≥ 0 (got {arm_wait_s})")
         return cls(
             T_reac=num("T_reac"), F_tot=num("F_tot"),
             x_ODE=num("x_ODE"), x_TOP=num("x_TOP"), x_oley=num("x_oley"),
@@ -60,6 +78,8 @@ class Recipe:
             run_duration=num("run_duration", required=False),
             flush_rate=num("flush_rate", required=False),
             flush_duration=num("flush_duration", required=False),
+            arm_mode=arm_mode,
+            arm_wait_s=arm_wait_s,
             source=str(d.get("source", "api")),
         )
 
@@ -72,6 +92,7 @@ class Recipe:
                 "F_tot": self.F_tot, "x_ODE": self.x_ODE, "x_TOP": self.x_TOP,
                 "x_oley": self.x_oley, "run_duration": self.run_duration,
                 "flush_rate": self.flush_rate, "flush_duration": self.flush_duration,
+                "arm_mode": self.arm_mode, "arm_wait_s": self.arm_wait_s,
                 "source": self.source, "clamps": self.clamps}
 
 

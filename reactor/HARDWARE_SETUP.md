@@ -143,19 +143,71 @@ p.set_idle()
 ```
 Repeat for each pump.
 
-### B5. Wire the temperature reading (important for real mode)
-This app is **gate-only** — it never commands the heater — but in *arming* it
-waits for the reactor to reach `T_reac`. In `real` mode the reading comes from
-`TempController.read()` in `src/reactor/hardware.py`, which is currently a stub.
-**Edit `read()` to return your reactor thermocouple / external controller
-value**, otherwise arming will sit until it hits the `temperature.timeout` and
-aborts. (You can raise `temperature.timeout` while wiring this up.)
+### B5. Temperature reading — or use timed arming instead
+This app is **gate-only** — it never commands the heater. It supports two
+arming modes (per recipe, or set the default in `config.yml → arming`):
+
+- **`temperature`** — arming waits for the reactor to reach/hold `T_reac`. The
+  reading comes from `TempController.read()` in `src/reactor/hardware.py`, which
+  is currently a stub. **Edit `read()` to return your thermocouple / external
+  controller value** (the hook is documented inline), otherwise arming sits
+  until `temperature.timeout` and aborts.
+- **`timed`** — arming just waits a fixed number of seconds, then starts the
+  pumps regardless of temperature. **Use this when no temperature reading is
+  wired to this machine** (it's the default: `arming.default_mode: timed`,
+  `arming.default_wait_s: 120`). In the web form pick *"after a fixed wait"*;
+  via JSON add `"arm_mode": "timed"` and optionally `"arm_wait_s": 90`.
+
+So you can run real pumps immediately in timed mode, and switch to the
+temperature gate later once `read()` is wired.
 
 ### B6. Launch in real mode
 ```bash
+# macOS / Linux
 SWAXS_REACTOR_BACKEND=real uv run reactor/app.py
 #   banner shows "backend = real"
 ```
+
+---
+
+## Windows notes (COM ports)
+
+Everything above applies on Windows too; only the serial-port details and the
+launch command differ.
+
+1. **Driver + pyserial.** Install the Dolomite USB-to-serial driver (FTDI), then
+   `pip install pyserial` in your venv.
+2. **Find the ports.** Plug pumps in one at a time and read the assigned port
+   from **Device Manager → Ports (COM & LPT)** — e.g. `COM3`, `COM4`. Or from a
+   Python console:
+   ```python
+   import sys; sys.path.insert(0, "src/reactor/drivers")
+   import Py_P_Pump
+   Py_P_Pump.find_address(identifier="Dolomite")   # prints e.g. COM3
+   ```
+3. **config.yml addresses** use the COM name (not `/dev/ttyUSB*`):
+   ```yaml
+   pumps:
+     pd_top_precursor:
+       address: "COM3"
+   ```
+   There is **no `chmod`** on Windows — if a port won't open, close any other
+   program using it (vendor GUI, PuTTY) and check the COM number.
+4. **Launch in real mode (PowerShell):**
+   ```powershell
+   $env:SWAXS_REACTOR_BACKEND="real"
+   python reactor/app.py
+   #   banner shows "backend = real"
+   ```
+   To launch via the hub instead, set `$env:SWAXS_REACTOR_BACKEND="real"` in the
+   same PowerShell session *before* `python hub/app.py`, then Start the Flow
+   Synthesis card — the hub passes its environment to the app.
+
+| Symptom (Windows) | Fix |
+|---|---|
+| `could not open port 'COM3'` | wrong COM number, cable unplugged, or the port is held by another program |
+| Banner says `backend = mock` | `$env:SWAXS_REACTOR_BACKEND` not set in the same PowerShell session |
+| Pump not found by `find_address` | FTDI driver not installed, or check Device Manager for the COM number |
 
 ---
 
