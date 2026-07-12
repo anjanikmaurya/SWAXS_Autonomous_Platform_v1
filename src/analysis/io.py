@@ -89,7 +89,7 @@ def annotate_source_dat(source_path: str | Path, analysis_type: str,
     if not p.is_file():
         return False
     try:
-        lines = p.read_text().splitlines()
+        lines = p.read_text(encoding="utf-8").splitlines()
     except Exception:
         return False
 
@@ -106,14 +106,14 @@ def annotate_source_dat(source_path: str | Path, analysis_type: str,
     idx = kept.index(_ANNOTATE_MARKER) + 1
     kept[idx:idx] = block
     try:
-        p.write_text("\n".join(kept) + "\n")
+        p.write_text("\n".join(kept) + "\n", encoding="utf-8")
         return True
     except Exception:
         return False
 
 
 def _write_fit_dat(path: Path, q, I, header: str) -> None:
-    with path.open("w") as fh:
+    with path.open("w", encoding="utf-8") as fh:
         fh.write(f"# {header}\n# q_nm-1  I\n")
         for qi, Ii in zip(q, I):
             fh.write(f"{qi:.6e}  {Ii:.6e}\n")
@@ -154,7 +154,7 @@ def save_analysis(
         "user":          user,
     }
     json_path = out_dir / f"{stem}.json"
-    json_path.write_text(json.dumps(record, indent=2, default=str))
+    json_path.write_text(json.dumps(record, indent=2, default=str), encoding="utf-8")
 
     dat_path = None
     if fit_curve is not None and fit_curve[0] is not None:
@@ -216,7 +216,7 @@ def write_batch_summary(
                 cols.append(k)
 
     csv_path = out / f"{analysis_type}_batch_{stamp}.csv"
-    with csv_path.open("w", newline="") as fh:
+    with csv_path.open("w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=cols)
         w.writeheader()
         for r in rows:

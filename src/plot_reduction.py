@@ -80,7 +80,7 @@ def _write_averaged_dat(
         for k, v in metadata.items():
             lines.append(f"# {k}: {v}")
 
-    path.write_text("\n".join(lines) + "\n")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def _average_group(

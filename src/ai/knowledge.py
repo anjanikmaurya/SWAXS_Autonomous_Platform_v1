@@ -421,14 +421,14 @@ class KnowledgeBase:
     def _load_log(self) -> None:
         if self._log_path.exists():
             try:
-                self._log = json.loads(self._log_path.read_text())
+                self._log = json.loads(self._log_path.read_text(encoding="utf-8"))
             except Exception:
                 self._log = {}
         else:
             self._log = {}
 
     def _save_log(self) -> None:
-        self._log_path.write_text(json.dumps(self._log, indent=2))
+        self._log_path.write_text(json.dumps(self._log, indent=2), encoding="utf-8")
 
 
 # ── Text extraction helpers ───────────────────────────────────────────────────

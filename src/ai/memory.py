@@ -200,7 +200,7 @@ class LayeredMemory:
         if not self._group_sops_path.exists():
             return []
         try:
-            data = json.loads(self._group_sops_path.read_text())
+            data = json.loads(self._group_sops_path.read_text(encoding="utf-8"))
             return data if isinstance(data, list) else []
         except Exception as exc:
             logger.debug("[Memory] Could not read group SOPs: %s", exc)
@@ -232,7 +232,7 @@ class LayeredMemory:
         return True
 
     def _save_group_sops(self, sops: list[dict]) -> None:
-        self._group_sops_path.write_text(json.dumps(sops, indent=2))
+        self._group_sops_path.write_text(json.dumps(sops, indent=2), encoding="utf-8")
 
     # ── User corrections ───────────────────────────────────────────────────────
 
@@ -250,7 +250,7 @@ class LayeredMemory:
             "ts":        _now(),
             "user_id":   self._user_id,
         }
-        with self._corrections_path.open("a") as fh:
+        with self._corrections_path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(record) + "\n")
         logger.debug("[Memory] Saved correction (turn=%d)", turn)
 
@@ -261,7 +261,7 @@ class LayeredMemory:
         prefs = self._load_preferences()
         prefs.update(kwargs)
         self._preferences_path.write_text(
-            yaml.dump(prefs, default_flow_style=False)
+            yaml.dump(prefs, default_flow_style=False), encoding="utf-8"
         )
 
     # ── User context (sample details for current session) ─────────────────────
@@ -274,7 +274,7 @@ class LayeredMemory:
         prefs = self._load_preferences()
         prefs.setdefault("_session_context", {}).update(kwargs)
         self._preferences_path.write_text(
-            yaml.dump(prefs, default_flow_style=False)
+            yaml.dump(prefs, default_flow_style=False), encoding="utf-8"
         )
 
     def clear_user_context(self) -> None:
@@ -282,7 +282,7 @@ class LayeredMemory:
         prefs = self._load_preferences()
         prefs.pop("_session_context", None)
         self._preferences_path.write_text(
-            yaml.dump(prefs, default_flow_style=False)
+            yaml.dump(prefs, default_flow_style=False), encoding="utf-8"
         )
 
     # ── Session summaries ──────────────────────────────────────────────────────
@@ -291,7 +291,7 @@ class LayeredMemory:
         """Persist a plain-text digest of a completed conversation session."""
         ts   = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         name = f"{ts}_{session_id[:8]}.txt"
-        (self._session_summary_dir / name).write_text(summary)
+        (self._session_summary_dir / name).write_text(summary, encoding="utf-8")
         logger.debug("[Memory] Session summary saved: %s", name)
 
     # ── Project layer (Layer 2) ────────────────────────────────────────────────
@@ -305,7 +305,7 @@ class LayeredMemory:
         """Append an entry to the project-level experiment_history.jsonl."""
         record = {"ts": _now(), "action": action, "detail": detail}
         hist_path = _project_memory_dir(project_root) / "experiment_history.jsonl"
-        with hist_path.open("a") as fh:
+        with hist_path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(record) + "\n")
 
     def log_quality_flag(
@@ -323,7 +323,7 @@ class LayeredMemory:
             "source":    source,
         }
         log_path = _project_memory_dir(project_root) / "quality_log.jsonl"
-        with log_path.open("a") as fh:
+        with log_path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(record) + "\n")
 
     # ── Per-project chat history (Layer 2) ──────────────────────────────────────
@@ -340,7 +340,7 @@ class LayeredMemory:
         record = {"ts": _now(), "role": role, "text": str(text)[:8000]}
         path = _project_memory_dir(project_root) / "chat_history.jsonl"
         try:
-            with path.open("a") as fh:
+            with path.open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(record) + "\n")
         except Exception as exc:
             logger.debug("[Memory] Could not append chat: %s", exc)
@@ -357,7 +357,7 @@ class LayeredMemory:
             return []
         out: list[dict] = []
         try:
-            for line in path.read_text().splitlines():
+            for line in path.read_text(encoding="utf-8").splitlines():
                 line = line.strip()
                 if line:
                     out.append(json.loads(line))
@@ -387,7 +387,7 @@ class LayeredMemory:
         if self._preferences_path.exists():
             try:
                 return yaml.safe_load(
-                    self._preferences_path.read_text()
+                    self._preferences_path.read_text(encoding="utf-8")
                 ) or {}
             except Exception:
                 pass
@@ -396,7 +396,7 @@ class LayeredMemory:
     def _load_corrections(self, n: int) -> list[dict]:
         if not self._corrections_path.exists():
             return []
-        lines = self._corrections_path.read_text().splitlines()
+        lines = self._corrections_path.read_text(encoding="utf-8").splitlines()
         records = []
         for line in reversed(lines):
             line = line.strip()
@@ -416,7 +416,7 @@ class LayeredMemory:
 
     def _load_recent_summaries(self, n: int) -> list[str]:
         files = sorted(self._session_summary_dir.glob("*.txt"), reverse=True)[:n]
-        return [f.read_text() for f in files]
+        return [f.read_text(encoding="utf-8") for f in files]
 
     def _load_project_history(
         self, project_root: str | Path, n: int = 20
@@ -424,7 +424,7 @@ class LayeredMemory:
         hist_path = _project_memory_dir(project_root) / "experiment_history.jsonl"
         if not hist_path.exists():
             return []
-        lines = hist_path.read_text().splitlines()
+        lines = hist_path.read_text(encoding="utf-8").splitlines()
         records = []
         for line in reversed(lines):
             line = line.strip()
@@ -444,7 +444,7 @@ class LayeredMemory:
         log_path = _project_memory_dir(project_root) / "quality_log.jsonl"
         if not log_path.exists():
             return []
-        lines = log_path.read_text().splitlines()
+        lines = log_path.read_text(encoding="utf-8").splitlines()
         records = []
         for line in reversed(lines):
             line = line.strip()
@@ -463,7 +463,7 @@ class LayeredMemory:
         if not path.exists():
             return ""
         try:
-            return path.read_text()
+            return path.read_text(encoding="utf-8")
         except Exception:
             return ""
 

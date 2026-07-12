@@ -43,7 +43,7 @@ def _load_dotenv(dotenv_path: Path) -> None:
     """Minimal .env loader — no external dependencies required."""
     if not dotenv_path.is_file():
         return
-    with dotenv_path.open() as _fh:
+    with dotenv_path.open(encoding="utf-8") as _fh:
         for _line in _fh:
             _line = _line.strip()
             if not _line or _line.startswith("#") or "=" not in _line:
@@ -102,7 +102,7 @@ def _load_apps() -> list[dict]:
         )
         return []
     try:
-        with _APPS_YML.open() as fh:
+        with _APPS_YML.open(encoding="utf-8") as fh:
             cfg = yaml.safe_load(fh)
         entries = cfg.get("apps", [])
         # Apply defaults for any omitted optional fields
@@ -128,7 +128,7 @@ def _load_project_state() -> str:
     """Return the last-used project_root if it still exists, else ''."""
     try:
         if _STATE_FILE.is_file():
-            data = json.loads(_STATE_FILE.read_text())
+            data = json.loads(_STATE_FILE.read_text(encoding="utf-8"))
             path = str(data.get("project_root", "")).strip()
             if path and Path(path).is_dir():
                 logger.info("Restored project folder from state: %s", path)
@@ -143,7 +143,7 @@ def _load_project_state() -> str:
 def _save_project_state(path: str) -> None:
     """Persist the selected project_root so it survives a hub restart."""
     try:
-        _STATE_FILE.write_text(json.dumps({"project_root": path}, indent=2))
+        _STATE_FILE.write_text(json.dumps({"project_root": path}, indent=2), encoding="utf-8")
     except Exception as exc:
         logger.warning("Could not save hub state %s: %s", _STATE_FILE, exc)
 
@@ -205,28 +205,34 @@ def _start_app(app_id: str) -> tuple[bool, str]:
     env = os.environ.copy()
     if _project_root:
         env["SWAXS_PROJECT"] = _project_root
+    # Force UTF-8 in the child so file reads/writes don't blow up on Windows,
+    # where the default text encoding is the locale codepage (e.g. cp1252) and
+    # chokes on non-ASCII content such as the emoji in knowledge.md / manifest.
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
 
-    import shutil
-    uv_path = shutil.which("uv")
+    # Capture each app's output to a log file (instead of discarding it) so
+    # startup failures are diagnosable. See logs/<app_id>.log.
+    log_dir = _ROOT / "logs"
+    log_dir.mkdir(exist_ok=True)
+    log_path = log_dir / f"{app_id}.log"
 
     def _launch(cmd):
+        logf = open(log_path, "w", encoding="utf-8")
         return subprocess.Popen(
             cmd,
             cwd=str(_ROOT),
             env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=logf,
+            stderr=subprocess.STDOUT,
         )
 
-    if uv_path:
-        try:
-            proc = _launch([uv_path, "run", str(entry)])
-            _procs[app_id] = proc
-            _hub_emit("app.started", {"app_id": app_id, "pid": proc.pid})
-            return True, f"Started (PID {proc.pid})"
-        except Exception:
-            pass
-
+    # Launch with the SAME interpreter that runs the hub. This guarantees the
+    # app uses the identical environment (venv or uv) with all dependencies
+    # available. Previously the hub tried `uv run <entry>` first, which spins
+    # up a SEPARATE environment without the pip-installed deps when there is no
+    # pyproject.toml — so the app died instantly with ModuleNotFoundError and
+    # (with output going to DEVNULL) it looked like "nothing happened".
     try:
         proc = _launch([sys.executable, str(entry)])
         _procs[app_id] = proc

@@ -155,7 +155,7 @@ def load_manifest(path: str | Path) -> dict:
     if not p.exists():
         return _empty_manifest(p.parent)
     try:
-        with p.open("r") as fh:
+        with p.open("r", encoding="utf-8") as fh:
             data = json.load(fh)
     except (json.JSONDecodeError, ValueError, OSError) as exc:
         # Corrupted manifest (e.g. concurrent-write damage → "Extra data").
@@ -207,7 +207,7 @@ def _salvage_manifest_text(path: Path) -> dict | None:
     signature of "Extra data" concurrent-write corruption).
     """
     try:
-        text = path.read_text().lstrip()
+        text = path.read_text(encoding="utf-8").lstrip()
     except Exception:
         return None
     try:
@@ -231,9 +231,9 @@ def save_manifest(manifest: dict, path: str | Path) -> None:
     manifest["updated_at"] = _now()
     tmp = p.with_name(f".{p.name}.tmp.{os.getpid()}.{uuid.uuid4().hex[:8]}")
     try:
-        with tmp.open("w") as fh:
+        with tmp.open("w", encoding="utf-8") as fh:
             json.dump(manifest, fh, indent=2)
-        tmp.replace(p)   # atomic on POSIX
+        tmp.replace(p)   # atomic on POSIX and Windows (os.replace)
     finally:
         try:
             if tmp.exists():

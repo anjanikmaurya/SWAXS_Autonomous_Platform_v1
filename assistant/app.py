@@ -52,7 +52,7 @@ if str(_ROOT) not in sys.path:
 def _load_dotenv(path: Path) -> None:
     if not path.is_file():
         return
-    for line in path.read_text().splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
@@ -296,7 +296,7 @@ def _resolve_project_root() -> str | None:
     try:
         state = Path(__file__).resolve().parent.parent / ".hub_state.json"
         if state.is_file():
-            saved = json.loads(state.read_text()).get("project_root", "")
+            saved = json.loads(state.read_text(encoding="utf-8")).get("project_root", "")
             if saved:
                 candidates.append(str(saved))
     except Exception:
@@ -739,7 +739,7 @@ def api_health():
         try:
             dotenv = _ROOT / ".env"
             if dotenv.is_file():
-                for line in dotenv.read_text().splitlines():
+                for line in dotenv.read_text(encoding="utf-8").splitlines():
                     if line.strip().startswith("ANTHROPIC_API_KEY=") and \
                             line.split("=", 1)[1].strip().strip('"').strip("'"):
                         has_key = True

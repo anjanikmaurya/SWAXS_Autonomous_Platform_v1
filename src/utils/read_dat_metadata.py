@@ -16,7 +16,7 @@ def read_dat_data_metadata(file_path: Path) -> tuple:
     metadata_dict = {}
     in_metadata_section = False
 
-    with open(file_path, 'r') as f:
+    with open(file_path, 'r', encoding='utf-8') as f:
         for line in f:
             if line.startswith('#'):
                 line_stripped = line.strip()

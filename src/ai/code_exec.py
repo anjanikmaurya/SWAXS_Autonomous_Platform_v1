@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import ast
 import base64
+import os
 import subprocess
 import sys
 import tempfile
@@ -175,8 +176,16 @@ def run_user_code(
     script_path.write_text(script)
 
     # Minimal environment: no proxy/network hints, no inherited secrets.
-    env = {"PATH": "/usr/bin:/bin", "HOME": str(workdir),
-           "MPLBACKEND": "Agg", "PYTHONHASHSEED": "0"}
+    env = {"HOME": str(workdir), "MPLBACKEND": "Agg",
+           "PYTHONHASHSEED": "0", "PYTHONUTF8": "1"}
+    if sys.platform == "win32":
+        # Windows Python needs a few base vars just to start the interpreter.
+        for _v in ("SYSTEMROOT", "PATH", "TEMP", "TMP", "USERPROFILE",
+                   "HOMEDRIVE", "HOMEPATH", "PATHEXT", "APPDATA", "LOCALAPPDATA"):
+            if _v in os.environ:
+                env[_v] = os.environ[_v]
+    else:
+        env["PATH"] = "/usr/bin:/bin"
 
     try:
         proc = subprocess.run(

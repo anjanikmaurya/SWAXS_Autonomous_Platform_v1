@@ -675,7 +675,7 @@ def _fmt_result_line(result: dict) -> str:
 
 
 def _append_metadata_to_dat(dat_path: Path, metadata: dict):
-    with open(dat_path, "a") as f:
+    with open(dat_path, "a", encoding="utf-8") as f:
         f.write("\n# METADATA INFORMATION (YML FORMAT)\n")
         for key, value in metadata.items():
             if key != "#":

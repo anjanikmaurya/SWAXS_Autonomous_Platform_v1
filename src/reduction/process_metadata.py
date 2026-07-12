@@ -130,7 +130,7 @@ def process_pdi_full(raw_file_path: Path, detector_type: str) -> dict:
     if not Path(pdi_path).exists():
         raise FileNotFoundError(f"PDI file not found: {pdi_path}")
 
-    with open(pdi_path, "r") as f:
+    with open(pdi_path, "r", encoding="utf-8") as f:
         content = f.read()
 
     det = detector_type.upper()
@@ -160,7 +160,7 @@ def get_meta_from_pdi(pdi_file: str) -> tuple:
     Raises RuntimeError (instead of silently returning empty dicts) if
     parsing fails, so callers get a clear error message.
     """
-    with open(pdi_file, "r") as f:
+    with open(pdi_file, "r", encoding="utf-8") as f:
         data = f.read()
 
     data = data.replace("\n", ";")

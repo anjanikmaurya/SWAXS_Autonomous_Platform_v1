@@ -18,7 +18,7 @@ _DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "reactor" / "config.yml"
 def load_config(path: str | Path | None = None) -> dict:
     """Load the reactor config YAML, falling back to reactor/config.yml."""
     p = Path(path) if path else _DEFAULT_CONFIG
-    with open(p) as fh:
+    with open(p, encoding="utf-8") as fh:
         cfg = yaml.safe_load(fh) or {}
     cfg.setdefault("pumps", {})
     cfg.setdefault("bounds", {})

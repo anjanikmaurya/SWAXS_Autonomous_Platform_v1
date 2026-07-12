@@ -85,7 +85,7 @@ def _feedback_cb(recipe_id: str, payload: dict) -> None:
     try:
         fb = _resolve("feedback")
         fb.mkdir(parents=True, exist_ok=True)
-        (fb / f"{recipe_id}.done.json").write_text(json.dumps(payload, indent=2, default=str))
+        (fb / f"{recipe_id}.done.json").write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
     except Exception as exc:
         _emit(f"⚠ could not write feedback file: {exc}", "warn")
 
@@ -134,7 +134,7 @@ def _folder_watcher() -> None:
                         continue
                     _watch_seen.add(str(f))
                     try:
-                        data = json.loads(f.read_text() or "{}")
+                        data = json.loads(f.read_text(encoding="utf-8") or "{}")
                         _ctrl.submit(data, source=f"folder:{f.name}")
                         done = _resolve("processed"); done.mkdir(parents=True, exist_ok=True)
                         f.rename(done / f.name)
@@ -173,7 +173,7 @@ def _save_limits(limits: dict) -> None:
     if p is None:
         return
     try:
-        p.write_text(json.dumps({"limits": limits}, indent=2))
+        p.write_text(json.dumps({"limits": limits}, indent=2), encoding="utf-8")
     except Exception as exc:
         _emit(f"⚠ could not save reactor_limits.json: {exc}", "warn")
 
@@ -183,7 +183,7 @@ def _load_limits() -> None:
     if p is None or not p.is_file():
         return
     try:
-        data = json.loads(p.read_text() or "{}").get("limits", {})
+        data = json.loads(p.read_text(encoding="utf-8") or "{}").get("limits", {})
         if data:
             _ctrl.set_pump_limits(data)
             _emit(f"loaded saved pump flow limits for {len(data)} pump(s)", "info")

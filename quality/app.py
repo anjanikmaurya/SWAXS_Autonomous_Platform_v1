@@ -133,7 +133,7 @@ def _save_params() -> None:
     if p is None:
         return
     try:
-        p.write_text(json.dumps({"params": _params}, indent=2))
+        p.write_text(json.dumps({"params": _params}, indent=2), encoding="utf-8")
     except Exception as exc:
         _emit(f"⚠  could not save quality_config.json: {exc}", "warn")
 
@@ -143,7 +143,7 @@ def _load_params() -> None:
     if p is None or not p.is_file():
         return
     try:
-        data = json.loads(p.read_text() or "{}")
+        data = json.loads(p.read_text(encoding="utf-8") or "{}")
         saved = data.get("params", {})
         if isinstance(saved, dict):
             _params.clear()
@@ -744,8 +744,8 @@ def api_report():
             rep_dir = Path(_project_root) / "1D" / "QualityReports"
             rep_dir.mkdir(parents=True, exist_ok=True)
             stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            (rep_dir / f"quality_report_{stamp}.csv").write_text(csv)
-            (rep_dir / f"accepted_{stamp}.txt").write_text("\n".join(accepted) + "\n")
+            (rep_dir / f"quality_report_{stamp}.csv").write_text(csv, encoding="utf-8")
+            (rep_dir / f"accepted_{stamp}.txt").write_text("\n".join(accepted) + "\n", encoding="utf-8")
             saved = str(rep_dir)
         except Exception:
             pass

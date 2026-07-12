@@ -20,3 +20,6 @@ venv/
 
 # AI-knowledge vector database - generated locally, rebuilt per machine.
 ai_knowledge/vector_db/
+
+# Per-app runtime logs written by the hub
+logs/

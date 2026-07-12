@@ -669,7 +669,7 @@ def save_config():
     if not path:
         return jsonify({"ok": False, "error": "No path specified"}), 400
     try:
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             yaml.dump(cfg, f, default_flow_style=False, sort_keys=False)
         return jsonify({"ok": True, "path": path})
     except Exception as e:
@@ -682,7 +682,7 @@ def load_config():
     if not path:
         return jsonify({"ok": False, "error": "No path specified"}), 400
     try:
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
         return jsonify({"ok": True, "config": cfg})
     except Exception as e:
@@ -716,7 +716,7 @@ def dat_data():
         p = Path(file_path)
         data_rows, metadata, in_meta = [], {}, False
 
-        with open(p) as f:
+        with open(p, encoding="utf-8") as f:
             for raw in f:
                 line = raw.strip()
                 if not line:

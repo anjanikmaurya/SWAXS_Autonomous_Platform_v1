@@ -134,7 +134,7 @@ def _write_dat(out_path: Path, q: np.ndarray, I: np.ndarray, sigma: np.ndarray,
     lines.append("# q_nm-1  I  sigma")
     for qi, Ii, si in zip(q, I, sigma):
         lines.append(f"{qi:.8e}  {Ii:.8e}  {si:.8e}")
-    out_path.write_text("\n".join(lines) + "\n")
+    out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def _glob_dats(folder: Path, keyword: str | None = None) -> list[Path]:
