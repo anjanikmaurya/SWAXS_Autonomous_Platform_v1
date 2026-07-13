@@ -206,6 +206,52 @@ def _load_limits() -> None:
         _emit(f"⚠ could not load reactor_limits.json: {exc}", "warn")
 
 
+def _settings_path() -> Path | None:
+    return Path(_project_root) / "reactor_settings.json" if _project_root else None
+
+
+def _save_recipes_folder(folder: str) -> None:
+    p = _settings_path()
+    if p is None:
+        return
+    try:
+        cur = json.loads(p.read_text(encoding="utf-8") or "{}") if p.is_file() else {}
+        cur["recipes_folder"] = folder
+        p.write_text(json.dumps(cur, indent=2), encoding="utf-8")
+    except Exception as exc:
+        _emit(f"⚠ could not save reactor_settings.json: {exc}", "warn")
+
+
+def _load_recipes_folder() -> None:
+    p = _settings_path()
+    if p is None or not p.is_file():
+        return
+    try:
+        f = json.loads(p.read_text(encoding="utf-8") or "{}").get("recipes_folder")
+        if f:
+            _CFG.setdefault("folders", {})["recipes"] = f
+            _CFG["folders"]["processed"] = str(Path(f) / "done")
+            _emit(f"conditions folder set to: {f}", "info")
+    except Exception as exc:
+        _emit(f"⚠ could not load reactor_settings.json: {exc}", "warn")
+
+
+@app.route("/api/recipes_folder", methods=["GET", "POST"])
+def api_recipes_folder():
+    """GET the watched conditions folder; POST {folder} to change it live."""
+    if request.method == "POST":
+        b = request.get_json(force=True) or {}
+        folder = str(b.get("folder", "")).strip()
+        if folder:
+            _CFG.setdefault("folders", {})["recipes"] = folder
+            _CFG["folders"]["processed"] = str(Path(folder) / "done")
+            _watch_seen.clear()          # re-scan the new folder from scratch
+            _save_recipes_folder(folder)
+            _emit(f"📁 conditions folder → {folder}", "info")
+    return jsonify({"folder": _CFG.get("folders", {}).get("recipes", ""),
+                    "resolved": str(_resolve("recipes"))})
+
+
 @app.route("/api/set_project", methods=["POST"])
 def set_project():
     global _project_root
@@ -215,6 +261,7 @@ def set_project():
         os.environ["SWAXS_PROJECT"] = p
         _project_root = p
         _load_limits()          # pick up saved per-pump flow limits
+        _load_recipes_folder()  # pick up saved conditions-folder override
     return jsonify({"ok": True})
 
 

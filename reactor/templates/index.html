@@ -87,6 +87,16 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
   <!-- LEFT: recipe + controls -->
   <div>
     <div class="card">
+      <div class="card-hd">📁 Conditions folder (autonomous input)</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="text" id="condFolder" style="flex:1" placeholder="1D/SAXS/Conditions">
+        <button class="btn btn-accent" onclick="setCondFolder()">Set</button>
+      </div>
+      <div class="muted" id="condResolved" style="margin-top:4px"></div>
+      <div class="muted" style="margin-top:2px">The ML/processing pipeline drops .txt condition files here. Relative to the project folder, or an absolute path. Default is a sibling of Subtracted.</div>
+    </div>
+
+    <div class="card">
       <div class="card-hd">🧪 Submit recipe</div>
       <div class="grid2">
         <div><label>T_reac (°C)</label><input type="number" id="T_reac" value="240" step="1"></div>
@@ -271,6 +281,8 @@ function armModeChange(){
 }
 async function setAuto(){await api('/api/auto_run',{on:$('auto').checked});}
 async function tare(pump,kind){await api('/api/tare',{pump:pump,kind:kind});}
+async function loadCondFolder(){try{const r=await(await fetch('/api/recipes_folder')).json();$('condFolder').value=r.folder||'';$('condResolved').textContent='Watching: '+(r.resolved||'');}catch(e){}}
+async function setCondFolder(){const f=$('condFolder').value.trim();const r=await api('/api/recipes_folder',{folder:f});$('condResolved').textContent='Watching: '+((r&&r.resolved)||'');}
 function buildTareRows(st){
   if(window._tareBuilt) return; window._tareBuilt=true;
   $('tareRows').innerHTML=Object.keys(st.pumps).map(n=>
@@ -383,6 +395,7 @@ const es=new EventSource('/api/stream');
 es.onmessage=e=>{try{const d=JSON.parse(e.data);if(d.status)render(d.status);if(d.logs&&d.logs.length)logLines(d.logs);}catch(_){}};
 preview();
 armModeChange();
+loadCondFolder();
 </script>
 </body>
 </html>

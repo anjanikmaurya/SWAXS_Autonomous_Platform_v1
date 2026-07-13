@@ -1,0 +1,8 @@
+# SWAXS Flow Synthesis — condition file. Exactly 5 parameters, one per line.
+# The ML/processing pipeline writes one of these per condition into the recipes
+# folder (config: folders.recipes). recipe_id defaults to the filename.
+T_reac = 240
+F_tot  = 80
+x_ODE  = 0.20
+x_TOP  = 0.10
+x_oley = 0.10

@@ -96,9 +96,12 @@ flush:
 
 # ── Folders (relative to the project root unless absolute) ───────────────────
 folders:
-  recipes:   "reactor/recipes"        # watched for incoming *.json recipes
-  processed: "reactor/recipes/done"   # recipes moved here after intake
-  feedback:  "reactor/feedback"       # <recipe_id>.done.json written here
-  averaged_watch: "1D/SAXS/Averaged"  # backstop watch for run-end (bus is primary)
+  # Watched for incoming condition files (*.txt from the ML pipeline, or *.json).
+  # Defaults to a sibling of Subtracted in the 1D tree; change it live in the app
+  # (📁 Conditions folder card) — the override persists in reactor_settings.json.
+  recipes:   "1D/SAXS/Conditions"          # same level as 1D/SAXS/Subtracted
+  processed: "1D/SAXS/Conditions/done"     # files moved here after intake
+  feedback:  "reactor/feedback"            # <recipe_id>.done.json written here
+  averaged_watch: "1D/SAXS/Averaged"       # backstop watch for run-end (bus is primary)
 
 poll_interval: 3.0            # s, folder polling
