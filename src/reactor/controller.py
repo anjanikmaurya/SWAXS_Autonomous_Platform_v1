@@ -68,6 +68,10 @@ class ReactorController:
         run = cfg.get("run", {})
         self.default_duration = float(run.get("default_duration", 600.0))
         self.end_on_measurement = bool(run.get("end_on_measurement", True))
+        # Autonomous loop: hold the current condition (steady flow) until the
+        # next recipe is queued (e.g. a new param file lands), then advance.
+        self.advance_on_new = bool(run.get("advance_on_new_file", False))
+        self.min_dwell = float(run.get("min_dwell_s", 60.0))
         arm = cfg.get("arming", {})
         self.default_arm_mode = str(arm.get("default_mode", "temperature")).lower()
         self.default_arm_wait = float(arm.get("default_wait_s", 120.0))
@@ -135,6 +139,22 @@ class ReactorController:
                 p.max_flow = smax
             self._log("⚙ pump flow limits updated", "info")
             return self.pump_limits()
+
+    def tare_pump(self, name: str, kind: str = "pressure") -> tuple[bool, str]:
+        """Tare one pump's pressure (kind='pressure' -> R0). Only when idle, so
+        it never interferes with a run. Disconnect the air supply first."""
+        with self._lock:
+            if self.state not in ("idle", "ready", "estop"):
+                return False, f"can't tare while {self.state} (stop the run first)"
+            try:
+                self.pumps.tare(name, kind=kind)
+            except Exception as exc:
+                self._log(f"⚠ tare {name} ({kind}) failed: {exc}", "warn")
+                return False, str(exc)
+            note = {"pressure": "air disconnected", "flow": "no flow",
+                    "both": "air disconnected + no flow"}.get(kind, "")
+            self._log(f"🔧 tared {name} ({kind}) — needs {note}", "info")
+            return True, "ok"
 
     def clear_queue(self) -> int:
         """Empty the pending-recipe queue (does not affect a running recipe).
@@ -339,6 +359,12 @@ class ReactorController:
                 elif self.state == "running":
                     if self._measure_done or self._stop_flag:
                         self._end_run(flush=True)
+                    elif self.advance_on_new:
+                        # hold this condition until the NEXT one is queued
+                        # (after a minimum dwell); no duration timeout here.
+                        if self.queue and (now - self._run_started) >= self.min_dwell:
+                            self._run_reason = "next condition available"
+                            self._end_run(flush=True)
                     elif now > self._run_deadline:
                         self._run_reason = self._run_reason or "duration elapsed (fallback)"
                         self._end_run(flush=True)
@@ -350,6 +376,18 @@ class ReactorController:
     def _safety_check(self) -> None:
         if self.state == "estop":
             return
+        # A pump reporting ERROR state (3) while we're trying to run/arm — e.g.
+        # low air supply, blockage, or flow-sensor loss — trips the E-stop so it
+        # can't silently deliver the wrong (or no) flow.
+        if self.state in ("arming", "running"):
+            faulted = [n for n, p in self.pumps.pumps.items()
+                       if getattr(p, "fault", False)]
+            if faulted:
+                self._log(f"🛑 SAFETY: pump(s) {', '.join(faulted)} in ERROR state "
+                          f"(check air supply / blockage / flow sensor) — emergency stop",
+                          "error")
+                self.estop()
+                return
         if self.temp.current > self.T_max + 0.5:
             self._log(f"🛑 SAFETY: temperature {self.temp.current:.0f}°C > T_max", "error")
             self.estop()

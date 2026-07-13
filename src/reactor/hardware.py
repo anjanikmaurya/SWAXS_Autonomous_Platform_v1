@@ -37,6 +37,9 @@ class MockPump:
         self.actual = 0.0        # observed µL/min (mock)
         self.pressure = 0.0      # chamber pressure (mbar, mock)
         self.idle = True
+        self.state_code = 0      # 0 IDLE / 1 CONTROLLING / 3 ERROR (mock: never faults)
+        self.error_code = 0
+        self.fault = False
 
     def set_flow(self, rate: float) -> None:
         self.target = float(rate)
@@ -50,6 +53,15 @@ class MockPump:
         # mock chamber pressure: rises with flow demand, well under the ceiling
         frac = (self.actual / self.max_flow) if self.max_flow else 0.0
         self.pressure = round(0.6 * self.max_pressure * max(0.0, min(1.0, frac)), 1)
+
+    def close(self) -> None:
+        pass
+
+    def tare_pressure(self) -> None:
+        pass
+
+    def tare_flow(self) -> None:
+        pass
 
 
 class RealPump:
@@ -66,35 +78,65 @@ class RealPump:
         self.actual = 0.0
         self.pressure = 0.0
         self.idle = True
-        self._p_ctr = 0          # throttle counter for pressure reads
+        self.state_code = 0      # 0 IDLE / 1 CONTROLLING / 2 TARE / 3 ERROR / 4 LEAK
+        self.error_code = 0
+        self.fault = False       # True when the pump reports ERROR state (3)
+        self._poll_accum = 0.0   # seconds since last status poll (keepalive)
         # ⟵ REAL DRIVER: open the serial connection to the Mitos P-pump.
+        # The driver opens at 57600 8N1 and enters REMOTE control (A1) so the
+        # pump accepts flow commands. Status is polled in tick() — that both
+        # updates the readings and keeps the pump from dropping out of control
+        # (it exits control after ~30 s without a command).
         from .drivers import Py_P_Pump            # noqa: PLC0415
-        self._pump = Py_P_Pump.P_pump(address, name=name, pump_id=pump_id, verbose=False)
+        try:
+            self._pump = Py_P_Pump.P_pump(address, name=name, pump_id=pump_id, verbose=False)
+        except Exception as exc:
+            raise RuntimeError(
+                f"pump '{name}': could not open {address!r} ({exc}). "
+                f"Is the Dolomite GUI open, or is another program using {address}?"
+            ) from exc
+
+    def close(self) -> None:
+        try:
+            self._pump.close()
+        except Exception:
+            pass
+
+    def tare_pressure(self) -> None:
+        # ⟵ REAL DRIVER: pump pressure tare ('R0'). Air must be disconnected.
+        self._pump.tare()
+
+    def tare_flow(self) -> None:
+        # ⟵ REAL DRIVER: flow-sensor tare ('R1'). Ensure no flow.
+        self._pump.tare_flow()
 
     def set_flow(self, rate: float) -> None:
         self.target = float(rate)
         self.idle = (rate == 0.0)
-        # ⟵ REAL DRIVER: flow-control mode, µL/min ('ul/m'), indefinite hold.
-        # A 0 setpoint sends flow = 0 (per config decision), not set_idle().
-        self._pump.set_flow(rate, unit="ul/m", hold="00:00:00:00")
+        # ⟵ REAL DRIVER: set the flow-rate setpoint in µL/min (driver converts
+        # to pl/s and sends 'F<pl_s>'). A 0 setpoint sends flow = 0.
+        self._pump.set_flow(rate, unit="ul/m")
 
     def idle_now(self) -> None:
         self.target = 0.0
         self.idle = True
-        # ⟵ REAL DRIVER: vent chamber + stop flow.
+        # ⟵ REAL DRIVER: idle / vent the chamber ('P0').
         self._pump.set_idle()
 
     def tick(self, dt: float) -> None:
-        # ⟵ REAL DRIVER (optional): read the live flow from the sensor, e.g.
-        #     self.actual = self._pump.get_target() ...  For now mirror target.
-        self.actual = self.target
-        # ⟵ REAL DRIVER: read chamber pressure, throttled to ~1 s (serial is slow).
-        # get_pressure() returns [atmospheric, supply, chamber] in mbar.
-        self._p_ctr += 1
-        if self._p_ctr >= 5:
-            self._p_ctr = 0
+        # ⟵ REAL DRIVER: poll status ~every 3 s. This updates the live flow +
+        # chamber pressure AND keeps the pump in control mode (any command,
+        # including the status query 's', resets the pump's 30 s timeout).
+        self._poll_accum += dt
+        if self._poll_accum >= 3.0:
+            self._poll_accum = 0.0
             try:
-                self.pressure = float(self._pump.get_pressure()[2])   # chamber
+                st = self._pump.read_status()
+                self.actual = st["flow_rate_ulmin"]
+                self.pressure = st["chamber_pressure"]
+                self.state_code = st["state_code"]
+                self.error_code = st["error_code"]
+                self.fault = (st["state_code"] == 3)   # 3 = ERROR
             except Exception:
                 pass
 
@@ -114,8 +156,14 @@ class PumpBank:
             mn = float(pc.get("sensor_min", 0.0))
             pp = float(pc.get("max_pressure", pmax_global))
             if backend == "real":
-                self.pumps[name] = RealPump(name, pc.get("address", ""),
-                                            int(pc.get("pump_id", 0)), mx, mn, pp)
+                try:
+                    self.pumps[name] = RealPump(name, pc.get("address", ""),
+                                                int(pc.get("pump_id", 0)), mx, mn, pp)
+                except Exception:
+                    # release any ports already opened before reporting
+                    for p in self.pumps.values():
+                        p.close()
+                    raise
             else:
                 self.pumps[name] = MockPump(name, mx, mn, pp)
 
@@ -125,6 +173,22 @@ class PumpBank:
         if pump not in self.pumps:
             raise KeyError(f"unknown pump: {pump}")
         self.pumps[pump].set_flow(rate)
+
+    def tare(self, name: str, kind: str = "pressure") -> None:
+        """Tare one pump. kind='pressure' sends the pump pressure tare (R0).
+        (A separate flow-sensor tare command is not yet confirmed.)"""
+        p = self.pumps.get(name)
+        if p is None:
+            raise KeyError(f"unknown pump: {name}")
+        if kind == "pressure":
+            p.tare_pressure()
+        elif kind == "flow":
+            p.tare_flow()
+        elif kind == "both":
+            p.tare_pressure()
+            p.tare_flow()
+        else:
+            raise ValueError(f"unknown tare kind '{kind}'")
 
     def set_all(self, setpoints: dict) -> None:
         for name in self.pumps:
@@ -146,7 +210,9 @@ class PumpBank:
                        "max_flow": p.max_flow, "sensor_min": p.sensor_min,
                        "pressure": round(getattr(p, "pressure", 0.0), 1),
                        "max_pressure": getattr(p, "max_pressure", 0.0),
-                       "idle": p.idle}
+                       "idle": p.idle,
+                       "fault": bool(getattr(p, "fault", False)),
+                       "state_code": int(getattr(p, "state_code", 0))}
                 for name, p in self.pumps.items()}
 
 

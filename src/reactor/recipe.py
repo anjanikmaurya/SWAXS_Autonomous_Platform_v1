@@ -96,6 +96,80 @@ class Recipe:
                 "source": self.source, "clamps": self.clamps}
 
 
+def parse_param_file(text: str) -> dict:
+    """Parse a condition file written by the processing/ML pipeline into a dict
+    suitable for :meth:`Recipe.from_dict`.
+
+    Tolerant of format — accepts JSON, ``key = value`` / ``key: value`` lines,
+    ``key value`` lines, or a single CSV ``header``/``row`` pair. Field names
+    are matched case-insensitively with common aliases:
+
+        temperature -> T_reac | T | temp | temperature | T_set
+        total flow  -> F_tot  | Ftot | F | flow_total | total_flow
+        fractions   -> x_ODE/x_TOP/x_oley (also xODE/ODE, xTOP/TOP, xoley/oley)
+        optional    -> recipe_id|id|name, run_duration, arm_mode, arm_wait_s,
+                       flush_rate, flush_duration
+
+    Returns whatever it could extract; :meth:`Recipe.from_dict` then enforces
+    the required fields (and raises RecipeError on anything missing/non-numeric).
+    """
+    import json as _json
+    text = (text or "").strip()
+    raw: dict = {}
+    if text.startswith("{"):
+        try:
+            raw = _json.loads(text)
+        except Exception:
+            raw = {}
+    if not raw:
+        lines = [ln.strip() for ln in text.splitlines()
+                 if ln.strip() and not ln.strip().startswith("#")]
+        if len(lines) >= 2 and "," in lines[0] and not any(c in lines[0] for c in "=:"):
+            hdr = [h.strip() for h in lines[0].split(",")]
+            row = [v.strip() for v in lines[1].split(",")]
+            raw = dict(zip(hdr, row))
+        else:
+            for ln in lines:
+                if "=" in ln:
+                    k, v = ln.split("=", 1)
+                elif ":" in ln:
+                    k, v = ln.split(":", 1)
+                else:
+                    parts = ln.split()
+                    if len(parts) < 2:
+                        continue
+                    k, v = parts[0], parts[1]
+                raw[k.strip()] = v.strip()
+
+    low = {str(k).strip().lower(): v for k, v in raw.items()}
+
+    def pick(*names):
+        for n in names:
+            if n in low and str(low[n]).strip() != "":
+                return low[n]
+        return None
+
+    out: dict = {}
+    mapping = {
+        "T_reac": ("t_reac", "t", "temp", "temperature", "t_set", "tset", "temp_c"),
+        "F_tot":  ("f_tot", "ftot", "f", "flow_total", "total_flow", "flowtotal"),
+        "x_ODE":  ("x_ode", "xode", "ode"),
+        "x_TOP":  ("x_top", "xtop", "top"),
+        "x_oley": ("x_oley", "xoley", "oley", "oleylamine"),
+        "recipe_id": ("recipe_id", "id", "name"),
+        "run_duration": ("run_duration", "duration"),
+        "arm_mode": ("arm_mode",),
+        "arm_wait_s": ("arm_wait_s", "arm_wait"),
+        "flush_rate": ("flush_rate",),
+        "flush_duration": ("flush_duration",),
+    }
+    for canon, aliases in mapping.items():
+        v = pick(*aliases)
+        if v is not None:
+            out[canon] = v
+    return out
+
+
 def validate(recipe: Recipe, cfg: dict) -> None:
     """Raise RecipeError if the recipe is out of bounds or breaches a hard cap."""
     b = cfg.get("bounds", {})

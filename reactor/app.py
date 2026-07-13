@@ -32,6 +32,7 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from src.reactor import load_config, ReactorController, RecipeError   # noqa: E402
+from src.reactor.recipe import parse_param_file                       # noqa: E402
 from src.manifest import update_manifest, add_reactor_run            # noqa: E402
 
 # ── Event bus (graceful degradation) ─────────────────────────────────────────
@@ -98,9 +99,15 @@ def _manifest_cb(record: dict) -> None:
             _emit(f"⚠ manifest update failed: {exc}", "warn")
 
 
-_ctrl = ReactorController(_CFG, backend=_BACKEND, log_cb=_emit,
-                          event_cb=_event_cb, feedback_cb=_feedback_cb,
-                          manifest_cb=_manifest_cb)
+try:
+    _ctrl = ReactorController(_CFG, backend=_BACKEND, log_cb=_emit,
+                              event_cb=_event_cb, feedback_cb=_feedback_cb,
+                              manifest_cb=_manifest_cb)
+except Exception as exc:
+    print("\n[Flow Synthesis] Startup failed:\n  " + str(exc) +
+          "\n\nIn real mode, close the Dolomite GUI and any other program using "
+          "the pump COM ports, then restart.\n", file=sys.stderr)
+    sys.exit(1)
 _emit(f"Flow Synthesis ready — backend={_BACKEND}", "ok")
 
 
@@ -129,12 +136,20 @@ def _folder_watcher() -> None:
         try:
             rdir = _resolve("recipes")
             if rdir.is_dir():
-                for f in sorted(rdir.glob("*.json")):
+                # .json (app format) and .txt (ML pipeline params), oldest first
+                files = sorted(list(rdir.glob("*.json")) + list(rdir.glob("*.txt")),
+                               key=lambda p: p.stat().st_mtime)
+                for f in files:
                     if str(f) in _watch_seen:
                         continue
                     _watch_seen.add(str(f))
                     try:
-                        data = json.loads(f.read_text(encoding="utf-8") or "{}")
+                        text = f.read_text(encoding="utf-8")
+                        if f.suffix.lower() == ".json":
+                            data = json.loads(text or "{}")
+                        else:
+                            data = parse_param_file(text)
+                        data.setdefault("recipe_id", f.stem)
                         _ctrl.submit(data, source=f"folder:{f.name}")
                         done = _resolve("processed"); done.mkdir(parents=True, exist_ok=True)
                         f.rename(done / f.name)
@@ -296,6 +311,13 @@ def api_auto_run():
     b = request.get_json(force=True)
     _ctrl.set_auto_run(bool(b.get("on", False)))
     return jsonify({"ok": True, "auto_run": _ctrl.auto_run})
+
+
+@app.route("/api/tare", methods=["POST"])
+def api_tare():
+    b = request.get_json(force=True) or {}
+    ok, msg = _ctrl.tare_pump(str(b.get("pump", "")), kind=str(b.get("kind", "pressure")))
+    return jsonify({"ok": ok, "msg": msg})
 
 
 @app.route("/api/status")

@@ -158,14 +158,22 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
   <!-- RIGHT: live state -->
   <div>
     <div class="card">
-      <div class="card-hd">⛽ Pumps</div>
-      <div id="pumps"></div>
+      <div class="card-hd">⛽ Flow rate (µL/min) — live</div>
+      <canvas id="flowChart" style="width:100%;height:190px;display:block"></canvas>
+      <div id="flowLegend" style="margin-top:8px;line-height:2"></div>
     </div>
 
     <div class="card">
-      <div class="card-hd">🧯 Pump pressure (mbar)</div>
-      <div id="pressures"></div>
-      <div class="muted" style="margin-top:4px">Each pump's chamber pressure vs its ceiling. Exceeding the limit trips the emergency stop.</div>
+      <div class="card-hd">🧯 Chamber pressure (mbar) — live</div>
+      <canvas id="pressChart" style="width:100%;height:190px;display:block"></canvas>
+      <div id="pressLegend" style="margin-top:8px;line-height:2"></div>
+      <div class="muted" style="margin-top:4px">Rolling 10-min window. Exceeding a pump's ceiling trips the emergency stop.</div>
+    </div>
+
+    <div class="card">
+      <div class="card-hd">🔧 Tare pumps</div>
+      <div id="tareRows"></div>
+      <div class="muted" style="margin-top:4px">Pressure = zero chamber pressure (disconnect air first). Flow = zero the flow sensor (no flow through it). Both = do both. Available only when idle.</div>
     </div>
 
     <div class="card">
@@ -262,20 +270,77 @@ function armModeChange(){
     : 'Pumps start only once the reactor reaches T_reac (needs a wired temperature reading).';
 }
 async function setAuto(){await api('/api/auto_run',{on:$('auto').checked});}
-
-function pumpRow(name,p){
-  const pct=p.max_flow?Math.min(100,100*p.actual/p.max_flow):0;
-  const isFlush=name==='ode_flush';
-  return `<div class="pump"><div class="pump-top"><span class="pump-name">${name}</span>
-    <span class="pump-val">${p.actual.toFixed(1)} / ${p.target.toFixed(1)} µL/min</span></div>
-    <div class="bar ${isFlush?'flush':''}"><i style="width:${pct}%"></i></div></div>`;
+async function tare(pump,kind){await api('/api/tare',{pump:pump,kind:kind});}
+function buildTareRows(st){
+  if(window._tareBuilt) return; window._tareBuilt=true;
+  $('tareRows').innerHTML=Object.keys(st.pumps).map(n=>
+    `<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px">
+       <span style="flex:1;font-size:13px">${n}</span>
+       <button class="btn btn-ghost" style="padding:3px 9px;font-size:var(--fs-xs)" onclick="tare('${n}','pressure')">Pressure</button>
+       <button class="btn btn-ghost" style="padding:3px 9px;font-size:var(--fs-xs)" onclick="tare('${n}','flow')">Flow</button>
+       <button class="btn btn-ghost" style="padding:3px 9px;font-size:var(--fs-xs)" onclick="tare('${n}','both')">Both</button>
+     </div>`).join('');
 }
-function pressRow(name,p){
-  const mx=p.max_pressure||0; const pct=mx?Math.min(100,100*p.pressure/mx):0;
-  const hot=mx&&p.pressure>0.85*mx;
-  return `<div class="pump"><div class="pump-top"><span class="pump-name">${name}</span>
-    <span class="pump-val"${hot?' style="color:var(--err)"':''}>${p.pressure.toFixed(0)} / ${mx.toFixed(0)} mbar</span></div>
-    <div class="bar press ${hot?'hot':''}"><i style="width:${pct}%"></i></div></div>`;
+
+// ── Live strip charts (flow + pressure) ─────────────────────────────────────
+const PUMP_COLORS={pd_top_precursor:'#1565C0',ode_flush:'#00838F',
+  oleylamine:'#2E7D32',top:'#E65100',ode_dilution:'#6A1B9A'};
+const WINDOW_S=600;            // 10-minute rolling window
+const HIST={};                 // name -> {flow:[[t,v]], press:[[t,v]], tflow:[[t,v]]}
+
+function pushHist(st){
+  const t=Date.now()/1000, cutoff=t-WINDOW_S;
+  for(const [n,p] of Object.entries(st.pumps)){
+    if(!HIST[n]) HIST[n]={flow:[],press:[],tflow:[]};
+    HIST[n].flow.push([t,p.actual]);
+    HIST[n].tflow.push([t,p.target]);
+    HIST[n].press.push([t,p.pressure]);
+    for(const k of ['flow','press','tflow']){
+      const a=HIST[n][k]; while(a.length&&a[0][0]<cutoff) a.shift();
+    }
+  }
+}
+function drawChart(canvas,key,showTarget){
+  if(!canvas) return;
+  const dpr=window.devicePixelRatio||1;
+  const cssW=canvas.clientWidth||600, cssH=canvas.clientHeight||190;
+  canvas.width=cssW*dpr; canvas.height=cssH*dpr;
+  const ctx=canvas.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,cssW,cssH);
+  const mL=48,mR=10,mT=8,mB=20, w=cssW-mL-mR, h=cssH-mT-mB;
+  const t1=Date.now()/1000, t0=t1-WINDOW_S;
+  let ymax=0, ymin=0;
+  for(const n in HIST){
+    for(const [,v] of HIST[n][key]){ if(v>ymax)ymax=v; if(v<ymin)ymin=v; }
+    if(showTarget) for(const [,v] of HIST[n].tflow){ if(v>ymax)ymax=v; }
+  }
+  if(ymax<=0) ymax=1; ymax*=1.15;
+  const muted=getComputedStyle(document.body).getPropertyValue('--muted')||'#888';
+  const X=t=>mL+(t-t0)/(t1-t0)*w, Y=v=>mT+(1-(v-ymin)/(ymax-ymin||1))*h;
+  ctx.font='11px system-ui'; ctx.fillStyle=muted;
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  for(let i=0;i<=4;i++){ const v=ymin+(ymax-ymin)*i/4, y=Y(v);
+    ctx.strokeStyle=muted; ctx.globalAlpha=.25; ctx.beginPath(); ctx.moveTo(mL,y); ctx.lineTo(mL+w,y); ctx.stroke();
+    ctx.globalAlpha=1; ctx.fillText(v>=100?v.toFixed(0):v.toFixed(1), mL-6, y); }
+  ctx.textAlign='center'; ctx.textBaseline='top';
+  for(let m=0;m<=10;m+=2){ const x=X(t1-m*60); ctx.fillText(m===0?'now':('-'+m+'m'), x, mT+h+4); }
+  for(const n in HIST){ const col=PUMP_COLORS[n]||'#888';
+    if(showTarget){ const a=HIST[n].tflow; if(a.length){ ctx.strokeStyle=col; ctx.globalAlpha=.35; ctx.setLineDash([4,4]); ctx.lineWidth=1.5;
+      ctx.beginPath(); a.forEach(([t,v],i)=>{const x=X(t),y=Y(v); i?ctx.lineTo(x,y):ctx.moveTo(x,y);}); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha=1; } }
+    const a=HIST[n][key]; if(a.length){ ctx.strokeStyle=col; ctx.lineWidth=1.8;
+      ctx.beginPath(); a.forEach(([t,v],i)=>{const x=X(t),y=Y(v); i?ctx.lineTo(x,y):ctx.moveTo(x,y);}); ctx.stroke(); } }
+}
+function legendHTML(st,key,unit){
+  return Object.entries(st.pumps).map(([n,p])=>{
+    const col=PUMP_COLORS[n]||'#888';
+    const val=key==='press'?p.pressure.toFixed(0):p.actual.toFixed(1);
+    const tgt=key==='press'?'':` <span style="opacity:.55">→ ${p.target.toFixed(1)}</span>`;
+    const taring=p.state_code===2?' <b style="color:var(--warn)">🔧 taring…</b>':'';
+    const fault=p.fault?' <b style="color:var(--err)">⚠ ERROR</b>':'';
+    return `<span style="display:inline-flex;align-items:center;gap:5px;margin-right:14px;font-size:12px">
+      <i style="width:10px;height:10px;border-radius:2px;background:${col}"></i>
+      ${n}: <b>${val}</b>${tgt} <span style="opacity:.6">${unit}</span>${taring}${fault}</span>`;
+  }).join('');
 }
 function fmtDur(s){if(s==null)return '—';const m=Math.floor(s/60),ss=Math.round(s%60);return m+'m '+ss+'s';}
 
@@ -283,9 +348,13 @@ function render(st){
   $('state').textContent=st.state; $('state').className='state-pill state-'+st.state;
   $('s-state').textContent=st.state;
   $('auto').checked=st.auto_run;
-  // pumps + pressures
-  $('pumps').innerHTML=Object.entries(st.pumps).map(([n,p])=>pumpRow(n,p)).join('');
-  $('pressures').innerHTML=Object.entries(st.pumps).map(([n,p])=>pressRow(n,p)).join('');
+  // live strip charts
+  pushHist(st);
+  drawChart($('flowChart'),'flow',true);
+  drawChart($('pressChart'),'press',false);
+  $('flowLegend').innerHTML=legendHTML(st,'flow','µL/min');
+  $('pressLegend').innerHTML=legendHTML(st,'press','mbar');
+  buildTareRows(st);
   // temp
   $('t-cur').textContent=st.temperature.current.toFixed(1);
   $('t-tgt').textContent=st.temperature.target.toFixed(1);

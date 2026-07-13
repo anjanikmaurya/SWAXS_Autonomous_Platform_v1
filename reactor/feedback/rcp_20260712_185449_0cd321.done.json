@@ -1,0 +1,30 @@
+{
+  "recipe_id": "rcp_20260712_185449_0cd321",
+  "recipe": {
+    "recipe_id": "rcp_20260712_185449_0cd321",
+    "T_reac": 240.0,
+    "F_tot": 80.0,
+    "x_ODE": 0.2,
+    "x_TOP": 0.1,
+    "x_oley": 0.1,
+    "run_duration": null,
+    "flush_rate": null,
+    "flush_duration": null,
+    "arm_mode": "timed",
+    "arm_wait_s": 10.0,
+    "source": "api",
+    "clamps": []
+  },
+  "setpoints": {
+    "pd_top_precursor": 48.0,
+    "oleylamine": 8.0,
+    "top": 8.0,
+    "ode_dilution": 16.0,
+    "ode_flush": 0.0
+  },
+  "started": 1783907705.8880334,
+  "ended": 1783907920.0390956,
+  "duration_s": 214.2,
+  "reason": "manual stop",
+  "status": "ran"
+}

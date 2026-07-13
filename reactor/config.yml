@@ -11,39 +11,36 @@
 # `max_flow`, is REJECTED (nothing is clamped or sent to hardware).  A true 0
 # (pump off) is always allowed.  Set these to your real sensor min/max.
 pumps:
+  # Addresses mapped on this Windows laptop via tools/map_pumps.py (COM + serial).
+  # pump_id is unused: point-to-point ASCII protocol, one pump per COM port.
   # ── 30–1000 µL/min sensors (LG16-1000) — high-flow pumps ──
   pd_top_precursor:
-    address:   "/dev/ttyUSB0"
-    pump_id:   0
+    address:   "COM5"           # serial 4902275A
     sensor:    "LG16-1000"
     sensor_min: 30.0
     max_flow:   1000.0
     max_pressure: 10000.0       # mbar — pump pressure ceiling (SET to your pump's real max)
   ode_flush:
-    address:   "/dev/ttyUSB4"
-    pump_id:   0
+    address:   "COM7"           # serial 4902272A
     sensor:    "LG16-1000"
     sensor_min: 30.0
     max_flow:   1000.0
     max_pressure: 10000.0
   # ── 1–50 µL/min sensors (LG16-0480) — low-flow reagent pumps ──
   oleylamine:
-    address:   "/dev/ttyUSB1"
-    pump_id:   0
+    address:   "COM6"           # serial 4902278A
     sensor:    "LG16-0480"
     sensor_min: 1.0
     max_flow:   50.0
     max_pressure: 10000.0
   top:
-    address:   "/dev/ttyUSB2"
-    pump_id:   0
+    address:   "COM4"           # serial 4902280A
     sensor:    "LG16-0480"
     sensor_min: 1.0
     max_flow:   50.0
     max_pressure: 10000.0
   ode_dilution:
-    address:   "/dev/ttyUSB3"
-    pump_id:   0
+    address:   "COM3"           # serial 4902276A
     sensor:    "LG16-0480"
     sensor_min: 1.0
     max_flow:   50.0
@@ -86,6 +83,11 @@ arming:
 run:
   default_duration: 600.0     # s fallback run time = 10 min (recipe may override)
   end_on_measurement: true    # end the run when a new SAXS averaged file appears
+  # Autonomous loop: hold each condition (keep flowing) until the NEXT param
+  # file is queued, then flush + advance. Runs continuously as long as the
+  # ML/processing pipeline keeps writing new files into the recipes folder.
+  advance_on_new_file: true   # true = hold-until-next-file; false = use duration
+  min_dwell_s: 60.0           # min seconds a condition runs before it can advance
 
 # ── Flush / clean ────────────────────────────────────────────────────────────
 flush:

@@ -95,6 +95,15 @@ cat reactor/feedback/demo1.done.json
 
 ## Part B — Connect the real hardware
 
+> **Serial protocol.** The driver (`src/reactor/drivers/Py_P_Pump.py`) speaks the
+> Mitos ASCII protocol verified on the SSRL rig: **57600 baud, 8N1, no
+> handshaking**, newline-terminated text commands (`s` status, `A1`/`A0`
+> remote-control, `F<pl/s>` flow, `P0` idle, `R0` tare). It enters REMOTE
+> control automatically and polls status to keep the pump in control mode
+> (the pump drops out after ~30 s without a command). One pump per COM port —
+> `pump_id` is unused. Use `python tools/list_pumps.py` to find ports and
+> `python tools/pump_diag.py COMx` to sanity-check one pump.
+
 ### B1. Wire and power up
 1. Connect each Mitos P-pump via its Dolomite USB-to-serial cable.
 2. Connect the compressed-air supply and the Dolomite **LG16 flow sensor** in
@@ -131,15 +140,17 @@ Also review `bounds`, `safety` (T_max, F_tot_max, per_pump_max), `temperature`
 (tolerance/timeout) and `flush` (rate/duration). The min/max you enter are the
 hard accept/reject limits for every recipe.
 
-### B4. Pre-tare the pumps (one-time, from a console — NOT the web app)
-The SDK tare is interactive (it asks you to open the chamber), so the web app
-**assumes pumps are already tared**. Do it once before running:
+### B4. Tare the pumps (one-time, before a run)
+Tare each pump with the chamber open / air supply disconnected per Dolomite's
+procedure. The command is non-interactive (`R0`); the web app assumes pumps are
+already tared. From a console:
 ```python
 import sys; sys.path.insert(0, "src/reactor/drivers")
 import Py_P_Pump
-p = Py_P_Pump.P_pump("/dev/ttyUSB0", name="pd_top_precursor", pump_id=0)
-p.tare_pump()        # follow the on-screen instructions
+p = Py_P_Pump.P_pump("COM3", name="pd_top_precursor")   # COMx on Windows
+p.tare()             # sends 'R0'; wait for state to return to IDLE
 p.set_idle()
+p.close()
 ```
 Repeat for each pump.
 
