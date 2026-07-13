@@ -390,6 +390,16 @@ function drawChart(canvas,key,showTarget){
       ctx.beginPath(); a.forEach(([t,v],i)=>{const x=X(t),y=Y(v); i?ctx.lineTo(x,y):ctx.moveTo(x,y);}); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha=1; } }
     const a=HIST[n][key]; if(a.length){ ctx.strokeStyle=col; ctx.lineWidth=1.8;
       ctx.beginPath(); a.forEach(([t,v],i)=>{const x=X(t),y=Y(v); i?ctx.lineTo(x,y):ctx.moveTo(x,y);}); ctx.stroke(); } }
+  // current-status tag pinned at the live ("now") edge
+  if(STATE.length){
+    const cur=STATE[STATE.length-1][1], ph=PHASE[cur];
+    const label=(ph?ph.label:cur), col=(ph?ph.c:muted);
+    ctx.font='11px system-ui'; ctx.textAlign='right'; ctx.textBaseline='top';
+    const tx=mL+w-2, ty=mT+2, tw=ctx.measureText('● '+label).width;
+    ctx.globalAlpha=0.9; ctx.fillStyle=getComputedStyle(document.body).getPropertyValue('--surface')||'#fff';
+    ctx.fillRect(tx-tw-4,ty-1,tw+6,15); ctx.globalAlpha=1;
+    ctx.fillStyle=col; ctx.fillText('● '+label, tx, ty);
+  }
 }
 function legendHTML(st,key,unit){
   return Object.entries(st.pumps).map(([n,p])=>{
