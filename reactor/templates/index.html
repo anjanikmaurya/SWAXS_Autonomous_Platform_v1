@@ -320,6 +320,9 @@ const PUMP_COLORS={pd_top_precursor:'#1565C0',ode_flush:'#00838F',
   oleylamine:'#2E7D32',top:'#E65100',ode_dilution:'#6A1B9A'};
 const WINDOW_S=600;            // 10-minute rolling window
 const HIST={};                 // name -> {flow:[[t,v]], press:[[t,v]], tflow:[[t,v]]}
+const STATE=[];                // [[t, state], ...] — reactor phase over time
+const PHASE={running:{c:'#2E7D32',label:'synthesis'},flushing:{c:'#6A1B9A',label:'flush'},
+             arming:{c:'#E65100',label:'arming'},estop:{c:'#e5534b',label:'E-STOP'}};
 
 function pushHist(st){
   const t=Date.now()/1000, cutoff=t-WINDOW_S;
@@ -332,8 +335,29 @@ function pushHist(st){
       const a=HIST[n][k]; while(a.length&&a[0][0]<cutoff) a.shift();
     }
   }
+  STATE.push([t,st.state]); while(STATE.length&&STATE[0][0]<cutoff) STATE.shift();
 }
-function clearCharts(){ for(const k in HIST) delete HIST[k]; }
+function clearCharts(){ for(const k in HIST) delete HIST[k]; STATE.length=0; }
+function drawPhases(ctx,X,mT,h,t0){
+  if(!STATE.length) return;
+  ctx.font='10px system-ui'; ctx.textAlign='left'; ctx.textBaseline='top';
+  let i=0;
+  while(i<STATE.length){
+    const s=STATE[i][1]; let j=i;
+    while(j+1<STATE.length && STATE[j+1][1]===s) j++;
+    const segEnd=(j+1<STATE.length)?STATE[j+1][0]:STATE[j][0];
+    const ph=PHASE[s];
+    if(ph){
+      const x0=Math.max(X(STATE[i][0]),X(t0)), x1=X(segEnd);
+      if(x1>x0){
+        ctx.globalAlpha=0.10; ctx.fillStyle=ph.c; ctx.fillRect(x0,mT,x1-x0,h);
+        if(x1-x0>34){ ctx.globalAlpha=0.85; ctx.fillText(ph.label,x0+3,mT+2); }
+        ctx.globalAlpha=1;
+      }
+    }
+    i=j+1;
+  }
+}
 function drawChart(canvas,key,showTarget){
   if(!canvas) return;
   const dpr=window.devicePixelRatio||1;
@@ -360,6 +384,7 @@ function drawChart(canvas,key,showTarget){
     ctx.globalAlpha=1; ctx.fillText(v>=100?v.toFixed(0):v.toFixed(1), mL-6, y); }
   ctx.textAlign='center'; ctx.textBaseline='top';
   for(let m=0;m<=10;m+=2){ const x=X(t1-m*60); ctx.fillText(m===0?'now':('-'+m+'m'), x, mT+h+4); }
+  drawPhases(ctx,X,mT,h,t0);
   for(const n in HIST){ const col=PUMP_COLORS[n]||'#888';
     if(showTarget){ const a=HIST[n].tflow; if(a.length){ ctx.strokeStyle=col; ctx.globalAlpha=.35; ctx.setLineDash([4,4]); ctx.lineWidth=1.5;
       ctx.beginPath(); a.forEach(([t,v],i)=>{const x=X(t),y=Y(v); i?ctx.lineTo(x,y):ctx.moveTo(x,y);}); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha=1; } }

@@ -370,13 +370,15 @@ class ReactorController:
         self._log(f"✓ {self._flush_kind} complete", "ok")
         if self.current is not None:
             self._event("reactor.ready", {"recipe_id": self.current.recipe_id})
-        # always auto-advance to the next queued recipe (per spec)
+        # advance to the next queued recipe, or idle/vent the pumps and wait
         if self.queue:
             self._begin_next()
         else:
+            self.pumps.idle_all()   # vent all pumps (P0) — not just hold flow 0
             self.state = "ready"
             self.current = None
             self.setpoints = {}
+            self._log("💤 no more conditions — pumps idled, waiting for next", "info")
 
     def _to_idle(self) -> None:
         self.pumps.idle_all()
