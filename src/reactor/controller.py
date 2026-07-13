@@ -64,6 +64,8 @@ class ReactorController:
         self._measure_done = False
         self._stop_flag = False
         self._run_reason = ""
+        self._meas_sum: dict = {}    # accumulates measured flow per pump during a run
+        self._meas_n = 0             # number of samples accumulated
 
         run = cfg.get("run", {})
         self.default_duration = float(run.get("default_duration", 600.0))
@@ -72,6 +74,15 @@ class ReactorController:
         # next recipe is queued (e.g. a new param file lands), then advance.
         self.advance_on_new = bool(run.get("advance_on_new_file", False))
         self.min_dwell = float(run.get("min_dwell_s", 60.0))
+        # Live run settings from the app inputs. These apply to BOTH manual and
+        # autonomous runs for everything EXCEPT the flow fractions / F_tot /
+        # temperature (which come from the recipe / predicted folder file).
+        # None = fall back to the config default.
+        self.live_duration: float | None = None      # synthesis run duration (s)
+        self.live_arm_mode: str | None = None         # "temperature" | "timed"
+        self.live_arm_wait: float | None = None        # timed-arming wait (s)
+        self.live_flush_rate: float | None = None      # flush rate (µL/min)
+        self.live_flush_duration: float | None = None  # flush duration (s)
         arm = cfg.get("arming", {})
         self.default_arm_mode = str(arm.get("default_mode", "temperature")).lower()
         self.default_arm_wait = float(arm.get("default_wait_s", 120.0))
@@ -173,6 +184,35 @@ class ReactorController:
             if on and self.state in ("idle", "ready") and self.queue:
                 self._begin_next()
 
+    def set_run_settings(self, d: dict) -> None:
+        """Apply live run settings from the app inputs — everything EXCEPT the
+        flow fractions / F_tot / temperature (those come from the recipe file).
+        Keys: arm_mode, arm_wait_s, run_duration, flush_rate, flush_duration.
+        Blank/empty clears back to the config default. A changed run_duration
+        updates the current run's deadline live."""
+        def num(v):
+            if v in (None, ""):
+                return None
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                return None
+        with self._lock:
+            if "arm_mode" in d:
+                m = str(d.get("arm_mode") or "").lower()
+                self.live_arm_mode = m if m in ("temperature", "timed") else None
+            if "arm_wait_s" in d:
+                self.live_arm_wait = num(d.get("arm_wait_s"))
+            if "flush_rate" in d:
+                self.live_flush_rate = num(d.get("flush_rate"))
+            if "flush_duration" in d:
+                self.live_flush_duration = num(d.get("flush_duration"))
+            if "run_duration" in d:
+                self.live_duration = num(d.get("run_duration"))
+                if self.state == "running" and self._run_started and self.live_duration:
+                    self._run_deadline = self._run_started + self.live_duration
+                    self._log(f"⏱ run duration → {self.live_duration:g}s (applies to current run)", "info")
+
     # ── run-end triggers ───────────────────────────────────────────────────────
     def signal_measurement_complete(self, info: str = "") -> None:
         with self._lock:
@@ -241,11 +281,12 @@ class ReactorController:
         self._stop_flag = False
         self._run_reason = ""
         self.temp.set_temperature(recipe.T_reac)   # recorded for display / gating
-        self._arm_mode = (recipe.arm_mode or self.default_arm_mode).lower()
+        self._arm_mode = (recipe.arm_mode or self.live_arm_mode or self.default_arm_mode).lower()
         now = time.time()
         self.state = "arming"
         if self._arm_mode == "timed":
             wait = (recipe.arm_wait_s if recipe.arm_wait_s is not None
+                    else self.live_arm_wait if self.live_arm_wait is not None
                     else self.default_arm_wait)
             self._arm_ready_at = now + float(wait)
             self._arm_deadline = 0.0    # no temperature timeout in timed mode
@@ -259,8 +300,10 @@ class ReactorController:
 
     def _enter_running(self) -> None:
         self.pumps.set_all(self.setpoints)
+        self._meas_sum = {name: 0.0 for name in self.pumps.pumps}
+        self._meas_n = 0
         self._run_started = time.time()
-        dur = self.current.run_duration or self.default_duration
+        dur = (self.current.run_duration or self.live_duration or self.default_duration)
         self._run_deadline = self._run_started + float(dur)
         self.state = "running"
         sp = ", ".join(f"{k}={v:g}" for k, v in self.setpoints.items() if v)
@@ -276,10 +319,16 @@ class ReactorController:
         # stop reagents immediately
         for p in REAGENT_PUMPS:
             self.pumps.set_pump_flow(p, 0.0)
+        # mean measured flow per pump over the run (from the flow sensors)
+        measured = ({nm: round(self._meas_sum.get(nm, 0.0) / self._meas_n, 4)
+                     for nm in self._meas_sum} if self._meas_n
+                    else {nm: round(getattr(p, "actual", 0.0), 4)
+                          for nm, p in self.pumps.pumps.items()})
         record = {
             "recipe_id": rec.recipe_id if rec else None,
             "recipe": rec.to_dict() if rec else None,
             "setpoints": self.setpoints,
+            "measured_flows": measured,
             "started": self._run_started, "ended": ended,
             "duration_s": round(ended - self._run_started, 1) if self._run_started else None,
             "reason": reason, "status": "ran",
@@ -301,9 +350,11 @@ class ReactorController:
                      kind: str = "flush") -> None:
         r = float(rate if rate is not None else
                   (self.current.flush_rate if self.current and self.current.flush_rate
+                   else self.live_flush_rate if self.live_flush_rate is not None
                    else self.flush_rate))
         d = float(duration if duration is not None else
                   (self.current.flush_duration if self.current and self.current.flush_duration
+                   else self.live_flush_duration if self.live_flush_duration is not None
                    else self.flush_duration))
         for p in REAGENT_PUMPS:                 # zero the 4 reagent pumps first
             self.pumps.set_pump_flow(p, 0.0)
@@ -357,16 +408,18 @@ class ReactorController:
                         self._run_reason = "arm timeout"
                         self._to_idle()
                 elif self.state == "running":
+                    for _nm, _p in self.pumps.pumps.items():
+                        self._meas_sum[_nm] = self._meas_sum.get(_nm, 0.0) + getattr(_p, "actual", 0.0)
+                    self._meas_n += 1
                     if self._measure_done or self._stop_flag:
                         self._end_run(flush=True)
-                    elif self.advance_on_new:
-                        # hold this condition until the NEXT one is queued
-                        # (after a minimum dwell); no duration timeout here.
-                        if self.queue and (now - self._run_started) >= self.min_dwell:
-                            self._run_reason = "next condition available"
-                            self._end_run(flush=True)
                     elif now > self._run_deadline:
-                        self._run_reason = self._run_reason or "duration elapsed (fallback)"
+                        # synthesis duration reached — applies to manual AND auto
+                        self._run_reason = self._run_reason or "duration elapsed"
+                        self._end_run(flush=True)
+                    elif self.advance_on_new and self.queue and (now - self._run_started) >= self.min_dwell:
+                        # a newer condition is queued — advance early (before duration)
+                        self._run_reason = "next condition available"
                         self._end_run(flush=True)
                 elif self.state == "flushing":
                     if now > self._flush_deadline:
@@ -410,7 +463,8 @@ class ReactorController:
         with self._lock:
             now = time.time()
             elapsed = round(now - self._run_started, 1) if self.state == "running" else None
-            dur = (self.current.run_duration or self.default_duration) if self.current else None
+            eff = self.live_duration or self.default_duration
+            dur = ((self.current.run_duration or eff) if self.current else None)
             flush_left = round(self._flush_deadline - now, 1) if self.state == "flushing" else None
             arm_left = (round(max(0.0, self._arm_ready_at - now), 1)
                         if self.state == "arming" and self._arm_mode == "timed" else None)
@@ -426,6 +480,7 @@ class ReactorController:
                                 "tolerance": self.temp.tolerance},
                 "current_recipe": self.current.to_dict() if self.current else None,
                 "elapsed_s": elapsed, "duration_s": dur,
+                "run_duration_setting": self.live_duration or self.default_duration,
                 "flush_remaining_s": flush_left,
                 "queue": [r.recipe_id for r, _ in self.queue],
                 "queue_len": len(self.queue),

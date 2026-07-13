@@ -93,11 +93,12 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
         <button class="btn btn-accent" onclick="setCondFolder()">Set</button>
       </div>
       <div class="muted" id="condResolved" style="margin-top:4px"></div>
-      <div class="muted" style="margin-top:2px">The ML/processing pipeline drops .txt condition files here. Relative to the project folder, or an absolute path. Default is a sibling of Subtracted.</div>
+      <div class="muted" style="margin-top:4px">Watches this folder and runs new condition files oldest-first (by file time), started with the ▶ Run autonomously button below. The ML/processing pipeline drops .dat/.txt files here (relative to the project, or absolute). Default is a sibling of Subtracted.</div>
     </div>
 
     <div class="card">
-      <div class="card-hd">🧪 Submit recipe</div>
+      <div class="card-hd">🧪 Synthesis recipe</div>
+      <div class="muted" id="runningNow" style="margin-bottom:8px">— idle —</div>
       <div class="grid2">
         <div><label>T_reac (°C)</label><input type="number" id="T_reac" value="240" step="1"></div>
         <div><label>F_tot (µL/min)</label><input type="number" id="F_tot" value="80" step="1"></div>
@@ -111,24 +112,25 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
         <label style="display:block;margin-bottom:4px">Start pumps when…</label>
         <label class="toggle"><input type="radio" name="arm_mode" value="temperature" onchange="armModeChange()"> reactor reaches temperature</label>
         <label class="toggle" style="margin-left:14px"><input type="radio" name="arm_mode" value="timed" checked onchange="armModeChange()"> after a fixed wait of</label>
-        <input type="number" id="arm_wait_s" value="120" step="1" min="0" style="width:78px;margin-left:6px"> s
+        <input type="number" id="arm_wait_s" value="120" step="1" min="0" style="width:78px;margin-left:6px" onchange="pushRunSettings()"> s
         <div class="muted" id="arm-hint" style="font-size:var(--fs-xs);margin-top:4px"></div>
       </div>
       <div id="preview" class="muted" style="margin-top:8px"></div>
       <div class="btn-row">
-        <button class="btn btn-accent" onclick="submitRecipe()">＋ Queue recipe</button>
-        <label class="toggle" style="margin-left:auto"><input type="checkbox" id="auto" onchange="setAuto()"> Auto-run</label>
+        <button class="btn btn-accent" id="queueBtn" onclick="submitRecipe()" style="flex:1">＋ Run manually (add to queue)</button>
+        <button class="btn btn-ok" id="autoBtn" onclick="toggleAuto()" style="flex:1">▶ Run autonomously</button>
       </div>
+      <div class="muted" id="manualNote" style="font-size:var(--fs-xs);margin-top:4px"></div>
       <div id="form-err" style="color:var(--err);font-size:var(--fs-xs);margin-top:6px"></div>
     </div>
 
     <div class="card">
       <div class="card-hd">⏱ Timing</div>
       <div><label>Synthesis run duration (seconds — blank = config default)</label>
-        <input type="number" id="run_duration" placeholder="default (s)" step="1" min="1"></div>
+        <input type="number" id="run_duration" placeholder="default (s)" step="1" min="1" onchange="pushRunSettings()"></div>
       <div class="grid2" style="margin-top:8px">
-        <div><label>Flush rate (µL/min)</label><input type="number" id="flush_rate" step="1" min="0"></div>
-        <div><label>Flush duration (seconds)</label><input type="number" id="flush_duration" step="1" min="1"></div>
+        <div><label>Flush rate (µL/min)</label><input type="number" id="flush_rate" step="1" min="0" onchange="pushRunSettings()"></div>
+        <div><label>Flush duration (seconds)</label><input type="number" id="flush_duration" step="1" min="1" onchange="pushRunSettings()"></div>
       </div>
       <div class="muted" style="margin-top:5px">All durations are in <b>seconds</b>; flush rate is in <b>µL/min</b>. These apply to queued recipes and to the Flush&nbsp;now / Prime buttons.</div>
     </div>
@@ -168,7 +170,8 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
   <!-- RIGHT: live state -->
   <div>
     <div class="card">
-      <div class="card-hd">⛽ Flow rate (µL/min) — live</div>
+      <div class="card-hd" style="display:flex;align-items:center;justify-content:space-between">⛽ Flow rate (µL/min) — live
+        <button class="btn btn-ghost" style="padding:2px 9px;font-size:var(--fs-xs)" onclick="clearCharts()">Clear</button></div>
       <canvas id="flowChart" style="width:100%;height:190px;display:block"></canvas>
       <div id="flowLegend" style="margin-top:8px;line-height:2"></div>
     </div>
@@ -278,8 +281,26 @@ function armModeChange(){
   $('arm-hint').textContent = timed
     ? 'Pumps start after this wait — temperature is not required.'
     : 'Pumps start only once the reactor reaches T_reac (needs a wired temperature reading).';
+  pushRunSettings();
 }
-async function setAuto(){await api('/api/auto_run',{on:$('auto').checked});}
+let _autoOn=false;
+async function toggleAuto(){await api('/api/auto_run',{on:!_autoOn});}
+async function pushRunSettings(){
+  const mode=document.querySelector('input[name="arm_mode"]:checked');
+  await api('/api/run_settings',{
+    arm_mode: mode?mode.value:'',
+    arm_wait_s: $('arm_wait_s').value.trim(),
+    run_duration: $('run_duration').value.trim(),
+    flush_rate: $('flush_rate').value.trim(),
+    flush_duration: $('flush_duration').value.trim()
+  });
+}
+function setManualEnabled(on){
+  ['T_reac','F_tot','x_ODE','x_TOP','x_oley','queueBtn'].forEach(id=>{const e=$(id);if(e)e.disabled=!on;});
+  const note=$('manualNote'); if(note) note.textContent = on
+    ? ''
+    : '⚠ Autonomous mode active — flow & temperature come from the folder file (locked). Arming, duration & flush stay editable here and apply live.';
+}
 async function tare(pump,kind){await api('/api/tare',{pump:pump,kind:kind});}
 async function loadCondFolder(){try{const r=await(await fetch('/api/recipes_folder')).json();$('condFolder').value=r.folder||'';$('condResolved').textContent='Watching: '+(r.resolved||'');}catch(e){}}
 async function setCondFolder(){const f=$('condFolder').value.trim();const r=await api('/api/recipes_folder',{folder:f});$('condResolved').textContent='Watching: '+((r&&r.resolved)||'');}
@@ -312,6 +333,7 @@ function pushHist(st){
     }
   }
 }
+function clearCharts(){ for(const k in HIST) delete HIST[k]; }
 function drawChart(canvas,key,showTarget){
   if(!canvas) return;
   const dpr=window.devicePixelRatio||1;
@@ -321,12 +343,14 @@ function drawChart(canvas,key,showTarget){
   ctx.clearRect(0,0,cssW,cssH);
   const mL=48,mR=10,mT=8,mB=20, w=cssW-mL-mR, h=cssH-mT-mB;
   const t1=Date.now()/1000, t0=t1-WINDOW_S;
-  let ymax=0, ymin=0;
+  let ymax=-Infinity, ymin=Infinity;
   for(const n in HIST){
     for(const [,v] of HIST[n][key]){ if(v>ymax)ymax=v; if(v<ymin)ymin=v; }
-    if(showTarget) for(const [,v] of HIST[n].tflow){ if(v>ymax)ymax=v; }
+    if(showTarget) for(const [,v] of HIST[n].tflow){ if(v>ymax)ymax=v; if(v<ymin)ymin=v; }
   }
-  if(ymax<=0) ymax=1; ymax*=1.15;
+  if(!isFinite(ymax)){ ymax=1; ymin=0; }            // no data yet
+  if(ymax===ymin){ ymax+=0.5; ymin-=0.5; }           // flat line -> small band
+  const _pad=(ymax-ymin)*0.08; ymax+=_pad; ymin-=_pad;   // autoscale to data range
   const muted=getComputedStyle(document.body).getPropertyValue('--muted')||'#888';
   const X=t=>mL+(t-t0)/(t1-t0)*w, Y=v=>mT+(1-(v-ymin)/(ymax-ymin||1))*h;
   ctx.font='11px system-ui'; ctx.fillStyle=muted;
@@ -359,7 +383,24 @@ function fmtDur(s){if(s==null)return '—';const m=Math.floor(s/60),ss=Math.roun
 function render(st){
   $('state').textContent=st.state; $('state').className='state-pill state-'+st.state;
   $('s-state').textContent=st.state;
-  $('auto').checked=st.auto_run;
+  _autoOn=st.auto_run;
+  const _ab=$('autoBtn');
+  if(_ab){_ab.textContent=st.auto_run?'⏸ Stop autonomous':'▶ Run autonomously';
+          _ab.className='btn '+(st.auto_run?'btn-warn':'btn-ok');}
+  // populate the duration field once from the current setting (don't clobber edits)
+  if(!window._durInit){ window._durInit=true;
+    if($('run_duration').value.trim()==='' && st.run_duration_setting!=null)
+      $('run_duration').value=Math.round(st.run_duration_setting); }
+  // currently-running readout + lock the manual form while autonomous
+  const cr=st.current_recipe;
+  $('runningNow').textContent = cr
+    ? `Running ${cr.recipe_id||''}: T ${(+cr.T_reac).toFixed(0)}°C · F ${(+cr.F_tot).toFixed(0)} · xODE ${(+cr.x_ODE).toFixed(2)} · xTOP ${(+cr.x_TOP).toFixed(2)} · xoley ${(+cr.x_oley).toFixed(2)}`
+    : '— idle —';
+  setManualEnabled(!st.auto_run);
+  if(st.auto_run && cr){   // autonomous: mirror the running condition into the (locked) fields
+    $('T_reac').value=cr.T_reac; $('F_tot').value=cr.F_tot;
+    $('x_ODE').value=cr.x_ODE; $('x_TOP').value=cr.x_TOP; $('x_oley').value=cr.x_oley;
+  }
   // live strip charts
   pushHist(st);
   drawChart($('flowChart'),'flow',true);

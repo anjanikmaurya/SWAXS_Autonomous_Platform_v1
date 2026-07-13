@@ -96,7 +96,7 @@ flush:
 
 # ── Folders (relative to the project root unless absolute) ───────────────────
 folders:
-  # Watched for incoming condition files (*.txt from the ML pipeline, or *.json).
+  # Watched for incoming condition files (*.dat/*.txt from the ML pipeline, or *.json).
   # Defaults to a sibling of Subtracted in the 1D tree; change it live in the app
   # (📁 Conditions folder card) — the override persists in reactor_settings.json.
   recipes:   "1D/SAXS/Conditions"          # same level as 1D/SAXS/Subtracted

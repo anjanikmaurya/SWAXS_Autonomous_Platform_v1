@@ -23,3 +23,6 @@ ai_knowledge/vector_db/
 
 # Per-app runtime logs written by the hub
 logs/
+
+# Local experiment data / autonomous test conditions (not part of the codebase)
+1D/

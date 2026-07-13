@@ -87,6 +87,23 @@ def _feedback_cb(recipe_id: str, payload: dict) -> None:
         fb = _resolve("feedback")
         fb.mkdir(parents=True, exist_ok=True)
         (fb / f"{recipe_id}.done.json").write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+        # append the measured flow-sensor readings as a footer to the consumed
+        # condition file (in the processed/done folder) — commanded vs delivered.
+        rec = payload.get("recipe") or {}
+        src = str(rec.get("source", ""))
+        if src.startswith("folder:"):
+            done_file = _resolve("processed") / src.split("folder:", 1)[1]
+            if done_file.is_file():
+                sp = payload.get("setpoints", {})
+                meas = payload.get("measured_flows", {})
+                foot = ["", "# ── RESULT (measured, appended by reactor) ──────────────",
+                        f"# ended:       {datetime.datetime.now().isoformat(timespec='seconds')}",
+                        f"# duration_s:  {payload.get('duration_s')}",
+                        f"# reason:      {payload.get('reason')}"]
+                for pump in sp:
+                    foot.append(f"# {pump}: setpoint={sp.get(pump)} measured={meas.get(pump)} uL/min")
+                with done_file.open("a", encoding="utf-8") as fh:
+                    fh.write("\n".join(foot) + "\n")
     except Exception as exc:
         _emit(f"⚠ could not write feedback file: {exc}", "warn")
 
@@ -135,9 +152,14 @@ def _folder_watcher() -> None:
     while True:
         try:
             rdir = _resolve("recipes")
+            try:
+                rdir.mkdir(parents=True, exist_ok=True)   # create the folder if missing
+            except Exception:
+                pass
             if rdir.is_dir():
-                # .json (app format) and .txt (ML pipeline params), oldest first
-                files = sorted(list(rdir.glob("*.json")) + list(rdir.glob("*.txt")),
+                # .dat/.txt (ML pipeline params) and .json (app format), oldest first
+                files = sorted(list(rdir.glob("*.dat")) + list(rdir.glob("*.txt"))
+                               + list(rdir.glob("*.json")),
                                key=lambda p: p.stat().st_mtime)
                 for f in files:
                     if str(f) in _watch_seen:
@@ -152,7 +174,9 @@ def _folder_watcher() -> None:
                         data.setdefault("recipe_id", f.stem)
                         _ctrl.submit(data, source=f"folder:{f.name}")
                         done = _resolve("processed"); done.mkdir(parents=True, exist_ok=True)
-                        f.rename(done / f.name)
+                        # replace() (not rename()) overwrites an existing dest —
+                        # rename() raises on Windows if done/<name> already exists.
+                        f.replace(done / f.name)
                     except RecipeError as e:
                         _emit(f"✗ rejected {f.name}: {e}", "error")
                     except Exception as e:
@@ -358,6 +382,13 @@ def api_auto_run():
     b = request.get_json(force=True)
     _ctrl.set_auto_run(bool(b.get("on", False)))
     return jsonify({"ok": True, "auto_run": _ctrl.auto_run})
+
+
+@app.route("/api/run_settings", methods=["POST"])
+def api_run_settings():
+    b = request.get_json(force=True) or {}
+    _ctrl.set_run_settings(b)
+    return jsonify({"ok": True})
 
 
 @app.route("/api/tare", methods=["POST"])
