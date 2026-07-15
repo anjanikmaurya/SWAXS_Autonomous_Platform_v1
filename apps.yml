@@ -78,6 +78,15 @@ apps:
     icon:         "🧪"
     color:        "#00838F"
 
+  - id:           analyzer
+    name:         "Nanoparticle Analyzer"
+    description:  "Auto-fit subtracted SAXS → size, PDI, invariant, phase, confidence (loop input)"
+    port:         5008
+    entry:        "analyzer/app.py"
+    manifest_key: "analyses"
+    icon:         "🧬"
+    color:        "#1565C0"
+
   - id:           assistant
     name:         "Tassone Group Assistant"
     description:  "LLM-powered data interpretation, proactive hints, inline plots"

@@ -18,3 +18,16 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
+
+# Preload the REAL scipy before any test module is collected, so the numpy-only
+# tests (which stub scipy only "if scipy not in sys.modules") leave the real
+# library in place. Keeps src.analysis.nanoparticle (scipy.signal/ndimage/...)
+# importable in the same session. Guarded: if scipy isn't installed, the stub
+# tests still run as before.
+try:  # pragma: no cover - environment-dependent
+    import scipy.optimize  # noqa: F401
+    import scipy.signal    # noqa: F401
+    import scipy.ndimage   # noqa: F401
+    import scipy.stats     # noqa: F401
+except Exception:
+    pass
