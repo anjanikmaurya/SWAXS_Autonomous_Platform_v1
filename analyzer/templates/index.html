@@ -1,45 +1,65 @@
-<!doctype html>
-<html lang="en"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SWAXS · Nanoparticle Analyzer</title>
 <style>
-:root{--fs-xs:.82rem;--fs-sm:.94rem;--fs-md:1.05rem;--fs-lg:1.4rem;--radius:9px;
+/* ── SWAXS shared design system ──────────────────────────────────────────── */
+html{font-size:18px}
+:root{
+  --fs-xs:.82rem;--fs-sm:.94rem;--fs-md:1.05rem;--fs-lg:1.45rem;--radius:9px;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+  --bg:#f4f5f7;--surface:#ffffff;--surface2:#eef0f3;--border:#d8dce2;--border-strong:#b9c0ca;
+  --text:#1c2128;--muted:#5c6470;--accent:#B83A4B;--accent-d:#8c1515;
+  --ok:#15803d;--warn:#b45309;--err:#b3261e;--info:#1d4ed8;
+}
+:root[data-theme="dark"]{
   --bg:#15161a;--surface:#1f2126;--surface2:#272a31;--border:#343842;--border-strong:#4c515c;
-  --text:#e7e9ee;--muted:#a4abb6;--accent:#3a7bd5;--ok:#4ade80;--warn:#d8a657;--err:#f87171;}
+  --text:#e7e9ee;--muted:#a4abb6;--accent:#d44a55;--accent-d:#b1040e;
+  --ok:#4ade80;--warn:#d8a657;--err:#f87171;--info:#7da9d8;
+}
 *{box-sizing:border-box}
 body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--text);font-size:1.02rem}
 .topbar{display:flex;align-items:center;gap:12px;padding:10px 18px;background:#1a1c21;border-bottom:1px solid var(--border)}
-.topbar h1{font-size:var(--fs-lg);font-weight:700;margin:0}
-.topbar h1 span{color:#7db0f0;font-weight:500}
-.sub{font-size:var(--fs-xs);color:var(--muted)}
-.wrap{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:14px;align-items:start}
+.topbar h1{font-size:var(--fs-lg);font-weight:700;margin:0;color:#fff}
+.topbar h1 span{color:#f0a6ab;font-weight:500}
+.topbar .sub{font-size:var(--fs-xs);color:#a4abb6}
+.topbar a{color:#f0a6ab;text-decoration:none}
+.theme-toggle{margin-left:auto;width:34px;height:30px;border:1px solid rgba(255,255,255,.25);border-radius:7px;background:transparent;color:#fff;cursor:pointer;font-size:1rem}
+.theme-toggle:hover{background:rgba(255,255,255,.1)}
+.wrap{padding:16px 32px;display:grid;grid-template-columns:500px 1fr;gap:20px;align-items:start}
 .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;margin-bottom:14px}
 .card-hd{font-size:var(--fs-sm);font-weight:700;margin-bottom:10px}
 label{font-size:var(--fs-xs);color:var(--muted);font-weight:600;display:block;margin-bottom:3px}
 input{width:100%;background:var(--surface2);border:1px solid var(--border-strong);border-radius:6px;color:var(--text);padding:6px 9px;font-size:var(--fs-sm)}
-.row{display:flex;gap:8px;align-items:flex-end}
-.btn{border:1px solid var(--border-strong);background:transparent;color:var(--text);border-radius:6px;padding:7px 13px;cursor:pointer;font-size:var(--fs-sm)}
-.btn-accent{background:var(--accent);border-color:var(--accent);color:#fff}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.btn{padding:7px 12px;border:none;border-radius:var(--radius);font-size:var(--fs-sm);font-weight:600;cursor:pointer;color:#fff;background:var(--surface2)}
+.btn-accent{background:var(--accent)} .btn-ghost{background:var(--surface2);border:1px solid var(--border-strong);color:var(--text)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-row,.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:flex-end}
+.sub{font-size:var(--fs-xs);color:var(--muted)}
+.log{max-height:150px;overflow-y:auto;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 11px;font-family:var(--mono);font-size:var(--fs-xs);line-height:1.55}
+/* ── analyzer-specific ───────────────────────────────────────────────────── */
 table{width:100%;border-collapse:collapse;font-size:var(--fs-sm)}
 th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--border)}
 th{color:var(--muted);font-size:var(--fs-xs);font-weight:600}
-tbody tr{cursor:pointer}
-tbody tr:hover{background:var(--surface2)}
-tbody tr.sel{background:#243044}
+tbody tr{cursor:pointer} tbody tr:hover{background:var(--surface2)}
+tbody tr.sel{background:var(--surface2);box-shadow:inset 3px 0 0 var(--accent)}
 .badge{display:inline-block;padding:1px 8px;border-radius:999px;font-size:var(--fs-xs);font-weight:700}
-.b-hi{background:#14432a;color:#4ade80}.b-mid{background:#3a3120;color:#d8a657}.b-lo{background:#33363d;color:#a4abb6}
+.b-hi{background:#1f3a29;color:#4ade80}.b-mid{background:#3a3120;color:#d8a657}.b-lo{background:#3a3d44;color:#c9ced6}
 .nums{display:flex;gap:18px;flex-wrap:wrap;margin:6px 0 10px}
 .nums div{font-size:var(--fs-xs);color:var(--muted)}
 .nums b{display:block;font-size:var(--fs-md);color:var(--text);font-weight:700}
-#log{height:120px;overflow:auto;background:#111318;border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-family:ui-monospace,Menlo,monospace;font-size:var(--fs-xs)}
-canvas{width:100%;height:300px;background:#111318;border:1px solid var(--border);border-radius:6px}
+canvas{width:100%;height:300px;background:var(--surface2);border:1px solid var(--border);border-radius:8px}
 .legend{font-size:var(--fs-xs);color:var(--muted);margin-top:5px}
 .dot{display:inline-block;width:9px;height:9px;border-radius:2px;vertical-align:middle;margin-right:4px}
 </style></head>
 <body>
 <div class="topbar">
   <h1>Nanoparticle <span>Analyzer</span></h1>
-  <span class="sub">Port 5008 · <a href="http://localhost:5000" style="color:#7db0f0">← Hub</a> · <span id="watch"></span></span>
+  <span class="sub">Port 5008 · <a href="http://localhost:5000">← Hub</a> · <span id="watch"></span></span>
+  <button class="theme-toggle" id="themeBtn" onclick="toggleTheme()" title="Toggle light / dark">☾</button>
 </div>
 
 <div class="wrap">
@@ -54,20 +74,21 @@ canvas{width:100%;height:300px;background:#111318;border:1px solid var(--border)
       <div class="sub" id="resolved" style="margin-top:5px"></div>
       <div class="sub" style="margin-top:4px">New <b>.dat</b> profiles here are auto-fitted (sphere + Schulz/log-normal). Every result carries a 0–1 confidence.</div>
     </div>
+
     <div class="card">
       <div class="card-hd">🔁 Closed-loop campaign</div>
-      <div class="grid2" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div class="grid2">
         <div><label>Target radius (nm)</label><input id="c_target" type="number" value="5" step="0.1"></div>
         <div><label>Tolerance ± (nm)</label><input id="c_tol" type="number" value="0.3" step="0.05"></div>
         <div><label>PDI cap</label><input id="c_pdi" type="number" value="0.15" step="0.01"></div>
         <div><label>Run budget</label><input id="c_budget" type="number" value="25" step="1"></div>
       </div>
-      <div class="row" style="margin-top:8px;gap:6px">
+      <div class="btn-row">
         <button class="btn btn-accent" id="c_start" onclick="startCampaign()">▶ Start campaign</button>
-        <button class="btn" id="c_abort" onclick="abortCampaign()">⏹ Abort</button>
+        <button class="btn btn-ghost" id="c_abort" onclick="abortCampaign()">⏹ Abort</button>
       </div>
       <div class="sub" id="c_status" style="margin-top:8px">idle</div>
-      <div class="sub" style="margin-top:3px">Proposes conditions to the reactor's Conditions folder and stops when the target is met or the budget runs out.</div>
+      <div class="sub" style="margin-top:3px">Proposes conditions to the reactor's Conditions folder; stops when the target is met or the budget runs out.</div>
     </div>
 
     <div class="card">
@@ -75,9 +96,10 @@ canvas{width:100%;height:300px;background:#111318;border:1px solid var(--border)
       <table><thead><tr><th>file</th><th>R (nm)</th><th>PDI</th><th>conf</th><th>phase</th></tr></thead>
         <tbody id="rows"><tr><td colspan="5" class="sub">waiting for profiles…</td></tr></tbody></table>
     </div>
+
     <div class="card">
       <div class="card-hd">📜 Log</div>
-      <div id="log"></div>
+      <div class="log" id="log"></div>
     </div>
   </div>
 
@@ -91,8 +113,8 @@ canvas{width:100%;height:300px;background:#111318;border:1px solid var(--border)
         <div>Rg (Guinier)<b id="n-rg">—</b></div><div>invariant (rel)<b id="n-inv">—</b></div>
       </div>
       <canvas id="plot" width="720" height="300"></canvas>
-      <div class="legend"><span class="dot" style="background:#7db0f0"></span>data (log-log I vs q)
-        &nbsp;&nbsp;<span class="dot" style="background:#f0a6ab"></span>fitted model</div>
+      <div class="legend"><span class="dot" style="background:var(--info)"></span>data (log-log I vs q)
+        &nbsp;&nbsp;<span class="dot" style="background:var(--accent)"></span>fitted model</div>
       <div class="sub" id="llmNote" style="margin-top:8px"></div>
     </div>
   </div>
@@ -101,7 +123,8 @@ canvas{width:100%;height:300px;background:#111318;border:1px solid var(--border)
 <script>
 const $=id=>document.getElementById(id);
 async function api(u,b){const o={method:b?'POST':'GET',headers:{}};if(b){o.headers['Content-Type']='application/json';o.body=JSON.stringify(b);}return (await fetch(u,o)).json();}
-let _sel=null;
+let _sel=null, _lastPlot=null;
+const cssv=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim()||'#888';
 
 function badge(c){const cls=c>=0.6?'b-hi':(c>=0.3?'b-mid':'b-lo');return `<span class="badge ${cls}">${c}</span>`;}
 
@@ -115,9 +138,8 @@ function renderRows(rs){
 }
 async function select(name){
   _sel=name; document.querySelectorAll('#rows tr').forEach(t=>t.classList.toggle('sel',t.dataset.n===name));
-  const d=await api('/api/result/'+encodeURIComponent(name));
-  if(d.error)return;
-  const s=d.summary, g=(d.full.guinier||{});
+  const d=await api('/api/result/'+encodeURIComponent(name)); if(d.error)return;
+  const s=d.summary;
   $('selName').textContent=name;
   $('n-r').textContent=s.radius!=null?s.radius+' nm':'—';
   $('n-d').textContent=s.diameter!=null?s.diameter+' nm':'—';
@@ -128,35 +150,30 @@ async function select(name){
   $('n-inv').textContent=s.invariant_rel??'—';
   const llm=d.full.llm||{}; const note=[llm.summary,(llm.flags||[]).join(', ')].filter(Boolean).join(' — ');
   $('llmNote').textContent = note ? ('🧠 '+note) : '';
-  drawPlot(d.plot);
+  _lastPlot=d.plot; drawPlot(d.plot);
 }
 function drawPlot(p){
+  if(!p)return; _lastPlot=p;
   const cv=$('plot'), ctx=cv.getContext('2d'), W=cv.width, H=cv.height, pad=44;
-  ctx.clearRect(0,0,W,H);
-  const q=p.q, I=p.I; const pts=[];
+  const cAxis=cssv('--border-strong'), cText=cssv('--muted'), cData=cssv('--info'), cModel=cssv('--accent'), cBg=cssv('--surface2');
+  ctx.clearRect(0,0,W,H); ctx.fillStyle=cBg; ctx.fillRect(0,0,W,H);
+  const q=p.q, I=p.I, pts=[];
   for(let i=0;i<q.length;i++){if(q[i]>0&&I[i]>0)pts.push([Math.log10(q[i]),Math.log10(I[i])]);}
   if(!pts.length)return;
-  let xs=pts.map(a=>a[0]), ys=pts.map(a=>a[1]);
-  let xmin=Math.min(...xs),xmax=Math.max(...xs),ymin=Math.min(...ys),ymax=Math.max(...ys);
-  const mx=v=>pad+(v-xmin)/(xmax-xmin||1)*(W-pad-12);
-  const my=v=>H-pad-(v-ymin)/(ymax-ymin||1)*(H-pad-12);
-  // axes
-  ctx.strokeStyle='#343842';ctx.lineWidth=1;ctx.beginPath();
-  ctx.moveTo(pad,12);ctx.lineTo(pad,H-pad);ctx.lineTo(W-12,H-pad);ctx.stroke();
-  ctx.fillStyle='#a4abb6';ctx.font='11px system-ui';
-  ctx.fillText('log₁₀ q',W/2-18,H-14); ctx.save();ctx.translate(13,H/2+20);ctx.rotate(-Math.PI/2);ctx.fillText('log₁₀ I',0,0);ctx.restore();
+  const xs=pts.map(a=>a[0]), ys=pts.map(a=>a[1]);
+  const xmin=Math.min(...xs),xmax=Math.max(...xs),ymin=Math.min(...ys),ymax=Math.max(...ys);
+  const mx=v=>pad+(v-xmin)/(xmax-xmin||1)*(W-pad-12), my=v=>H-pad-(v-ymin)/(ymax-ymin||1)*(H-pad-12);
+  ctx.strokeStyle=cAxis;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(pad,12);ctx.lineTo(pad,H-pad);ctx.lineTo(W-12,H-pad);ctx.stroke();
+  ctx.fillStyle=cText;ctx.font='11px system-ui';
+  ctx.fillText('log₁₀ q',W/2-18,H-14);ctx.save();ctx.translate(13,H/2+20);ctx.rotate(-Math.PI/2);ctx.fillText('log₁₀ I',0,0);ctx.restore();
   ctx.fillText(xmin.toFixed(1),pad-6,H-pad+14);ctx.fillText(xmax.toFixed(1),W-26,H-pad+14);
   ctx.fillText(ymax.toFixed(1),6,18);ctx.fillText(ymin.toFixed(1),6,H-pad);
-  // data points
-  ctx.fillStyle='#7db0f0';
-  pts.forEach(a=>{ctx.beginPath();ctx.arc(mx(a[0]),my(a[1]),1.6,0,6.28);ctx.fill();});
-  // model line
-  if(p.model){ctx.strokeStyle='#f0a6ab';ctx.lineWidth=2;ctx.beginPath();let started=false;
-    for(let i=0;i<q.length;i++){if(q[i]>0&&p.model[i]>0){const X=mx(Math.log10(q[i])),Y=my(Math.log10(p.model[i]));
-      if(!started){ctx.moveTo(X,Y);started=true;}else ctx.lineTo(X,Y);}}ctx.stroke();}
+  ctx.fillStyle=cData;pts.forEach(a=>{ctx.beginPath();ctx.arc(mx(a[0]),my(a[1]),1.6,0,6.28);ctx.fill();});
+  if(p.model){ctx.strokeStyle=cModel;ctx.lineWidth=2;ctx.beginPath();let st=false;
+    for(let i=0;i<q.length;i++){if(q[i]>0&&p.model[i]>0){const X=mx(Math.log10(q[i])),Y=my(Math.log10(p.model[i]));st?ctx.lineTo(X,Y):(ctx.moveTo(X,Y),st=true);}}ctx.stroke();}
 }
-function logLines(ls){const b=$('log');const c={ok:'#4ade80',warn:'#d8a657',error:'#f87171',info:'#a4abb6'};
-  ls.forEach(l=>{const d=document.createElement('div');d.style.color=c[l.tag]||'#e7e9ee';d.textContent=`[${l.ts}] ${l.msg}`;b.appendChild(d);});
+function logLines(ls){const b=$('log');const c={ok:'var(--ok)',warn:'var(--warn)',error:'var(--err)',info:'var(--muted)'};
+  ls.forEach(l=>{const d=document.createElement('div');d.style.color=c[l.tag]||'var(--text)';d.textContent=`[${l.ts}] ${l.msg}`;b.appendChild(d);});
   while(b.childNodes.length>300)b.removeChild(b.firstChild);b.scrollTop=b.scrollHeight;}
 
 async function setFolder(){const f=$('folder').value.trim();const r=await api('/api/folder',{folder:f});$('resolved').textContent='Watching: '+r.resolved;$('watch').textContent=r.resolved;}
@@ -164,13 +181,19 @@ async function startCampaign(){await api('/api/campaign/start',{target_size:+$('
 async function abortCampaign(){await api('/api/campaign/abort',{});}
 function renderCampaign(c){
   if(!c||c.status==='idle'){$('c_status').textContent='idle — set a target and start';return;}
-  const b=c.best; const bs=b&&b.size!=null?`best R=${(+b.size).toFixed(2)} nm (loss ${(+b.loss).toFixed(2)})`:'no valid fit yet';
+  const b=c.best, bs=b&&b.size!=null?`best R=${(+b.size).toFixed(2)} nm (loss ${(+b.loss).toFixed(2)})`:'no valid fit yet';
   const badge={running:'🟢 running',converged:'🎯 converged',exhausted:'⏹ budget exhausted',aborted:'⏹ aborted'}[c.status]||c.status;
   let extra='';
   if(c.status==='converged'&&c.converged_condition){const p=c.converged_condition.params;
     extra=` → T=${(+p.T_reac).toFixed(0)}°C F=${(+p.F_tot).toFixed(0)} x=(${(+p.x_ODE).toFixed(2)},${(+p.x_TOP).toFixed(2)},${(+p.x_oley).toFixed(2)})`;}
-  $('c_status').innerHTML=`${badge} · ${c.n_evaluations}/${c.budget} runs · target ${c.target_size}±${c.tolerance} nm · ${bs}${extra}`;
+  $('c_status').textContent=`${badge} · ${c.n_evaluations}/${c.budget} runs · target ${c.target_size}±${c.tolerance} nm · ${bs}${extra}`;
 }
+
+/* theme (default dark, remembered) — same behaviour as the other apps */
+(function(){const K='swaxs-theme';let d=localStorage.getItem(K)?localStorage.getItem(K)==='dark':true;
+  function ap(x){document.documentElement.setAttribute('data-theme',x?'dark':'light');const b=$('themeBtn');if(b)b.textContent=x?'☀':'☾';if(_lastPlot)drawPlot(_lastPlot);}
+  ap(d);window.toggleTheme=function(){d=!d;localStorage.setItem(K,d?'dark':'light');ap(d);};})();
+
 (async()=>{const p=await api('/api/project');$('watch').textContent=p.watching;$('resolved').textContent='Watching: '+p.watching;
   const f=await api('/api/folder');$('folder').value=f.folder;})();
 
