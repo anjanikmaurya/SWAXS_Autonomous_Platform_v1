@@ -71,6 +71,29 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
 .lim-row input{padding:5px 7px;font-size:var(--fs-xs)}
 .muted{color:var(--muted);font-size:var(--fs-xs)}
 .estop-btn{width:100%;margin-top:8px;font-size:var(--fs-md);padding:10px}
+/* arming / pump-start panel */
+.arm-panel{background:var(--surface2);border:1px solid var(--border);border-left:4px solid var(--accent);
+  border-radius:10px;padding:10px 12px;margin-bottom:8px}
+.arm-head{display:flex;align-items:center;gap:8px}
+.arm-badge{background:var(--accent);color:#fff;font-weight:700;font-size:var(--fs-xs);
+  padding:2px 9px;border-radius:999px;letter-spacing:.04em;white-space:nowrap}
+.arm-text{font-size:var(--fs-sm);font-weight:600}
+.arm-bar{height:9px;border-radius:999px;background:rgba(127,127,127,.22);overflow:hidden;margin-top:9px}
+.arm-bar>i{display:block;height:100%;width:0;border-radius:999px;
+  background:linear-gradient(90deg,var(--accent),#ffb74d);transition:width .5s ease}
+.arm-bar.indeterminate>i{width:38%;animation:armslide 1.25s ease-in-out infinite}
+@keyframes armslide{0%{transform:translateX(-110%)}100%{transform:translateX(320%)}}
+.arm-sub{display:flex;justify-content:space-between;gap:10px;font-size:var(--fs-xs);
+  color:var(--muted);margin-top:6px}
+.btn-startnow{animation:startpulse 1.5s ease-in-out infinite}
+@keyframes startpulse{0%,100%{box-shadow:0 0 0 0 rgba(230,81,0,.55)}50%{box-shadow:0 0 0 7px rgba(230,81,0,0)}}
+/* arm-mode option rows: keep radios natural size, wrap gracefully in the column */
+.arm-opt{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:5px 0}
+.arm-opt .toggle{display:inline-flex;margin:0}
+.arm-opt input[type=radio]{width:auto;flex:0 0 auto;margin:0;accent-color:var(--accent)}
+.arm-opt input[type=number]{width:72px}
+.arm-unit{font-size:var(--fs-xs);color:var(--muted)}
+.tstep{font-size:var(--fs-xs);font-weight:700;color:var(--accent);letter-spacing:.02em;margin-bottom:6px}
 </style>
 </head>
 <body>
@@ -100,7 +123,7 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
       <div class="card-hd">🧪 Synthesis recipe</div>
       <div class="muted" id="runningNow" style="margin-bottom:8px">— idle —</div>
       <div class="grid2">
-        <div><label>T_reac (°C)</label><input type="number" id="T_reac" value="240" step="1"></div>
+        <div><label>T_reac (°C)</label><input type="number" id="T_reac" value="240" step="1" oninput="updateArmHint()"></div>
         <div><label>F_tot (µL/min)</label><input type="number" id="F_tot" value="80" step="1"></div>
       </div>
       <div class="grid3" style="margin-top:8px">
@@ -108,14 +131,6 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
         <div><label>x_TOP</label><input type="number" id="x_TOP" value="0.1" step="0.01"></div>
         <div><label>x_oley</label><input type="number" id="x_oley" value="0.1" step="0.01"></div>
       </div>
-      <div class="arm-mode" style="margin-top:10px">
-        <label style="display:block;margin-bottom:4px">Start pumps when…</label>
-        <label class="toggle"><input type="radio" name="arm_mode" value="temperature" onchange="armModeChange()"> reactor reaches temperature</label>
-        <label class="toggle" style="margin-left:14px"><input type="radio" name="arm_mode" value="timed" checked onchange="armModeChange()"> after a fixed wait of</label>
-        <input type="number" id="arm_wait_s" value="120" step="1" min="0" style="width:78px;margin-left:6px" onchange="pushRunSettings()"> s
-        <div class="muted" id="arm-hint" style="font-size:var(--fs-xs);margin-top:4px"></div>
-      </div>
-      <div id="preview" class="muted" style="margin-top:8px"></div>
       <div class="btn-row">
         <button class="btn btn-accent" id="queueBtn" onclick="submitRecipe()" style="flex:1">＋ Run manually (add to queue)</button>
         <button class="btn btn-ok" id="autoBtn" onclick="toggleAuto()" style="flex:1">▶ Run autonomously</button>
@@ -126,26 +141,61 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
 
     <div class="card">
       <div class="card-hd">⏱ Timing</div>
-      <div><label>Synthesis run duration (seconds — blank = config default)</label>
-        <input type="number" id="run_duration" placeholder="default (s)" step="1" min="1" onchange="pushRunSettings()"></div>
+
+      <div class="tstep">1 · Start the pumps</div>
+      <label style="display:block;margin-bottom:4px">Start pumps when…</label>
+      <div class="arm-opt">
+        <label class="toggle"><input type="radio" name="arm_mode" value="ramp" checked onchange="armModeChange()"> ramp from 25&nbsp;°C at</label>
+        <input type="number" id="arm_ramp_rate" value="10" step="0.5" min="0.1" oninput="updateArmHint()" onchange="pushRunSettings()">
+        <span class="arm-unit">°C/min</span>
+      </div>
+      <div class="arm-opt">
+        <label class="toggle"><input type="radio" name="arm_mode" value="timed" onchange="armModeChange()"> after a fixed wait of</label>
+        <input type="number" id="arm_wait_s" value="120" step="1" min="0" onchange="pushRunSettings()">
+        <span class="arm-unit">s</span>
+      </div>
+      <div class="arm-opt">
+        <label class="toggle"><input type="radio" name="arm_mode" value="temperature" onchange="armModeChange()"> reactor reaches temperature</label>
+      </div>
+      <div class="muted" id="arm-hint" style="font-size:var(--fs-xs);margin-top:4px"></div>
+
+      <div class="tstep" style="border-top:1px solid var(--border);padding-top:10px;margin-top:12px">2 · Run, then flush</div>
+      <label>Synthesis run duration (seconds — blank = config default)</label>
+      <input type="number" id="run_duration" placeholder="default (s)" step="1" min="1" onchange="pushRunSettings()">
       <div class="grid2" style="margin-top:8px">
         <div><label>Flush rate (µL/min)</label><input type="number" id="flush_rate" step="1" min="0" onchange="pushRunSettings()"></div>
         <div><label>Flush duration (seconds)</label><input type="number" id="flush_duration" step="1" min="1" onchange="pushRunSettings()"></div>
       </div>
-      <div class="muted" style="margin-top:5px">All durations are in <b>seconds</b>; flush rate is in <b>µL/min</b>. These apply to queued recipes and to the Flush&nbsp;now / Prime buttons.</div>
+      <div class="muted" style="margin-top:5px">Durations are in <b>seconds</b>, flush rate in <b>µL/min</b>. These apply to queued recipes and to the Flush&nbsp;now button.</div>
     </div>
 
     <div class="card">
       <div class="card-hd">▶ Controls</div>
-      <div class="muted" id="armMsg" style="margin-bottom:6px"></div>
-      <div class="btn-row">
-        <button class="btn btn-ok"   id="b-start" onclick="startClicked()">Start</button>
-        <button class="btn btn-warn"  id="b-stop"  onclick="post('/api/abort')">■ Stop → flush</button>
-        <button class="btn btn-ghost" onclick="doFlush('/api/flush')">Flush now</button>
-        <button class="btn btn-ghost" onclick="post('/api/reset')">Reset</button>
+      <div id="armPanel" class="arm-panel" style="display:none">
+        <div class="arm-head">
+          <span class="arm-badge" id="armBadge">ARMING</span>
+          <span class="arm-text" id="armMsg"></span>
+        </div>
+        <div class="arm-bar" id="armBar"><i id="armBarFill"></i></div>
+        <div class="arm-sub">
+          <span id="armCountdown"></span>
+          <span id="armTarget"></span>
+        </div>
       </div>
-      <button class="btn btn-warn" style="width:100%;margin-top:6px" onclick="post('/api/vent')">🟦 Vent all pumps — chamber pressure → 0</button>
-      <button class="btn btn-err estop-btn" onclick="post('/api/estop')">🛑 EMERGENCY STOP</button>
+      <div class="btn-row">
+        <button class="btn btn-ok"   id="b-start" onclick="startClicked()"
+                title="Begin the next queued recipe. During arming, skips the wait and starts the pumps now.">Start</button>
+        <button class="btn btn-warn"  id="b-stop"  onclick="post('/api/abort')"
+                title="End the current run and flush the line. During a flush, stops the flush and idles.">■ Stop → flush</button>
+        <button class="btn btn-ghost" onclick="doFlush('/api/flush')"
+                title="Run the solvent/flush pump to clear the line between runs (idle or ready only).">Flush now</button>
+        <button class="btn btn-ghost" id="b-reset" onclick="post('/api/reset')"
+                title="Clear an EMERGENCY STOP (or a finished run) back to idle.">Reset</button>
+      </div>
+      <button class="btn btn-warn" style="width:100%;margin-top:6px" onclick="post('/api/vent')"
+              title="Release chamber pressure to 0 between runs. Keeps your queue and auto-run — press Start to continue.">🟦 Vent all pumps — chamber pressure → 0</button>
+      <button class="btn btn-err estop-btn" onclick="post('/api/estop')"
+              title="Fault or danger: idle ALL pumps immediately and lock the panel until you press Reset.">🛑 EMERGENCY STOP</button>
     </div>
 
     <div class="card">
@@ -250,14 +300,6 @@ async function applyLimits(){
 loadLimits();
 (async function poll(){try{const d=await api('/api/project');if(d.project_root)$('proj').textContent=d.project_root;}catch(e){}setTimeout(poll,4000);})();
 
-function preview(){
-  const F=+$('F_tot').value||0, xo=+$('x_ODE').value||0, xt=+$('x_TOP').value||0, xl=+$('x_oley').value||0;
-  const xp=1-xo-xt-xl;
-  $('preview').innerHTML='→ ode_dilution '+(xo*F).toFixed(1)+' · top '+(xt*F).toFixed(1)+
-    ' · oleylamine '+(xl*F).toFixed(1)+' · pd_top_precursor '+(xp*F).toFixed(1)+' µL/min'+
-    (xp<0?' <span style="color:var(--err)">(precursor negative!)</span>':'');
-}
-['F_tot','x_ODE','x_TOP','x_oley'].forEach(id=>$(id).addEventListener('input',preview));
 
 async function submitRecipe(){
   $('form-err').textContent='';
@@ -267,21 +309,37 @@ async function submitRecipe(){
   const fr=$('flush_rate').value.trim();    if(fr)body.flush_rate=+fr;
   const fd=$('flush_duration').value.trim();if(fd)body.flush_duration=+fd;
   const mode=document.querySelector('input[name="arm_mode"]:checked');
-  body.arm_mode = mode ? mode.value : 'timed';
+  body.arm_mode = mode ? mode.value : 'ramp';
   if(body.arm_mode==='timed'){
     const w=$('arm_wait_s').value.trim(); if(w!=='')body.arm_wait_s=+w;
+  } else if(body.arm_mode==='ramp'){
+    const r=$('arm_ramp_rate').value.trim(); if(r!=='')body.arm_ramp_rate=+r;
   }
   const r=await api('/api/recipe',body);
   if(!r.ok){$('form-err').textContent=r.error||'rejected';}
 }
 function armModeChange(){
-  const mode=document.querySelector('input[name="arm_mode"]:checked');
-  const timed = mode && mode.value==='timed';
-  $('arm_wait_s').disabled = !timed;
-  $('arm-hint').textContent = timed
-    ? 'Pumps start after this wait — temperature is not required.'
-    : 'Pumps start only once the reactor reaches T_reac (needs a wired temperature reading).';
+  const mode=(document.querySelector('input[name="arm_mode"]:checked')||{}).value;
+  $('arm_wait_s').disabled     = mode!=='timed';
+  $('arm_ramp_rate').disabled  = mode!=='ramp';
+  updateArmHint();
   pushRunSettings();
+}
+function updateArmHint(){
+  const mode=(document.querySelector('input[name="arm_mode"]:checked')||{}).value;
+  const h=$('arm-hint');
+  if(mode==='ramp'){
+    const T=+$('T_reac').value||0, r=+$('arm_ramp_rate').value||0;
+    if(r>0 && T>25){
+      h.textContent=`≈ ${fmtDur((T-25)/r*60)} to ramp 25 → ${T}°C, then pumps start.`;
+    } else {
+      h.textContent='Set a target above 25 °C and a positive ramp rate.';
+    }
+  } else if(mode==='timed'){
+    h.textContent='Pumps start after this fixed wait — temperature is not required.';
+  } else {
+    h.textContent='Pumps start only once the reactor reaches T_reac (needs a wired temperature reading).';
+  }
 }
 let _autoOn=false, _uiState='';
 async function toggleAuto(){await api('/api/auto_run',{on:!_autoOn});}
@@ -291,6 +349,7 @@ async function pushRunSettings(){
   await api('/api/run_settings',{
     arm_mode: mode?mode.value:'',
     arm_wait_s: $('arm_wait_s').value.trim(),
+    arm_ramp_rate: $('arm_ramp_rate').value.trim(),
     run_duration: $('run_duration').value.trim(),
     flush_rate: $('flush_rate').value.trim(),
     flush_duration: $('flush_duration').value.trim()
@@ -447,8 +506,9 @@ function render(st){
   // temp
   $('t-cur').textContent=st.temperature.current.toFixed(1);
   $('t-tgt').textContent=st.temperature.target.toFixed(1);
-  if(st.state==='arming'&&st.arm_mode==='timed'){
-    $('t-stable').textContent='⏲ timed start — pumps in '+fmtDur(st.arm_remaining_s)+' (temperature not gating)';
+  if(st.state==='arming'&&(st.arm_mode==='timed'||st.arm_mode==='ramp')){
+    $('t-stable').textContent=(st.arm_mode==='ramp'?'📈 ramp start':'⏲ timed start')
+      +' — pumps in '+fmtDur(st.arm_remaining_s)+' (temperature not gating)';
   }else{
     $('t-stable').textContent=st.temperature.target>0?
       (st.temperature.stable?'✓ at temperature':'… ramping / stabilizing'):'';
@@ -463,16 +523,33 @@ function render(st){
   _uiState=st.state;
   const _ba=$('b-start');
   if(st.state==='arming'){
-    _ba.textContent='⏩ Start pumps now'; _ba.disabled=false;
-    const left=(st.arm_remaining_s!=null)?fmtDur(st.arm_remaining_s):null;
-    $('armMsg').textContent = left
-      ? `Arming — pumps start in ${left} (or click “Start pumps now” to skip the wait).`
-      : `Arming — waiting to reach temperature before pumps start.`;
+    _ba.textContent='⏩ Start pumps now'; _ba.disabled=false; _ba.classList.add('btn-startnow');
+    $('armPanel').style.display='';
+    const total=st.arm_total_s, left=st.arm_remaining_s, bar=$('armBar');
+    if(left!=null && total){
+      bar.classList.remove('indeterminate');
+      const frac=Math.max(0,Math.min(1,1-(left/total)));
+      $('armBarFill').style.width=(frac*100).toFixed(1)+'%';
+      $('armMsg').textContent = st.arm_mode==='ramp' ? 'Ramping to synthesis temperature' : 'Timed start';
+      $('armCountdown').textContent='Pumps start in '+fmtDur(left)+' — or click “Start pumps now”.';
+    } else {
+      bar.classList.add('indeterminate'); $('armBarFill').style.width='';
+      $('armMsg').textContent='Heating to temperature';
+      $('armCountdown').textContent='Waiting to reach T_reac — or click “Start pumps now”.';
+    }
+    $('armTarget').textContent = st.temperature.target>0
+      ? `target ${st.temperature.target.toFixed(0)}°C · now ${st.temperature.current.toFixed(0)}°C` : '';
   } else {
     _ba.textContent='Start'; _ba.disabled=!(st.state==='idle'||st.state==='ready')||!st.queue.length;
-    $('armMsg').textContent='';
+    _ba.classList.remove('btn-startnow');
+    $('armPanel').style.display='none';
   }
   $('b-stop').disabled=!['arming','running','flushing'].includes(st.state);
+  // state-aware labels: "Stop → flush" idles the flush while flushing; make the
+  // E-stop recovery (Reset) obvious once we're in E-STOP.
+  $('b-stop').textContent = (st.state==='flushing') ? '■ Stop flush' : '■ Stop → flush';
+  const _rb=$('b-reset');
+  if(_rb) _rb.textContent = (st.state==='estop') ? '↺ Reset (clear E-stop)' : 'Reset';
 }
 function logLines(lines){const box=$('log');const c={ok:'var(--ok)',error:'var(--err)',warn:'var(--warn)',info:'var(--muted)'};
   lines.forEach(l=>{const d=document.createElement('div');d.style.color=c[l.tag]||'var(--text)';
@@ -481,7 +558,6 @@ function logLines(lines){const box=$('log');const c={ok:'var(--ok)',error:'var(-
 
 const es=new EventSource('/api/stream');
 es.onmessage=e=>{try{const d=JSON.parse(e.data);if(d.status)render(d.status);if(d.logs&&d.logs.length)logLines(d.logs);}catch(_){}};
-preview();
 armModeChange();
 loadCondFolder();
 </script>
