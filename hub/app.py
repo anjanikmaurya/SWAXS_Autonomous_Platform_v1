@@ -444,6 +444,14 @@ def api_set_project():
     return jsonify({"ok": False, "message": "Invalid path"}), 400
 
 
+def _list_drives() -> list:
+    """Available filesystem roots: drive letters on Windows, '/' on POSIX."""
+    if sys.platform.startswith("win"):
+        from string import ascii_uppercase
+        return [f"{c}:\\" for c in ascii_uppercase if Path(f"{c}:\\").exists()]
+    return ["/"]
+
+
 @app.route("/api/browse")
 def api_browse():
     """Directory browser for the project picker."""
@@ -464,6 +472,7 @@ def api_browse():
         "current": str(p),
         "parent":  str(p.parent) if p != p.parent else None,
         "dirs":    dirs,
+        "drives":  _list_drives(),   # jump to any drive / root
     })
 
 

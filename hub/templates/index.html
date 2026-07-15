@@ -329,6 +329,11 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,
       <button class="modal-close" onclick="closeBrowser()">✕</button>
     </div>
     <div class="modal-body">
+      <div style="display:flex;gap:8px;margin-bottom:10px">
+        <input type="text" id="pathInput" placeholder="Paste a full path, e.g. D:\Data\Experiment" style="flex:1;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:transparent;color:var(--text)">
+        <button class="btn btn-ghost" onclick="goPath()">Go</button>
+      </div>
+      <div id="drivesBar" style="margin-bottom:8px"></div>
       <div class="path-crumb" id="pathCrumb"></div>
       <div class="dir-list" id="dirList"></div>
     </div>
@@ -583,6 +588,20 @@ async function browseTo(path) {
   _currentBrowsePath = data.current;
   document.getElementById('currPath').textContent = data.current;
 
+  // Drive / root shortcuts (jump to C:, D:, network roots, etc.)
+  const db = document.getElementById('drivesBar');
+  if (db) {
+    db.innerHTML = '';
+    (data.drives || []).forEach(dr => {
+      const b = document.createElement('button');
+      b.className = 'btn btn-ghost';
+      b.style.cssText = 'padding:3px 10px;margin:0 6px 4px 0;font-size:13px';
+      b.textContent = '💾 ' + dr;
+      b.onclick = () => browseTo(dr);
+      db.appendChild(b);
+    });
+  }
+
   // Breadcrumb
   const parts = data.current.split('/').filter(Boolean);
   const crumb = document.getElementById('pathCrumb');
@@ -627,6 +646,13 @@ async function browseTo(path) {
     list.appendChild(item);
   });
 }
+function goPath() {
+  const v = document.getElementById('pathInput').value.trim();
+  if (v) browseTo(v);
+}
+document.getElementById('pathInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') goPath();
+});
 async function selectCurrent() {
   const path = _currentBrowsePath;
   const res  = await fetch('/api/set_project', {
