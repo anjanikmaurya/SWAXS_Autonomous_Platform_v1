@@ -66,6 +66,12 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
 .toggle{display:flex;align-items:center;gap:8px;font-size:var(--fs-sm);cursor:pointer}
 .theme-toggle{width:34px;height:30px;border:1px solid rgba(255,255,255,.25);border-radius:7px;background:transparent;color:#fff;cursor:pointer;font-size:1rem}
 .theme-toggle:hover{background:rgba(255,255,255,.1)}
+.bk-toggle{display:inline-flex;border:1px solid rgba(255,255,255,.28);border-radius:999px;overflow:hidden;vertical-align:middle}
+.bk-toggle button{border:none;background:transparent;color:var(--muted);font:inherit;font-size:var(--fs-xs);padding:2px 11px;cursor:pointer}
+.bk-toggle button.on{color:#fff;font-weight:700}
+.bk-toggle button.on.mock{background:#2f6f4f}
+.bk-toggle button.on.real{background:#b1040e}
+.bk-toggle button:disabled{cursor:not-allowed;opacity:.55}
 .lim-row{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:6px;align-items:center;margin-bottom:6px}
 .lim-row .pn{font-family:var(--mono);font-size:var(--fs-xs)}
 .lim-row input{padding:5px 7px;font-size:var(--fs-xs)}
@@ -103,7 +109,11 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
   <div style="flex:1"></div>
   <span class="proj" id="proj"></span>
   <button class="theme-toggle" id="themeBtn" onclick="toggleTheme()" title="Toggle light / dark">☾</button>
-  <span class="sub">Port 5007 · <a href="http://localhost:5000">← Hub</a> · <span id="backend"></span></span>
+  <span class="sub">Port 5007 · <a href="http://localhost:5000">← Hub</a> ·
+    <span class="bk-toggle" id="bkToggle" title="Hardware backend — Mock is a safe simulation; Real drives the pumps.">
+      <button type="button" id="bk-mock" onclick="setBackend('mock')">Mock</button>
+      <button type="button" id="bk-real" onclick="setBackend('real')">Real</button>
+    </span></span>
 </div>
 
 <div class="wrap">
@@ -112,11 +122,11 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
     <div class="card">
       <div class="card-hd">📁 Conditions folder (autonomous input)</div>
       <div style="display:flex;gap:8px;align-items:center">
-        <input type="text" id="condFolder" style="flex:1" placeholder="1D/SAXS/Conditions">
+        <input type="text" id="condFolder" style="flex:1" placeholder="1D/SAXS/Conditions" title="Folder path, relative to the project or absolute. Default: a sibling of Subtracted. The ML/processing pipeline drops .dat/.txt condition files here.">
         <button class="btn btn-accent" onclick="setCondFolder()">Set</button>
       </div>
       <div class="muted" id="condResolved" style="margin-top:4px"></div>
-      <div class="muted" style="margin-top:4px">Watches this folder and runs new condition files oldest-first (by file time), started with the ▶ Run autonomously button below. The ML/processing pipeline drops .dat/.txt files here (relative to the project, or absolute). Default is a sibling of Subtracted.</div>
+      <div class="muted" style="margin-top:4px">New <b>.dat/.txt</b> condition files here run oldest-first when <b>▶ Run autonomously</b> is on.</div>
     </div>
 
     <div class="card">
@@ -271,7 +281,7 @@ async function post(u,b){try{const r=await api(u,b||{});if(r&&r.error)$('form-er
  function ap(x){document.documentElement.setAttribute('data-theme',x?'dark':'light');const b=$('themeBtn');if(b)b.textContent=x?'☀':'☾';}
  ap(d);window.toggleTheme=function(){d=!d;localStorage.setItem(K,d?'dark':'light');ap(d);};})();
 
-(async()=>{CFG=await api('/api/config');$('backend').textContent='backend: '+CFG.backend;
+(async()=>{CFG=await api('/api/config');updateBackendPill(CFG.backend||'mock','idle');
   // prefill flush defaults (units shown in labels)
   if(CFG.flush){if(CFG.flush.rate!=null)$('flush_rate').placeholder=CFG.flush.rate+' (default)';
     if(CFG.flush.duration!=null)$('flush_duration').placeholder=CFG.flush.duration+' (default)';}
@@ -475,8 +485,26 @@ function legendHTML(st,key,unit){
 }
 function fmtDur(s){if(s==null)return '—';const m=Math.floor(s/60),ss=Math.round(s%60);return m+'m '+ss+'s';}
 
+async function setBackend(mode){
+  if(mode===(window._backend||'mock')) return;
+  if(mode==='real' && !confirm('Switch to REAL hardware?\n\nThis opens the pump serial ports and the pumps become live. Make sure the rig is connected and the Dolomite GUI is closed.')) return;
+  const r=await api('/api/backend',{backend:mode});
+  if(r && !r.ok){ alert('Could not switch to '+mode.toUpperCase()+':\n\n'+(r.error||'unknown error')); }
+  // the pill updates from the next status frame
+}
+function updateBackendPill(backend, state){
+  window._backend=backend;
+  const busy=!['idle','ready','estop'].includes(state);
+  const m=$('bk-mock'), r=$('bk-real');
+  if(!m||!r) return;
+  m.className=(backend==='mock'?'on mock':''); r.className=(backend==='real'?'on real':'');
+  m.disabled=busy; r.disabled=busy;
+  $('bkToggle').title=busy?'Stop the run to change backend'
+    :'Hardware backend — Mock is a safe simulation; Real drives the pumps.';
+}
 function render(st){
   $('state').textContent=st.state; $('state').className='state-pill state-'+st.state;
+  if(st.backend) updateBackendPill(st.backend, st.state);
   $('s-state').textContent=st.state;
   _autoOn=st.auto_run;
   const _ab=$('autoBtn');
