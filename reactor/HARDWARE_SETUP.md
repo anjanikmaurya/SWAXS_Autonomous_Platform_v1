@@ -101,8 +101,8 @@ cat reactor/feedback/demo1.done.json
 > remote-control, `F<pl/s>` flow, `P0` idle, `R0` tare). It enters REMOTE
 > control automatically and polls status to keep the pump in control mode
 > (the pump drops out after ~30 s without a command). One pump per COM port —
-> `pump_id` is unused. Use `python tools/list_pumps.py` to find ports and
-> `python tools/pump_diag.py COMx` to sanity-check one pump.
+> `pump_id` is unused. Use `python tools/reactor/list_pumps.py` to find ports and
+> `python tools/reactor/pump_diag.py COMx` to sanity-check one pump.
 
 ### B1. Wire and power up
 1. Connect each Mitos P-pump via its Dolomite USB-to-serial cable.

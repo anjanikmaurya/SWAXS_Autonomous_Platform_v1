@@ -50,8 +50,9 @@ def main() -> None:
         return
 
     # Make the vendored driver importable.
-    drivers = Path(__file__).resolve().parent.parent / "src" / "reactor" / "drivers"
-    sys.path.insert(0, str(drivers))
+    _root = next(p for p in Path(__file__).resolve().parents
+                 if (p / "src" / "reactor" / "drivers").is_dir())
+    sys.path.insert(0, str(_root / "src" / "reactor" / "drivers"))
     import Py_P_Pump  # noqa: E402
 
     print("\nProbing each port (the Dolomite GUI must be CLOSED)…\n")

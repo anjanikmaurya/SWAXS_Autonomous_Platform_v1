@@ -14,7 +14,7 @@ pumps:
   # Pumps are matched by `serial` first (fixed per pump) and the COM port is
   # resolved at runtime — so this config is PORTABLE across PCs even though COM
   # numbers differ. `address` is only a fallback if the serial isn't found.
-  # Mapped via tools/map_pumps.py. pump_id is unused (one pump per port).
+  # Mapped via tools/reactor/map_pumps.py. pump_id is unused (one pump per port).
   # ── 30–1000 µL/min sensors (LG16-1000) — high-flow pumps ──
   pd_top_precursor:
     serial:    "4902275A"       # matched first (portable)

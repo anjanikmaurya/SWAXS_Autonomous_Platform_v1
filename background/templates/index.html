@@ -502,7 +502,7 @@ async function runMatchToken(){
     const d=await post('/api/match_token',{sample_folder:sf,bkg_folder:bf,
       sample_keyword:sk,bkg_keyword:bk,counter:ct});
     if(d.error){setStatus(d.error,'err');return;}
-    _suggest=d.pairs; _suggestBkgs=d.backgrounds||[]; _suggestBkgFolder=(d.bkg_folder||bf).replace(/\/+$/,'');
+    _suggest=d.pairs; _suggestBkgs=d.backgrounds||[]; _suggestBkgFolder=(d.bkg_folder||bf).replace(/[\\/]+$/,'');
     renderSuggest();
     const matched=d.pairs.filter(p=>p.suggested).length;
     const grp = (sk||bk) ? `${sk||'all'}→${bk||'all'} · ` : '';
@@ -541,7 +541,7 @@ async function listSamples(){
   try{
     const d=await post('/api/scan',{folder});
     if(d.error){setStatus(d.error,'err');return;}
-    _samFiles=(d.files||[]).map(f=>({name:f.name,path:folder.replace(/\/+$/,'')+'/'+f.name}));
+    _samFiles=(d.files||[]).map(f=>({name:f.name,path:folder.replace(/[\\/]+$/,'')+'/'+f.name}));
     _bgIndex=-1;
     renderSamples();setStatus(`${_samFiles.length} file(s)`,'ok');
   }catch(e){setStatus('List error: '+e,'err');}
@@ -607,7 +607,7 @@ async function runSuggest(){
   try{
     const d=await post('/api/suggest',{sample_folder:sf,bkg_folder:bf,match_token:hint});
     if(d.error){setStatus(d.error,'err');return;}
-    _suggest=d.pairs; _suggestBkgs=d.backgrounds||[]; _suggestBkgFolder=(d.bkg_folder||bf).replace(/\/+$/,'');
+    _suggest=d.pairs; _suggestBkgs=d.backgrounds||[]; _suggestBkgFolder=(d.bkg_folder||bf).replace(/[\\/]+$/,'');
     renderSuggest();
     const msg=`Matched ${d.pairs.length} sample(s) to ${d.n_backgrounds} background(s)`+(hint?` · token “${hint}”`:'');
     document.getElementById('suggest-count').textContent=msg;
@@ -689,7 +689,7 @@ async function doPreview(sample_file,bkg_file){
     syncResultScale(det,d.scale_used);
     showPage(det);   // show the plot on the BG-Sub SAXS/WAXS tab
     const win=d.window?` · window q∈[${d.window.q_min.toFixed(3)}, ${d.window.q_max.toFixed(3)}]`:'';
-    setStatus(`Preview ${sample_file.split('/').pop()} — scale=${d.scale_used} (${d.method})${win}`,'ok');
+    setStatus(`Preview ${sample_file.split(/[\\/]/).pop()} — scale=${d.scale_used} (${d.method})${win}`,'ok');
   }catch(e){setStatus('Preview error: '+e,'err');}
 }
 
@@ -705,7 +705,7 @@ async function run(){
     endpoint='/api/subtract/individual';body={...common,sample_files:files,bkg_file:bkg};
   }else{ // batch (token match) / suggest → run each pair via individual, grouped by background
     if(!_suggest.length){setStatus('Run “Match” first','err');return;}
-    const bf=(_suggestBkgFolder||document.getElementById('bkg-folder').value.trim().replace(/\/+$/,''));
+    const bf=(_suggestBkgFolder||document.getElementById('bkg-folder').value.trim().replace(/[\\/]+$/,''));
     const groups={};let unmatched=0;
     _suggest.forEach((p,i)=>{const bname=document.querySelector(`#suggestTbl select[data-i="${i}"]`)?.value||(p.suggested&&p.suggested.name);
       if(!bname){unmatched++;return;}const bpath=bf+'/'+bname;(groups[bpath]=groups[bpath]||[]).push(p.sample_path);});
@@ -885,7 +885,7 @@ async function compareMethods(det){
 async function loadMetadata(){
   let files=selectedSamples();
   if(!files.length)files=_samFiles.map(f=>f.path);
-  if(!files.length){const folder=document.getElementById('sam-folder').value.trim();if(folder){const d=await post('/api/scan',{folder});files=(d.files||[]).map(f=>folder.replace(/\/+$/,'')+'/'+f.name);}}
+  if(!files.length){const folder=document.getElementById('sam-folder').value.trim();if(folder){const d=await post('/api/scan',{folder});files=(d.files||[]).map(f=>folder.replace(/[\\/]+$/,'')+'/'+f.name);}}
   if(!files.length){document.getElementById('metaInfo').textContent='No files — list a sample folder first.';return;}
   const d=await post('/api/metadata',{files});
   const t=document.getElementById('metaTbl');
@@ -905,8 +905,8 @@ async function browseTo(path){
   _bp=data.current;document.getElementById('currPath').textContent=data.current;
   const list=document.getElementById('dirList');list.innerHTML='';
   if(data.parent){const u=document.createElement('div');u.className='dir-item';u.innerHTML='<span>⬆</span><span>..</span>';u.onclick=()=>browseTo(data.parent);list.appendChild(u);}
-  (data.dirs||[]).forEach(d=>{const it=document.createElement('div');it.className='dir-item';it.innerHTML=`<span>📁</span><span>${d}</span>`;it.onclick=()=>browseTo(_bp.replace(/\/+$/,'')+'/'+d);list.appendChild(it);});
-  if(_bfile)(data.files||[]).forEach(f=>{const it=document.createElement('div');it.className='dir-item file';it.innerHTML=`<span>📄</span><span>${f}</span>`;it.onclick=()=>{document.getElementById(_bt).value=_bp.replace(/\/+$/,'')+'/'+f;closeBrowser();};list.appendChild(it);});
+  (data.dirs||[]).forEach(d=>{const it=document.createElement('div');it.className='dir-item';it.innerHTML=`<span>📁</span><span>${d}</span>`;it.onclick=()=>browseTo(_bp.replace(/[\\/]+$/,'')+'/'+d);list.appendChild(it);});
+  if(_bfile)(data.files||[]).forEach(f=>{const it=document.createElement('div');it.className='dir-item file';it.innerHTML=`<span>📄</span><span>${f}</span>`;it.onclick=()=>{document.getElementById(_bt).value=_bp.replace(/[\\/]+$/,'')+'/'+f;closeBrowser();};list.appendChild(it);});
 }
 function selectCurrent(){if(_bt)document.getElementById(_bt).value=_bp;closeBrowser();}
 document.getElementById('browserModal').addEventListener('click',e=>{if(e.target.id==='browserModal')closeBrowser();});
@@ -1008,7 +1008,7 @@ window.addEventListener('DOMContentLoaded',()=>{ try{ autoPollStatus(); }catch(_
 <script>
 /* Auto-fill folder paths from the hub project root (resets on project change). */
 (function(){
-  let last=null;const strip=s=>s.replace(/\/+$/,'');const set=(id,v)=>{const e=document.getElementById(id);if(e&&!e.value)e.value=v;};
+  let last=null;const strip=s=>s.replace(/[\\/]+$/,'');const set=(id,v)=>{const e=document.getElementById(id);if(e&&!e.value)e.value=v;};
   function det(){return (document.getElementById('det-waxs')?.classList.contains('active'))?'WAXS':'SAXS';}
   function apply(root){
     root=strip(root);const D=det();

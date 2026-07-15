@@ -2408,7 +2408,7 @@ function _openModal(id, fileMode, ext){
   document.getElementById('modal-bg').classList.add('open');
   const cur=document.getElementById(id).value.trim();
   // In file mode seed from parent dir if value already contains a file path
-  const seed=fileMode&&cur?String(cur).replace(/\/[^/]+\.poni$/i,''):cur;
+  const seed=fileMode&&cur?String(cur).replace(/[\\/][^\\/]+\.poni$/i,''):cur;
   fetchDir(seed||null);
 }
 function openBrowser(id)          { _openModal(id, false, ''); }
@@ -2526,7 +2526,7 @@ updBtns();
 /* Auto-fill folder paths from the hub project root (resets on project change). */
 (function(){
   let last=null;
-  const strip=s=>s.replace(/\/+$/,'');
+  const strip=s=>s.replace(/[\\/]+$/,'');
   const set=(id,v)=>{const e=document.getElementById(id); if(e) e.value=v;};
   function apply(root){
     root=strip(root);

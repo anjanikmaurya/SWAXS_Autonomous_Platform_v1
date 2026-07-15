@@ -20,8 +20,9 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent
-                       / "src" / "reactor" / "drivers"))
+_root = next(p for p in Path(__file__).resolve().parents
+             if (p / "src" / "reactor" / "drivers").is_dir())
+sys.path.insert(0, str(_root / "src" / "reactor" / "drivers"))
 import Py_P_Pump  # noqa: E402
 
 CANDIDATES = ["R0", "R1", "R2"]   # R0 = known pressure tare; R1/R2 = guesses

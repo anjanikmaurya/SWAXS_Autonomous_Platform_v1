@@ -1300,12 +1300,12 @@ async function loadBrowDir(path) {
   body.innerHTML = '';
   if (d.parent) body.appendChild(mkBrowItem('⬆', '.. (go up)', () => loadBrowDir(d.parent)));
   d.dirs.forEach(name => {
-    const full = d.path.replace(/\/$/, '') + '/' + name;
+    const full = d.path.replace(/[\\/]$/, '') + '/' + name;
     body.appendChild(mkBrowItem('📁', name, () => loadBrowDir(full)));
   });
   if (S.browMode === 'file') {
     d.files.forEach(name => {
-      const full = d.path.replace(/\/$/, '') + '/' + name;
+      const full = d.path.replace(/[\\/]$/, '') + '/' + name;
       body.appendChild(mkBrowItem('📄', name, () => {
         document.getElementById(S.browTarget).value = full;
         closeBrow();
@@ -1423,8 +1423,8 @@ function effectiveOutDir() {
   if (overrideBox) return overrideBox;
   const dataDir = document.getElementById('cfg-data-dir').value.trim();
   if (!dataDir) return '';
-  // Mimic Python: data_directory.parent / "1D"
-  const parent = dataDir.replace(/\/[^/]+\/?$/, '');
+  // Mimic Python: data_directory.parent / "1D" (handle both / and \ separators)
+  const parent = dataDir.replace(/[\\/][^\\/]+[\\/]?$/, '');
   return parent ? parent + '/1D' : '1D';
 }
 
@@ -1447,7 +1447,7 @@ window.addEventListener('DOMContentLoaded', () => {
 /* Auto-fill folder paths from the hub project root (resets on project change). */
 (function(){
   let last=null;
-  const strip=s=>s.replace(/\/+$/,'');
+  const strip=s=>s.replace(/[\\/]+$/,'');
   const set=(id,v)=>{const e=document.getElementById(id); if(e) e.value=v;};
   function apply(root){
     root=strip(root);

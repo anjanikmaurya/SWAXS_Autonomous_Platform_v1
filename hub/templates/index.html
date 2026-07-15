@@ -467,7 +467,7 @@ function updateBusBadge(connected) {
 
 // ── Rich event log (from WebSocket bus) ───────────────────────────────────
 function _base(fp) {
-  return fp ? String(fp).split('/').pop() : '?';
+  return fp ? String(fp).split(/[\\/]/).pop() : '?';
 }
 
 function _esc(s) {
@@ -602,13 +602,14 @@ async function browseTo(path) {
     });
   }
 
-  // Breadcrumb
-  const parts = data.current.split('/').filter(Boolean);
+  // Breadcrumb (handle both / and \ separators; keep Windows drive roots like C:)
+  const parts = String(data.current).replace(/\\/g, '/').split('/').filter(Boolean);
+  const isWin = /^[A-Za-z]:$/.test(parts[0] || '');
   const crumb = document.getElementById('pathCrumb');
   crumb.innerHTML = '';
   let acc = '';
   parts.forEach((p, i) => {
-    acc += '/' + p;
+    acc = (i === 0) ? (isWin ? p : '/' + p) : acc + '/' + p;
     const span = document.createElement('span');
     const captured = acc;
     if (i < parts.length - 1) {

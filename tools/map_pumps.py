@@ -18,8 +18,9 @@ from pathlib import Path
 
 from serial.tools import list_ports
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent
-                       / "src" / "reactor" / "drivers"))
+_root = next(p for p in Path(__file__).resolve().parents
+             if (p / "src" / "reactor" / "drivers").is_dir())
+sys.path.insert(0, str(_root / "src" / "reactor" / "drivers"))
 import Py_P_Pump  # noqa: E402
 
 ROLES = ["pd_top_precursor", "oleylamine", "top", "ode_dilution", "ode_flush"]

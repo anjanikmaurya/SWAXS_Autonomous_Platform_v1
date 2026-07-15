@@ -301,7 +301,7 @@ function saveResult(){
     .then(r=>r.json()).then(d=>{
       if(d.error){ document.getElementById('savedInfo').textContent='✗ '+d.error; return; }
       const s=d.saved||{};
-      document.getElementById('savedInfo').textContent='✓ Saved to '+(s.json||'').split('/').slice(-3).join('/')+(s.annotated?' · .dat annotated':'')+(s.analysis_id?' · registered in manifest':'');
+      document.getElementById('savedInfo').textContent='✓ Saved to '+(s.json||'').split(/[\\/]/).slice(-3).join('/')+(s.annotated?' · .dat annotated':'')+(s.analysis_id?' · registered in manifest':'');
     }).catch(e=>document.getElementById('savedInfo').textContent='✗ '+e.message);
 }
 let ATSAS_CHECKED=false;
@@ -345,10 +345,10 @@ function renderAtsas(tool,d){
   }
   const skip=new Set(['r','pr','raw','plot','out_file','models','tool']);
   let html=Object.entries(res).filter(([k,v])=>!skip.has(k) && (typeof v==='number'||typeof v==='string')).map(([k,v])=>`<tr><td>${k}</td><td>${typeof v==='number'?(+v).toPrecision(5):v}</td></tr>`).join('');
-  if(res.models) html+='<tr><td>models</td><td>'+res.models.map(m=>m.split('/').slice(-1)[0]).join(', ')+'</td></tr>';
+  if(res.models) html+='<tr><td>models</td><td>'+res.models.map(m=>m.split(/[\\/]/).slice(-1)[0]).join(', ')+'</td></tr>';
   document.getElementById('resTable').innerHTML=html||'<tr><td class="muted">no parsed values — see raw</td></tr>';
   document.getElementById('qcBadge').innerHTML=''; document.getElementById('qcWarn').innerHTML = res.raw?('<div class="muted" style="margin-top:8px;white-space:pre-wrap;font-family:var(--mono);font-size:var(--fs-xs);max-height:160px;overflow:auto">'+res.raw.replace(/[<>]/g,'')+'</div>'):'';
-  const s=d.saved; document.getElementById('savedInfo').textContent=s?('Saved to '+(s.json||'').split('/').slice(-3).join('/')+(s.annotated?' · .dat annotated':'')+(s.analysis_id?' · registered':'')):'';
+  const s=d.saved; document.getElementById('savedInfo').textContent=s?('Saved to '+(s.json||'').split(/[\\/]/).slice(-3).join('/')+(s.annotated?' · .dat annotated':'')+(s.analysis_id?' · registered':'')):'';
 }
 function loadModels(){
   fetch('/api/sasmodels/list').then(r=>r.json()).then(d=>{
@@ -434,7 +434,7 @@ function renderModelResult(d){
   document.getElementById('resTable').innerHTML=trs;
   const qc=d.qc; const badge=document.getElementById('qcBadge'); const warn=document.getElementById('qcWarn');
   if(qc){ badge.innerHTML=`<span class="badge ${qc.verdict}">${qc.verdict}</span>`; warn.innerHTML=(qc.warnings||[]).map(w=>`<div class="warn">⚠ ${w}</div>`).join(''); }
-  const s=d.saved; document.getElementById('savedInfo').textContent = s ? ('Saved to '+(s.json||'').split('/').slice(-3).join('/')+(s.annotated?' · source .dat annotated':'')+(s.analysis_id?' · registered':'')) : '';
+  const s=d.saved; document.getElementById('savedInfo').textContent = s ? ('Saved to '+(s.json||'').split(/[\\/]/).slice(-3).join('/')+(s.annotated?' · source .dat annotated':'')+(s.analysis_id?' · registered':'')) : '';
 }
 function runPeaks(){
   if(!CURRENT){ document.getElementById('peakStatus').textContent='Select a file first.'; return; }
@@ -462,7 +462,7 @@ function renderPeaks(d){
   document.getElementById('resTable').innerHTML=html;
   const qc=d.qc,badge=document.getElementById('qcBadge'),warn=document.getElementById('qcWarn');
   if(qc){ badge.innerHTML='<span class="badge '+qc.verdict+'">'+qc.verdict+'</span>'; warn.innerHTML=(qc.warnings||[]).map(w=>'<div class="warn">⚠ '+w+'</div>').join(''); }
-  const s=d.saved; document.getElementById('savedInfo').textContent = s ? ('Saved to '+(s.json||'').split('/').slice(-3).join('/')+(s.annotated?' · .dat annotated':'')+(s.analysis_id?' · registered':'')) : '';
+  const s=d.saved; document.getElementById('savedInfo').textContent = s ? ('Saved to '+(s.json||'').split(/[\\/]/).slice(-3).join('/')+(s.annotated?' · .dat annotated':'')+(s.analysis_id?' · registered':'')) : '';
 }
 function showTab(t){
   document.querySelectorAll('.toptab').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));
@@ -520,7 +520,7 @@ function renderResult(analysis, d){
   const qc=d.qc; const badge=document.getElementById('qcBadge'); const warn=document.getElementById('qcWarn');
   if(qc){ badge.innerHTML=`<span class="badge ${qc.verdict}">${qc.verdict}</span>`; warn.innerHTML=(qc.warnings||[]).map(w=>`<div class="warn">⚠ ${w}</div>`).join(''); }
   else { badge.innerHTML=''; warn.innerHTML=''; }
-  const s=d.saved; document.getElementById('savedInfo').textContent = s ? ('Saved to '+ (s.json||'').split('/').slice(-3).join('/') + (s.annotated?' · source .dat annotated':'') + (s.analysis_id?' · registered in manifest':'')) : '';
+  const s=d.saved; document.getElementById('savedInfo').textContent = s ? ('Saved to '+ (s.json||'').split(/[\\/]/).slice(-3).join('/') + (s.annotated?' · source .dat annotated':'') + (s.analysis_id?' · registered in manifest':'')) : '';
 }
 
 function plotFor(a, res){
@@ -577,7 +577,7 @@ function runBatch(){
       document.getElementById('batchStatus').textContent='✓ '+d.n_ok+' fitted, '+d.n_error+' errors';
       const rows=d.rows||[];
       document.getElementById('batchCard').style.display='block';
-      document.getElementById('batchSummary').textContent = d.summary ? ('summary: '+(d.summary.csv||'').split('/').slice(-1)[0]) : '';
+      document.getElementById('batchSummary').textContent = d.summary ? ('summary: '+(d.summary.csv||'').split(/[\\/]/).slice(-1)[0]) : '';
       if(!rows.length){ document.getElementById('batchTable').innerHTML='<tr><td>no results</td></tr>'; return; }
       const cols=[]; rows.forEach(r=>Object.keys(r).forEach(k=>{if(!cols.includes(k))cols.push(k);}));
       const head='<tr>'+cols.map(c=>'<th>'+c+'</th>').join('')+'</tr>';
