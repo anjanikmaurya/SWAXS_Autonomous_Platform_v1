@@ -80,6 +80,20 @@ def find_address(identifier: str | None = None):
     return ports[0] if ports else None
 
 
+def find_port_by_serial(serial):
+    """Return the COM/device path whose USB serial number matches ``serial``,
+    else None. Serial numbers are fixed per pump, so matching on them makes the
+    config portable across PCs (COM numbers differ machine-to-machine)."""
+    if not serial:
+        return None
+    want = str(serial).strip().lower()
+    for p in list_ports.comports():
+        sn = str(p.serial_number or "").strip().lower()
+        if sn and (sn == want or sn.rstrip("ab") == want or want in sn):
+            return p.device
+    return None
+
+
 class P_pump:
     """Driver for one Mitos P-Pump over a serial (COM) port."""
 

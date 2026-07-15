@@ -97,7 +97,8 @@ def main():
             com, serial = mapping[role]
             sensor, smin, smax = SENSOR_DEFAULTS[role]
             print(f"  {role}:")
-            print(f"    address:    \"{com}\"          # serial {serial}")
+            print(f"    serial:     \"{serial}\"       # matched first (portable across PCs)")
+            print(f"    address:    \"{com}\"          # fallback only")
             print(f"    sensor:     \"{sensor}\"")
             print(f"    sensor_min: {smin}")
             print(f"    max_flow:   {smax}")

@@ -156,8 +156,18 @@ class PumpBank:
             mn = float(pc.get("sensor_min", 0.0))
             pp = float(pc.get("max_pressure", pmax_global))
             if backend == "real":
+                addr = pc.get("address", "")
+                serial = str(pc.get("serial", "") or "")
+                if serial:   # prefer matching by serial (portable across PCs)
+                    from .drivers import Py_P_Pump
+                    found = Py_P_Pump.find_port_by_serial(serial)
+                    if found:
+                        addr = found
+                    else:
+                        print(f"[reactor] pump '{name}': serial {serial} not found on "
+                              f"any COM port; falling back to address {addr!r}")
                 try:
-                    self.pumps[name] = RealPump(name, pc.get("address", ""),
+                    self.pumps[name] = RealPump(name, addr,
                                                 int(pc.get("pump_id", 0)), mx, mn, pp)
                 except Exception:
                     # release any ports already opened before reporting
