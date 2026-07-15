@@ -99,9 +99,56 @@ POROD_QRANGE = (0.3, 1.9)
 RTOL = 1e-6
 ATOL = 1e-9
 
-pytest.importorskip("pyFAI")
-pytest.importorskip("fabio")
-pytest.importorskip("flask")
+import importlib
+
+# The full pipeline needs the REAL scientific libraries (pyFAI, which imports
+# scipy.ndimage; fabio; pandas; xraydb). Several sibling unit tests install
+# lightweight stand-in modules for these into ``sys.modules`` at import time,
+# and any ``src.*`` module first imported against those stubs caches the stub
+# references. In a full ``pytest`` run that would otherwise make this test
+# either *skip* (a stub scipy breaks pyFAI's import) or *fail* (a stub pandas/
+# fabio in the reduction path).
+#
+# This autouse fixture snapshots and removes every affected module, forces the
+# real libraries (and a fresh import of the ``src.*`` / ``background.*``
+# packages) for the duration of each test, then restores the snapshot so the
+# stub-based sibling tests are left exactly as they were.
+_REAL_DEPS = ("scipy", "pandas", "fabio", "pyFAI", "xraydb")
+
+
+def _is_affected(name: str) -> bool:
+    roots = _REAL_DEPS + ("src", "background")
+    return name in roots or any(name.startswith(r + ".") for r in roots)
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _real_scientific_libs():
+    # Module-scoped: swap the real libraries in once for the whole module. Some
+    # of them (e.g. silx, imported by pyFAI) register process-global state on
+    # import and raise if imported twice, so we must NOT re-import per test.
+    saved = {n: sys.modules[n] for n in list(sys.modules) if _is_affected(n)}
+
+    def _restore():
+        for n in [m for m in list(sys.modules) if _is_affected(m)]:
+            del sys.modules[n]
+        sys.modules.update(saved)
+
+    for n in saved:
+        del sys.modules[n]
+    try:
+        import scipy.ndimage  # noqa: F401
+        import scipy.optimize  # noqa: F401
+        import scipy.stats  # noqa: F401
+        for _dep in ("pandas", "fabio", "pyFAI", "xraydb", "flask"):
+            importlib.import_module(_dep)
+    except ImportError as exc:  # the real libraries are genuinely not installed
+        _restore()
+        pytest.skip(f"real scientific libraries unavailable: {exc}")
+
+    try:
+        yield
+    finally:
+        _restore()
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
