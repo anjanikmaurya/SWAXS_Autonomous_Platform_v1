@@ -30,6 +30,18 @@ from .recipe import Recipe, RecipeError, recipe_to_setpoints, validate
 
 STATES = ["idle", "arming", "running", "flushing", "ready", "estop"]
 
+RAMP_START_TEMP_C = 25.0    # assumed ambient start for ramp-mode arming
+
+
+def ramp_wait_seconds(t_final: float, rate_c_per_min: float,
+                      t_start: float = RAMP_START_TEMP_C) -> float:
+    """Seconds to ramp from ``t_start`` (default 25 °C) up to ``t_final`` at
+    ``rate_c_per_min`` °C/min: ``(t_final − t_start) / rate × 60``. Returns 0 if
+    the target is at/below the start or the rate is not positive."""
+    if rate_c_per_min and rate_c_per_min > 0 and t_final > t_start:
+        return (t_final - t_start) / rate_c_per_min * 60.0
+    return 0.0
+
 
 def _noop(*a, **k):
     return None
@@ -39,6 +51,7 @@ class ReactorController:
     def __init__(self, cfg: dict, backend: str = "mock", *,
                  log_cb=None, event_cb=None, feedback_cb=None, manifest_cb=None):
         self.cfg = cfg
+        self.backend = backend
         self.pumps = PumpBank(cfg, backend=backend)
         self.temp = TempController(cfg, backend=backend)
         self._log = log_cb or _noop
@@ -58,18 +71,22 @@ class ReactorController:
         self._run_deadline = 0.0
         self._arm_deadline = 0.0
         self._arm_mode = "temperature"   # active recipe's arming mode
-        self._arm_ready_at = 0.0         # when timed-arming completes
+        self._arm_ready_at = 0.0         # when timed/ramp arming completes
+        self._arm_total = 0.0            # full timed/ramp wait (s), for the UI bar
         self._flush_deadline = 0.0
         self._flush_kind = "flush"
         self._measure_done = False
-        self._stop_flag = False
         self._run_reason = ""
         self._meas_sum: dict = {}    # accumulates measured flow per pump during a run
         self._meas_n = 0             # number of samples accumulated
+        self._meas_series: list = []  # sampled per-pump flow trace over the run
+        self._meas_last_sample = 0.0  # time of the last trace sample
 
         run = cfg.get("run", {})
         self.default_duration = float(run.get("default_duration", 600.0))
         self.end_on_measurement = bool(run.get("end_on_measurement", True))
+        # how often (s) to sample the delivered-flow trace saved in the done file
+        self.meas_sample_s = float(run.get("log_interval_s", 2.0))
         # Autonomous loop: hold the current condition (steady flow) until the
         # next recipe is queued (e.g. a new param file lands), then advance.
         self.advance_on_new = bool(run.get("advance_on_new_file", False))
@@ -79,13 +96,16 @@ class ReactorController:
         # temperature (which come from the recipe / predicted folder file).
         # None = fall back to the config default.
         self.live_duration: float | None = None      # synthesis run duration (s)
-        self.live_arm_mode: str | None = None         # "temperature" | "timed"
+        self.live_arm_mode: str | None = None         # "temperature" | "timed" | "ramp"
         self.live_arm_wait: float | None = None        # timed-arming wait (s)
+        self.live_arm_ramp: float | None = None        # ramp-arming rate (°C/min)
         self.live_flush_rate: float | None = None      # flush rate (µL/min)
         self.live_flush_duration: float | None = None  # flush duration (s)
         arm = cfg.get("arming", {})
         self.default_arm_mode = str(arm.get("default_mode", "temperature")).lower()
         self.default_arm_wait = float(arm.get("default_wait_s", 120.0))
+        self.default_ramp_rate = float(arm.get("default_ramp_rate", 0.0) or 0.0)
+        self.ramp_start_temp = float(arm.get("start_temp_c", RAMP_START_TEMP_C))
         fl = cfg.get("flush", {})
         self.flush_rate = float(fl.get("rate", 100.0))
         self.flush_duration = float(fl.get("duration", 300.0))
@@ -209,9 +229,11 @@ class ReactorController:
         with self._lock:
             if "arm_mode" in d:
                 m = str(d.get("arm_mode") or "").lower()
-                self.live_arm_mode = m if m in ("temperature", "timed") else None
+                self.live_arm_mode = m if m in ("temperature", "timed", "ramp") else None
             if "arm_wait_s" in d:
                 self.live_arm_wait = num(d.get("arm_wait_s"))
+            if "arm_ramp_rate" in d:
+                self.live_arm_ramp = num(d.get("arm_ramp_rate"))
             if "flush_rate" in d:
                 self.live_flush_rate = num(d.get("flush_rate"))
             if "flush_duration" in d:
@@ -229,15 +251,6 @@ class ReactorController:
                 self._measure_done = True
                 self._run_reason = f"SAXS measurement complete{(' — ' + info) if info else ''}"
                 self._log(f"📈 measurement signal received — ending run", "ok")
-
-    def stop(self) -> bool:
-        """Operator manual stop of the running synthesis (→ flush)."""
-        with self._lock:
-            if self.state == "running":
-                self._stop_flag = True
-                self._run_reason = "manual stop"
-                return True
-        return False
 
     # ── abort / emergency ──────────────────────────────────────────────────────
     def abort(self) -> None:
@@ -273,6 +286,47 @@ class ReactorController:
                 self.state = "idle"
                 self._log("↺ reset to idle", "info")
 
+    def switch_backend(self, backend: str) -> tuple[bool, str]:
+        """Switch the hardware backend ('mock'|'real') live. Only allowed when
+        idle/ready/estop — never mid-run. Builds the new hardware FIRST and only
+        swaps it in if that succeeds, so a failed real-pump connection leaves the
+        current (working) backend untouched. Session-only: not persisted."""
+        backend = str(backend).lower()
+        if backend not in ("mock", "real"):
+            return False, f"unknown backend {backend!r}"
+        with self._lock:
+            if backend == self.backend:
+                return True, f"already {backend}"
+            if self.state not in ("idle", "ready", "estop"):
+                return False, f"can't switch backend while {self.state} — stop the run first"
+            try:
+                new_pumps = PumpBank(self.cfg, backend=backend)   # opens ports for 'real'
+            except Exception as exc:
+                self._log(f"⚠ backend stays {self.backend.upper()} — could not start "
+                          f"{backend.upper()}: {exc}", "error")
+                return False, str(exc)
+            # release the old backend's pumps, then swap in the new one
+            try:
+                self.pumps.idle_all()
+            except Exception:
+                pass
+            for p in self.pumps.pumps.values():
+                try:
+                    p.close()
+                except Exception:
+                    pass
+            self.pumps = new_pumps
+            self.temp = TempController(self.cfg, backend=backend)
+            self.backend = backend
+            self.state = "idle"
+            self.current = None
+            self.setpoints = {}
+            self._log(f"⚙ backend switched to {backend.upper()}"
+                      + (" — pumps are LIVE" if backend == "real" else " (simulation)"),
+                      "warn" if backend == "real" else "info")
+            self._event("reactor.backend", {"backend": backend})
+            return True, backend
+
     def vent_all(self) -> None:
         """Vent every pump so chamber pressure returns to 0, from ANY state and
         in either mode (manual or autonomous). Does NOT stop the autonomous loop
@@ -289,7 +343,7 @@ class ReactorController:
             self._log("🟦 vented all pumps — chamber pressure reset to 0", "info")
             self._event("reactor.vent", {})
 
-    # ── flush / prime ───────────────────────────────────────────────────────────
+    # ── flush ─────────────────────────────────────────────────────────────────
     def flush_now(self, rate: float | None = None, duration: float | None = None,
                   kind: str = "flush") -> bool:
         with self._lock:
@@ -297,9 +351,6 @@ class ReactorController:
                 self._enter_flush(rate, duration, kind=kind)
                 return True
         return False
-
-    def prime(self, rate: float | None = None, duration: float | None = None) -> bool:
-        return self.flush_now(rate, duration, kind="prime")
 
     # ── internal transitions (call with lock held) ─────────────────────────────
     def _begin_next(self) -> None:
@@ -310,21 +361,37 @@ class ReactorController:
         self.current = recipe
         self.setpoints = setpoints
         self._measure_done = False
-        self._stop_flag = False
         self._run_reason = ""
         self.temp.set_temperature(recipe.T_reac)   # recorded for display / gating
         self._arm_mode = (recipe.arm_mode or self.live_arm_mode or self.default_arm_mode).lower()
         now = time.time()
         self.state = "arming"
-        if self._arm_mode == "timed":
+        if self._arm_mode == "ramp":
+            rate = (recipe.arm_ramp_rate if recipe.arm_ramp_rate is not None
+                    else self.live_arm_ramp if self.live_arm_ramp is not None
+                    else self.default_ramp_rate)
+            wait = ramp_wait_seconds(recipe.T_reac, float(rate or 0.0), self.ramp_start_temp)
+            self._arm_total = float(wait)
+            self._arm_ready_at = now + float(wait)
+            self._arm_deadline = 0.0    # no temperature timeout in ramp mode
+            if rate and rate > 0:
+                self._log(f"📈 arming {recipe.recipe_id}: ramp {self.ramp_start_temp:g}→"
+                          f"{recipe.T_reac:g}°C at {float(rate):g}°C/min → wait "
+                          f"{float(wait):g}s before pumps start", "info")
+            else:
+                self._log(f"⚠ arming {recipe.recipe_id}: no positive ramp rate set — "
+                          f"pumps start immediately", "warn")
+        elif self._arm_mode == "timed":
             wait = (recipe.arm_wait_s if recipe.arm_wait_s is not None
                     else self.live_arm_wait if self.live_arm_wait is not None
                     else self.default_arm_wait)
+            self._arm_total = float(wait)
             self._arm_ready_at = now + float(wait)
             self._arm_deadline = 0.0    # no temperature timeout in timed mode
             self._log(f"⏲ arming {recipe.recipe_id}: timed wait {float(wait):g}s "
                       f"before pumps start (temperature gate off)", "info")
         else:
+            self._arm_total = 0.0
             self._arm_ready_at = 0.0
             self._arm_deadline = now + self.temp.timeout
             self._log(f"🌡 arming {recipe.recipe_id}: waiting for {recipe.T_reac:g}°C "
@@ -334,7 +401,9 @@ class ReactorController:
         self.pumps.set_all(self.setpoints)
         self._meas_sum = {name: 0.0 for name in self.pumps.pumps}
         self._meas_n = 0
+        self._meas_series = []
         self._run_started = time.time()
+        self._meas_last_sample = self._run_started
         dur = (self.current.run_duration or self.live_duration or self.default_duration)
         self._run_deadline = self._run_started + float(dur)
         self.state = "running"
@@ -371,7 +440,15 @@ class ReactorController:
         self._log(f"⏹ run {record['recipe_id']} ended ({reason})", "ok")
         try:
             self._manifest(record)
-            self._feedback(record["recipe_id"], record)
+            # the full delivered-flow trace goes ONLY in the done file (kept out
+            # of manifest.json / events to avoid bloat); appended at the bottom.
+            feedback_payload = {
+                **record,
+                "flow_series_note": (f"delivered flow (µL/min) per pump, sampled every "
+                                     f"{self.meas_sample_s:g}s over the synthesis run"),
+                "flow_series": self._meas_series,
+            }
+            self._feedback(record["recipe_id"], feedback_payload)
             self._event("reactor.run_complete", record)
         except Exception as exc:
             self._log(f"⚠ feedback/manifest error: {exc}", "warn")
@@ -439,9 +516,9 @@ class ReactorController:
             with self._lock:
                 self._safety_check()
                 if self.state == "arming":
-                    if self._arm_mode == "timed":
-                        # start the pumps once the fixed wait elapses; no
-                        # temperature gating and no arm timeout in this mode.
+                    if self._arm_mode in ("timed", "ramp"):
+                        # start the pumps once the computed wait elapses; no
+                        # temperature gating and no arm timeout in these modes.
                         if now >= self._arm_ready_at:
                             self._enter_running()
                     elif self.temp.is_stable():
@@ -455,7 +532,15 @@ class ReactorController:
                     for _nm, _p in self.pumps.pumps.items():
                         self._meas_sum[_nm] = self._meas_sum.get(_nm, 0.0) + getattr(_p, "actual", 0.0)
                     self._meas_n += 1
-                    if self._measure_done or self._stop_flag:
+                    # sample the delivered flow trace (saved to the done file)
+                    if now - self._meas_last_sample >= self.meas_sample_s:
+                        self._meas_last_sample = now
+                        self._meas_series.append({
+                            "t_s": round(now - self._run_started, 1),
+                            "flows": {nm: round(getattr(p, "actual", 0.0), 4)
+                                      for nm, p in self.pumps.pumps.items()},
+                        })
+                    if self._measure_done:
                         self._end_run(flush=True)
                     elif now > self._run_deadline:
                         # synthesis duration reached — applies to manual AND auto
@@ -510,13 +595,16 @@ class ReactorController:
             eff = self.live_duration or self.default_duration
             dur = ((self.current.run_duration or eff) if self.current else None)
             flush_left = round(self._flush_deadline - now, 1) if self.state == "flushing" else None
-            arm_left = (round(max(0.0, self._arm_ready_at - now), 1)
-                        if self.state == "arming" and self._arm_mode == "timed" else None)
+            _timed_arm = self.state == "arming" and self._arm_mode in ("timed", "ramp")
+            arm_left = round(max(0.0, self._arm_ready_at - now), 1) if _timed_arm else None
+            arm_total = round(self._arm_total, 1) if _timed_arm else None
             return {
                 "state": self.state,
+                "backend": self.backend,
                 "auto_run": self.auto_run,
                 "arm_mode": self._arm_mode if self.state == "arming" else None,
                 "arm_remaining_s": arm_left,
+                "arm_total_s": arm_total,
                 "pumps": self.pumps.state(),
                 "temperature": {"target": round(self.temp.target, 1),
                                 "current": round(self.temp.current, 1),

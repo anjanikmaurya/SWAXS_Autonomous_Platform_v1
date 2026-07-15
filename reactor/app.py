@@ -33,6 +33,7 @@ if str(_ROOT) not in sys.path:
 
 from src.reactor import load_config, ReactorController, RecipeError   # noqa: E402
 from src.reactor.recipe import parse_param_file                       # noqa: E402
+from src.reactor.intake import decide_intake                          # noqa: E402
 from src.manifest import update_manifest, add_reactor_run            # noqa: E402
 
 # ── Event bus (graceful degradation) ─────────────────────────────────────────
@@ -144,7 +145,12 @@ if _bus is not None:
 
 
 # ── recipes-folder watcher (backstop to the API) ─────────────────────────────
-_watch_seen: set = set()
+# A file is ingested only once it is STABLE (size+mtime unchanged across two
+# polls), so a recipe still being written by the ML pipeline is never parsed
+# mid-write and lost. Handled files are remembered by signature, so a corrected
+# re-write of the same filename is picked up again.
+_watch_handled: dict = {}    # path -> signature of the version already ingested/rejected
+_watch_lastsig: dict = {}    # path -> signature seen on the previous poll
 
 
 def _folder_watcher() -> None:
@@ -161,10 +167,22 @@ def _folder_watcher() -> None:
                 files = sorted(list(rdir.glob("*.dat")) + list(rdir.glob("*.txt"))
                                + list(rdir.glob("*.json")),
                                key=lambda p: p.stat().st_mtime)
+                present = set()
                 for f in files:
-                    if str(f) in _watch_seen:
+                    key = str(f)
+                    present.add(key)
+                    try:
+                        st = f.stat()
+                        sig = (st.st_size, st.st_mtime_ns)
+                    except OSError:
                         continue
-                    _watch_seen.add(str(f))
+                    action = decide_intake(key, sig, _watch_handled, _watch_lastsig)
+                    if action == "skip":
+                        continue
+                    if action == "wait":
+                        _watch_lastsig[key] = sig   # (new or still changing) re-check next poll
+                        continue
+                    # action == "go": file is stable and not yet handled
                     try:
                         text = f.read_text(encoding="utf-8")
                         if f.suffix.lower() == ".json":
@@ -177,10 +195,21 @@ def _folder_watcher() -> None:
                         # replace() (not rename()) overwrites an existing dest —
                         # rename() raises on Windows if done/<name> already exists.
                         f.replace(done / f.name)
+                        _watch_lastsig.pop(key, None)
+                        _watch_handled.pop(key, None)   # moved away; a re-drop is new
                     except RecipeError as e:
                         _emit(f"✗ rejected {f.name}: {e}", "error")
+                        _watch_handled[key] = sig       # genuinely bad — don't retry this version
+                        _watch_lastsig.pop(key, None)
                     except Exception as e:
                         _emit(f"⚠ {f.name}: {e}", "warn")
+                        _watch_handled[key] = sig       # stable but unreadable — don't loop
+                        _watch_lastsig.pop(key, None)
+                # forget state for files that have vanished (moved/deleted)
+                for k in [k for k in _watch_lastsig if k not in present]:
+                    _watch_lastsig.pop(k, None)
+                for k in [k for k in _watch_handled if k not in present]:
+                    _watch_handled.pop(k, None)
         except Exception:
             pass
         time.sleep(interval)
@@ -340,10 +369,6 @@ def _simple(fn):
 def api_start():   return _simple(_ctrl.start)
 
 
-@app.route("/api/stop", methods=["POST"])
-def api_stop():    return _simple(_ctrl.stop)
-
-
 @app.route("/api/abort", methods=["POST"])
 def api_abort():   _ctrl.abort();  return jsonify({"ok": True})
 
@@ -360,6 +385,13 @@ def api_reset():   _ctrl.reset();  return jsonify({"ok": True})
 def api_vent():    _ctrl.vent_all(); return jsonify({"ok": True})
 
 
+@app.route("/api/backend", methods=["POST"])
+def api_backend():
+    mode = str((request.get_json(silent=True) or {}).get("backend", "")).lower()
+    ok, msg = _ctrl.switch_backend(mode)
+    return jsonify({"ok": ok, "backend": _ctrl.backend, "error": None if ok else msg})
+
+
 @app.route("/api/start_now", methods=["POST"])
 def api_start_now():  _ctrl.start_now(); return jsonify({"ok": True})
 
@@ -374,14 +406,6 @@ def api_flush():
     b = request.get_json(silent=True) or {}
     rate = b.get("rate"); dur = b.get("duration")
     ok = _ctrl.flush_now(float(rate) if rate else None, float(dur) if dur else None)
-    return jsonify({"ok": ok})
-
-
-@app.route("/api/prime", methods=["POST"])
-def api_prime():
-    b = request.get_json(silent=True) or {}
-    rate = b.get("rate"); dur = b.get("duration")
-    ok = _ctrl.prime(float(rate) if rate else None, float(dur) if dur else None)
     return jsonify({"ok": ok})
 
 

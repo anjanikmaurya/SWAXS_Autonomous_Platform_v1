@@ -95,12 +95,30 @@ class RealPump:
         # (it exits control after ~30 s without a command).
         from .drivers import Py_P_Pump            # noqa: PLC0415
         try:
-            self._pump = Py_P_Pump.P_pump(address, name=name, pump_id=pump_id, verbose=False)
+            self._pump = Py_P_Pump.P_pump(address, name=name, pump_id=pump_id,
+                                          verbose=False, enter_remote=False)
         except Exception as exc:
             raise RuntimeError(
                 f"pump '{name}': could not open {address!r} ({exc}). "
                 f"Is the Dolomite GUI open, or is another program using {address}?"
             ) from exc
+        # A pump not in REMOTE control silently IGNORES flow commands, so the
+        # controller would command flow the pump never delivers. Require it, and
+        # release the port if we can't get it (rather than run blind).
+        try:
+            got_remote = self._pump.enter_remote()
+        except Exception as exc:
+            self.close()
+            raise RuntimeError(
+                f"pump '{name}': error entering REMOTE control on {address!r} ({exc})"
+            ) from exc
+        if not got_remote:
+            self.close()
+            raise RuntimeError(
+                f"pump '{name}': did not obtain REMOTE control on {address!r} — the "
+                f"pump would ignore flow commands. Check it isn't in local/manual "
+                f"mode or held by the Dolomite GUI."
+            )
 
     def close(self) -> None:
         try:

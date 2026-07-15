@@ -102,6 +102,11 @@ class _FakeSerialPump:
     """Stand-in for the vendored driver: read_status fails until .ok is set."""
     def __init__(self, *a, **k):
         self.ok = False
+        self.remote_ok = True
+        self.closed = False
+
+    def enter_remote(self):
+        return self.remote_ok
 
     def read_status(self):
         if not self.ok:
@@ -116,7 +121,22 @@ class _FakeSerialPump:
         pass
 
     def close(self):
-        pass
+        self.closed = True
+
+
+def test_realpump_requires_remote_control(monkeypatch):
+    created = {}
+
+    class _NoRemote(_FakeSerialPump):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            self.remote_ok = False
+            created["p"] = self
+
+    monkeypatch.setattr(Py_P_Pump, "P_pump", _NoRemote)
+    with pytest.raises(RuntimeError):
+        RealPump("p", "COM_FAKE", pump_id=0, max_flow=1000.0)
+    assert created["p"].closed is True        # port released, not left blind & locked
 
 
 def test_lost_pump_becomes_faulted_then_recovers(monkeypatch):
@@ -164,3 +184,143 @@ def test_real_bank_refuses_when_serial_missing(monkeypatch):
     cfg = {"pumps": {n: {"serial": "NOPE", "max_flow": 1000.0} for n in PUMP_NAMES}}
     with pytest.raises(RuntimeError):
         PumpBank(cfg, backend="real")               # never opens a wrong port
+
+
+# ── control-button cleanup (audit follow-up) ───────────────────────────────────
+
+def test_dead_stop_control_removed():
+    from src.reactor.controller import ReactorController
+    ctl = ReactorController({"pumps": {n: {"max_flow": 1000.0} for n in PUMP_NAMES}},
+                            backend="mock")
+    try:
+        assert not hasattr(ctl, "stop")     # dead duplicate of abort() removed
+        assert hasattr(ctl, "abort")        # the real end-run control stays
+    finally:
+        ctl.shutdown()
+
+
+def test_prime_removed_flush_still_works():
+    from src.reactor.controller import ReactorController
+    ctl = ReactorController({"pumps": {n: {"max_flow": 1000.0} for n in PUMP_NAMES}},
+                            backend="mock")
+    try:
+        assert not hasattr(ctl, "prime")                  # Prime removed per request
+        assert ctl.flush_now(rate=50, duration=30) is True
+        assert ctl.state == "flushing"
+    finally:
+        ctl.shutdown()
+
+
+# ── ramp-rate arming: wait computed from (T_reac − 25) / rate ──────────────────
+
+def test_ramp_wait_math():
+    from src.reactor.controller import ramp_wait_seconds
+    assert ramp_wait_seconds(300, 10) == (300 - 25) / 10 * 60      # 1650 s
+    assert ramp_wait_seconds(180, 5) == (180 - 25) / 5 * 60        # 1860 s
+    assert ramp_wait_seconds(20, 10) == 0.0                        # target ≤ start
+    assert ramp_wait_seconds(300, 0) == 0.0                        # no positive rate
+    assert ramp_wait_seconds(300, 10, t_start=50) == (300 - 50) / 10 * 60
+
+
+def test_controller_ramp_arming_uses_computed_wait():
+    import time
+    from src.reactor.controller import ReactorController
+    cfg = {"pumps": {n: {"max_flow": 1000.0} for n in PUMP_NAMES},
+           "bounds": {"T_reac": [180, 300], "F_tot": [40, 120],
+                      "x_each": [0, 0.3], "x_sum_max": 0.9}}
+    ctl = ReactorController(cfg, backend="mock")
+    try:
+        ctl.set_run_settings({"arm_mode": "ramp", "arm_ramp_rate": "10"})
+        ctl.submit({"T_reac": 245, "F_tot": 100, "x_ODE": 0.2, "x_TOP": 0.1, "x_oley": 0.1})
+        ctl.start()
+        time.sleep(0.3)
+        s = ctl.status()
+        assert s["state"] == "arming" and s["arm_mode"] == "ramp"
+        assert abs(s["arm_total_s"] - (245 - 25) / 10 * 60) < 2      # ≈ 1320 s
+    finally:
+        ctl.shutdown()
+
+
+def test_done_file_includes_flow_series_at_bottom():
+    import time
+    from src.reactor.controller import ReactorController
+    cap = {}
+    cfg = {"pumps": {n: {"max_flow": 1000.0} for n in PUMP_NAMES},
+           "bounds": {"T_reac": [180, 300], "F_tot": [40, 120],
+                      "x_each": [0, 0.3], "x_sum_max": 0.9},
+           "run": {"default_duration": 1.0, "log_interval_s": 0.2}}
+    ctl = ReactorController(cfg, backend="mock",
+                            feedback_cb=lambda rid, payload: cap.update({rid: payload}))
+    try:
+        ctl.set_run_settings({"arm_mode": "timed", "arm_wait_s": "0", "run_duration": "1"})
+        ctl.submit({"T_reac": 240, "F_tot": 80, "x_ODE": 0.2, "x_TOP": 0.1, "x_oley": 0.1})
+        ctl.start()
+        time.sleep(2.0)
+        assert cap, "no feedback (done) payload was produced"
+        payload = next(iter(cap.values()))
+        assert list(payload.keys())[-1] == "flow_series"     # appended at the bottom
+        assert len(payload["flow_series"]) >= 1
+        s0 = payload["flow_series"][0]
+        assert "t_s" in s0 and set(PUMP_NAMES) <= set(s0["flows"])
+    finally:
+        ctl.shutdown()
+
+
+def test_backend_switch_guards():
+    from src.reactor.controller import ReactorController
+    cfg = {"pumps": {n: {"max_flow": 1000.0} for n in PUMP_NAMES}}
+    ctl = ReactorController(cfg, backend="mock")
+    try:
+        assert ctl.backend == "mock"
+        assert ctl.switch_backend("mock") == (True, "already mock")
+        # real has no serial/hardware here → must fail and STAY on mock
+        ok, _ = ctl.switch_backend("real")
+        assert ok is False and ctl.backend == "mock"
+        assert ctl.status()["backend"] == "mock"
+        # never switch mid-run
+        ctl.state = "running"
+        ok, msg = ctl.switch_backend("real")
+        assert ok is False and "run" in msg.lower()
+    finally:
+        ctl.shutdown()
+
+
+def test_recipe_ramp_rate_must_be_positive():
+    from src.reactor.recipe import Recipe, RecipeError
+    with pytest.raises(RecipeError):
+        Recipe.from_dict({"T_reac": 240, "F_tot": 100, "x_ODE": 0.2, "x_TOP": 0.1,
+                          "x_oley": 0.1, "arm_mode": "ramp", "arm_ramp_rate": 0})
+
+
+# ── folder-watcher intake: no partial-write drops ──────────────────────────────
+
+def test_intake_waits_until_file_is_stable():
+    from src.reactor.intake import decide_intake
+    handled: dict = {}
+    last: dict = {}
+    k = "/recipes/cond.dat"
+    # first sight → wait (record signature)
+    assert decide_intake(k, (10, 111), handled, last) == "wait"
+    last[k] = (10, 111)
+    # still being written (signature changed) → wait
+    assert decide_intake(k, (20, 222), handled, last) == "wait"
+    last[k] = (20, 222)
+    # unchanged since previous poll → stable → go
+    assert decide_intake(k, (20, 222), handled, last) == "go"
+
+
+def test_intake_skips_already_handled_version():
+    from src.reactor.intake import decide_intake
+    k = "/recipes/cond.dat"
+    assert decide_intake(k, (20, 222), {k: (20, 222)}, {k: (20, 222)}) == "skip"
+
+
+def test_intake_reprocesses_a_corrected_rewrite():
+    from src.reactor.intake import decide_intake
+    # a bad version (20,222) was rejected earlier; a corrected rewrite has a new sig
+    handled = {"/recipes/cond.dat": (20, 222)}
+    last: dict = {}
+    k = "/recipes/cond.dat"
+    assert decide_intake(k, (30, 333), handled, last) == "wait"   # new sig, wait for stable
+    last[k] = (30, 333)
+    assert decide_intake(k, (30, 333), handled, last) == "go"     # then re-ingested
