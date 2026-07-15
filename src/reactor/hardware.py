@@ -81,7 +81,13 @@ class RealPump:
         self.state_code = 0      # 0 IDLE / 1 CONTROLLING / 2 TARE / 3 ERROR / 4 LEAK
         self.error_code = 0
         self.fault = False       # True when the pump reports ERROR state (3)
+        self.stale = False       # True when status polls keep failing (lost pump)
         self._poll_accum = 0.0   # seconds since last status poll (keepalive)
+        self._poll_fails = 0     # consecutive failed status polls
+        # after this many consecutive failed polls (~POLL_FAIL_LIMIT×3 s) the
+        # pump is treated as lost/hung and marked faulted so the controller's
+        # safety check E-stops instead of trusting stale, healthy-looking values.
+        self.POLL_FAIL_LIMIT = 3
         # ⟵ REAL DRIVER: open the serial connection to the Mitos P-pump.
         # The driver opens at 57600 8N1 and enters REMOTE control (A1) so the
         # pump accepts flow commands. Status is polled in tick() — that both
@@ -137,8 +143,16 @@ class RealPump:
                 self.state_code = st["state_code"]
                 self.error_code = st["error_code"]
                 self.fault = (st["state_code"] == 3)   # 3 = ERROR
+                self._poll_fails = 0
+                self.stale = False
             except Exception:
-                pass
+                # A lost/hung pump must NOT keep its last healthy readings: after
+                # a few consecutive failures, flag it faulted+stale so the
+                # controller trips a safety E-stop instead of trusting stale data.
+                self._poll_fails += 1
+                if self._poll_fails >= self.POLL_FAIL_LIMIT:
+                    self.stale = True
+                    self.fault = True
 
 
 class PumpBank:
@@ -150,25 +164,39 @@ class PumpBank:
         self.pumps: dict[str, object] = {}
         pumps_cfg = cfg.get("pumps", {})
         pmax_global = float(cfg.get("safety", {}).get("max_pressure", 10000.0))
+        used_addrs: dict[str, str] = {}   # resolved device path -> pump name
         for name in PUMP_NAMES:
             pc = pumps_cfg.get(name, {})
             mx = float(pc.get("max_flow", 1000.0))
             mn = float(pc.get("sensor_min", 0.0))
             pp = float(pc.get("max_pressure", pmax_global))
             if backend == "real":
-                addr = pc.get("address", "")
-                serial = str(pc.get("serial", "") or "")
-                if serial:   # prefer matching by serial (portable across PCs)
-                    from .drivers import Py_P_Pump
-                    found = Py_P_Pump.find_port_by_serial(serial)
-                    if found:
-                        addr = found
-                    else:
-                        print(f"[reactor] pump '{name}': serial {serial} not found on "
-                              f"any COM port; falling back to address {addr!r}")
                 try:
+                    addr = pc.get("address", "")
+                    serial = str(pc.get("serial", "") or "")
+                    if serial:   # match by serial (portable across PCs)
+                        from .drivers import Py_P_Pump
+                        # may raise if the serial matches more than one port
+                        found = Py_P_Pump.find_port_by_serial(serial)
+                        if not found:
+                            # Do NOT fall back to a stale COM number — on another
+                            # PC that port likely belongs to a *different* pump,
+                            # which would drive reagents through the wrong line.
+                            raise RuntimeError(
+                                f"pump '{name}': configured serial {serial!r} not "
+                                f"found on any COM port. Refusing to start on a "
+                                f"possibly-wrong port — check the pump is connected "
+                                f"and the Dolomite GUI is closed, or re-map serials "
+                                f"with tools/map_pumps.py.")
+                        addr = found
+                    if addr in used_addrs:
+                        raise RuntimeError(
+                            f"pump '{name}' resolved to {addr!r}, already used by "
+                            f"pump '{used_addrs[addr]}'. Two pumps cannot share a "
+                            f"port — check the serial/address config.")
                     self.pumps[name] = RealPump(name, addr,
                                                 int(pc.get("pump_id", 0)), mx, mn, pp)
+                    used_addrs[addr] = name
                 except Exception:
                     # release any ports already opened before reporting
                     for p in self.pumps.values():
@@ -204,12 +232,32 @@ class PumpBank:
         for name in self.pumps:
             self.set_pump_flow(name, float(setpoints.get(name, 0.0)))
 
-    def idle_all(self) -> None:
+    def idle_all(self) -> list[str]:
+        """Idle / vent every pump. Each pump is guarded independently so one
+        failed serial port can NEVER prevent the others from being idled — this
+        is on the emergency-stop path. Returns the names of any pumps that could
+        not be idled (so the caller can surface the failure loudly)."""
+        failed: list[str] = []
         for name, p in self.pumps.items():
-            if isinstance(p, RealPump):
-                p.idle_now()
-            else:
-                p.set_flow(0.0)
+            try:
+                if isinstance(p, RealPump):
+                    p.idle_now()
+                else:
+                    p.set_flow(0.0)
+            except Exception:
+                failed.append(name)
+        return failed
+
+    def zero_pumps(self, names) -> list[str]:
+        """Set the named pumps to 0 µL/min, guarding each independently so one
+        failed write can't leave the others still flowing. Returns failed names."""
+        failed: list[str] = []
+        for name in names:
+            try:
+                self.set_pump_flow(name, 0.0)
+            except Exception:
+                failed.append(name)
+        return failed
 
     def tick(self, dt: float) -> None:
         for p in self.pumps.values():
@@ -222,6 +270,7 @@ class PumpBank:
                        "max_pressure": getattr(p, "max_pressure", 0.0),
                        "idle": p.idle,
                        "fault": bool(getattr(p, "fault", False)),
+                       "stale": bool(getattr(p, "stale", False)),
                        "state_code": int(getattr(p, "state_code", 0))}
                 for name, p in self.pumps.items()}
 

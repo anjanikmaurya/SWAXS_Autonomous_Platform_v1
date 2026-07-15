@@ -252,12 +252,19 @@ class ReactorController:
 
     def estop(self) -> None:
         with self._lock:
-            self.pumps.idle_all()
-            self.temp.set_temperature(0.0)
+            # Record the E-stop FIRST: even if a serial write below throws, the
+            # system must not be left without the estop state (and _safety_check
+            # must see it to stop re-entering).
             self.state = "estop"
             self.current = None
-            self._log("🛑 EMERGENCY STOP — all pumps idle", "error")
-            self._event("reactor.estop", {})
+            failed = self.pumps.idle_all()   # guarded per-pump; never blocks on one
+            self.temp.set_temperature(0.0)
+            if failed:
+                self._log(f"🛑 EMERGENCY STOP — but could NOT idle: {', '.join(failed)} "
+                          f"— CHECK THESE PUMPS/PORTS IMMEDIATELY", "error")
+            else:
+                self._log("🛑 EMERGENCY STOP — all pumps idle", "error")
+            self._event("reactor.estop", {"failed_to_idle": failed})
 
     def reset(self) -> None:
         with self._lock:
@@ -272,11 +279,13 @@ class ReactorController:
         — auto-run is left as-is, so the next condition file will run normally.
         The queue is kept."""
         with self._lock:
-            self.pumps.idle_all()          # P0 to every pump → chamber → 0
+            failed = self.pumps.idle_all()   # P0 to every pump → chamber → 0
             self.temp.set_temperature(0.0)
             self.current = None
             self.setpoints = {}
             self.state = "idle"
+            if failed:
+                self._log(f"⚠ vent: could not idle {', '.join(failed)} — check these pumps", "warn")
             self._log("🟦 vented all pumps — chamber pressure reset to 0", "info")
             self._event("reactor.vent", {})
 
@@ -339,9 +348,11 @@ class ReactorController:
         rec = self.current
         ended = time.time()
         reason = self._run_reason or "ended"
-        # stop reagents immediately
-        for p in REAGENT_PUMPS:
-            self.pumps.set_pump_flow(p, 0.0)
+        # stop reagents immediately (guarded per-pump so one failure can't leave
+        # the others flowing)
+        failed = self.pumps.zero_pumps(REAGENT_PUMPS)
+        if failed:
+            self._log(f"⚠ could not zero reagent pump(s): {', '.join(failed)} — check them", "warn")
         # mean measured flow per pump over the run (from the flow sensors)
         measured = ({nm: round(self._meas_sum.get(nm, 0.0) / self._meas_n, 4)
                      for nm in self._meas_sum} if self._meas_n
@@ -379,8 +390,9 @@ class ReactorController:
                   (self.current.flush_duration if self.current and self.current.flush_duration
                    else self.live_flush_duration if self.live_flush_duration is not None
                    else self.flush_duration))
-        for p in REAGENT_PUMPS:                 # zero the 4 reagent pumps first
-            self.pumps.set_pump_flow(p, 0.0)
+        failed = self.pumps.zero_pumps(REAGENT_PUMPS)   # zero the 4 reagent pumps first
+        if failed:
+            self._log(f"⚠ could not zero reagent pump(s): {', '.join(failed)} — check them", "warn")
         self.pumps.set_pump_flow(FLUSH_PUMP, r)
         self.state = "flushing"
         self._flush_kind = kind
@@ -404,7 +416,9 @@ class ReactorController:
             self._log("💤 no more conditions — pumps idled, waiting for next", "info")
 
     def _to_idle(self) -> None:
-        self.pumps.idle_all()
+        failed = self.pumps.idle_all()
+        if failed:
+            self._log(f"⚠ could not idle {', '.join(failed)} — check these pumps", "warn")
         self.state = "idle"
         self.current = None
         self.setpoints = {}
@@ -415,9 +429,14 @@ class ReactorController:
             now = time.time()
             dt = now - self._last
             self._last = now
+            # Poll hardware OUTSIDE the controller lock: pumps.tick() does
+            # blocking serial I/O and must not delay an operator estop()/abort()/
+            # stop() that is waiting on the lock. The driver serializes per-pump
+            # serial access with its own lock, so a concurrent set_flow/idle is
+            # safe; the loop thread is the only writer of the cached readings.
+            self.pumps.tick(dt)
+            self.temp.tick(dt)
             with self._lock:
-                self.pumps.tick(dt)
-                self.temp.tick(dt)
                 self._safety_check()
                 if self.state == "arming":
                     if self._arm_mode == "timed":
@@ -457,12 +476,12 @@ class ReactorController:
         # A pump reporting ERROR state (3) while we're trying to run/arm — e.g.
         # low air supply, blockage, or flow-sensor loss — trips the E-stop so it
         # can't silently deliver the wrong (or no) flow.
-        if self.state in ("arming", "running"):
+        if self.state in ("arming", "running", "flushing"):
             faulted = [n for n, p in self.pumps.pumps.items()
                        if getattr(p, "fault", False)]
             if faulted:
-                self._log(f"🛑 SAFETY: pump(s) {', '.join(faulted)} in ERROR state "
-                          f"(check air supply / blockage / flow sensor) — emergency stop",
+                self._log(f"🛑 SAFETY: pump(s) {', '.join(faulted)} in ERROR/lost state "
+                          f"(check air supply / blockage / flow sensor / connection) — emergency stop",
                           "error")
                 self.estop()
                 return

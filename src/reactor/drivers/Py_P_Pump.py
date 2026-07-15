@@ -83,15 +83,30 @@ def find_address(identifier: str | None = None):
 def find_port_by_serial(serial):
     """Return the COM/device path whose USB serial number matches ``serial``,
     else None. Serial numbers are fixed per pump, so matching on them makes the
-    config portable across PCs (COM numbers differ machine-to-machine)."""
+    config portable across PCs (COM numbers differ machine-to-machine).
+
+    Matching is exact, apart from tolerating a trailing FTDI channel letter
+    ('a'/'b') on dual-port adapters. A loose substring match is deliberately NOT
+    used — routing reagent-flow commands to the wrong physical pump because one
+    serial happened to be a substring of another would be a safety hazard.
+
+    Raises ``RuntimeError`` if more than one connected port matches, so the
+    caller can refuse to start rather than silently pick one.
+    """
     if not serial:
         return None
     want = str(serial).strip().lower()
+    matches = []
     for p in list_ports.comports():
         sn = str(p.serial_number or "").strip().lower()
-        if sn and (sn == want or sn.rstrip("ab") == want or want in sn):
-            return p.device
-    return None
+        if sn and (sn == want or sn.rstrip("ab") == want):
+            matches.append(p.device)
+    matches = sorted(set(matches))
+    if len(matches) > 1:
+        raise RuntimeError(
+            f"serial {serial!r} matches multiple ports {matches}; "
+            f"use a more specific serial in the reactor config")
+    return matches[0] if matches else None
 
 
 class P_pump:
@@ -113,7 +128,15 @@ class P_pump:
         time.sleep(0.2)
         self.remote = False
         if enter_remote:
-            self.enter_remote()
+            try:
+                self.enter_remote()
+            except Exception:
+                # don't leak the open port (it would stay locked on Windows)
+                try:
+                    self.ser.close()
+                except Exception:
+                    pass
+                raise
 
     # ── low-level command / response ────────────────────────────────────────
     def _cmd(self, cmd: str) -> str:
