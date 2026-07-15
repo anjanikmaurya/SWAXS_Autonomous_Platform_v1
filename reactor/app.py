@@ -356,6 +356,14 @@ def api_estop():   _ctrl.estop();  return jsonify({"ok": True})
 def api_reset():   _ctrl.reset();  return jsonify({"ok": True})
 
 
+@app.route("/api/vent", methods=["POST"])
+def api_vent():    _ctrl.vent_all(); return jsonify({"ok": True})
+
+
+@app.route("/api/start_now", methods=["POST"])
+def api_start_now():  _ctrl.start_now(); return jsonify({"ok": True})
+
+
 @app.route("/api/queue/clear", methods=["POST"])
 def api_queue_clear():
     return jsonify({"ok": True, "cleared": _ctrl.clear_queue()})

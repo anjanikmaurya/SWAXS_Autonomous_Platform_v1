@@ -137,14 +137,14 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
 
     <div class="card">
       <div class="card-hd">▶ Controls</div>
+      <div class="muted" id="armMsg" style="margin-bottom:6px"></div>
       <div class="btn-row">
-        <button class="btn btn-ok"   id="b-start" onclick="post('/api/start')">Start</button>
-        <button class="btn btn-warn"  id="b-stop"  onclick="post('/api/stop')">Stop</button>
-        <button class="btn btn-ghost" onclick="post('/api/abort')">Abort → flush</button>
+        <button class="btn btn-ok"   id="b-start" onclick="startClicked()">Start</button>
+        <button class="btn btn-warn"  id="b-stop"  onclick="post('/api/abort')">■ Stop → flush</button>
         <button class="btn btn-ghost" onclick="doFlush('/api/flush')">Flush now</button>
-        <button class="btn btn-ghost" onclick="doFlush('/api/prime')">Prime lines</button>
         <button class="btn btn-ghost" onclick="post('/api/reset')">Reset</button>
       </div>
+      <button class="btn btn-warn" style="width:100%;margin-top:6px" onclick="post('/api/vent')">🟦 Vent all pumps — chamber pressure → 0</button>
       <button class="btn btn-err estop-btn" onclick="post('/api/estop')">🛑 EMERGENCY STOP</button>
     </div>
 
@@ -283,8 +283,9 @@ function armModeChange(){
     : 'Pumps start only once the reactor reaches T_reac (needs a wired temperature reading).';
   pushRunSettings();
 }
-let _autoOn=false;
+let _autoOn=false, _uiState='';
 async function toggleAuto(){await api('/api/auto_run',{on:!_autoOn});}
+function startClicked(){ post(_uiState==='arming' ? '/api/start_now' : '/api/start'); }
 async function pushRunSettings(){
   const mode=document.querySelector('input[name="arm_mode"]:checked');
   await api('/api/run_settings',{
@@ -459,8 +460,19 @@ function render(st){
   $('s-runs').textContent=st.runs_completed;
   $('s-queue').innerHTML=st.queue.length?st.queue.map(q=>`<span class="chip">${q}</span>`).join(''):'<span class="muted">empty</span>';
   // disable start when busy
-  $('b-start').disabled=!(st.state==='idle'||st.state==='ready')||!st.queue.length;
-  $('b-stop').disabled=st.state!=='running';
+  _uiState=st.state;
+  const _ba=$('b-start');
+  if(st.state==='arming'){
+    _ba.textContent='⏩ Start pumps now'; _ba.disabled=false;
+    const left=(st.arm_remaining_s!=null)?fmtDur(st.arm_remaining_s):null;
+    $('armMsg').textContent = left
+      ? `Arming — pumps start in ${left} (or click “Start pumps now” to skip the wait).`
+      : `Arming — waiting to reach temperature before pumps start.`;
+  } else {
+    _ba.textContent='Start'; _ba.disabled=!(st.state==='idle'||st.state==='ready')||!st.queue.length;
+    $('armMsg').textContent='';
+  }
+  $('b-stop').disabled=!['arming','running','flushing'].includes(st.state);
 }
 function logLines(lines){const box=$('log');const c={ok:'var(--ok)',error:'var(--err)',warn:'var(--warn)',info:'var(--muted)'};
   lines.forEach(l=>{const d=document.createElement('div');d.style.color=c[l.tag]||'var(--text)';

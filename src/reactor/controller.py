@@ -125,6 +125,15 @@ class ReactorController:
                 return True
         return False
 
+    def start_now(self) -> bool:
+        """Skip the remaining arming wait and start the pumps immediately."""
+        with self._lock:
+            if self.state == "arming":
+                self._log("⏩ arming skipped — starting pumps now", "info")
+                self._enter_running()
+                return True
+        return False
+
     def pump_limits(self) -> dict:
         """Current per-pump {sensor_min, max_flow} (µL/min)."""
         return {name: {"sensor_min": p.sensor_min, "max_flow": p.max_flow}
@@ -256,6 +265,20 @@ class ReactorController:
                 self.pumps.idle_all()
                 self.state = "idle"
                 self._log("↺ reset to idle", "info")
+
+    def vent_all(self) -> None:
+        """Vent every pump so chamber pressure returns to 0, from ANY state and
+        in either mode (manual or autonomous). Does NOT stop the autonomous loop
+        — auto-run is left as-is, so the next condition file will run normally.
+        The queue is kept."""
+        with self._lock:
+            self.pumps.idle_all()          # P0 to every pump → chamber → 0
+            self.temp.set_temperature(0.0)
+            self.current = None
+            self.setpoints = {}
+            self.state = "idle"
+            self._log("🟦 vented all pumps — chamber pressure reset to 0", "info")
+            self._event("reactor.vent", {})
 
     # ── flush / prime ───────────────────────────────────────────────────────────
     def flush_now(self, rate: float | None = None, duration: float | None = None,
