@@ -25,6 +25,13 @@ cd C:\path\to\SWAXS_Autonomous_Platform_v1
 :: if using a fresh env:  pip install pyyaml requests
 ```
 
+> **One SPEC client at a time.** The tools and the reactor app both take SPEC
+> remote control and fire `ct`. SPEC is single-threaded, so running a tool *and*
+> the reactor app against the **real** backend simultaneously makes them fight
+> over control and muddies the readings. While script-testing on real hardware,
+> **stop the reactor app** (or switch it to the **Mock** backend) so the script is
+> the sole SPEC client. Reopen / switch back to Real when you're done.
+
 Run every tool with `python` (not `uv`) and Windows backslash paths, e.g.:
 ```bat
 python tools\beamline_read_test.py --mock
