@@ -1,0 +1,23 @@
+###### Autopilot single-shot collection — FLAT template for "commands" mode.
+###### Every line is a plain SPEC ACTION command (no `sample =` / `n_images =`
+###### variable assignments, no eval(sprintf)) because those don't run reliably
+###### through the interactive execute_command path — only qdo'ing a file does.
+###### The reactor substitutes the values directly into each command:
+######   {{sample}}      -> "<recipe_id>_<sample|bkg keyword>"  (newfile prefix)
+######   {{frames}}      -> number of frames
+######   {{exposure}}    -> exposure s/frame
+######   {{main_folder}} -> spec.data_dir (base that holds 2D/SAXS)
+###### Produces exactly the commands your Singlesnapshot.txt runs, values inlined.
+
+pd stop
+u mkdir -p {{main_folder}}/2D/SAXS
+cd {{main_folder}}/2D
+pd savepath '{{main_folder}}/2D/SAXS'
+newfile {{sample}}
+pd enable
+pd save
+sopen
+loopscan {{frames}} {{exposure}} 0
+sclose
+pd nosave
+pd disable

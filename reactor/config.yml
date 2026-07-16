@@ -112,7 +112,7 @@ spec:
   # The macro owns exposure/frames/detector setup; the reactor substitutes these
   # {{token}} markers before sending: {{sample}} {{main_folder}} {{path}}
   # {{recipe_id}} {{temperature}} {{exposure}} {{frames}}.
-  macro_file:     "reactor/macros/Singlesnapshot.template.txt"   # collection macro template (.txt); blank = named-cmd mode
+  macro_file:     "reactor/macros/Singlesnapshot.flat.template.txt"   # FLAT (no-variable) macro for commands mode; blank = named-cmd mode
   # collect_mode: how the filled macro reaches SPEC —
   #   "commands" (DEFAULT, robust): stream the macro's lines to SPEC one-by-one
   #              via the bServer. No file is written; SPEC does its own file I/O

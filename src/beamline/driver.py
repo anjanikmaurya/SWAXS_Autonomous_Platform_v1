@@ -54,6 +54,7 @@ _DEFAULTS = {
     "newfile_cmd": "newfile {path}",                # sets save dir + prefix (named-cmd mode)
     "collect_cmd": "ct {exposure}",                 # 2D acquisition (named-cmd mode)
     "read_during_collect": False,                   # True → keep polling counters DURING a collection
+    "cmd_wait_s": 600.0,                             # max wait for SPEC-not-busy between streamed macro lines
     "http_timeout_s": 10.0,
 }
 
@@ -268,6 +269,7 @@ class SpecBeamline(BeamlineDriver):
         self._requests = requests
         self._base = self.cfg["base_url"]
         self._to = float(self.cfg["http_timeout_s"])
+        self._cmd_wait_s = float(self.cfg.get("cmd_wait_s", 600.0))
         self._have_control = False
 
     def _sis(self, command: str, **params):
@@ -341,8 +343,13 @@ class SpecBeamline(BeamlineDriver):
             # commands mode (default): stream the rendered macro to SPEC line-by-line.
             # No file is written anywhere — works even if SPEC is a different host,
             # because SPEC does its own file I/O via the paths inside the macro.
+            # NOTE: use a FLAT macro (inlined values, plain action commands) — SPEC
+            # variable assignments / eval(sprintf) don't run reliably through the
+            # interactive execute_command path. Wait for SPEC between lines so each
+            # command finishes before the next (mirrors MSD.wait_until_SPECfinished).
             for line in macro_command_lines(render_macro(Path(macro_file).read_text(), p)):
                 self._cmd(line)
+                self._wait(timeout=self._cmd_wait_s)
         else:
             # named-command mode: newfile then the collect command
             if p.get("path"):
