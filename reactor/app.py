@@ -127,6 +127,9 @@ except Exception as exc:
           "the pump COM ports, then restart.\n", file=sys.stderr)
     sys.exit(1)
 _emit(f"Flow Synthesis ready — backend={_BACKEND}", "ok")
+# On exit, hand the rig back: idle pumps, close shutter, release SPEC control.
+import atexit as _atexit                                             # noqa: E402
+_atexit.register(lambda: _ctrl.shutdown())
 # Seed the SPEC save folder from the hub's project folder (only if config left it
 # blank). The user can still override it in the Data-collection card.
 if _project_root:

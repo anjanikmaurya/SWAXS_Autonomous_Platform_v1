@@ -754,4 +754,20 @@ class ReactorController:
             }
 
     def shutdown(self) -> None:
+        """Stop the control loop and leave the rig safe for the next user:
+        idle the pumps, close the shutter (if not mid-collection), and RELEASE
+        SPEC remote control so beamline staff can drive SPEC again afterward."""
         self._alive = False
+        try:
+            self.pumps.idle_all()
+        except Exception:
+            pass
+        try:
+            if not self.beamline.is_collecting():   # never interrupt a live acquisition
+                self.beamline.close_shutter()
+        except Exception:
+            pass
+        try:
+            self.beamline.close()                   # release_remote_control (if held)
+        except Exception:
+            pass
