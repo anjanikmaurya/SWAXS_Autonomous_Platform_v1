@@ -309,7 +309,9 @@ class ReactorController:
             self.state = "estop"
             self.current = None
             failed = self.pumps.idle_all()   # guarded per-pump; never blocks on one
-            self.temp.set_temperature(0.0)
+            # PUMPS ONLY: deliberately send NOTHING to the beamline/SPEC here, so
+            # an in-progress X-ray collection finishes on its own and SPEC is not
+            # disturbed. Temperature is left exactly as-is.
             if failed:
                 self._log(f"🛑 EMERGENCY STOP — but could NOT idle: {', '.join(failed)} "
                           f"— CHECK THESE PUMPS/PORTS IMMEDIATELY", "error")
@@ -354,7 +356,9 @@ class ReactorController:
                 except Exception:
                     pass
             self.pumps = new_pumps
-            self.temp = TempController(self.cfg, backend=backend)
+            # keep the beamline wired to temperature — the pump backend toggle
+            # switches PUMPS only; the beamline (SPEC) backend is set in config.
+            self.temp = TempController(self.cfg, backend=backend, beamline=self.beamline)
             self.backend = backend
             self.state = "idle"
             self.current = None
@@ -547,7 +551,6 @@ class ReactorController:
         subtraction pairs them by the shared recipe_id. Runs in its own thread —
         blocking SPEC I/O must not stall the control loop."""
         try:
-            self.beamline.take_control()
             tag = self._spec_sample_tag if role == "sample" else self._spec_bkg_tag
             prefix = f"{recipe_id}_{tag}"
             path = (f"{self._spec_data_dir.rstrip('/')}/{prefix}"
@@ -698,7 +701,8 @@ class ReactorController:
                 "spec": {"enabled": self._spec_enabled, "exposure_s": self._spec_exposure,
                          "frames": self._spec_frames, "spec_lead_s": self._spec_lead,
                          "sample_tag": self._spec_sample_tag, "bkg_tag": self._spec_bkg_tag,
-                         "data_dir": self._spec_data_dir},
+                         "data_dir": self._spec_data_dir,
+                         "collecting": self.beamline.is_collecting()},
                 "current_recipe": self.current.to_dict() if self.current else None,
                 "elapsed_s": elapsed, "duration_s": dur,
                 "run_duration_setting": self.live_duration or self.default_duration,

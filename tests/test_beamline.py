@@ -119,6 +119,23 @@ def test_read_during_collect_keeps_polling():
     time.sleep(0.5)
 
 
+def test_backend_switch_keeps_beamline_wired(monkeypatch):
+    from src.reactor import controller as C
+    from src.reactor.hardware import PumpBank
+    ctl = _controller({"backend": "mock"})
+    try:
+        bl = ctl.beamline
+        # make a 'real' switch succeed with no hardware (build a mock bank instead)
+        monkeypatch.setattr(C, "PumpBank", lambda cfg, backend="mock": PumpBank(cfg, backend="mock"))
+        ok, _ = ctl.switch_backend("real")
+        assert ok is True and ctl.backend == "real"
+        assert ctl.temp.beamline is bl          # temperature still commands/reads via the beamline
+        ctl.temp.set_temperature(210)
+        assert bl._target == 210                 # proves the wiring survived the switch
+    finally:
+        ctl.shutdown()
+
+
 def test_spec_can_be_disabled():
     ctl = _controller({"backend": "mock", "enabled": False, "spec_lead_s": 1.0,
                        "mock_ramp_c_per_s": 200.0})
