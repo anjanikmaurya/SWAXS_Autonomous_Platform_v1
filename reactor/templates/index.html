@@ -223,7 +223,8 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
       <div class="card-hd">🌡 Reactor temperature</div>
       <div class="temp-big"><span id="t-cur">—</span> <span class="temp-sub">/ target <span id="t-tgt">—</span> °C</span></div>
       <div class="temp-sub" id="t-stable"></div>
-      <div class="muted" style="margin-top:4px">Gate-only — this app does not drive the heater.</div>
+      <div class="temp-sub" id="t-bstop" style="margin-top:4px"></div>
+      <div class="muted" style="margin-top:4px">Ramps to the recipe temperature (SPEC) and gates the pumps until it's reached.</div>
     </div>
   </div>
 
@@ -241,6 +242,14 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
       <canvas id="pressChart" style="width:100%;height:190px;display:block"></canvas>
       <div id="pressLegend" style="margin-top:8px;line-height:2"></div>
       <div class="muted" style="margin-top:4px">Rolling 10-min window. Exceeding a pump's ceiling trips the emergency stop.</div>
+    </div>
+
+    <div class="card">
+      <div class="card-hd" style="display:flex;align-items:center;justify-content:space-between">🔦 Beamline — temperature / bstop / I₀ — live
+        <span id="collectBadge" style="display:none;font-size:var(--fs-xs);font-weight:700;padding:2px 10px;border-radius:999px;background:#3a2020;color:#f0a6ab"></span></div>
+      <canvas id="blChart" style="width:100%;height:190px;display:block"></canvas>
+      <div id="blLegend" style="margin-top:8px;line-height:2"></div>
+      <div class="muted" style="margin-top:4px">Temperature (left axis) with bstop &amp; I₀ counts (right axis). Dashed 📷 markers show when a SPEC 2D collection was triggered.</div>
     </div>
 
     <div class="card">
@@ -393,6 +402,9 @@ const HIST={};                 // name -> {flow:[[t,v]], press:[[t,v]], tflow:[[
 const STATE=[];                // [[t, state], ...] — reactor phase over time
 const PHASE={running:{c:'#2E7D32',label:'synthesis'},flushing:{c:'#6A1B9A',label:'flush'},
              arming:{c:'#E65100',label:'arming'},estop:{c:'#e5534b',label:'E-STOP'}};
+const BL={temp:[],bstop:[],i0:[]};   // beamline traces over time: [[t,v],...]
+const MARKS=[];                       // [[t, role]] — SPEC collection triggers
+function fmtCounts(v){const a=Math.abs(v);return a>=1e6?(v/1e6).toFixed(1)+'M':a>=1e3?(v/1e3).toFixed(0)+'k':(+v).toFixed(0);}
 
 function pushHist(st){
   const t=Date.now()/1000, cutoff=t-WINDOW_S;
@@ -406,8 +418,30 @@ function pushHist(st){
     }
   }
   STATE.push([t,st.state]); while(STATE.length&&STATE[0][0]<cutoff) STATE.shift();
+  const T=st.temperature||{};
+  if(T.current!=null) BL.temp.push([t,+T.current]);
+  if(T.bstop!=null)   BL.bstop.push([t,+T.bstop]);
+  if(T.i0!=null)      BL.i0.push([t,+T.i0]);
+  for(const k of ['temp','bstop','i0']){ const a=BL[k]; while(a.length&&a[0][0]<cutoff) a.shift(); }
+  const lc=st.last_collect;
+  if(lc && lc.t && lc.t!==window._lastCollectT){
+    window._lastCollectT=lc.t; window._collectInfo={role:lc.role,recipe:lc.recipe_id,clientT:t};
+    MARKS.push([t, lc.role||'collect']);
+  }
+  while(MARKS.length&&MARKS[0][0]<cutoff) MARKS.shift();
 }
-function clearCharts(){ for(const k in HIST) delete HIST[k]; STATE.length=0; }
+function clearCharts(){ for(const k in HIST) delete HIST[k]; STATE.length=0;
+  BL.temp.length=BL.bstop.length=BL.i0.length=0; MARKS.length=0; }
+function drawMarks(ctx,X,mT,h,t0){
+  if(!MARKS.length) return;
+  ctx.save(); ctx.font='10px system-ui'; ctx.textAlign='center'; ctx.textBaseline='top';
+  for(const [t,role] of MARKS){ if(t<t0) continue; const x=X(t);
+    ctx.strokeStyle='#f0a6ab'; ctx.globalAlpha=.9; ctx.setLineDash([3,3]); ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(x,mT); ctx.lineTo(x,mT+h); ctx.stroke(); ctx.setLineDash([]);
+    ctx.globalAlpha=1; ctx.fillStyle='#f0a6ab';
+    ctx.fillText('📷'+(role==='background'?'bkg':role==='sample'?'smp':''), x, mT+1); }
+  ctx.restore();
+}
 function drawPhases(ctx,X,mT,h,t0){
   if(!STATE.length) return;
   ctx.font='10px system-ui'; ctx.textAlign='left'; ctx.textBaseline='top';
@@ -455,6 +489,7 @@ function drawChart(canvas,key,showTarget){
   ctx.textAlign='center'; ctx.textBaseline='top';
   for(let m=0;m<=10;m+=2){ const x=X(t1-m*60); ctx.fillText(m===0?'now':('-'+m+'m'), x, mT+h+4); }
   drawPhases(ctx,X,mT,h,t0);
+  drawMarks(ctx,X,mT,h,t0);
   for(const n in HIST){ const col=PUMP_COLORS[n]||'#888';
     if(showTarget){ const a=HIST[n].tflow; if(a.length){ ctx.strokeStyle=col; ctx.globalAlpha=.35; ctx.setLineDash([4,4]); ctx.lineWidth=1.5;
       ctx.beginPath(); a.forEach(([t,v],i)=>{const x=X(t),y=Y(v); i?ctx.lineTo(x,y):ctx.moveTo(x,y);}); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha=1; } }
@@ -484,6 +519,50 @@ function legendHTML(st,key,unit){
   }).join('');
 }
 function fmtDur(s){if(s==null)return '—';const m=Math.floor(s/60),ss=Math.round(s%60);return m+'m '+ss+'s';}
+
+function drawBeamline(canvas){
+  if(!canvas) return;
+  const dpr=window.devicePixelRatio||1, cssW=canvas.clientWidth||600, cssH=canvas.clientHeight||190;
+  canvas.width=cssW*dpr; canvas.height=cssH*dpr;
+  const ctx=canvas.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,cssW,cssH);
+  const mL=48,mR=54,mT=8,mB=20, w=cssW-mL-mR, h=cssH-mT-mB;
+  const t1=Date.now()/1000, t0=t1-WINDOW_S;
+  const muted=getComputedStyle(document.body).getPropertyValue('--muted')||'#888';
+  const X=t=>mL+(t-t0)/(t1-t0)*w;
+  const rng=(arrs)=>{let lo=Infinity,hi=-Infinity;for(const a of arrs)for(const [,v] of a){if(v<lo)lo=v;if(v>hi)hi=v;}
+    if(!isFinite(hi)){lo=0;hi=1;} if(hi===lo){hi+=1;lo-=1;} const p=(hi-lo)*0.08; return [lo-p,hi+p];};
+  const [tmin,tmax]=rng([BL.temp]);           const YT=v=>mT+(1-(v-tmin)/(tmax-tmin||1))*h;
+  const [cmin,cmax]=rng([BL.bstop,BL.i0]);    const YC=v=>mT+(1-(v-cmin)/(cmax-cmin||1))*h;
+  ctx.font='11px system-ui'; ctx.textBaseline='middle';
+  for(let i=0;i<=4;i++){ const y=mT+h*i/4;
+    ctx.strokeStyle=muted; ctx.globalAlpha=.22; ctx.beginPath(); ctx.moveTo(mL,y); ctx.lineTo(mL+w,y); ctx.stroke(); ctx.globalAlpha=1;
+    ctx.textAlign='right'; ctx.fillStyle='#d44a55'; ctx.fillText((tmax-(tmax-tmin)*i/4).toFixed(0), mL-6, y);
+    ctx.textAlign='left';  ctx.fillStyle='#3a7bd5'; ctx.fillText(fmtCounts(cmax-(cmax-cmin)*i/4), mL+w+6, y); }
+  ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle=muted;
+  for(let m=0;m<=10;m+=2){ const x=X(t1-m*60); ctx.fillText(m===0?'now':('-'+m+'m'), x, mT+h+4); }
+  drawPhases(ctx,X,mT,h,t0);
+  const line=(arr,Yf,col,lw)=>{ if(!arr.length) return; ctx.strokeStyle=col; ctx.lineWidth=lw;
+    ctx.beginPath(); arr.forEach(([t,v],i)=>{const x=X(t),y=Yf(v); i?ctx.lineTo(x,y):ctx.moveTo(x,y);}); ctx.stroke(); };
+  line(BL.i0, YC, '#00838F', 1.4);
+  line(BL.bstop, YC, '#3a7bd5', 1.6);
+  line(BL.temp, YT, '#d44a55', 2.0);
+  drawMarks(ctx,X,mT,h,t0);
+}
+function blLegendHTML(st){
+  const T=st.temperature||{};
+  const item=(c,l,v)=>`<span style="display:inline-flex;align-items:center;gap:5px;margin-right:14px;font-size:12px">
+    <i style="width:10px;height:10px;border-radius:2px;background:${c}"></i>${l}: <b>${v}</b></span>`;
+  return item('#d44a55','temperature', T.current!=null?T.current.toFixed(1)+' °C':'—')
+       + item('#3a7bd5','bstop', T.bstop!=null?fmtCounts(T.bstop):'—')
+       + item('#00838F','I₀', T.i0!=null?fmtCounts(T.i0):'—');
+}
+function updateCollectBadge(){
+  const b=$('collectBadge'), ci=window._collectInfo;
+  if(!ci){ b.style.display='none'; return; }
+  const ago=Math.max(0, Date.now()/1000 - ci.clientT);
+  b.style.display='';
+  b.textContent='📷 '+(ago<8?'collecting':'last')+' '+(ci.role||'')+' — '+fmtDur(ago)+' ago';
+}
 
 async function setBackend(mode){
   if(mode===(window._backend||'mock')) return;
@@ -528,12 +607,16 @@ function render(st){
   pushHist(st);
   drawChart($('flowChart'),'flow',true);
   drawChart($('pressChart'),'press',false);
+  drawBeamline($('blChart'));
   $('flowLegend').innerHTML=legendHTML(st,'flow','µL/min');
   $('pressLegend').innerHTML=legendHTML(st,'press','mbar');
+  $('blLegend').innerHTML=blLegendHTML(st);
+  updateCollectBadge();
   buildTareRows(st);
   // temp
   $('t-cur').textContent=st.temperature.current.toFixed(1);
   $('t-tgt').textContent=st.temperature.target.toFixed(1);
+  $('t-bstop').textContent = (st.temperature.bstop!=null) ? ('bstop '+Number(st.temperature.bstop).toFixed(0)+' (beam)') : '';
   if(st.state==='arming'&&(st.arm_mode==='timed'||st.arm_mode==='ramp')){
     $('t-stable').textContent=(st.arm_mode==='ramp'?'📈 ramp start':'⏲ timed start')
       +' — pumps in '+fmtDur(st.arm_remaining_s)+' (temperature not gating)';

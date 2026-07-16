@@ -299,24 +299,35 @@ class TempController:
     """Reactor-temperature *reader* with a target setpoint used only to gate the
     run.  This app does not drive a heater."""
 
-    def __init__(self, cfg: dict, backend: str = "mock"):
+    def __init__(self, cfg: dict, backend: str = "mock", beamline=None):
         t = cfg.get("temperature", {})
         self.backend = backend
+        self.beamline = beamline          # if set, temperature is commanded/read via it
         self.tolerance = float(t.get("tolerance", 2.0))
         self.stable_hold = float(t.get("stable_hold", 5.0))
         self.timeout = float(t.get("timeout", 900.0))
         self._mock_ramp = float(t.get("mock_ramp", 5.0))
+        self._read_interval = float(t.get("read_interval_s", 1.0))   # throttle beamline reads
+        self._read_accum = self._read_interval
         self.target = 0.0
         self.current = 25.0           # ambient
+        self.bstop = None             # live beam-stop counter (from the beamline)
+        self.i0 = None                # live incident-flux counter (from the beamline)
         self._in_band_since: float | None = None
         self._lock = threading.Lock()
 
     def set_temperature(self, T: float) -> None:
-        """Record the desired reactor temperature (the external controller is
-        expected to drive the heater).  ⟵ NOTE: no heater command issued here."""
+        """Set the reactor temperature. When a beamline is wired, this COMMANDS
+        the controller to ramp to T (csettemp); otherwise it only records the
+        target (mock/legacy)."""
         with self._lock:
             self.target = float(T)
             self._in_band_since = None
+        if self.beamline is not None:
+            try:
+                self.beamline.set_temperature(T)      # ⟵ real ramp command
+            except Exception:
+                pass
 
     def read(self) -> float:
         # ⟵ REAL DRIVER HOOK — reactor temperature source.
@@ -336,7 +347,21 @@ class TempController:
         return self.current
 
     def tick(self, dt: float) -> None:
-        if self.backend != "mock":
+        if self.beamline is not None:
+            # source temperature (and bstop) from the beamline, throttled so we
+            # don't hammer the SPEC server every control tick
+            self._read_accum += dt
+            if self._read_accum >= self._read_interval:
+                self._read_accum = 0.0
+                try:
+                    st = self.beamline.read_state()
+                    if st.get("temperature") is not None:
+                        self.current = float(st["temperature"])
+                    self.bstop = st.get("bstop")
+                    self.i0 = st.get("i0")
+                except Exception:
+                    pass
+        elif self.backend != "mock":
             self.current = self.read()
         else:
             step = self._mock_ramp * dt

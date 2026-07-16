@@ -125,6 +125,7 @@ class ReactorController:
         self._spec_bkg_tag = str(spec.get("bkg_tag", "bkg"))
         self._spec_fired = False        # sample acquisition fired this run
         self._bkg_fired = False         # background acquisition fired this flush
+        self._last_collect = None       # {role, recipe_id, path, t} of the last SPEC trigger
 
         self._lock = threading.RLock()
         self._alive = True
@@ -529,6 +530,8 @@ class ReactorController:
                     if self._spec_data_dir else prefix)
             self._log(f"📷 SPEC {role} collect → {path} "
                       f"(exp {self._spec_exposure:g}s ×{self._spec_frames})", "ok")
+            self._last_collect = {"role": role, "recipe_id": recipe_id, "path": path,
+                                  "t": time.time()}
             self.beamline.collect(recipe_id=recipe_id, role=role, path=path,
                                   temperature=self.temp.target,
                                   exposure=self._spec_exposure, frames=self._spec_frames)
@@ -665,7 +668,9 @@ class ReactorController:
                                 "current": round(self.temp.current, 1),
                                 "stable": self.temp.is_stable(),
                                 "tolerance": self.temp.tolerance,
-                                "bstop": self.temp.bstop},
+                                "bstop": self.temp.bstop,
+                                "i0": self.temp.i0},
+                "last_collect": self._last_collect,
                 "current_recipe": self.current.to_dict() if self.current else None,
                 "elapsed_s": elapsed, "duration_s": dur,
                 "run_duration_setting": self.live_duration or self.default_duration,
