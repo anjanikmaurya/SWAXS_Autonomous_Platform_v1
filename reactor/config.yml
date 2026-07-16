@@ -74,6 +74,38 @@ temperature:
   stable_hold:  5.0           # s: must stay in-band this long before flowing
   timeout:      900.0         # s: give up arming after this → abort
   mock_ramp:    5.0           # °C/s convergence rate for the MOCK reading only
+  read_interval_s: 1.0        # s: throttle live beamline temperature/bstop reads
+
+# ── Beamline / SPEC (temperature ramp, bstop, 2D data collection) ─────────────
+# The reactor commands temperature via SPEC and, during a run, fires a 2D
+# acquisition ~spec_lead_s before the run ends, naming the output with the
+# recipe_id so it traces through the pipeline back to the optimizer.
+spec:
+  backend:     "mock"         # "mock" (simulate) | "real" (talk to the SPEC bServer)
+  base_url:    "http://127.0.0.1:18085/SIS/"   # bServer (same machine as the reactor)
+  enabled:     true           # fire the 2D collection during a run
+  spec_lead_s: 180.0          # collect this long before the end of run (sample) AND flush (background)
+  exposure_s:  1.0            # per-frame exposure passed to the collect macro
+  frames:      1              # frames per acquisition
+  data_dir:    ""             # ⚠ SET on rig: beamline save dir = the pipeline 2D folder
+  # filename role tags → {recipe_id}_{sample_tag} (during run) and
+  # {recipe_id}_{bkg_tag} (during flush). Shared recipe_id pairs them for subtraction.
+  sample_tag:  "sample"
+  bkg_tag:     "bkg"
+  # ── site-specific SPEC strings — ⚠ CONFIRM these on the beamline ────────────
+  temp_counter: "temp"        # counter name that reports the temperature readback
+  bstop_counter: "bstop"
+  i0_counter:   "i0"
+  set_temp_cmd: "csettemp {T}"        # ramp command (from MSD.py)
+  # ── data collection: preferred = a .txt SPEC macro that we fill in and qdo ──
+  # The macro owns exposure/frames/detector setup; the reactor substitutes these
+  # placeholders before sending: {path} {recipe_id} {temperature} {exposure} {frames}
+  macro_file:     ""                  # path to your collection macro template (.txt); blank = named-cmd mode
+  macro_out_file: ""                  # where the filled macro is written for qdo (SPEC-readable); blank = next to macro_file
+  qdo_cmd:        'qdo "{file}"'      # how SPEC runs the filled macro file
+  # ── fallback named-command mode (used only if macro_file is blank) ──────────
+  newfile_cmd:  "newfile {path}"      # sets detector save dir + filename prefix
+  collect_cmd:  "ct {exposure}"       # 2D acquisition command
 
 # ── Arming mode (how a run decides it is ready to start the pumps) ────────────
 # Each recipe may override these (form radio / JSON "arm_mode" + "arm_wait_s").

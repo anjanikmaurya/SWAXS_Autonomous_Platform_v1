@@ -27,6 +27,7 @@ from collections import deque
 from .config import REAGENT_PUMPS, FLUSH_PUMP
 from .hardware import PumpBank, TempController
 from .recipe import Recipe, RecipeError, recipe_to_setpoints, validate
+from ..beamline import make_beamline
 
 STATES = ["idle", "arming", "running", "flushing", "ready", "estop"]
 
@@ -53,7 +54,8 @@ class ReactorController:
         self.cfg = cfg
         self.backend = backend
         self.pumps = PumpBank(cfg, backend=backend)
-        self.temp = TempController(cfg, backend=backend)
+        self.beamline = make_beamline(cfg)                       # SPEC/temperature/detector
+        self.temp = TempController(cfg, backend=backend, beamline=self.beamline)
         self._log = log_cb or _noop
         self._event = event_cb or _noop
         self._feedback = feedback_cb or _noop
@@ -112,6 +114,17 @@ class ReactorController:
         s = cfg.get("safety", {})
         self.T_max = float(s.get("T_max", 320.0))
         self.per_pump_max = float(s.get("per_pump_max", 1000.0))
+        # SPEC data-collection: fire a 2D acquisition this long before the run ends
+        spec = cfg.get("spec", {})
+        self._spec_enabled = bool(spec.get("enabled", True))
+        self._spec_lead = float(spec.get("spec_lead_s", 180.0))
+        self._spec_exposure = float(spec.get("exposure_s", 1.0))
+        self._spec_frames = int(spec.get("frames", 1))
+        self._spec_data_dir = str(spec.get("data_dir", ""))
+        self._spec_sample_tag = str(spec.get("sample_tag", "sample"))
+        self._spec_bkg_tag = str(spec.get("bkg_tag", "bkg"))
+        self._spec_fired = False        # sample acquisition fired this run
+        self._bkg_fired = False         # background acquisition fired this flush
 
         self._lock = threading.RLock()
         self._alive = True
@@ -404,6 +417,7 @@ class ReactorController:
         self._meas_series = []
         self._run_started = time.time()
         self._meas_last_sample = self._run_started
+        self._spec_fired = False
         dur = (self.current.run_duration or self.live_duration or self.default_duration)
         self._run_deadline = self._run_started + float(dur)
         self.state = "running"
@@ -474,6 +488,7 @@ class ReactorController:
         self.state = "flushing"
         self._flush_kind = kind
         self._flush_deadline = time.time() + d
+        self._bkg_fired = False        # arm the background acquisition for this flush
         self._log(f"🧼 {kind}: ode_flush {r:g} µL/min for {d:g}s "
                   f"(new recipes blocked)", "info")
 
@@ -499,6 +514,29 @@ class ReactorController:
         self.state = "idle"
         self.current = None
         self.setpoints = {}
+
+    def _fire_spec_collection(self, recipe_id: str, role: str) -> None:
+        """Trigger a SPEC 2D acquisition. ``role`` is 'sample' (during the run) or
+        'background' (during the flush). The filename is
+        ``{recipe_id}_{tag}`` so averaging separates the two and background
+        subtraction pairs them by the shared recipe_id. Runs in its own thread —
+        blocking SPEC I/O must not stall the control loop."""
+        try:
+            self.beamline.take_control()
+            tag = self._spec_sample_tag if role == "sample" else self._spec_bkg_tag
+            prefix = f"{recipe_id}_{tag}"
+            path = (f"{self._spec_data_dir.rstrip('/')}/{prefix}"
+                    if self._spec_data_dir else prefix)
+            self._log(f"📷 SPEC {role} collect → {path} "
+                      f"(exp {self._spec_exposure:g}s ×{self._spec_frames})", "ok")
+            self.beamline.collect(recipe_id=recipe_id, role=role, path=path,
+                                  temperature=self.temp.target,
+                                  exposure=self._spec_exposure, frames=self._spec_frames)
+            self._log(f"📷 SPEC {role} collect complete: {recipe_id}", "ok")
+            self._event("reactor.spec_collect",
+                        {"recipe_id": recipe_id, "role": role, "path": path})
+        except Exception as exc:
+            self._log(f"⚠ SPEC {role} collect failed ({recipe_id}): {exc}", "error")
 
     # ── background loop ─────────────────────────────────────────────────────────
     def _loop(self) -> None:
@@ -540,6 +578,13 @@ class ReactorController:
                             "flows": {nm: round(getattr(p, "actual", 0.0), 4)
                                       for nm, p in self.pumps.pumps.items()},
                         })
+                    # fire the SPEC 2D collection once, ~lead seconds before the run ends
+                    if (self._spec_enabled and not self._spec_fired
+                            and now >= self._run_deadline - self._spec_lead):
+                        self._spec_fired = True
+                        _rid = self.current.recipe_id if self.current else "run"
+                        threading.Thread(target=self._fire_spec_collection,
+                                         args=(_rid, "sample"), daemon=True).start()
                     if self._measure_done:
                         self._end_run(flush=True)
                     elif now > self._run_deadline:
@@ -551,6 +596,16 @@ class ReactorController:
                         self._run_reason = "next condition available"
                         self._end_run(flush=True)
                 elif self.state == "flushing":
+                    # fire the BACKGROUND 2D collection once, ~lead seconds before the
+                    # flush ends (pure solvent in the capillary) — only for a real
+                    # post-synthesis flush that has a recipe to tag it with
+                    if (self._spec_enabled and not self._bkg_fired
+                            and self._flush_kind == "flush" and self.current is not None
+                            and now >= self._flush_deadline - self._spec_lead):
+                        self._bkg_fired = True
+                        threading.Thread(target=self._fire_spec_collection,
+                                         args=(self.current.recipe_id, "background"),
+                                         daemon=True).start()
                     if now > self._flush_deadline:
                         self._end_flush()
             time.sleep(0.2)
@@ -609,7 +664,8 @@ class ReactorController:
                 "temperature": {"target": round(self.temp.target, 1),
                                 "current": round(self.temp.current, 1),
                                 "stable": self.temp.is_stable(),
-                                "tolerance": self.temp.tolerance},
+                                "tolerance": self.temp.tolerance,
+                                "bstop": self.temp.bstop},
                 "current_recipe": self.current.to_dict() if self.current else None,
                 "elapsed_s": elapsed, "duration_s": dur,
                 "run_duration_setting": self.live_duration or self.default_duration,
