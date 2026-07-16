@@ -258,6 +258,30 @@ class ReactorController:
                     self._run_deadline = self._run_started + self.live_duration
                     self._log(f"⏱ run duration → {self.live_duration:g}s (applies to current run)", "info")
 
+    def set_spec_settings(self, d: dict) -> None:
+        """Live SPEC data-collection settings from the app: exposure_s, frames,
+        spec_lead_s, sample_tag, bkg_tag. Blank/missing keys are left unchanged.
+        Values apply to the NEXT acquisition (they're read when a collect fires)."""
+        def _tag(v):
+            # keep filename-safe tokens only (letters/digits/_-)
+            return "".join(c for c in str(v).strip() if c.isalnum() or c in "_-")
+        with self._lock:
+            if str(d.get("exposure_s", "")).strip():
+                try: self._spec_exposure = float(d["exposure_s"])
+                except (TypeError, ValueError): pass
+            if str(d.get("frames", "")).strip():
+                try: self._spec_frames = max(1, int(float(d["frames"])))
+                except (TypeError, ValueError): pass
+            if str(d.get("spec_lead_s", "")).strip():
+                try: self._spec_lead = float(d["spec_lead_s"])
+                except (TypeError, ValueError): pass
+            if _tag(d.get("sample_tag", "")):
+                self._spec_sample_tag = _tag(d["sample_tag"])
+            if _tag(d.get("bkg_tag", "")):
+                self._spec_bkg_tag = _tag(d["bkg_tag"])
+            self._log(f"⚙ data-collection: exp {self._spec_exposure:g}s ×{self._spec_frames}, "
+                      f"lead {self._spec_lead:g}s, tags {self._spec_sample_tag}/{self._spec_bkg_tag}", "info")
+
     # ── run-end triggers ───────────────────────────────────────────────────────
     def signal_measurement_complete(self, info: str = "") -> None:
         with self._lock:
@@ -671,6 +695,10 @@ class ReactorController:
                                 "bstop": self.temp.bstop,
                                 "i0": self.temp.i0},
                 "last_collect": self._last_collect,
+                "spec": {"enabled": self._spec_enabled, "exposure_s": self._spec_exposure,
+                         "frames": self._spec_frames, "spec_lead_s": self._spec_lead,
+                         "sample_tag": self._spec_sample_tag, "bkg_tag": self._spec_bkg_tag,
+                         "data_dir": self._spec_data_dir},
                 "current_recipe": self.current.to_dict() if self.current else None,
                 "elapsed_s": elapsed, "duration_s": dur,
                 "run_duration_setting": self.live_duration or self.default_duration,

@@ -180,6 +180,18 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
     </div>
 
     <div class="card">
+      <div class="card-hd">🔦 Data collection (SPEC)</div>
+      <div class="grid2">
+        <div><label>Exposure (s / frame)</label><input type="number" id="spec_exposure" step="0.1" min="0" onchange="pushSpec()"></div>
+        <div><label>Number of frames</label><input type="number" id="spec_frames" step="1" min="1" onchange="pushSpec()"></div>
+        <div><label>Sample keyword</label><input type="text" id="spec_sample_tag" onchange="pushSpec()"></div>
+        <div><label>Background keyword</label><input type="text" id="spec_bkg_tag" onchange="pushSpec()"></div>
+        <div><label>Trigger before end (s)</label><input type="number" id="spec_lead" step="1" min="0" onchange="pushSpec()"></div>
+      </div>
+      <div class="muted" style="margin-top:5px">Fed into the collection macro: files are named <code>&lt;recipe_id&gt;_&lt;sample&gt;</code> during the run and <code>&lt;recipe_id&gt;_&lt;background&gt;</code> during the flush, each fired this many seconds before its phase ends. Background keyword should be a recognized token (e.g. <code>bkg</code>, <code>buffer</code>) so subtraction pairs it.</div>
+    </div>
+
+    <div class="card">
       <div class="card-hd">▶ Controls</div>
       <div id="armPanel" class="arm-panel" style="display:none">
         <div class="arm-head">
