@@ -587,9 +587,9 @@ function blLegendHTML(st){
   const T=st.temperature||{};
   const item=(c,l,v)=>`<span style="display:inline-flex;align-items:center;gap:5px;margin-right:14px;font-size:12px">
     <i style="width:10px;height:10px;border-radius:2px;background:${c}"></i>${l}: <b>${v}</b></span>`;
-  return item('#d44a55','temperature', T.current!=null?T.current.toFixed(1)+' °C':'—')
-       + item('#3a7bd5','bstop', T.bstop!=null?fmtCounts(T.bstop):'—')
-       + item('#00838F','I₀', T.i0!=null?fmtCounts(T.i0):'—');
+  return item('#d44a55','temperature', T.current!=null?T.current.toFixed(2)+' °C':'—')
+       + item('#3a7bd5','bstop', T.bstop!=null?Number(T.bstop).toFixed(4):'—')
+       + item('#00838F','I₀', T.i0!=null?Number(T.i0).toFixed(4):'—');
 }
 function updateCollectBadge(){
   const b=$('collectBadge'), ci=window._collectInfo;
@@ -655,9 +655,9 @@ function render(st){
   updateCollectBadge();
   buildTareRows(st);
   // temp
-  $('t-cur').textContent=st.temperature.current.toFixed(1);
-  $('t-tgt').textContent=st.temperature.target.toFixed(1);
-  $('t-bstop').textContent = (st.temperature.bstop!=null) ? ('bstop '+Number(st.temperature.bstop).toFixed(0)+' (beam)') : '';
+  $('t-cur').textContent=st.temperature.current.toFixed(2);
+  $('t-tgt').textContent=st.temperature.target.toFixed(2);
+  $('t-bstop').textContent = (st.temperature.bstop!=null) ? ('bstop '+Number(st.temperature.bstop).toFixed(4)+' (beam)') : '';
   if(st.state==='arming'&&(st.arm_mode==='timed'||st.arm_mode==='ramp')){
     $('t-stable').textContent=(st.arm_mode==='ramp'?'📈 ramp start':'⏲ timed start')
       +' — pumps in '+fmtDur(st.arm_remaining_s)+' (temperature not gating)';

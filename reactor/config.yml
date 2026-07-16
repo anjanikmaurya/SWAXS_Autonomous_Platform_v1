@@ -104,7 +104,9 @@ spec:
   # update them. "ct 0.1" refreshes all counters but ⚠ MAY OPEN THE SHUTTER —
   # prefer a shutter-free temperature-query macro if the beamline has one.
   # Leave blank to read raw last-count values (no refresh).
-  read_refresh_cmd: ""        # e.g. "ct 0.1"
+  read_refresh_cmd: "ct 0.1"  # refresh counters before each read so the live plot is LIVE
+                              # (blank = show stale last-count values). ⚠ obeys sauto —
+                              # run "sauto off" if you don't want ct opening the shutter.
   set_temp_cmd: "csettemp {T}"        # ramp command (from MSD.py)
   # ── data collection: preferred = a .txt SPEC macro that we fill in ──────────
   # The macro owns exposure/frames/detector setup; the reactor substitutes these
