@@ -268,8 +268,8 @@ class ReactorController:
 
     def set_spec_settings(self, d: dict) -> None:
         """Live SPEC data-collection settings from the app: exposure_s, frames,
-        spec_lead_s, sample_tag, bkg_tag. Blank/missing keys are left unchanged.
-        Values apply to the NEXT acquisition (they're read when a collect fires)."""
+        spec_lead_s, sample_tag, bkg_tag, data_dir. Blank/missing keys are left
+        unchanged. Values apply to the NEXT acquisition (read when a collect fires)."""
         def _tag(v):
             # keep filename-safe tokens only (letters/digits/_-)
             return "".join(c for c in str(v).strip() if c.isalnum() or c in "_-")
@@ -287,8 +287,18 @@ class ReactorController:
                 self._spec_sample_tag = _tag(d["sample_tag"])
             if _tag(d.get("bkg_tag", "")):
                 self._spec_bkg_tag = _tag(d["bkg_tag"])
+            if str(d.get("data_dir", "")).strip():
+                self._spec_data_dir = str(d["data_dir"]).strip()
             self._log(f"⚙ data-collection: exp {self._spec_exposure:g}s ×{self._spec_frames}, "
-                      f"lead {self._spec_lead:g}s, tags {self._spec_sample_tag}/{self._spec_bkg_tag}", "info")
+                      f"lead {self._spec_lead:g}s, tags {self._spec_sample_tag}/{self._spec_bkg_tag}, "
+                      f"dir {self._spec_data_dir or '(unset)'}", "info")
+
+    def default_data_dir(self, path: str) -> None:
+        """Set data_dir ONLY if it isn't already set (used to seed it from the hub
+        project folder without clobbering a config value or the user's UI entry)."""
+        with self._lock:
+            if path and not self._spec_data_dir:
+                self._spec_data_dir = str(path).strip()
 
     def collect_now(self, role: str = "sample") -> tuple[bool, str]:
         """Fire a one-off SPEC 2D acquisition on demand (dry-run/verify), OUTSIDE a

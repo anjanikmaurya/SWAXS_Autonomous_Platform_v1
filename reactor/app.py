@@ -45,7 +45,7 @@ except Exception:
 
 app = Flask(__name__)
 
-_project_root: str = ""
+_project_root: str = os.environ.get("SWAXS_PROJECT", "")   # folder selected in the hub
 _CFG = load_config()
 _BACKEND = os.environ.get("SWAXS_REACTOR_BACKEND", "mock")   # "mock" | "real"
 
@@ -127,6 +127,10 @@ except Exception as exc:
           "the pump COM ports, then restart.\n", file=sys.stderr)
     sys.exit(1)
 _emit(f"Flow Synthesis ready — backend={_BACKEND}", "ok")
+# Seed the SPEC save folder from the hub's project folder (only if config left it
+# blank). The user can still override it in the Data-collection card.
+if _project_root:
+    _ctrl.default_data_dir(_project_root)
 
 
 # ── hub bus: end the run when SAXS produces a new averaged file ───────────────
@@ -313,6 +317,7 @@ def set_project():
     if p:
         os.environ["SWAXS_PROJECT"] = p
         _project_root = p
+        _ctrl.default_data_dir(p)   # seed SPEC save folder if not already set
         _load_limits()          # pick up saved per-pump flow limits
         _load_recipes_folder()  # pick up saved conditions-folder override
     return jsonify({"ok": True})

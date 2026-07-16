@@ -188,6 +188,11 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
         <div><label>Background keyword</label><input type="text" id="spec_bkg_tag" onchange="pushSpec()"></div>
         <div><label>Trigger before end (s)</label><input type="number" id="spec_lead" step="1" min="0" onchange="pushSpec()"></div>
       </div>
+      <div style="margin-top:8px">
+        <label>Save folder — SPEC <code>data_dir</code> (base holding 2D/SAXS)</label>
+        <input type="text" id="spec_data_dir" style="width:100%" onchange="pushSpec()"
+               placeholder="defaults to the hub project folder — edit to the path SPEC writes to (e.g. /msd_data/...)">
+      </div>
       <div class="btn-row" style="align-items:center">
         <button class="btn btn-ghost" id="collectNowBtn" onclick="collectNow()">📷 Collect now</button>
         <label class="toggle" style="margin:0">as
@@ -406,7 +411,8 @@ async function pushSpec(){
     frames:      $('spec_frames').value.trim(),
     sample_tag:  $('spec_sample_tag').value.trim(),
     bkg_tag:     $('spec_bkg_tag').value.trim(),
-    spec_lead_s: $('spec_lead').value.trim()
+    spec_lead_s: $('spec_lead').value.trim(),
+    data_dir:    $('spec_data_dir').value.trim()
   });
 }
 function setManualEnabled(on){
@@ -632,7 +638,7 @@ function render(st){
   if(!window._specInit && st.spec){ window._specInit=true; const sp=st.spec;
     $('spec_exposure').value=sp.exposure_s; $('spec_frames').value=sp.frames;
     $('spec_sample_tag').value=sp.sample_tag; $('spec_bkg_tag').value=sp.bkg_tag;
-    $('spec_lead').value=sp.spec_lead_s; }
+    $('spec_lead').value=sp.spec_lead_s; $('spec_data_dir').value=sp.data_dir||''; }
   // currently-running readout + lock the manual form while autonomous
   const cr=st.current_recipe;
   $('runningNow').textContent = cr
