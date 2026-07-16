@@ -921,11 +921,14 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
               <label>Add keyword</label>
               <div class="cell">
                 <div class="ir">
-                  <input type="text" id="kw-in" placeholder="e.g. PIP_TMC_Run1 …">
+                  <input type="text" id="kw-in" placeholder="e.g. PIP_TMC_Run1  or  auto_…_sample">
                   <button class="btn btn-ghost btn-sm" onclick="addKwInput()">+ Add</button>
                 </div>
               </div>
             </div>
+            <div class="hint">A keyword is any text in the filename. Reactor loop files are named
+              <code>&lt;recipe_id&gt;_sample</code> (sample) and <code>&lt;recipe_id&gt;_bkg</code>
+              (background) — add the <code>…_sample</code> keyword to average just the samples.</div>
             <div id="chips"></div>
             <div class="inline" style="margin-top:6px; gap:6px">
               <button class="btn btn-ghost btn-xs" onclick="togglePaste()">Paste list…</button>
@@ -1201,6 +1204,13 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
           <strong>rolling batches</strong>: every time a sample gains <strong>N</strong>
           new frames, one averaged file is written to the Averaged folder. Leave
           keywords blank to auto-average every sample found.
+        </p>
+        <p class="fnote" style="margin:6px 0 0">
+          🔁 Reactor loop files (<code>&lt;recipe_id&gt;_sample</code> /
+          <code>&lt;recipe_id&gt;_bkg</code>) are grouped automatically —
+          <strong>sample and background average separately</strong> under the same
+          recipe_id — so no keywords are needed for the autonomous loop. Set
+          <strong>N</strong> = the frames per acquisition.
         </p>
       </div>
 

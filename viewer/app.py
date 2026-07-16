@@ -34,6 +34,7 @@ from src.plot_reduction import (                                       # noqa: E
     read_folder, average_and_save, average_batch,
 )
 from src.utils.read_dat_metadata import read_dat_data_metadata         # noqa: E402
+from src.loop_naming import condition_keyword                          # noqa: E402
 from src.manifest import (                                             # noqa: E402
     update_manifest,
     add_file_entry, make_provenance,
@@ -549,10 +550,15 @@ def _avg_monitor_loop(dets, n_per_batch, interval, i0_filter_pct,
                 _avg_emit(f"⚠  {det.upper()} scan error: {exc}", "error")
                 continue
 
-            # Group by keyword and order each group by acquisition index.
+            # Group by keyword and order each group by acquisition index. For
+            # reactor loop files, group by the role-aware key {recipe_id}_{role}
+            # so all sample frames (and all background frames) of a condition
+            # average together and stay separable — aligns with the reactor's
+            # filename convention. Non-loop files keep their derived keyword.
             groups: dict[str, list[dict]] = {}
             for fd in frames:
-                groups.setdefault(fd["keyword"], []).append(fd)
+                gk = condition_keyword(fd["filename"]) or fd["keyword"]
+                groups.setdefault(gk, []).append(fd)
 
             for kw, grp in groups.items():
                 grp.sort(key=lambda d: d.get("scan_idx", 0))

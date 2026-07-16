@@ -1,0 +1,27 @@
+###### Autopilot single-shot collection TEMPLATE.
+###### The reactor fills the double-brace markers below, writes the result to
+###### spec.macro_out_file, and runs it (under the hard SPEC guard) with:
+######   qdo "<macro_out_file>"
+######
+###### Markers the reactor substitutes:
+######   {{sample}}      -> "<recipe_id>_<sample|bkg keyword>"  (filename / newfile)
+######   {{frames}}      -> Number of frames  (Data-collection card)
+######   {{exposure}}    -> Exposure s/frame  (Data-collection card)
+######   {{main_folder}} -> spec.data_dir  (the base that contains 2D/SAXS)
+###### Everything below is plain SPEC and is passed through unchanged.
+
+sample = "{{sample}}"
+n_images = {{frames}}
+exposure_time = {{exposure}}
+
+main_folder = "{{main_folder}}"
+
+eval(sprintf("u mkdir -p %s/2D/SAXS", main_folder))
+eval(sprintf("cd %s/2D", main_folder))
+eval(sprintf("pd savepath '%s/2D/SAXS'", main_folder))
+eval(sprintf("newfile %s", sample))
+pd save;
+sopen;
+eval("loopscan n_images exposure_time 0")
+sclose;
+pd nosave

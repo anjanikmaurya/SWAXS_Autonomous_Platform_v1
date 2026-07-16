@@ -328,17 +328,12 @@ def _sample_base_tokens(name: str) -> set[str]:
     return {t for t in _name_tokens(name) if t not in drop and not t.isdigit()}
 
 
-_ROLE_TAGS = ("_sample", "_bkg", "_background", "_buffer", "_blank",
-              "_bg", "_empty", "_solvent", "_water")
-
-
 def _recipe_key(name: str) -> str:
-    """The recipe/condition id a file belongs to — the filename up to its
-    sample/background role tag (e.g. 'auto_42_sample_..' & 'auto_42_bkg_..' both
-    → 'auto_42'). Empty if no role tag is present."""
-    low = name.lower()
-    hits = [low.find(t) for t in _ROLE_TAGS if low.find(t) > 0]
-    return name[:min(hits)] if hits else ""
+    """The recipe/condition id a file belongs to — shared with the reactor +
+    averager via src.loop_naming (e.g. 'auto_42_sample_..' & 'auto_42_bkg_..'
+    both → 'auto_42'). Empty if no role tag is present."""
+    from src.loop_naming import recipe_id_of
+    return recipe_id_of(name) or ""
 
 
 def _pick_background(sample: Path, bkgs: list[Path]) -> Path | None:

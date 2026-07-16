@@ -50,7 +50,23 @@ _DEFAULTS = {
     "http_timeout_s": 10.0,
 }
 
-# Placeholders the reactor provides: {path} {recipe_id} {temperature} {exposure} {frames}
+# Placeholders the reactor provides for a macro template, as {{token}} markers
+# (double braces so real SPEC syntax — %s, if/for { } blocks — passes untouched):
+#   {{sample}} {{main_folder}} {{path}} {{recipe_id}} {{role}} {{temperature}}
+#   {{exposure}} {{frames}}
+_MACRO_KEYS = ("sample", "main_folder", "path", "recipe_id", "role",
+               "temperature", "exposure", "frames")
+
+
+def render_macro(text: str, params: dict) -> str:
+    """Fill a SPEC macro template by replacing {{token}} markers only. Uses plain
+    string replacement (NOT str.format/%), so SPEC's own %s and { } blocks are
+    left exactly as written."""
+    out = text
+    for k in _MACRO_KEYS:
+        if k in params and params[k] is not None:
+            out = out.replace("{{" + k + "}}", str(params[k]))
+    return out
 
 
 def make_beamline(cfg: dict | None = None):
@@ -186,7 +202,7 @@ class MockBeamline(BeamlineDriver):
         mf = self.cfg.get("macro_file")
         if mf:
             try:
-                rec["rendered"] = Path(mf).read_text().format(**params)   # for inspection/tests
+                rec["rendered"] = render_macro(Path(mf).read_text(), params)   # for inspection/tests
             except Exception:
                 pass
         if self._collect_s:
@@ -227,8 +243,8 @@ class SpecBeamline(BeamlineDriver):
         self._do_take_control()
         macro_file = self.cfg.get("macro_file")
         if macro_file:
-            # macro mode: fill the .txt template, write it, and qdo it in SPEC
-            rendered = Path(macro_file).read_text().format(**p)
+            # macro mode: fill the .txt template ({{token}} markers), write it, qdo it
+            rendered = render_macro(Path(macro_file).read_text(), p)
             out = Path(self.cfg.get("macro_out_file")
                        or (Path(macro_file).parent / "_autopilot_run.mac"))
             out.write_text(rendered)
