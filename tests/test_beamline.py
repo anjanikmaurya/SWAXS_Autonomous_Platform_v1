@@ -34,13 +34,26 @@ def test_mock_driver_ramps_and_reads():
 
 def test_macro_template_is_filled(tmp_path):
     macro = tmp_path / "collect.txt"
-    macro.write_text('newfile "{path}"\ncsettemp {temperature}\ncollect_swaxs {recipe_id}\n')
+    macro.write_text('newfile "{{path}}"\ncsettemp {{temperature}}\ncollect_swaxs {{recipe_id}}\n')
     bl = make_beamline({"spec": {"backend": "mock", "macro_file": str(macro)}})
     bl.collect(path="/data/2D/auto_42", recipe_id="auto_42", temperature=245,
                exposure=1.0, frames=30)
     rendered = bl.collections[-1]["rendered"]
     assert 'newfile "/data/2D/auto_42"' in rendered
     assert "csettemp 245" in rendered and "collect_swaxs auto_42" in rendered
+
+
+def test_singlesnapshot_template_renders_and_preserves_spec_syntax():
+    from src.beamline.driver import render_macro
+    tmpl = (Path(__file__).resolve().parent.parent
+            / "reactor" / "macros" / "Singlesnapshot.template.txt").read_text()
+    out = render_macro(tmpl, {"sample": "auto_9_sample", "frames": 2, "exposure": 30,
+                              "main_folder": "/msd/AutoSynth/run"})
+    assert 'sample = "auto_9_sample"' in out
+    assert "n_images = 2" in out and "exposure_time = 30" in out
+    assert 'main_folder = "/msd/AutoSynth/run"' in out
+    assert "%s/2D/SAXS" in out           # SPEC sprintf syntax passed through untouched
+    assert "{{" not in out               # every marker filled
 
 
 def _controller(spec):
@@ -137,6 +150,25 @@ def test_backend_switch_covers_pumps_and_beamline(monkeypatch):
         assert ctl.temp.beamline is ctl.beamline
         ctl.temp.set_temperature(210)
         assert ctl.beamline._target == 210                 # wiring intact after switching back
+    finally:
+        ctl.shutdown()
+
+
+def test_collect_now_manual_and_guarded():
+    ctl = _controller({"backend": "mock", "frames": 2, "exposure_s": 0.1,
+                       "data_dir": "/proj/2D", "mock_ramp_c_per_s": 300.0})
+    try:
+        ok, rid = ctl.collect_now("sample")               # idle → allowed
+        assert ok and rid.startswith("manual_")
+        time.sleep(0.3)
+        c = ctl.beamline.collections[-1]
+        assert c["role"] == "sample" and rid in c["path"]
+        # during a run it must refuse (the loop owns collection then)
+        ctl.set_run_settings({"arm_mode": "timed", "arm_wait_s": "0", "run_duration": "10"})
+        ctl.submit({"T_reac": 240, "F_tot": 80, "x_ODE": 0.2, "x_TOP": 0.1, "x_oley": 0.1})
+        ctl.start(); time.sleep(0.4)
+        ok2, msg = ctl.collect_now()
+        assert ok2 is False and "run" in msg.lower()
     finally:
         ctl.shutdown()
 

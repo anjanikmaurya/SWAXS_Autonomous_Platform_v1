@@ -188,7 +188,15 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
         <div><label>Background keyword</label><input type="text" id="spec_bkg_tag" onchange="pushSpec()"></div>
         <div><label>Trigger before end (s)</label><input type="number" id="spec_lead" step="1" min="0" onchange="pushSpec()"></div>
       </div>
-      <div class="muted" style="margin-top:5px">Fed into the collection macro: files are named <code>&lt;recipe_id&gt;_&lt;sample&gt;</code> during the run and <code>&lt;recipe_id&gt;_&lt;background&gt;</code> during the flush, each fired this many seconds before its phase ends. Background keyword should be a recognized token (e.g. <code>bkg</code>, <code>buffer</code>) so subtraction pairs it.</div>
+      <div class="btn-row" style="align-items:center">
+        <button class="btn btn-ghost" id="collectNowBtn" onclick="collectNow()">📷 Collect now</button>
+        <label class="toggle" style="margin:0">as
+          <select id="collect_role" style="width:auto;padding:5px 8px">
+            <option value="sample">sample</option><option value="background">background</option>
+          </select></label>
+        <span class="sub" id="collectNowMsg"></span>
+      </div>
+      <div class="muted" style="margin-top:5px">“Collect now” fires one ad-hoc acquisition (only when idle) to verify the macro/path on the rig. Fed into the collection macro: files are named <code>&lt;recipe_id&gt;_&lt;sample&gt;</code> during the run and <code>&lt;recipe_id&gt;_&lt;background&gt;</code> during the flush, each fired this many seconds before its phase ends. Background keyword should be a recognized token (e.g. <code>bkg</code>, <code>buffer</code>) so subtraction pairs it.</div>
     </div>
 
     <div class="card">
@@ -385,6 +393,12 @@ async function pushRunSettings(){
     flush_rate: $('flush_rate').value.trim(),
     flush_duration: $('flush_duration').value.trim()
   });
+}
+async function collectNow(){
+  const r=await api('/api/collect_now',{role:$('collect_role').value});
+  const m=$('collectNowMsg');
+  if(r&&r.ok){ m.style.color='var(--ok)'; m.textContent='✓ collecting…'; }
+  else{ m.style.color='var(--err)'; m.textContent='✗ '+((r&&r.error)||'failed'); }
 }
 async function pushSpec(){
   await api('/api/spec_settings',{
@@ -633,6 +647,7 @@ function render(st){
   pushHist(st);
   drawChart($('flowChart'),'flow',true);
   drawChart($('pressChart'),'press',false);
+  { const cb=$('collectNowBtn'); if(cb) cb.disabled=!['idle','ready','estop'].includes(st.state); }
   drawBeamline($('blChart'));
   $('flowLegend').innerHTML=legendHTML(st,'flow','µL/min');
   $('pressLegend').innerHTML=legendHTML(st,'press','mbar');

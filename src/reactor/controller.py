@@ -290,6 +290,23 @@ class ReactorController:
             self._log(f"⚙ data-collection: exp {self._spec_exposure:g}s ×{self._spec_frames}, "
                       f"lead {self._spec_lead:g}s, tags {self._spec_sample_tag}/{self._spec_bkg_tag}", "info")
 
+    def collect_now(self, role: str = "sample") -> tuple[bool, str]:
+        """Fire a one-off SPEC 2D acquisition on demand (dry-run/verify), OUTSIDE a
+        run. Allowed only when idle/ready/estop and not already collecting, so it
+        never interferes with the automated sample/background collects."""
+        with self._lock:
+            if self.state not in ("idle", "ready", "estop"):
+                return False, f"can't manually collect while {self.state} — the run manages collection"
+            if not self._spec_enabled:
+                return False, "data collection is disabled (spec.enabled = false)"
+            if self.beamline.is_collecting():
+                return False, "a collection is already in progress"
+            role = "background" if str(role).lower().startswith("b") else "sample"
+            rid = "manual_" + time.strftime("%Y%m%d_%H%M%S")
+        threading.Thread(target=self._fire_spec_collection, args=(rid, role), daemon=True).start()
+        self._log(f"📷 manual collect requested ({role}) — {rid}", "info")
+        return True, rid
+
     # ── run-end triggers ───────────────────────────────────────────────────────
     def signal_measurement_complete(self, info: str = "") -> None:
         with self._lock:
@@ -573,6 +590,7 @@ class ReactorController:
             self._last_collect = {"role": role, "recipe_id": recipe_id, "path": path,
                                   "t": time.time()}
             self.beamline.collect(recipe_id=recipe_id, role=role, path=path,
+                                  sample=prefix, main_folder=self._spec_data_dir,
                                   temperature=self.temp.target,
                                   exposure=self._spec_exposure, frames=self._spec_frames)
             self._log(f"📷 SPEC {role} collect complete: {recipe_id}", "ok")

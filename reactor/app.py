@@ -422,6 +422,13 @@ def api_spec_settings():
     return jsonify({"ok": True})
 
 
+@app.route("/api/collect_now", methods=["POST"])
+def api_collect_now():
+    role = str((request.get_json(silent=True) or {}).get("role", "sample"))
+    ok, msg = _ctrl.collect_now(role)
+    return jsonify({"ok": ok, "error": None if ok else msg})
+
+
 @app.route("/api/run_settings", methods=["POST"])
 def api_run_settings():
     b = request.get_json(force=True) or {}
