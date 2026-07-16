@@ -37,13 +37,18 @@ from pathlib import Path
 _DEFAULTS = {
     "backend": "mock",                              # "mock" | "real"
     "base_url": "http://127.0.0.1:18085/SIS/",
-    "temp_counter": "temp",                         # ⚠ CONFIRM: counter reporting temperature
+    "temp_counter": "CTEMP",                        # counter reporting temperature (BL1-5)
     "bstop_counter": "bstop",
     "i0_counter": "i0",
+    "read_refresh_cmd": "",                          # SPEC cmd run before a read to refresh counters
+                                                    #   (get_all_counters is otherwise the LAST count).
+                                                    #   e.g. "ct 0.1"  ⚠ may open the shutter — prefer a
+                                                    #   shutter-free temperature-query macro if you have one.
     "set_temp_cmd": "csettemp {T}",                 # ramp command (from MSD.py)
     "macro_file": "",                               # collection macro template (.txt); blank = named-cmd mode
-    "macro_out_file": "",                           # where the filled macro is written (SPEC-readable)
-    "qdo_cmd": 'qdo "{file}"',                       # how SPEC runs the filled macro file
+    "collect_mode": "commands",                     # "commands" (stream macro lines via bServer — no shared FS) | "qdo" (write file + qdo) | "named"
+    "macro_out_file": "",                           # where the filled macro is written (SPEC-readable) — qdo mode only
+    "qdo_cmd": 'qdo "{file}"',                       # how SPEC runs the filled macro file (qdo mode)
     "newfile_cmd": "newfile {path}",                # sets save dir + prefix (named-cmd mode)
     "collect_cmd": "ct {exposure}",                 # 2D acquisition (named-cmd mode)
     "read_during_collect": False,                   # True → keep polling counters DURING a collection
@@ -66,6 +71,34 @@ def render_macro(text: str, params: dict) -> str:
     for k in _MACRO_KEYS:
         if k in params and params[k] is not None:
             out = out.replace("{{" + k + "}}", str(params[k]))
+    return out
+
+
+def _strip_inline_comment(s: str) -> str:
+    """Cut a trailing SPEC #-comment, ignoring # inside quotes."""
+    q = None
+    for i, ch in enumerate(s):
+        if q:
+            if ch == q:
+                q = None
+        elif ch in ("'", '"'):
+            q = ch
+        elif ch == "#":
+            return s[:i].strip()
+    return s.strip()
+
+
+def macro_command_lines(text: str) -> list[str]:
+    """Split a rendered SPEC macro into individual commands to send one-by-one via
+    ``execute_command`` (the "commands" collect mode). Drops blank lines and
+    #-comments, strips inline comments, preserves order. Each remaining statement
+    is one SPEC command — the same lines ``qdo`` would run, just streamed over the
+    bServer so no file needs to live on a SPEC-shared path."""
+    out = []
+    for raw in text.splitlines():
+        s = _strip_inline_comment(raw.strip())
+        if s:
+            out.append(s)
     return out
 
 
@@ -234,6 +267,16 @@ class SpecBeamline(BeamlineDriver):
         self._cmd(self.cfg["set_temp_cmd"].format(T=float(target_c)))
 
     def _do_read_counters(self) -> dict:
+        # get_all_counters returns the values from SPEC's LAST count, so they're
+        # stale until something counts. Optionally run a refresh command first to
+        # update them (skipped during a collection — never count mid-acquisition).
+        refresh = self.cfg.get("read_refresh_cmd")
+        if refresh and not self._collecting:
+            try:
+                self._cmd(str(refresh))
+                self._wait(timeout=30.0)   # let the count finish before reading (cf. MSD.execute_and_read_count)
+            except Exception:
+                pass
         names = self._sis("get_all_counter_mnemonics") or []
         vals = self._sis("get_all_counters") or []
         return dict(zip(names, vals))
@@ -242,13 +285,21 @@ class SpecBeamline(BeamlineDriver):
         p = {"exposure": 1.0, "frames": 1, **params}
         self._do_take_control()
         macro_file = self.cfg.get("macro_file")
-        if macro_file:
-            # macro mode: fill the .txt template ({{token}} markers), write it, qdo it
+        mode = str(self.cfg.get("collect_mode", "commands")).lower()
+        if macro_file and mode == "qdo":
+            # qdo mode: fill the .txt template, write it, qdo it.
+            # NEEDS the filled file to sit on a path SPEC can open (shared mount).
             rendered = render_macro(Path(macro_file).read_text(), p)
             out = Path(self.cfg.get("macro_out_file")
                        or (Path(macro_file).parent / "_autopilot_run.mac"))
             out.write_text(rendered)
             self._cmd(self.cfg["qdo_cmd"].format(file=str(out)))
+        elif macro_file:
+            # commands mode (default): stream the rendered macro to SPEC line-by-line.
+            # No file is written anywhere — works even if SPEC is a different host,
+            # because SPEC does its own file I/O via the paths inside the macro.
+            for line in macro_command_lines(render_macro(Path(macro_file).read_text(), p)):
+                self._cmd(line)
         else:
             # named-command mode: newfile then the collect command
             if p.get("path"):

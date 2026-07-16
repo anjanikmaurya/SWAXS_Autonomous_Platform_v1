@@ -29,7 +29,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src.reactor import load_config                          # noqa: E402
 from src.beamline import make_beamline                       # noqa: E402
-from src.beamline.driver import render_macro                 # noqa: E402
+from src.beamline.driver import render_macro, macro_command_lines  # noqa: E402
 
 
 def main() -> int:
@@ -69,20 +69,30 @@ def main() -> int:
     print(f"# main_folder (data_dir) = {data_dir or '(unset!)'}")
 
     macro_file = spec.get("macro_file")
+    mode = str(spec.get("collect_mode", "commands")).lower()
     if macro_file:
         try:
             rendered = render_macro(Path(macro_file).read_text(), params)
         except Exception as exc:
             print(f"!! could not read/render macro_file {macro_file!r}: {exc}")
             return 1
-        out = spec.get("macro_out_file") or str(Path(macro_file).parent / "_autopilot_run.mac")
-        qdo = spec.get("qdo_cmd", 'qdo "{file}"').format(file=out)
-        print(f"# macro_file    = {macro_file}")
-        print(f"# will write to = {out}")
-        print(f"# will run      = {qdo}")
-        print("# ---- filled macro ----")
-        print(rendered)
-        print("# -----------------------")
+        print(f"# macro_file  = {macro_file}")
+        print(f"# collect_mode = {mode}")
+        if mode == "qdo":
+            out = spec.get("macro_out_file") or str(Path(macro_file).parent / "_autopilot_run.mac")
+            qdo = spec.get("qdo_cmd", 'qdo "{file}"').format(file=out)
+            print(f"# will write to = {out}   (must be a SPEC-readable path!)")
+            print(f"# will run      = {qdo}")
+            print("# ---- filled macro (written to file, then qdo'd) ----")
+            print(rendered)
+            print("# ----------------------------------------------------")
+        else:
+            print("# will send these lines to SPEC one-by-one via execute_command")
+            print("# (no file written — works even if SPEC is a different host):")
+            print("# ---- commands ----")
+            for ln in macro_command_lines(rendered):
+                print(f"    {ln}")
+            print("# ------------------")
     else:
         print("# no macro_file set → named-command mode:")
         print(f"#   {spec.get('newfile_cmd','newfile {path}').format(path=path)}")

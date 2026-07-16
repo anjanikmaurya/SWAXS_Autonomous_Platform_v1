@@ -96,16 +96,31 @@ spec:
   # ── site-specific SPEC strings — ⚠ CONFIRM these on the beamline ────────────
   read_during_collect: false  # true = keep polling temp/bstop/I0 DURING a collection
                               # (only if the bServer allows counter reads mid-scan)
-  temp_counter: "temp"        # counter name that reports the temperature readback
+  temp_counter: "CTEMP"       # counter name that reports the temperature readback (BL1-5)
   bstop_counter: "bstop"
   i0_counter:   "i0"
+  # get_all_counters returns SPEC's LAST-count values (stale until a count runs),
+  # so temp/bstop/I0 read frozen. read_refresh_cmd is run before each read to
+  # update them. "ct 0.1" refreshes all counters but ⚠ MAY OPEN THE SHUTTER —
+  # prefer a shutter-free temperature-query macro if the beamline has one.
+  # Leave blank to read raw last-count values (no refresh).
+  read_refresh_cmd: ""        # e.g. "ct 0.1"
   set_temp_cmd: "csettemp {T}"        # ramp command (from MSD.py)
-  # ── data collection: preferred = a .txt SPEC macro that we fill in and qdo ──
+  # ── data collection: preferred = a .txt SPEC macro that we fill in ──────────
   # The macro owns exposure/frames/detector setup; the reactor substitutes these
-  # placeholders before sending: {path} {recipe_id} {temperature} {exposure} {frames}
+  # {{token}} markers before sending: {{sample}} {{main_folder}} {{path}}
+  # {{recipe_id}} {{temperature}} {{exposure}} {{frames}}.
   macro_file:     ""                  # path to your collection macro template (.txt); blank = named-cmd mode
-  macro_out_file: ""                  # where the filled macro is written for qdo (SPEC-readable); blank = next to macro_file
-  qdo_cmd:        'qdo "{file}"'      # how SPEC runs the filled macro file
+  # collect_mode: how the filled macro reaches SPEC —
+  #   "commands" (DEFAULT, robust): stream the macro's lines to SPEC one-by-one
+  #              via the bServer. No file is written; SPEC does its own file I/O
+  #              using the paths inside the macro. Works even if SPEC is a
+  #              DIFFERENT host from this PC (no shared mount needed).
+  #   "qdo":     write the filled macro to a file, then `qdo` it. Only use this if
+  #              macro_out_file is on a path SPEC itself can open (a shared mount).
+  collect_mode:   "commands"
+  macro_out_file: ""                  # (qdo mode only) SPEC-readable path to write to; blank = next to macro_file
+  qdo_cmd:        'qdo "{file}"'      # (qdo mode only) how SPEC runs the filled macro file
   # ── fallback named-command mode (used only if macro_file is blank) ──────────
   newfile_cmd:  "newfile {path}"      # sets detector save dir + filename prefix
   collect_cmd:  "ct {exposure}"       # 2D acquisition command

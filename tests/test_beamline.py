@@ -56,6 +56,43 @@ def test_singlesnapshot_template_renders_and_preserves_spec_syntax():
     assert "{{" not in out               # every marker filled
 
 
+def test_commands_mode_splits_macro_into_spec_lines():
+    from src.beamline.driver import macro_command_lines, render_macro
+    macro = (
+        '# header comment\n'
+        '\n'
+        'sample = "{{sample}}"   # inline comment stripped\n'
+        'n_images = {{frames}}\n'
+        'eval(sprintf("mkdir %s", "#notacomment_in_quotes"))\n'
+        'loopscan n_images exposure_time\n'
+    )
+    lines = macro_command_lines(render_macro(macro, {"sample": "auto_3_sample", "frames": 5}))
+    assert lines == [
+        'sample = "auto_3_sample"',
+        'n_images = 5',
+        'eval(sprintf("mkdir %s", "#notacomment_in_quotes"))',
+        'loopscan n_images exposure_time',
+    ]
+
+
+def test_commands_mode_streams_lines_no_file(tmp_path, monkeypatch):
+    # A SpecBeamline that records _cmd calls instead of hitting HTTP, to prove
+    # "commands" mode sends the macro lines and writes no file.
+    from src.beamline.driver import SpecBeamline
+    macro = tmp_path / "m.txt"
+    macro.write_text('newfile "{{path}}"\nloopscan {{frames}} {{exposure}}\n')
+    bl = object.__new__(SpecBeamline)
+    BeamlineDriver = SpecBeamline.__mro__[1]
+    BeamlineDriver.__init__(bl, {"macro_file": str(macro), "collect_mode": "commands"})
+    sent = []
+    bl._do_take_control = lambda: None
+    bl._cmd = lambda c: sent.append(c)
+    bl._wait = lambda *a, **k: None
+    bl.collect(path="/data/2D/auto_7_sample", frames=3, exposure=30)
+    assert sent == ['newfile "/data/2D/auto_7_sample"', "loopscan 3 30"]
+    assert not (macro.parent / "_autopilot_run.mac").exists()   # nothing written
+
+
 def _controller(spec):
     cfg = {"pumps": {n: {"max_flow": 1000.0} for n in PUMP_NAMES},
            "bounds": {"T_reac": [180, 300], "F_tot": [40, 120],

@@ -41,14 +41,29 @@ Edit `reactor\config.yml` → `spec:` (the tools read it):
 - `temp_counter:` / `bstop_counter:` / `i0_counter:` — the real counter names
   (step 1 helps you discover them).
 - `set_temp_cmd:` — the ramp command (default `csettemp {T}`).
-- `macro_file:` — path to your collection macro template (see step 3).
-- `macro_out_file:` — where the filled macro is written for `qdo`.
+- `macro_file:` — path (on THIS PC) to your collection macro template (see step 3).
+- `collect_mode:` — how the macro reaches SPEC. **Leave at the default `commands`**
+  unless you know SPEC shares a filesystem with this PC (see below).
 - `data_dir:` — the base folder that contains `2D\SAXS` (the `main_folder`).
 
-> Cross-machine note: if the reactor PC (Windows) and SPEC (Linux) are different
-> hosts, `base_url` points at the SPEC host, and `macro_file` / `macro_out_file` /
-> `data_dir` must be on a **shared mount** using the path **SPEC** sees (the Linux
-> path that `qdo` will open), not the Windows drive letter.
+### Which `collect_mode`? (the one thing to decide for collection)
+
+The bServer runs on this Windows PC, but SPEC itself may run elsewhere. That only
+matters for **collection**, and `collect_mode` handles both cases:
+
+- **`commands` (default, recommended):** the reactor reads the macro **on this PC**,
+  fills the `{{markers}}`, and sends the lines to SPEC one at a time through the
+  bServer — the same statements `qdo` would run. **No file is written anywhere**,
+  and SPEC saves the detector frames itself using the paths already inside your
+  macro. This works whether SPEC is local or a different Linux host — nothing has
+  to be shared. Start here.
+- **`qdo`:** the reactor writes the filled macro to `macro_out_file` and tells SPEC
+  `qdo` it. Only works if `macro_out_file` is a path **SPEC itself can open** (i.e.
+  a shared mount, written using the path SPEC sees — the Linux path, not a Windows
+  drive letter). Use only if you specifically want file-based `qdo`.
+
+> Don't know where SPEC runs or whether anything is shared? Use `commands`. Reads
+> and temperature don't depend on any of this — only collection does.
 
 ---
 
@@ -60,15 +75,37 @@ python tools\beamline_read_test.py --all           :: dump every counter each po
 python tools\beamline_read_test.py --count 1       :: single read then exit
 ```
 
-- It prints the **list of available counters** first — use this to find the real
-  temperature counter name. If it's `ctemp` (not `temp`):
+- It prints the **list of available counters** first. On BL1-5 the temperature is
+  `CTEMP` (already the default). Override with `--temp-counter NAME` if needed.
+- **If the values look frozen** (identical every poll, `CTEMP = -1`): that's
+  expected. `get_all_counters` returns SPEC's **last-count** values, which are
+  stale until SPEC counts again. Make them live by refreshing before each read:
   ```bat
-  python tools\beamline_read_test.py --temp-counter ctemp
+  python tools\beamline_read_test.py --refresh "ct 0.1"
   ```
-  then set `spec.temp_counter: ctemp` in `reactor\config.yml`.
-- **Check:** temperature / bstop / I₀ print sensible live values.
+  `ct` refreshes **all** counters (temperature/bstop/I₀) at once. **⚠ `ct` may open
+  the shutter** — if your beamline has a shutter-free temperature-query macro,
+  pass that to `--refresh` instead. Once you find what makes `CTEMP` track the
+  controller, set it in `reactor\config.yml`:
+  ```yaml
+  spec:
+    temp_counter:     "CTEMP"
+    read_refresh_cmd: "ct 0.1"   # or your shutter-free query macro; "" = no refresh
+  ```
+- **Check:** with the refresh, `CTEMP` matches the number on the temperature
+  controller and bstop/I₀ move. (This mirrors the group's own
+  `MSD.execute_and_read_count`, which also `ct`s before reading.)
+- **Shutter:** `ct` obeys `sauto`. To poll temperature during a long ramp WITHOUT
+  exposing the sample, run `sauto off` first — the collection macro opens/closes
+  the shutter itself (`sopen`/`sclose`), so collection still works with `sauto off`.
 - If it can't reach the bServer it says so — confirm the bServer is running and
   `spec.base_url` is correct.
+
+> Path note (from the real macro): SPEC saves to a **Linux** path like
+> `/msd_data/checkout/bl1-5/.../Auto_Test`, which the Windows PC sees as
+> `X:\bl1-5\...`. In `commands` mode SPEC writes the frames itself, so `--data-dir`
+> is the **Linux** `/msd_data/...` path; the **pipeline** (reduction app) then
+> reads those `.raw` files from the `X:\...` mount.
 
 ## 2. Temperature — set + readback (confirmation-gated)
 
@@ -84,30 +121,36 @@ python tools\beamline_temp_test.py 60              :: asks y/N, ramps to 60 C, p
 
 ## 3. Data collection — dry-run, then fire
 
-Put your macro template on a SPEC-readable path (a templatized copy of
+Point `--macro-file` at your macro **on this PC** — a templatized copy of
 `Singlesnapshot.txt` lives at `reactor\macros\Singlesnapshot.template.txt`; it
-uses the markers `{{sample}} {{frames}} {{exposure}} {{main_folder}}`).
+uses the markers `{{sample}} {{frames}} {{exposure}} {{main_folder}}`. In the
+default `commands` mode this file only needs to be readable **here** (the reactor
+sends its lines to SPEC), so a plain Windows path is fine.
 
 ```bat
-:: 3a. DRY-RUN — renders the filled macro + shows the save path, sends nothing
+:: 3a. DRY-RUN — shows the exact lines that would be sent to SPEC, sends nothing
 python tools\beamline_collect_test.py --id test1 --frames 2 --exposure 30 ^
-       --macro-file X:\bl1-5\...\Singlesnapshot.template.txt ^
-       --data-dir X:\bl1-5\...\Auto_Test
+       --macro-file reactor\macros\Singlesnapshot.template.txt ^
+       --data-dir /msd_data\...\Auto_Test
 
 :: 3b. FIRE — actually collects (asks y/N; OPENS SHUTTER, X-rays)
 python tools\beamline_collect_test.py --id test1 --frames 2 --exposure 30 ^
-       --macro-file X:\bl1-5\...\Singlesnapshot.template.txt ^
-       --data-dir X:\bl1-5\...\Auto_Test --fire
+       --macro-file reactor\macros\Singlesnapshot.template.txt ^
+       --data-dir /msd_data\...\Auto_Test --fire
 ```
 
-(`^` is the Windows line-continuation; or put it all on one line.)
+(`^` is the Windows line-continuation; or put it all on one line. `--data-dir` is
+the `main_folder` your macro writes into — use the path **SPEC** saves to, since
+SPEC creates the files.)
 
-- **Dry-run check:** the printed macro has your values filled in
-  (`sample = "test1_sample"`, `n_images = 2`, …) and the SPEC `sprintf`/`%s`
-  lines are untouched. Nothing is sent.
+- **Dry-run check:** `collect_mode = commands` is printed, followed by the list of
+  SPEC commands with your values filled in (`sample = "test1_sample"`,
+  `n_images = 2`, …) and the `sprintf`/`%s` lines untouched. Nothing is sent.
 - **Fire check:** after confirming, `.raw` frames appear in
   `<data_dir>\2D\SAXS\` named `test1_sample_*`. That confirms the whole
-  collect → save path the pipeline reads from.
+  collect → save path the pipeline reads from. If nothing lands, check that
+  `--data-dir` is the path SPEC writes to (not a Windows drive letter SPEC can't
+  see), then re-run the dry-run to inspect the commands.
 - Use `--role background` to test the background acquisition (files named
   `test1_bkg_*`).
 

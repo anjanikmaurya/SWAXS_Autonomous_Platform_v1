@@ -34,6 +34,10 @@ def main() -> int:
     ap.add_argument("--count", type=int, default=0, help="number of reads (0 = forever)")
     ap.add_argument("--all", action="store_true", help="print every counter each poll")
     ap.add_argument("--temp-counter", default=None, help="override the temperature counter name")
+    ap.add_argument("--refresh", default=None,
+                    help='SPEC cmd to refresh counters before each read, e.g. "ct 0.1" '
+                         '(get_all_counters is otherwise the LAST count — stale). '
+                         '⚠ "ct" may open the shutter.')
     args = ap.parse_args()
 
     cfg = load_config()
@@ -41,12 +45,17 @@ def main() -> int:
     spec["backend"] = "mock" if args.mock else "real"
     if args.temp_counter:
         spec["temp_counter"] = args.temp_counter
+    if args.refresh is not None:
+        spec["read_refresh_cmd"] = args.refresh
     bl = make_beamline(cfg)
 
     tc = spec.get("temp_counter", "temp")
     print(f"# backend={spec['backend']}  base_url={spec.get('base_url')}")
     print(f"# counters -> temperature='{tc}'  bstop='{spec.get('bstop_counter','bstop')}'  "
           f"i0='{spec.get('i0_counter','i0')}'")
+    rc = spec.get("read_refresh_cmd")
+    print(f"# refresh before read = {rc!r}" if rc
+          else "# refresh before read = (none — showing LAST-count values; use --refresh to make live)")
 
     # one-time discovery dump so you can SEE the real counter names
     try:
