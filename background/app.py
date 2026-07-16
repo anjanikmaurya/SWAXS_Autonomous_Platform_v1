@@ -328,15 +328,36 @@ def _sample_base_tokens(name: str) -> set[str]:
     return {t for t in _name_tokens(name) if t not in drop and not t.isdigit()}
 
 
+_ROLE_TAGS = ("_sample", "_bkg", "_background", "_buffer", "_blank",
+              "_bg", "_empty", "_solvent", "_water")
+
+
+def _recipe_key(name: str) -> str:
+    """The recipe/condition id a file belongs to — the filename up to its
+    sample/background role tag (e.g. 'auto_42_sample_..' & 'auto_42_bkg_..' both
+    → 'auto_42'). Empty if no role tag is present."""
+    low = name.lower()
+    hits = [low.find(t) for t in _ROLE_TAGS if low.find(t) > 0]
+    return name[:min(hits)] if hits else ""
+
+
 def _pick_background(sample: Path, bkgs: list[Path]) -> Path | None:
     """
-    Choose the background for *sample* by NEAREST sequence index, breaking ties
-    by sample-token overlap (so an unrelated buffer measured at the same index
-    doesn't win over a name-matched one).
+    Choose the background for *sample*. Prefer a background from the SAME recipe
+    (shared recipe_id in the filename) — deterministic for autonomous campaigns —
+    and fall back to NEAREST sequence index (tie-broken by sample-token overlap)
+    when there's no recipe_id match.
     """
     if not bkgs:
         return None
     s_idx = _seq_index(sample)
+
+    skey = _recipe_key(sample.name)
+    if skey:
+        keyed = [b for b in bkgs if _recipe_key(b.name) == skey]
+        if keyed:
+            return sorted(keyed, key=lambda b: abs(_seq_index(b) - s_idx))[0]
+
     s_tok = _sample_base_tokens(sample.name)
 
     def _key(b: Path):
