@@ -93,6 +93,8 @@ spec:
   sample_tag:  "sample"
   bkg_tag:     "bkg"
   # ── site-specific SPEC strings — ⚠ CONFIRM these on the beamline ────────────
+  read_during_collect: false  # true = keep polling temp/bstop/I0 DURING a collection
+                              # (only if the bServer allows counter reads mid-scan)
   temp_counter: "temp"        # counter name that reports the temperature readback
   bstop_counter: "bstop"
   i0_counter:   "i0"

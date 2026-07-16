@@ -71,6 +71,54 @@ def test_reactor_fires_sample_then_background_tagged():
         ctl.shutdown()
 
 
+def test_estop_is_pumps_only_leaves_beamline_untouched():
+    from src.reactor.config import REAGENT_PUMPS, FLUSH_PUMP
+    ctl = _controller({"backend": "mock", "spec_lead_s": 999, "mock_ramp_c_per_s": 500.0})
+    try:
+        ctl.set_run_settings({"arm_mode": "timed", "arm_wait_s": "0", "run_duration": "10"})
+        ctl.submit({"T_reac": 240, "F_tot": 80, "x_ODE": 0.2, "x_TOP": 0.1, "x_oley": 0.1})
+        ctl.start(); time.sleep(0.6)                       # running; temp commanded to 240
+        assert ctl.temp.target == 240 and ctl.beamline._target == 240
+        ctl.estop()
+        assert ctl.state == "estop"
+        for p in REAGENT_PUMPS + [FLUSH_PUMP]:
+            assert ctl.pumps.pumps[p].target == 0          # pumps idled
+        assert ctl.beamline._target == 240                 # beamline NOT commanded (no csettemp 0)
+        assert ctl.temp.target == 240                      # temperature setpoint left as-is
+    finally:
+        ctl.shutdown()
+
+
+def test_collection_blocks_commands_and_reads_skip():
+    import threading
+    bl = make_beamline({"spec": {"backend": "mock", "mock_collect_s": 0.4}})
+    done = threading.Event()
+    threading.Thread(target=lambda: (bl.collect(recipe_id="r1", path="/2D/r1_sample",
+                                                 exposure=0.1, frames=1), done.set())).start()
+    time.sleep(0.05)
+    assert bl.is_collecting() is True
+    t0 = time.time(); st = bl.read_state()                 # must NOT block on the collection
+    assert time.time() - t0 < 0.2 and st == {}
+    t0 = time.time(); bl.set_temperature(200)              # must WAIT for the collection to finish
+    assert time.time() - t0 >= 0.25
+    done.wait(2)
+    assert bl.is_collecting() is False
+    assert bl.collections and bl.collections[-1]["recipe_id"] == "r1"   # X-ray data kept
+
+
+def test_read_during_collect_keeps_polling():
+    import threading
+    bl = make_beamline({"spec": {"backend": "mock", "mock_collect_s": 0.4,
+                                 "read_during_collect": True}})
+    threading.Thread(target=lambda: bl.collect(recipe_id="r1", path="/2D/r1_sample",
+                                               exposure=0.1, frames=1)).start()
+    time.sleep(0.05)
+    assert bl.is_collecting() is True
+    st = bl.read_state()                                # reads live DURING the collection
+    assert st != {} and st.get("temperature") is not None
+    time.sleep(0.5)
+
+
 def test_spec_can_be_disabled():
     ctl = _controller({"backend": "mock", "enabled": False, "spec_lead_s": 1.0,
                        "mock_ramp_c_per_s": 200.0})
