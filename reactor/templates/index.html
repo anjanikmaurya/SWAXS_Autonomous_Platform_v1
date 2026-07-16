@@ -386,6 +386,15 @@ async function pushRunSettings(){
     flush_duration: $('flush_duration').value.trim()
   });
 }
+async function pushSpec(){
+  await api('/api/spec_settings',{
+    exposure_s:  $('spec_exposure').value.trim(),
+    frames:      $('spec_frames').value.trim(),
+    sample_tag:  $('spec_sample_tag').value.trim(),
+    bkg_tag:     $('spec_bkg_tag').value.trim(),
+    spec_lead_s: $('spec_lead').value.trim()
+  });
+}
 function setManualEnabled(on){
   ['T_reac','F_tot','x_ODE','x_TOP','x_oley','queueBtn'].forEach(id=>{const e=$(id);if(e)e.disabled=!on;});
   const note=$('manualNote'); if(note) note.textContent = on
@@ -605,6 +614,11 @@ function render(st){
   if(!window._durInit){ window._durInit=true;
     if($('run_duration').value.trim()==='' && st.run_duration_setting!=null)
       $('run_duration').value=Math.round(st.run_duration_setting); }
+  // populate the data-collection fields once from config
+  if(!window._specInit && st.spec){ window._specInit=true; const sp=st.spec;
+    $('spec_exposure').value=sp.exposure_s; $('spec_frames').value=sp.frames;
+    $('spec_sample_tag').value=sp.sample_tag; $('spec_bkg_tag').value=sp.bkg_tag;
+    $('spec_lead').value=sp.spec_lead_s; }
   // currently-running readout + lock the manual form while autonomous
   const cr=st.current_recipe;
   $('runningNow').textContent = cr

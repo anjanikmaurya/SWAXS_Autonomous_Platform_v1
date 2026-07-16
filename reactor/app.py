@@ -416,6 +416,12 @@ def api_auto_run():
     return jsonify({"ok": True, "auto_run": _ctrl.auto_run})
 
 
+@app.route("/api/spec_settings", methods=["POST"])
+def api_spec_settings():
+    _ctrl.set_spec_settings(request.get_json(silent=True) or {})
+    return jsonify({"ok": True})
+
+
 @app.route("/api/run_settings", methods=["POST"])
 def api_run_settings():
     b = request.get_json(force=True) or {}
