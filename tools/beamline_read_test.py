@@ -49,6 +49,16 @@ def main() -> int:
         spec["read_refresh_cmd"] = args.refresh
     bl = make_beamline(cfg)
 
+    # Refreshing means sending a SPEC command (ct), which the bServer only runs
+    # while we hold remote control — grab it up front so the refresh isn't ignored.
+    if spec.get("read_refresh_cmd") and not args.mock:
+        try:
+            bl.take_control()
+            print(f"# took remote control to send refresh {spec['read_refresh_cmd']!r} "
+                  f"(if the SPEC GUI has control, this may fail or take it over)")
+        except Exception as exc:
+            print(f"!! could not take remote control: {exc} — refresh will be ignored")
+
     tc = spec.get("temp_counter", "temp")
     print(f"# backend={spec['backend']}  base_url={spec.get('base_url')}")
     print(f"# counters -> temperature='{tc}'  bstop='{spec.get('bstop_counter','bstop')}'  "

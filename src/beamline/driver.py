@@ -251,17 +251,37 @@ class SpecBeamline(BeamlineDriver):
         self._requests = requests
         self._base = self.cfg["base_url"]
         self._to = float(self.cfg["http_timeout_s"])
+        self._have_control = False
 
     def _sis(self, command: str, **params):
         r = self._requests.get(self._base + command, params=params, timeout=self._to)
         r.raise_for_status()
         return r.json().get("data")
 
+    def _ensure_control(self):
+        # The bServer only runs execute_command while we hold remote control
+        # (see main.py handleGET_test: get_remote_control before execute_command).
+        # Acquire once, then remember — otherwise commands (ct, csettemp, qdo) are
+        # silently ignored and counters never refresh.
+        if not self._have_control:
+            self._sis("get_remote_control")
+            self._have_control = True
+
     def _cmd(self, spec_cmd: str):
+        self._ensure_control()
         return self._sis("execute_command", spec_cmd=spec_cmd)
 
     def _do_take_control(self):
         self._sis("get_remote_control")
+        self._have_control = True
+
+    def _do_close(self):
+        try:
+            if self._have_control:
+                self._sis("release_remote_control")
+                self._have_control = False
+        except Exception:
+            pass
 
     def _do_set_temperature(self, target_c: float):
         self._cmd(self.cfg["set_temp_cmd"].format(T=float(target_c)))
