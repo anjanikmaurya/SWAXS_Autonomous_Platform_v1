@@ -81,7 +81,8 @@ temperature:
 # acquisition ~spec_lead_s before the run ends, naming the output with the
 # recipe_id so it traces through the pipeline back to the optimizer.
 spec:
-  backend:     "mock"         # "mock" (simulate) | "real" (talk to the SPEC bServer)
+  backend:     "mock"         # startup default; at runtime the reactor Mock/Real
+                              # toggle governs BOTH pumps and beamline together
   base_url:    "http://127.0.0.1:18085/SIS/"   # bServer (same machine as the reactor)
   enabled:     true           # fire the 2D collection during a run
   spec_lead_s: 180.0          # collect this long before the end of run (sample) AND flush (background)

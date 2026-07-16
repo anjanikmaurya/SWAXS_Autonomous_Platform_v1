@@ -48,13 +48,21 @@ def _noop(*a, **k):
     return None
 
 
+def _spec_cfg_for(cfg: dict, backend: str) -> dict:
+    """cfg with spec.backend forced to ``backend`` — so the pump Mock/Real choice
+    also governs the beamline (one switch covers both)."""
+    spec = dict(cfg.get("spec", {})); spec["backend"] = backend
+    return {**cfg, "spec": spec}
+
+
 class ReactorController:
     def __init__(self, cfg: dict, backend: str = "mock", *,
                  log_cb=None, event_cb=None, feedback_cb=None, manifest_cb=None):
         self.cfg = cfg
         self.backend = backend
         self.pumps = PumpBank(cfg, backend=backend)
-        self.beamline = make_beamline(cfg)                       # SPEC/temperature/detector
+        # beamline follows the same backend as the pumps (one Mock/Real switch)
+        self.beamline = make_beamline(_spec_cfg_for(cfg, backend))
         self.temp = TempController(cfg, backend=backend, beamline=self.beamline)
         self._log = log_cb or _noop
         self._event = event_cb or _noop
@@ -356,15 +364,20 @@ class ReactorController:
                 except Exception:
                     pass
             self.pumps = new_pumps
-            # keep the beamline wired to temperature — the pump backend toggle
-            # switches PUMPS only; the beamline (SPEC) backend is set in config.
+            # switch the beamline to the same mode (one toggle covers pumps + SPEC)
+            try:
+                self.beamline.close()
+            except Exception:
+                pass
+            self.beamline = make_beamline(_spec_cfg_for(self.cfg, backend))
+            self.cfg.setdefault("spec", {})["backend"] = backend
             self.temp = TempController(self.cfg, backend=backend, beamline=self.beamline)
             self.backend = backend
             self.state = "idle"
             self.current = None
             self.setpoints = {}
-            self._log(f"⚙ backend switched to {backend.upper()}"
-                      + (" — pumps are LIVE" if backend == "real" else " (simulation)"),
+            self._log(f"⚙ backend switched to {backend.upper()} — pumps + beamline"
+                      + (" are LIVE" if backend == "real" else " (simulation)"),
                       "warn" if backend == "real" else "info")
             self._event("reactor.backend", {"backend": backend})
             return True, backend

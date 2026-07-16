@@ -110,7 +110,7 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
   <span class="proj" id="proj"></span>
   <button class="theme-toggle" id="themeBtn" onclick="toggleTheme()" title="Toggle light / dark">☾</button>
   <span class="sub">Port 5007 · <a href="http://localhost:5000">← Hub</a> ·
-    <span class="bk-toggle" id="bkToggle" title="Hardware backend — Mock is a safe simulation; Real drives the pumps.">
+    <span class="bk-toggle" id="bkToggle" title="Hardware backend — Mock is a safe simulation; Real drives the pumps and connects to SPEC.">
       <button type="button" id="bk-mock" onclick="setBackend('mock')">Mock</button>
       <button type="button" id="bk-real" onclick="setBackend('real')">Real</button>
     </span></span>
@@ -587,7 +587,7 @@ function updateCollectBadge(){
 
 async function setBackend(mode){
   if(mode===(window._backend||'mock')) return;
-  if(mode==='real' && !confirm('Switch to REAL hardware?\n\nThis opens the pump serial ports and the pumps become live. Make sure the rig is connected and the Dolomite GUI is closed.')) return;
+  if(mode==='real' && !confirm('Switch to REAL hardware?\n\nThis switches BOTH the pumps and the beamline (SPEC) to live: it opens the pump serial ports and connects to the SPEC bServer. Make sure the rig is connected and the Dolomite GUI is closed.')) return;
   const r=await api('/api/backend',{backend:mode});
   if(r && !r.ok){ alert('Could not switch to '+mode.toUpperCase()+':\n\n'+(r.error||'unknown error')); }
   // the pill updates from the next status frame
@@ -600,7 +600,7 @@ function updateBackendPill(backend, state){
   m.className=(backend==='mock'?'on mock':''); r.className=(backend==='real'?'on real':'');
   m.disabled=busy; r.disabled=busy;
   $('bkToggle').title=busy?'Stop the run to change backend'
-    :'Hardware backend — Mock is a safe simulation; Real drives the pumps.';
+    :'Hardware backend — Mock is a safe simulation; Real drives the pumps and connects to SPEC.';
 }
 function render(st){
   $('state').textContent=st.state; $('state').className='state-pill state-'+st.state;
