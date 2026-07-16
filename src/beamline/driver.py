@@ -45,6 +45,8 @@ _DEFAULTS = {
                                                     #   e.g. "ct 0.1"  ⚠ may open the shutter — prefer a
                                                     #   shutter-free temperature-query macro if you have one.
     "set_temp_cmd": "csettemp {T}",                 # ramp command (from MSD.py)
+    "open_shutter_cmd": "sopen",                    # open the fast shutter (from MSD.py)
+    "close_shutter_cmd": "sclose",                  # close the fast shutter (from MSD.py)
     "macro_file": "",                               # collection macro template (.txt); blank = named-cmd mode
     "collect_mode": "commands",                     # "commands" (stream macro lines via bServer — no shared FS) | "qdo" (write file + qdo) | "named"
     "macro_out_file": "",                           # where the filled macro is written (SPEC-readable) — qdo mode only
@@ -126,6 +128,15 @@ class BeamlineDriver:
         with self._lock:
             self._do_set_temperature(float(target_c))
 
+    def open_shutter(self) -> None:
+        # guarded: waits for any in-progress collection to finish first
+        with self._lock:
+            self._do_open_shutter()
+
+    def close_shutter(self) -> None:
+        with self._lock:
+            self._do_close_shutter()
+
     def collect(self, **params) -> None:
         """Run a 2D acquisition, holding the SPEC lock for the whole thing."""
         with self._lock:
@@ -181,6 +192,8 @@ class BeamlineDriver:
     # -- primitives (override) ------------------------------------------------
     def _do_take_control(self) -> None: ...
     def _do_set_temperature(self, target_c: float) -> None: ...
+    def _do_open_shutter(self) -> None: ...
+    def _do_close_shutter(self) -> None: ...
     def _do_read_counters(self) -> dict: return {}
     def _do_read_state(self) -> dict:
         c = self._do_read_counters()
@@ -209,6 +222,7 @@ class MockBeamline(BeamlineDriver):
         self._ramp = float(self.cfg.get("mock_ramp_c_per_s", 5.0))
         self._collect_s = float(self.cfg.get("mock_collect_s", 0.0))   # simulate acquisition time
         self.collections: list[dict] = []
+        self.shutter = "closed"
 
     def _advance(self):
         now = time.time(); dt = now - self._last; self._last = now
@@ -222,6 +236,9 @@ class MockBeamline(BeamlineDriver):
 
     def _do_set_temperature(self, target_c: float):
         self._advance(); self._target = float(target_c)
+
+    def _do_open_shutter(self): self.shutter = "open"
+    def _do_close_shutter(self): self.shutter = "closed"
 
     def _do_read_counters(self) -> dict:
         self._advance()
@@ -285,6 +302,12 @@ class SpecBeamline(BeamlineDriver):
 
     def _do_set_temperature(self, target_c: float):
         self._cmd(self.cfg["set_temp_cmd"].format(T=float(target_c)))
+
+    def _do_open_shutter(self):
+        self._cmd(self.cfg["open_shutter_cmd"]); self._wait(timeout=30.0)
+
+    def _do_close_shutter(self):
+        self._cmd(self.cfg["close_shutter_cmd"]); self._wait(timeout=30.0)
 
     def _do_read_counters(self) -> dict:
         # get_all_counters returns the values from SPEC's LAST count, so they're
