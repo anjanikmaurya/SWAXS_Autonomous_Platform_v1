@@ -22,4 +22,3 @@ loopscan {{frames}} {{exposure}} 0
 sclose
 pd nosave
 pd disable
-csetsetmp 25

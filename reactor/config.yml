@@ -75,6 +75,8 @@ temperature:
   timeout:      900.0         # s: give up arming after this → abort
   mock_ramp:    5.0           # °C/s convergence rate for the MOCK reading only
   read_interval_s: 1.0        # s: throttle live beamline temperature/bstop reads
+  cooldown_c:   25.0          # °C: cool the reactor to this the moment a synthesis run ends
+                              # (csettemp sent at run→flush). null/blank = leave temperature as-is.
 
 # ── Beamline / SPEC (temperature ramp, bstop, 2D data collection) ─────────────
 # The reactor commands temperature via SPEC and, during a run, fires a 2D

@@ -119,6 +119,10 @@ class ReactorController:
         fl = cfg.get("flush", {})
         self.flush_rate = float(fl.get("rate", 100.0))
         self.flush_duration = float(fl.get("duration", 300.0))
+        # cool the reactor to this temperature the moment a synthesis run ends
+        # (None / not set = leave temperature as-is)
+        _cd = cfg.get("temperature", {}).get("cooldown_c", None)
+        self.cooldown_c = None if _cd is None else float(_cd)
         s = cfg.get("safety", {})
         self.T_max = float(s.get("T_max", 320.0))
         self.per_pump_max = float(s.get("per_pump_max", 1000.0))
@@ -505,6 +509,13 @@ class ReactorController:
         failed = self.pumps.zero_pumps(REAGENT_PUMPS)
         if failed:
             self._log(f"⚠ could not zero reagent pump(s): {', '.join(failed)} — check them", "warn")
+        # synthesis is over: cool the reactor to room temperature (if configured)
+        if self.cooldown_c is not None:
+            try:
+                self.temp.set_temperature(self.cooldown_c)
+                self._log(f"🌡 synthesis complete — cooling to {self.cooldown_c:g} °C", "info")
+            except Exception as exc:
+                self._log(f"⚠ cooldown command failed: {exc}", "warn")
         # mean measured flow per pump over the run (from the flow sensors)
         measured = ({nm: round(self._meas_sum.get(nm, 0.0) / self._meas_n, 4)
                      for nm in self._meas_sum} if self._meas_n
