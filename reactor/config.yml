@@ -20,14 +20,14 @@ pumps:
     serial:    "4902275A"       # matched first (portable)
     address:   "COM5"           # fallback only
     sensor:    "LG16-1000"
-    sensor_min: 30.0
+    sensor_min: 0.0
     max_flow:   1000.0
     max_pressure: 10000.0       # mbar — pump pressure ceiling (SET to your pump's real max)
   ode_flush:
     serial:    "4902272A"
     address:   "COM7"
     sensor:    "LG16-1000"
-    sensor_min: 30.0
+    sensor_min: 0.0
     max_flow:   1000.0
     max_pressure: 10000.0
   # ── 1–50 µL/min sensors (LG16-0480) — low-flow reagent pumps ──
@@ -35,21 +35,21 @@ pumps:
     serial:    "4902278A"
     address:   "COM6"
     sensor:    "LG16-0480"
-    sensor_min: 1.0
+    sensor_min: 0.0
     max_flow:   50.0
     max_pressure: 10000.0
   top:
     serial:    "4902280A"
     address:   "COM4"
     sensor:    "LG16-0480"
-    sensor_min: 1.0
+    sensor_min: 0.0
     max_flow:   50.0
     max_pressure: 10000.0
   ode_dilution:
     serial:    "4902276A"
     address:   "COM3"
     sensor:    "LG16-0480"
-    sensor_min: 1.0
+    sensor_min: 0.0
     max_flow:   50.0
     max_pressure: 10000.0
 
@@ -88,8 +88,8 @@ spec:
   base_url:    "http://127.0.0.1:18085/SIS/"   # bServer (same machine as the reactor)
   enabled:     true           # fire the 2D collection during a run
   spec_lead_s: 180.0          # collect this long before the end of run (sample) AND flush (background)
-  exposure_s:  1.0            # per-frame exposure passed to the collect macro
-  frames:      1              # frames per acquisition
+  exposure_s:  10.0           # per-frame exposure passed to the collect macro
+  frames:      10             # frames per acquisition
   data_dir:    "/msd_data/checkout/bl1-5/staff_data/Partha/AutoSynth/Auto_Test"   # beamline save dir (Linux path SPEC writes to) = pipeline 2D base
   # filename role tags → {recipe_id}_{sample_tag} (during run) and
   # {recipe_id}_{bkg_tag} (during flush). Shared recipe_id pairs them for subtraction.
@@ -168,12 +168,12 @@ run:
 
 # ── Flush / clean ────────────────────────────────────────────────────────────
 flush:
-  rate:      100.0            # µL/min on the flush pump
+  rate:      50.0            # µL/min on the flush pump (ode_dilution max = 50)
   duration:  1200.0          # s = 20 min
-  pump:      "ode_flush"     # which pump flushes; switchable in the app to a reagent
-                             # pump (e.g. "ode_dilution", same ODE) if ode_flush is down.
-                             # A reagent flush pump is capped at its own max_flow
-                             # (ode_dilution ≤ 50 µL/min) — rate is auto-clamped.
+  pump:      "ode_dilution"  # which pump flushes; switchable in the app. Default is
+                             # ode_dilution (same ODE) while ode_flush is down; switch
+                             # to "ode_flush" once fixed. A reagent flush pump is capped
+                             # at its own max_flow (ode_dilution ≤ 50 µL/min, auto-clamped).
 
 # ── Folders (relative to the project root unless absolute) ───────────────────
 folders:
