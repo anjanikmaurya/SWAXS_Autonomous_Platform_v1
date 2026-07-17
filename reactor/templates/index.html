@@ -179,8 +179,8 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
       <div style="margin-top:8px">
         <label>Flush pump</label>
         <select id="flush_pump" onchange="pushRunSettings()" style="width:100%">
+          <option value="ode_dilution" selected>ode_dilution (same ODE; ≤50 µL/min — rate auto-clamped)</option>
           <option value="ode_flush">ode_flush (dedicated, ≤1000 µL/min)</option>
-          <option value="ode_dilution">ode_dilution (same ODE; ≤50 µL/min — rate auto-clamped)</option>
         </select>
       </div>
       <div class="muted" style="margin-top:5px">Durations are in <b>seconds</b>, flush rate in <b>µL/min</b>. These apply to queued recipes and to the Flush&nbsp;now button.</div>
