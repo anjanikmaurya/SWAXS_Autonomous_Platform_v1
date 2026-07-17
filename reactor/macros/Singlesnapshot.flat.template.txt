@@ -9,6 +9,7 @@
 ######   {{main_folder}} -> spec.data_dir (base that holds 2D/SAXS)
 ###### Produces exactly the commands your Singlesnapshot.txt runs, values inlined.
 
+
 pd stop
 u mkdir -p {{main_folder}}/2D/SAXS
 cd {{main_folder}}/2D
@@ -21,3 +22,4 @@ loopscan {{frames}} {{exposure}} 0
 sclose
 pd nosave
 pd disable
+csetsetmp 25
