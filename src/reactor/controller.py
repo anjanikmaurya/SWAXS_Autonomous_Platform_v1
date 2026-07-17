@@ -247,35 +247,41 @@ class ReactorController:
     def set_run_settings(self, d: dict) -> None:
         """Apply live run settings from the app inputs — everything EXCEPT the
         flow fractions / F_tot / temperature (those come from the recipe file).
-        Keys: arm_mode, arm_wait_s, run_duration, flush_rate, flush_duration.
-        Blank/empty clears back to the config default. A changed run_duration
-        updates the current run's deadline live."""
+        Keys: arm_mode, arm_wait_s, arm_ramp_rate, run_duration, flush_rate,
+        flush_duration, flush_pump.
+
+        Once set, a value STICKS for the whole app session and is used for every
+        run / repeat / autonomous run — it wins over the config default AND over
+        any recipe-embedded value. A BLANK field is IGNORED (leaves the current
+        value unchanged); values reset to config defaults only when the app is
+        restarted. A changed run_duration also updates the current run's deadline."""
+        def provided(key):
+            return key in d and str(d.get(key)).strip() != ""
         def num(v):
-            if v in (None, ""):
-                return None
             try:
                 return float(v)
             except (TypeError, ValueError):
                 return None
         with self._lock:
-            if "arm_mode" in d:
-                m = str(d.get("arm_mode") or "").lower()
-                self.live_arm_mode = m if m in ("temperature", "timed", "ramp") else None
-            if "arm_wait_s" in d:
-                self.live_arm_wait = num(d.get("arm_wait_s"))
-            if "arm_ramp_rate" in d:
-                self.live_arm_ramp = num(d.get("arm_ramp_rate"))
-            if "flush_rate" in d:
-                self.live_flush_rate = num(d.get("flush_rate"))
-            if "flush_duration" in d:
-                self.live_flush_duration = num(d.get("flush_duration"))
-            if str(d.get("flush_pump", "")).strip():
+            if provided("arm_mode"):
+                m = str(d["arm_mode"]).lower()
+                if m in ("temperature", "timed", "ramp"):
+                    self.live_arm_mode = m
+            if provided("arm_wait_s") and (v := num(d["arm_wait_s"])) is not None:
+                self.live_arm_wait = v
+            if provided("arm_ramp_rate") and (v := num(d["arm_ramp_rate"])) is not None:
+                self.live_arm_ramp = v
+            if provided("flush_rate") and (v := num(d["flush_rate"])) is not None:
+                self.live_flush_rate = v
+            if provided("flush_duration") and (v := num(d["flush_duration"])) is not None:
+                self.live_flush_duration = v
+            if provided("flush_pump"):
                 fp = str(d["flush_pump"]).strip()
                 if fp in PUMP_NAMES:
                     self._flush_pump = fp
                     self._log(f"🧼 flush pump → {fp}", "info")
-            if "run_duration" in d:
-                self.live_duration = num(d.get("run_duration"))
+            if provided("run_duration") and (v := num(d["run_duration"])) is not None:
+                self.live_duration = v
                 if self.state == "running" and self._run_started and self.live_duration:
                     self._run_deadline = self._run_started + self.live_duration
                     self._log(f"⏱ run duration → {self.live_duration:g}s (applies to current run)", "info")
@@ -306,6 +312,15 @@ class ReactorController:
             self._log(f"⚙ data-collection: exp {self._spec_exposure:g}s ×{self._spec_frames}, "
                       f"lead {self._spec_lead:g}s, tags {self._spec_sample_tag}/{self._spec_bkg_tag}, "
                       f"dir {self._spec_data_dir or '(unset)'}", "info")
+
+    def set_data_dir(self, path: str) -> None:
+        """Force the SPEC save folder (used when the hub switches project folder —
+        overwrites whatever was there so data_dir follows the hub)."""
+        with self._lock:
+            p = str(path).strip()
+            if p and p != self._spec_data_dir:
+                self._spec_data_dir = p
+                self._log(f"📁 SPEC data_dir → {p}", "info")
 
     def default_data_dir(self, path: str) -> None:
         """Set data_dir ONLY if it isn't already set (used to seed it from the hub
@@ -459,12 +474,15 @@ class ReactorController:
         self._measure_done = False
         self._run_reason = ""
         self.temp.set_temperature(recipe.T_reac)   # recorded for display / gating
-        self._arm_mode = (recipe.arm_mode or self.live_arm_mode or self.default_arm_mode).lower()
+        # Precedence: the APP (live_*) value wins once the user has set it, then any
+        # recipe-embedded value, then the config default. So whatever is in the app
+        # UI is used for every run/repeat/autonomous run until the app is restarted.
+        self._arm_mode = (self.live_arm_mode or recipe.arm_mode or self.default_arm_mode).lower()
         now = time.time()
         self.state = "arming"
         if self._arm_mode == "ramp":
-            rate = (recipe.arm_ramp_rate if recipe.arm_ramp_rate is not None
-                    else self.live_arm_ramp if self.live_arm_ramp is not None
+            rate = (self.live_arm_ramp if self.live_arm_ramp is not None
+                    else recipe.arm_ramp_rate if recipe.arm_ramp_rate is not None
                     else self.default_ramp_rate)
             wait = ramp_wait_seconds(recipe.T_reac, float(rate or 0.0), self.ramp_start_temp)
             self._arm_total = float(wait)
@@ -478,8 +496,8 @@ class ReactorController:
                 self._log(f"⚠ arming {recipe.recipe_id}: no positive ramp rate set — "
                           f"pumps start immediately", "warn")
         elif self._arm_mode == "timed":
-            wait = (recipe.arm_wait_s if recipe.arm_wait_s is not None
-                    else self.live_arm_wait if self.live_arm_wait is not None
+            wait = (self.live_arm_wait if self.live_arm_wait is not None
+                    else recipe.arm_wait_s if recipe.arm_wait_s is not None
                     else self.default_arm_wait)
             self._arm_total = float(wait)
             self._arm_ready_at = now + float(wait)
@@ -501,7 +519,7 @@ class ReactorController:
         self._run_started = time.time()
         self._meas_last_sample = self._run_started
         self._spec_fired = False
-        dur = (self.current.run_duration or self.live_duration or self.default_duration)
+        dur = (self.live_duration or self.current.run_duration or self.default_duration)
         self._run_deadline = self._run_started + float(dur)
         self.state = "running"
         sp = ", ".join(f"{k}={v:g}" for k, v in self.setpoints.items() if v)
@@ -563,13 +581,14 @@ class ReactorController:
 
     def _enter_flush(self, rate: float | None = None, duration: float | None = None,
                      kind: str = "flush") -> None:
+        # explicit arg (Flush-now) first, then the APP value, then recipe, then config
         r = float(rate if rate is not None else
-                  (self.current.flush_rate if self.current and self.current.flush_rate
-                   else self.live_flush_rate if self.live_flush_rate is not None
+                  (self.live_flush_rate if self.live_flush_rate is not None
+                   else self.current.flush_rate if self.current and self.current.flush_rate
                    else self.flush_rate))
         d = float(duration if duration is not None else
-                  (self.current.flush_duration if self.current and self.current.flush_duration
-                   else self.live_flush_duration if self.live_flush_duration is not None
+                  (self.live_flush_duration if self.live_flush_duration is not None
+                   else self.current.flush_duration if self.current and self.current.flush_duration
                    else self.flush_duration))
         flush_pump = self._flush_pump
         # zero every reagent EXCEPT the one we're flushing with, plus the dedicated

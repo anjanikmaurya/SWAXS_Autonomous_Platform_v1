@@ -118,6 +118,29 @@ def test_epics_read_source_bypasses_spec_lock(monkeypatch):
     assert st == {"temperature": 250.0, "i0": 1.23, "bstop": 4.56}
 
 
+def test_hub_to_spec_dir_translation():
+    from src.reactor.config import hub_to_spec_dir
+    m = {"from": "X:\\bl1-5", "to": "/msd_data/checkout/bl1-5"}
+    assert hub_to_spec_dir(r"X:\bl1-5\staff_data\Partha\AutoSynth\Auto_Test", m) \
+        == "/msd_data/checkout/bl1-5/staff_data/Partha/AutoSynth/Auto_Test"
+    assert hub_to_spec_dir("x:/BL1-5/foo/bar", m) == "/msd_data/checkout/bl1-5/foo/bar"  # case-insensitive
+    assert hub_to_spec_dir(r"D:\other\exp", m) is None       # prefix mismatch → don't map
+    assert hub_to_spec_dir("", m) is None
+    assert hub_to_spec_dir(r"X:\bl1-5\exp", None) is None     # no mapping
+
+
+def test_set_data_dir_forces_and_default_only_if_blank():
+    ctl = _controller({"backend": "mock", "data_dir": "/orig"})
+    try:
+        assert ctl.status()["spec"]["data_dir"] == "/orig"
+        ctl.default_data_dir("/should_be_ignored")           # only-if-blank: ignored
+        assert ctl.status()["spec"]["data_dir"] == "/orig"
+        ctl.set_data_dir("/new/from/hub")                    # force: follows hub
+        assert ctl.status()["spec"]["data_dir"] == "/new/from/hub"
+    finally:
+        ctl.shutdown()
+
+
 def test_flush_pump_switch_to_reagent_and_clamp():
     from src.reactor.config import PUMP_NAMES, REAGENT_PUMPS, FLUSH_PUMP
     cfg = {"pumps": {n: {"max_flow": (50.0 if n == "ode_dilution" else 1000.0)} for n in PUMP_NAMES},
@@ -255,6 +278,24 @@ def test_collect_now_manual_and_guarded():
         ctl.start(); time.sleep(0.4)
         ok2, msg = ctl.collect_now()
         assert ok2 is False and "run" in msg.lower()
+    finally:
+        ctl.shutdown()
+
+
+def test_app_run_settings_win_over_recipe_and_persist():
+    ctl = _controller({"backend": "mock", "enabled": False})
+    try:
+        ctl.set_run_settings({"run_duration": "3"})          # APP value
+        ctl.submit({"T_reac": 240, "F_tot": 80, "x_ODE": 0.2, "x_TOP": 0.1, "x_oley": 0.1,
+                    "run_duration": 99})                     # recipe-embedded value
+        ctl._begin_next(); ctl._enter_running()
+        assert abs((ctl._run_deadline - ctl._run_started) - 3.0) < 0.2   # app wins, not 99
+        # a blank push must NOT clear a set value (sticky until app restart)
+        ctl.set_run_settings({"run_duration": ""})
+        assert ctl.live_duration == 3.0
+        # survives estop + reset (only a process restart clears it)
+        ctl.estop(); assert ctl.live_duration == 3.0
+        ctl.reset(); assert ctl.live_duration == 3.0
     finally:
         ctl.shutdown()
 

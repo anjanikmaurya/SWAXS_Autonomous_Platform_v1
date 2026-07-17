@@ -32,6 +32,7 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from src.reactor import load_config, ReactorController, RecipeError   # noqa: E402
+from src.reactor.config import hub_to_spec_dir                        # noqa: E402
 from src.reactor.recipe import parse_param_file                       # noqa: E402
 from src.reactor.intake import decide_intake                          # noqa: E402
 from src.manifest import update_manifest, add_reactor_run            # noqa: E402
@@ -61,6 +62,24 @@ def _emit(msg: str, tag: str = "info") -> None:
         _seq += 1
         _log.append((_seq, {"ts": datetime.datetime.now().strftime("%H:%M:%S"),
                             "msg": msg, "tag": tag}))
+
+
+def _sync_data_dir_from_hub(folder: str) -> None:
+    """When the hub folder changes, update the SPEC data_dir to follow it. The hub
+    folder is a Windows path; SPEC needs the matching Linux path, so translate via
+    spec.hub_path_map. If data_dir_from_hub is off or the path can't be mapped,
+    fall back to seeding data_dir only if it's still unset (never send SPEC a bad path)."""
+    spec = _CFG.get("spec", {}) or {}
+    if not folder:
+        return
+    if spec.get("data_dir_from_hub", True):
+        mapped = hub_to_spec_dir(folder, spec.get("hub_path_map"))
+        if mapped:
+            _ctrl.set_data_dir(mapped)          # follow the hub (translated)
+            return
+        _emit("⚠ hub folder changed but couldn't map it to a SPEC path "
+              "(check spec.hub_path_map) — data_dir left as-is", "warn")
+    _ctrl.default_data_dir(folder)              # fallback: seed only if unset
 
 
 def _resolve(folder_key: str) -> Path:
@@ -130,10 +149,10 @@ _emit(f"Flow Synthesis ready — backend={_BACKEND}", "ok")
 # On exit, hand the rig back: idle pumps, close shutter, release SPEC control.
 import atexit as _atexit                                             # noqa: E402
 _atexit.register(lambda: _ctrl.shutdown())
-# Seed the SPEC save folder from the hub's project folder (only if config left it
-# blank). The user can still override it in the Data-collection card.
+# Point the SPEC save folder at the hub's project folder at startup (translated
+# Windows→Linux via spec.hub_path_map). The user can still override in the app.
 if _project_root:
-    _ctrl.default_data_dir(_project_root)
+    _sync_data_dir_from_hub(_project_root)
 
 
 # ── hub bus: end the run when SAXS produces a new averaged file ───────────────
@@ -320,7 +339,7 @@ def set_project():
     if p:
         os.environ["SWAXS_PROJECT"] = p
         _project_root = p
-        _ctrl.default_data_dir(p)   # seed SPEC save folder if not already set
+        _sync_data_dir_from_hub(p)   # follow the hub folder into SPEC data_dir
         _load_limits()          # pick up saved per-pump flow limits
         _load_recipes_folder()  # pick up saved conditions-folder override
     return jsonify({"ok": True})

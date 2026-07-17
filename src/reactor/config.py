@@ -29,3 +29,24 @@ def load_config(path: str | Path | None = None) -> dict:
     cfg.setdefault("folders", {})
     cfg["_path"] = str(p)
     return cfg
+
+
+def hub_to_spec_dir(hub_path: str, mapping: dict | None) -> str | None:
+    """Translate a hub (Windows) project folder to the Linux path SPEC writes to.
+
+    ``mapping`` = {"from": "<windows prefix>", "to": "<linux prefix>"} — e.g.
+    {"from": "X:\\bl1-5", "to": "/msd_data/checkout/bl1-5"}. Case-insensitive on
+    the prefix, backslashes normalised to forward slashes. Returns the translated
+    Linux path, or None if it can't be mapped (missing map or prefix mismatch) so
+    the caller can leave data_dir untouched rather than send SPEC a bad path."""
+    p = (hub_path or "").strip()
+    frm = str((mapping or {}).get("from", "")).strip()
+    to = str((mapping or {}).get("to", "")).strip()
+    if not (p and frm and to):
+        return None
+    pn = p.replace("\\", "/")
+    fn = frm.replace("\\", "/").rstrip("/")
+    if pn.lower().startswith(fn.lower()):
+        rest = pn[len(fn):].lstrip("/")
+        return to.rstrip("/") + ("/" + rest if rest else "")
+    return None
