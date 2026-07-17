@@ -17,9 +17,12 @@ appends it to manifest["events"] (rolling last 100) if a project is active.
 
 from __future__ import annotations
 
+import atexit
 import json
 import logging
 import os
+import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -166,6 +169,14 @@ def _is_running(app_id: str) -> bool:
     return proc is not None and proc.poll() is None
 
 
+def _port_in_use(port: int) -> bool:
+    """True if something is already listening on localhost:port (e.g. an orphaned
+    app from a previous hub run still holding it)."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(0.3)
+        return s.connect_ex(("127.0.0.1", int(port))) == 0
+
+
 def _health_check(port: int, timeout: float = 1.0) -> bool:
     try:
         url = f"http://localhost:{port}/api/health"
@@ -197,6 +208,11 @@ def _start_app(app_id: str) -> tuple[bool, str]:
         return False, f"Unknown app: {app_id}"
     if _is_running(app_id):
         return True, "Already running"
+    # Port already taken by something the hub didn't spawn (e.g. an orphan from a
+    # previous run). Don't launch a colliding process that would just fail to bind.
+    if _port_in_use(meta["port"]):
+        return False, (f"Port {meta['port']} is already in use — a previous "
+                       f"instance may still be running. Free that port and retry.")
 
     entry = _ROOT / meta["entry"]
     if not entry.exists():
@@ -496,6 +512,26 @@ def api_reload_apps():
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
+def _shutdown_all_apps() -> None:
+    """Stop every sub-app the hub spawned so none are orphaned (which would keep
+    their ports bound after the hub closes). Idempotent + best-effort."""
+    for app_id in list(_procs):
+        try:
+            if _is_running(app_id):
+                _stop_app(app_id)
+        except Exception:
+            pass
+
+
+# Run on normal exit / Ctrl-C, and on SIGTERM (kill) where supported.
+atexit.register(_shutdown_all_apps)
+for _sig in ("SIGTERM", "SIGINT"):
+    try:
+        signal.signal(getattr(signal, _sig), lambda *_: sys.exit(0))
+    except (ValueError, AttributeError, OSError):
+        pass   # not in main thread / not supported on this OS
+
+
 if __name__ == "__main__":
     print("━" * 58)
     print("  SWAXS Platform Hub")
@@ -506,4 +542,7 @@ if __name__ == "__main__":
     for a in APPS:
         print(f"      {a['icon']}  {a['name']}  :{a['port']}")
     print("━" * 58)
-    app.run(debug=False, port=5000, threaded=True)
+    try:
+        app.run(debug=False, port=5000, threaded=True)
+    finally:
+        _shutdown_all_apps()   # ensure children die when the hub exits
