@@ -95,7 +95,18 @@ spec:
   # {recipe_id}_{bkg_tag} (during flush). Shared recipe_id pairs them for subtraction.
   sample_tag:  "sample"
   bkg_tag:     "bkg"
-  # ── site-specific SPEC strings — ⚠ CONFIRM these on the beamline ────────────
+  # ── Live monitors: read from EPICS (recommended) or SPEC counters ───────────
+  # "epics": read temperature/i0/bstop straight from EPICS via caget — independent
+  #          of SPEC, so NO remote control, NO ct refresh, and the live plot keeps
+  #          updating DURING a data collection. Needs pyepics + channel access to
+  #          the beamline. Verify PVs first: tools/beamline_epics_test.py.
+  # "spec":  legacy — read SPEC counters (needs read_refresh_cmd / ct; see below).
+  read_source: "epics"
+  epics_pvs:                  # ⚠ CONFIRM PV names with the beamline engineer
+    temperature: "BL01-5:Aux1Temp.G"
+    i0:          "BL01-5:AuxInput.A"
+    bstop:       "BL01-5:AuxInput.B"
+  # ── site-specific SPEC strings (used only when read_source: "spec") ──────────
   read_during_collect: false  # true = keep polling temp/bstop/I0 DURING a collection
                               # (only if the bServer allows counter reads mid-scan)
   temp_counter: "CTEMP"       # counter name that reports the temperature readback (BL1-5)

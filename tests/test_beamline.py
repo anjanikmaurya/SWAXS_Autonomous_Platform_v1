@@ -93,6 +93,31 @@ def test_commands_mode_streams_lines_no_file(tmp_path, monkeypatch):
     assert not (macro.parent / "_autopilot_run.mac").exists()   # nothing written
 
 
+def test_epics_read_source_bypasses_spec_lock(monkeypatch):
+    # EPICS reads must be independent of SPEC: they should return values even while
+    # the SPEC lock is held (i.e. during a collection), with no remote control / ct.
+    import types
+    fake = types.ModuleType("epics")
+    _vals = {"BL:T": 250.0, "BL:I0": 1.23, "BL:BS": 4.56}
+    fake.caget = lambda name, timeout=None: _vals[name]
+    monkeypatch.setitem(sys.modules, "epics", fake)
+
+    from src.beamline.driver import SpecBeamline
+    bl = object.__new__(SpecBeamline)
+    BeamlineDriver = SpecBeamline.__mro__[1]
+    BeamlineDriver.__init__(bl, {"read_source": "epics",
+                                 "epics_pvs": {"temperature": "BL:T", "i0": "BL:I0", "bstop": "BL:BS"}})
+    bl._to = 2.0
+    bl._caget = None
+
+    bl._lock.acquire()                      # simulate SPEC busy (a collection holds it)
+    try:
+        st = bl.read_state()                # must NOT block and must return live values
+    finally:
+        bl._lock.release()
+    assert st == {"temperature": 250.0, "i0": 1.23, "bstop": 4.56}
+
+
 def _controller(spec):
     cfg = {"pumps": {n: {"max_flow": 1000.0} for n in PUMP_NAMES},
            "bounds": {"T_reac": [180, 300], "F_tot": [40, 120],

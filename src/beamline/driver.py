@@ -37,7 +37,13 @@ from pathlib import Path
 _DEFAULTS = {
     "backend": "mock",                              # "mock" | "real"
     "base_url": "http://127.0.0.1:18085/SIS/",
-    "temp_counter": "CTEMP",                        # counter reporting temperature (BL1-5)
+    # Live-monitor read source: "epics" (recommended) reads temperature/i0/bstop
+    # straight from EPICS via caget — independent of SPEC, no remote control, no ct
+    # refresh, and works DURING a collection. "spec" reads SPEC counters (legacy).
+    "read_source": "spec",                          # "spec" | "epics"
+    "epics_pvs": {},                                # {"temperature": "BL01-5:Aux1Temp.G",
+                                                    #  "i0": "BL01-5:AuxInput.A", "bstop": "BL01-5:AuxInput.B"}
+    "temp_counter": "CTEMP",                        # counter reporting temperature (BL1-5)  [spec read_source]
     "bstop_counter": "bstop",
     "i0_counter": "i0",
     "read_refresh_cmd": "",                          # SPEC cmd run before a read to refresh counters
@@ -147,12 +153,24 @@ class BeamlineDriver:
             finally:
                 self._collecting = False
 
+    def _read_source(self) -> str:
+        return str(self.cfg.get("read_source", "spec")).lower()
+
     def read_state(self) -> dict:
-        """Canonical {temperature, bstop, i0}. Non-blocking: normally returns {} if
-        a SPEC op (e.g. a collection) holds the lock, so the control loop never
-        stalls. If ``read_during_collect`` is set and a collection is running, it
-        reads concurrently instead (only enable if the bServer allows counter
-        reads during a scan) so the live chart stays live through the acquisition."""
+        """Canonical {temperature, bstop, i0}.
+
+        read_source == "epics" (recommended): read the live monitors straight from
+        EPICS (caget) — independent of SPEC, so it needs no remote control, no `ct`
+        refresh, and keeps working DURING a collection. Never touches the SPEC lock.
+
+        read_source == "spec" (legacy): read SPEC counters. Non-blocking — returns {}
+        if a SPEC op (e.g. a collection) holds the lock, unless ``read_during_collect``
+        is set, in which case it reads concurrently."""
+        if self._read_source() == "epics":
+            try:
+                return self._read_epics_state()
+            except Exception:
+                return {}
         if self._collecting and self.cfg.get("read_during_collect"):
             try:
                 return self._do_read_state()
@@ -166,6 +184,11 @@ class BeamlineDriver:
             self._lock.release()
 
     def read_counters(self) -> dict:
+        if self._read_source() == "epics":
+            try:
+                return self._read_epics_counters()
+            except Exception:
+                return {}
         if self._collecting and self.cfg.get("read_during_collect"):
             try:
                 return self._do_read_counters()
@@ -177,6 +200,10 @@ class BeamlineDriver:
             return self._do_read_counters()
         finally:
             self._lock.release()
+
+    # EPICS read path (override in subclasses); base returns nothing.
+    def _read_epics_state(self) -> dict: return {}
+    def _read_epics_counters(self) -> dict: return self._read_epics_state()
 
     def read_temperature(self):
         return self.read_state().get("temperature")
@@ -248,6 +275,10 @@ class MockBeamline(BeamlineDriver):
                 self.cfg["bstop_counter"]: round(1.0e5 * (1 - 0.3 * frac), 1),
                 self.cfg["i0_counter"]: 1.0e6}
 
+    # mock EPICS path reuses the faked ramp so read_source="epics" also works off-rig
+    def _read_epics_state(self) -> dict:
+        return self._do_read_state()
+
     def _do_collect(self, **params):
         rec = dict(params); rec["t"] = time.time()
         mf = self.cfg.get("macro_file")
@@ -270,6 +301,26 @@ class SpecBeamline(BeamlineDriver):
         self._base = self.cfg["base_url"]
         self._to = float(self.cfg["http_timeout_s"])
         self._have_control = False
+        self._caget = None      # lazily imported epics.caget (read_source="epics")
+
+    def _read_epics_state(self) -> dict:
+        """Read temperature/i0/bstop live from EPICS (caget). Independent of SPEC —
+        no remote control, no ct, works during a collection. Returns {} on any error
+        (missing pyepics, unreachable PV) so the live plot just shows a gap."""
+        pvs = self.cfg.get("epics_pvs") or {}
+        if not pvs:
+            return {}
+        if self._caget is None:
+            from epics import caget          # noqa: PLC0415  (lazy: only if used)
+            self._caget = caget
+        out = {}
+        for key in ("temperature", "bstop", "i0"):
+            name = pvs.get(key)
+            if not name:
+                continue
+            v = self._caget(name, timeout=self._to)
+            out[key] = float(v) if v is not None else None
+        return out
 
     def _sis(self, command: str, **params):
         r = self._requests.get(self._base + command, params=params, timeout=self._to)
