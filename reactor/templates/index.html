@@ -176,6 +176,13 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
         <div><label>Flush rate (µL/min)</label><input type="number" id="flush_rate" step="1" min="0" onchange="pushRunSettings()"></div>
         <div><label>Flush duration (seconds)</label><input type="number" id="flush_duration" step="1" min="1" onchange="pushRunSettings()"></div>
       </div>
+      <div style="margin-top:8px">
+        <label>Flush pump</label>
+        <select id="flush_pump" onchange="pushRunSettings()" style="width:100%">
+          <option value="ode_flush">ode_flush (dedicated, ≤1000 µL/min)</option>
+          <option value="ode_dilution">ode_dilution (same ODE; ≤50 µL/min — rate auto-clamped)</option>
+        </select>
+      </div>
       <div class="muted" style="margin-top:5px">Durations are in <b>seconds</b>, flush rate in <b>µL/min</b>. These apply to queued recipes and to the Flush&nbsp;now button.</div>
     </div>
 
@@ -396,7 +403,8 @@ async function pushRunSettings(){
     arm_ramp_rate: $('arm_ramp_rate').value.trim(),
     run_duration: $('run_duration').value.trim(),
     flush_rate: $('flush_rate').value.trim(),
-    flush_duration: $('flush_duration').value.trim()
+    flush_duration: $('flush_duration').value.trim(),
+    flush_pump: $('flush_pump').value
   });
 }
 async function collectNow(){
@@ -633,7 +641,8 @@ function render(st){
   // populate the duration field once from the current setting (don't clobber edits)
   if(!window._durInit){ window._durInit=true;
     if($('run_duration').value.trim()==='' && st.run_duration_setting!=null)
-      $('run_duration').value=Math.round(st.run_duration_setting); }
+      $('run_duration').value=Math.round(st.run_duration_setting);
+    if(st.flush_pump) $('flush_pump').value=st.flush_pump; }
   // populate the data-collection fields once from config
   if(!window._specInit && st.spec){ window._specInit=true; const sp=st.spec;
     $('spec_exposure').value=sp.exposure_s; $('spec_frames').value=sp.frames;

@@ -168,8 +168,12 @@ run:
 
 # ── Flush / clean ────────────────────────────────────────────────────────────
 flush:
-  rate:      100.0            # µL/min on ode_flush
+  rate:      100.0            # µL/min on the flush pump
   duration:  1200.0          # s = 20 min
+  pump:      "ode_flush"     # which pump flushes; switchable in the app to a reagent
+                             # pump (e.g. "ode_dilution", same ODE) if ode_flush is down.
+                             # A reagent flush pump is capped at its own max_flow
+                             # (ode_dilution ≤ 50 µL/min) — rate is auto-clamped.
 
 # ── Folders (relative to the project root unless absolute) ───────────────────
 folders:

@@ -24,7 +24,7 @@ import threading
 import time
 from collections import deque
 
-from .config import REAGENT_PUMPS, FLUSH_PUMP
+from .config import REAGENT_PUMPS, FLUSH_PUMP, PUMP_NAMES
 from .hardware import PumpBank, TempController
 from .recipe import Recipe, RecipeError, recipe_to_setpoints, validate
 from ..beamline import make_beamline
@@ -119,6 +119,11 @@ class ReactorController:
         fl = cfg.get("flush", {})
         self.flush_rate = float(fl.get("rate", 100.0))
         self.flush_duration = float(fl.get("duration", 300.0))
+        # Which pump does the flush. Default the dedicated ode_flush; can be switched
+        # to a reagent pump (e.g. ode_dilution — same ODE) from the app if ode_flush
+        # is unavailable. Reagent flush pumps are capped at their own max_flow.
+        fp = str(fl.get("pump", FLUSH_PUMP))
+        self._flush_pump = fp if fp in PUMP_NAMES else FLUSH_PUMP
         # cool the reactor to this temperature the moment a synthesis run ends
         # (None / not set = leave temperature as-is)
         _cd = cfg.get("temperature", {}).get("cooldown_c", None)
@@ -264,6 +269,11 @@ class ReactorController:
                 self.live_flush_rate = num(d.get("flush_rate"))
             if "flush_duration" in d:
                 self.live_flush_duration = num(d.get("flush_duration"))
+            if str(d.get("flush_pump", "")).strip():
+                fp = str(d["flush_pump"]).strip()
+                if fp in PUMP_NAMES:
+                    self._flush_pump = fp
+                    self._log(f"🧼 flush pump → {fp}", "info")
             if "run_duration" in d:
                 self.live_duration = num(d.get("run_duration"))
                 if self.state == "running" and self._run_started and self.live_duration:
@@ -561,19 +571,31 @@ class ReactorController:
                   (self.current.flush_duration if self.current and self.current.flush_duration
                    else self.live_flush_duration if self.live_flush_duration is not None
                    else self.flush_duration))
-        failed = self.pumps.zero_pumps(REAGENT_PUMPS)   # zero the 4 reagent pumps first
+        flush_pump = self._flush_pump
+        # zero every reagent EXCEPT the one we're flushing with, plus the dedicated
+        # ode_flush if we're flushing with a reagent instead
+        to_zero = [p for p in REAGENT_PUMPS if p != flush_pump]
+        if flush_pump != FLUSH_PUMP:
+            to_zero.append(FLUSH_PUMP)
+        failed = self.pumps.zero_pumps(to_zero)
         if failed:
-            self._log(f"⚠ could not zero reagent pump(s): {', '.join(failed)} — check them", "warn")
-        self.pumps.set_pump_flow(FLUSH_PUMP, r)
+            self._log(f"⚠ could not zero pump(s): {', '.join(failed)} — check them", "warn")
+        # clamp the flush rate to the chosen pump's own max_flow (a reagent pump has a
+        # smaller sensor than ode_flush — e.g. ode_dilution maxes at 50 µL/min)
+        maxf = float(self.cfg.get("pumps", {}).get(flush_pump, {}).get("max_flow", r))
+        if r > maxf:
+            self._log(f"⚠ flush rate {r:g} > {flush_pump} max {maxf:g} µL/min — clamping to {maxf:g}", "warn")
+            r = maxf
+        self.pumps.set_pump_flow(flush_pump, r)
         self.state = "flushing"
         self._flush_kind = kind
         self._flush_deadline = time.time() + d
         self._bkg_fired = False        # arm the background acquisition for this flush
-        self._log(f"🧼 {kind}: ode_flush {r:g} µL/min for {d:g}s "
+        self._log(f"🧼 {kind}: {flush_pump} {r:g} µL/min for {d:g}s "
                   f"(new recipes blocked)", "info")
 
     def _end_flush(self) -> None:
-        self.pumps.set_pump_flow(FLUSH_PUMP, 0.0)
+        self.pumps.set_pump_flow(self._flush_pump, 0.0)
         self._log(f"✓ {self._flush_kind} complete", "ok")
         if self.current is not None:
             self._event("reactor.ready", {"recipe_id": self.current.recipe_id})
@@ -758,6 +780,7 @@ class ReactorController:
                 "current_recipe": self.current.to_dict() if self.current else None,
                 "elapsed_s": elapsed, "duration_s": dur,
                 "run_duration_setting": self.live_duration or self.default_duration,
+                "flush_pump": self._flush_pump,
                 "flush_remaining_s": flush_left,
                 "queue": [r.recipe_id for r, _ in self.queue],
                 "queue_len": len(self.queue),

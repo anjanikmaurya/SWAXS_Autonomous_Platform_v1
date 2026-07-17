@@ -118,6 +118,30 @@ def test_epics_read_source_bypasses_spec_lock(monkeypatch):
     assert st == {"temperature": 250.0, "i0": 1.23, "bstop": 4.56}
 
 
+def test_flush_pump_switch_to_reagent_and_clamp():
+    from src.reactor.config import PUMP_NAMES, REAGENT_PUMPS, FLUSH_PUMP
+    cfg = {"pumps": {n: {"max_flow": (50.0 if n == "ode_dilution" else 1000.0)} for n in PUMP_NAMES},
+           "bounds": {"T_reac": [180, 300], "F_tot": [40, 120], "x_each": [0, 0.3], "x_sum_max": 0.9},
+           "run": {"default_duration": 2.0}, "flush": {"rate": 100.0, "duration": 1.0},
+           "spec": {"backend": "mock", "enabled": False}}
+    ctl = ReactorController(cfg, backend="mock")
+    try:
+        # default: dedicated ode_flush at full rate
+        ctl._enter_flush(kind="flush")
+        assert ctl.pumps.pumps[FLUSH_PUMP].target == 100.0
+        assert ctl.pumps.pumps["ode_dilution"].target == 0.0
+
+        # switch to the reagent pump: rate clamps to its 50 µL/min max, ode_flush idled
+        ctl.set_run_settings({"flush_pump": "ode_dilution"})
+        ctl._enter_flush(kind="flush")
+        assert ctl.pumps.pumps["ode_dilution"].target == 50.0     # clamped from 100
+        assert ctl.pumps.pumps[FLUSH_PUMP].target == 0.0
+        for p in ("pd_top_precursor", "oleylamine", "top"):
+            assert ctl.pumps.pumps[p].target == 0.0
+    finally:
+        ctl.shutdown()
+
+
 def _controller(spec):
     cfg = {"pumps": {n: {"max_flow": 1000.0} for n in PUMP_NAMES},
            "bounds": {"T_reac": [180, 300], "F_tot": [40, 120],
