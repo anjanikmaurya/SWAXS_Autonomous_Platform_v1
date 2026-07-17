@@ -33,15 +33,28 @@ def main() -> int:
     ap.add_argument("--temp", default=None, help="override temperature PV")
     ap.add_argument("--i0", default=None, help="override i0 PV")
     ap.add_argument("--bstop", default=None, help="override bstop PV")
+    ap.add_argument("--ca-addr", default=None,
+                    help="EPICS_CA_ADDR_LIST (IOC/gateway IP) — needed if PVs won't connect")
     args = ap.parse_args()
 
-    pvs = dict((load_config().get("spec", {}) or {}).get("epics_pvs", {}) or {})
+    spec = load_config().get("spec", {}) or {}
+    pvs = dict(spec.get("epics_pvs", {}) or {})
     if args.temp:  pvs["temperature"] = args.temp
     if args.i0:    pvs["i0"] = args.i0
     if args.bstop: pvs["bstop"] = args.bstop
     if not pvs:
         print("!! no PVs — set spec.epics_pvs in reactor/config.yml or pass --temp/--i0/--bstop")
         return 1
+
+    # CA address MUST be set before importing epics.
+    import os
+    addr = args.ca_addr or spec.get("epics_ca_addr_list")
+    if addr:
+        os.environ["EPICS_CA_ADDR_LIST"] = str(addr)
+        os.environ["EPICS_CA_AUTO_ADDR_LIST"] = str(spec.get("epics_ca_auto_addr_list", "NO"))
+        print(f"# EPICS_CA_ADDR_LIST={addr}")
+    else:
+        print("# EPICS_CA_ADDR_LIST not set (using auto) — if PVs won't connect, pass --ca-addr <ip>")
 
     try:
         from epics import caget

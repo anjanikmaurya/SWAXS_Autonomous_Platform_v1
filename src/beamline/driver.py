@@ -43,6 +43,8 @@ _DEFAULTS = {
     "read_source": "spec",                          # "spec" | "epics"
     "epics_pvs": {},                                # {"temperature": "BL01-5:Aux1Temp.G",
                                                     #  "i0": "BL01-5:AuxInput.A", "bstop": "BL01-5:AuxInput.B"}
+    "epics_ca_addr_list": "",                       # EPICS_CA_ADDR_LIST (IOC/gateway IP) — needed to reach the PVs
+    "epics_ca_auto_addr_list": "NO",                # EPICS_CA_AUTO_ADDR_LIST when addr_list is set
     "temp_counter": "CTEMP",                        # counter reporting temperature (BL1-5)  [spec read_source]
     "bstop_counter": "bstop",
     "i0_counter": "i0",
@@ -311,6 +313,13 @@ class SpecBeamline(BeamlineDriver):
         if not pvs:
             return {}
         if self._caget is None:
+            # Channel Access address config MUST be set before epics is imported.
+            import os                                    # noqa: PLC0415
+            addr = self.cfg.get("epics_ca_addr_list")
+            if addr:
+                os.environ["EPICS_CA_ADDR_LIST"] = str(addr)
+                os.environ["EPICS_CA_AUTO_ADDR_LIST"] = str(
+                    self.cfg.get("epics_ca_auto_addr_list", "NO"))
             from epics import caget          # noqa: PLC0415  (lazy: only if used)
             self._caget = caget
         out = {}
