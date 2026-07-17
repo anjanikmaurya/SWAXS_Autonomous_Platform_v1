@@ -269,7 +269,6 @@ class SpecBeamline(BeamlineDriver):
         self._requests = requests
         self._base = self.cfg["base_url"]
         self._to = float(self.cfg["http_timeout_s"])
-        self._cmd_wait_s = float(self.cfg.get("cmd_wait_s", 600.0))
         self._have_control = False
 
     def _sis(self, command: str, **params):
@@ -349,7 +348,7 @@ class SpecBeamline(BeamlineDriver):
             # command finishes before the next (mirrors MSD.wait_until_SPECfinished).
             for line in macro_command_lines(render_macro(Path(macro_file).read_text(), p)):
                 self._cmd(line)
-                self._wait(timeout=self._cmd_wait_s)
+                self._wait(timeout=float(self.cfg.get("cmd_wait_s", 600.0)))
         else:
             # named-command mode: newfile then the collect command
             if p.get("path"):
