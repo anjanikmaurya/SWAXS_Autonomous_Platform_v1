@@ -32,18 +32,21 @@ Recipes that arrive while busy are **queued (FIFO)**.
 
 ## Run lifecycle
 
-`idle → arming → running → flushing → ready`. Arming waits until the reactor
-reading is within tolerance of `T_reac` (gate only — the heater is driven
-externally). A run **ends** when a new SAXS averaged file appears (the
-`file.averaged` bus event, with the `1D/SAXS/Averaged` folder as backstop), or
-on a fixed-duration fallback, or a manual Stop. **Abort** goes straight to flush;
-**E-stop** idles everything immediately.
+`idle → arming → running → flushing → ready`. Temperature is **commanded through
+SPEC** (`csettemp <T>`) and read back from the `CTEMP` counter — the app is not
+gate-only. Arming supports three modes: **temperature** (wait for `CTEMP` to
+reach/hold `T_reac`), **timed** (a fixed wait), and **ramp** (wait scaled by the
+ramp rate). A run **ends** on a fixed-duration fallback or a manual Stop. Near the
+run end (and again near the flush end) the app fires a `recipe_id`-tagged SPEC 2D
+collection — the sample scatter is captured near run end and the background near
+flush end. **Abort** goes straight to flush; **E-stop** idles everything
+immediately.
 
 ## Flush & feedback
 
 After every run the 4 reagent pumps zero and `ode_flush` runs at the configured
-rate/duration (new recipes blocked until done); a manual **Flush now** and
-**Prime** are also available. After flushing it **auto-advances** to the next
+rate/duration (new recipes blocked until done); a manual **Flush now** is also
+available. After flushing it **auto-advances** to the next
 queued recipe. On completion it records the run in `manifest.json`
 (`reactor` key), writes `reactor/feedback/<recipe_id>.done.json`, and emits a
 `reactor.run_complete` bus event so the optimizer can predict the next recipe.

@@ -87,10 +87,10 @@ Then:
 To run a single app directly (useful for debugging — you see its full logs):
 
 ```powershell
-python reduction\app.py     # or viewer / background / quality / analysis / assistant / reactor
+python reduction\app.py     # or viewer / background / quality / analysis / assistant / reactor / analyzer
 ```
 
-Ports: hub 5000 · reduction 5001 · viewer 5002 · background 5003 · analysis 5004 · assistant 5005 · quality 5006 · reactor 5007.
+Ports: hub 5000 · reduction 5001 · viewer 5002 · background 5003 · analysis 5004 · assistant 5005 · quality 5006 · reactor 5007 · analyzer 5008.
 
 ---
 

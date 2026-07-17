@@ -1,8 +1,9 @@
 # Reactor app — software setup
 
 How to install, configure, and run the Flow-Synthesis reactor app (port **5007**).
-For "where is what" while troubleshooting, see `docs/REACTOR_MAP.md`; for the
-beamline bench tests, `tools/BEAMLINE_TESTING.md`.
+For the physical rig (pumps, temperature, beamline components + wiring) see
+`docs/REACTOR_HARDWARE_SETUP.md`; for "where is what" while troubleshooting,
+`docs/REACTOR_MAP.md`; for the beamline bench tests, `tools/BEAMLINE_TESTING.md`.
 
 ---
 

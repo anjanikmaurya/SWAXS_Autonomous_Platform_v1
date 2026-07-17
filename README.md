@@ -8,7 +8,7 @@ Everything runs on your own machine. Your data never leaves your computer; the o
 
 ## What it does
 
-The platform is organized as seven small web apps, launched from one central hub. You move through them roughly in order:
+The platform is organized as nine small web apps, launched from one central hub. You move through them roughly in order:
 
 | # | App | Port | What it's for |
 |---|-----|------|---------------|
@@ -17,10 +17,17 @@ The platform is organized as seven small web apps, launched from one central hub
 | 🔬 | **Background Subtraction** | 5003 | Subtract buffer/background by keyword, scan-matching, or manual selection |
 | ✅ | **Quality Gate** | 5006 | AI good/bad grading of subtracted profiles — scoring, auto-sort into Good/NeedsReview, frame selection |
 | 📈 | **Data Analysis** | 5004 | Guinier, Porod, Kratky, pair-distance, peak fitting |
-| 🧪 | **Flow Synthesis** | 5007 | 5-pump continuous-flow reactor control — executes recipes, auto-flush |
+| 🧪 | **Flow Synthesis (reactor)** | 5007 | 5-pump flow reactor **and** beamline control: sets temperature (SPEC `csettemp`) and triggers 2D collection (shutter + `loopscan`) through the SPEC bServer, plus auto-flush |
+| 🔁 | **Analyzer / Optimizer** | 5008 | Fits nanoparticle size / PDI / phase from subtracted SAXS and proposes the next synthesis conditions (Bayesian optimization) — the brain of the autonomous loop |
 | 🤖 | **AI Assistant** | 5005 | Ask questions about your data, generate plots, get proactive quality hints |
 
-A typical data session: **reduce → view & average → subtract background → quality-gate → analyze**, with the assistant available throughout. (Flow Synthesis is an optional hardware-control app for continuous-flow experiments.)
+A typical **data** session: **reduce → view & average → subtract background → quality-gate → analyze**, with the assistant available throughout.
+
+### Autonomous closed loop (optional)
+
+For self-driving nanoparticle synthesis at the beamline, the reactor and analyzer close a loop:
+
+**Flow Synthesis** sets the temperature and flows for a recipe → triggers a SPEC 2D collection of the reacting sample (and a background during flush), tagged by `recipe_id` → the data pipeline reduces/averages/subtracts it → the **Analyzer** fits size/PDI/phase and the **optimizer** (`src/optimizer`) proposes the next conditions → the reactor runs them. Temperature and beamline actions go through the SPEC bServer; Stop/E-stop act on pumps only and never interrupt an in-progress X-ray collection. See the reactor doc set under `docs/` before a run.
 
 ---
 
@@ -171,9 +178,10 @@ Its domain knowledge lives in `ai_knowledge/` and the per-app `knowledge.md` fil
 ## For developers
 
 - **`CLAUDE.md`** — developer guide and full `config.yml` reference.
-- **`docs/`** — extended documentation: `ARCHITECTURE.md` (system design), `GETTING_STARTED.md`, `DESIGN_SYSTEM.md`, app specs, and `docs/audits/` (point-in-time correctness/UX audits).
+- **`docs/`** — extended documentation: `ARCHITECTURE.md` (system design), `DESIGN_SYSTEM.md`, app specs, and `docs/audits/` (point-in-time correctness/safety audits).
+- **Reactor / beamtime docs** — `docs/REACTOR_SETUP.md` (software install/run), `docs/REACTOR_HARDWARE_SETUP.md` (fluidics + temperature + beamline wiring), `docs/REACTOR_MAP.md` (code map / troubleshooting), `tools/BEAMLINE_TESTING.md` (bench-test runbook), and `docs/audits/PRE_BEAMTIME_READINESS.md` + `BEAMLINE_SAFETY_AUDIT.md`.
 - **`apps.yml`** — the app registry. Add an app here and the hub picks it up; no hub code changes needed.
-- **`check_imports.py`** — `uv run check_imports.py` audits which `src/` modules each app uses.
+- **`check_imports.py`** — `python check_imports.py` audits which `src/` modules each app uses.
 
 **The one rule:** all science and data logic lives in `src/`. Each `app.py` is a thin Flask shell (routing only).
 

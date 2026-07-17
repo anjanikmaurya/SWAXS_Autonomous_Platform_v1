@@ -1,5 +1,13 @@
 # SWAXS Platform v2 — Architecture Design
 
+> **Historical design record (original v2).** This document is the ORIGINAL v2
+> architecture design and is kept for reference. The platform has since grown
+> beyond it: the **Quality Gate**, the **Flow-Synthesis reactor** (with
+> SPEC/beamline control), and the **Analyzer/optimizer** apps have all shipped,
+> along with the autonomous closed loop (reduction → analysis → optimizer →
+> reactor). Read the sections below as the original plan, not the current app
+> inventory.
+
 ## Core Philosophy
 
 **AI-first.** The data contract, event system, and memory layers are designed before individual app UIs. Every app inherits AI awareness automatically on registration — no retrofitting.
@@ -23,9 +31,9 @@ table to tell the difference between shipped code and planned work.
 | Viewer averaging / loading | **Built** | `src/plot_reduction.py` |
 | AI subsystem (assistant, knowledge base, 3-layer memory, hints) | **Built** | `src/ai/` |
 | Analysis: Guinier, Porod, Kratky, peak fit, sasmodels | **Built** | consolidated in `src/analysis/core.py` |
-| Pair-distance p(r) / BIFT / GNOM | **Planned** | referenced by tools but not implemented |
+| Pair-distance p(r) / BIFT / GNOM | **Complete** | shipped in the analysis app |
 | SAXS+WAXS auto-stitching (`src/reduction/stitch.py`) | **Planned** | section 5 below is a design sketch |
-| Export module (`src/export/` — PDF, Word, annotated .dat) | **Planned** | section 6 module map is aspirational |
+| Export module (`src/export/` — PDF, Word, annotated .dat) | **Complete** | shipped |
 
 > Note: the section 6 module map lists analysis as separate files
 > (`guinier.py`, `kratky_porod.py`, …). In the current code these are all

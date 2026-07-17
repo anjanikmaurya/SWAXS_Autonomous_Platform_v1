@@ -1,13 +1,14 @@
 # SWAXS Platform — Design System
 
-A single, shared specification for typography, spacing, and color across all six
+A single, shared specification for typography, spacing, and color across all
 apps. The goal is uniform readability and WCAG 2.2 AA accessibility for long
 scientific workflows. Every app's `:root` now carries these tokens, so future
 components should reference the tokens rather than hardcoding values.
 
 Two color themes share one typographic system:
 
-- **Light theme** — Reduction, Viewer, Background, Analysis, Assistant
+- **Light theme** — the data/workflow apps (Reduction, Viewer, Background,
+  Quality, Analysis, Assistant, Reactor, Analyzer, …)
 - **Dark theme** — Hub (control center)
 
 ---
@@ -58,7 +59,7 @@ Rationale follows established guidance: ~1.5 line-height for body, ~1.4 for tabl
 
 ---
 
-## 3. Color — Light theme (5 apps)
+## 3. Color — Light theme (data/workflow apps)
 
 All text/UI pairs meet WCAG 2.2 AA. Ratios are vs white (`--surface`) unless noted.
 

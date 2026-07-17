@@ -43,6 +43,14 @@ SWAXS_data_correction_reduction_averaging/
 │   ├── app.py
 │   └── templates/index.html
 │
+├── reactor/                    # Flow-synthesis reactor + SPEC/beamline control (port 5007)
+│   ├── app.py
+│   └── templates/index.html
+│
+├── analyzer/                   # Bayesian optimizer + nanoparticle analysis (port 5008)
+│   ├── app.py
+│   └── templates/index.html
+│
 ├── src/                        # Shared science/data logic — all apps import from here
 │   ├── __init__.py
 │   ├── manifest.py             # Shared experiment manifest (cross-app data contract)
@@ -52,6 +60,10 @@ SWAXS_data_correction_reduction_averaging/
 │   │   ├── core.py             # Experiment class, PyFAI integration, correction pipeline
 │   │   ├── process_metadata.py # CSV/PDI beamline metadata extraction
 │   │   └── read_raw_file.py    # Binary .raw detector file reader
+│   ├── analysis/              # Guinier/Porod/Kratky/p(r), model & nanoparticle fits
+│   │   └── nanoparticle.py    # Nanoparticle size/shape analysis (optimizer feedback)
+│   ├── beamline/              # SPEC bServer HTTP driver (shutter, counters, 2D collection)
+│   ├── optimizer/             # Bayesian optimization campaign (recipe suggestion)
 │   └── utils/
 │       ├── __init__.py
 │       └── read_dat_metadata.py  # .dat file parser (q, I, sigma + metadata footer)
@@ -85,9 +97,10 @@ If you find yourself writing science or data logic directly in `app.py`, move it
 | `background` | `src.manifest`, `src.utils.read_dat_metadata` |
 | `analysis` | `src.manifest`, `src.utils.read_dat_metadata` |
 | `quality` | `src.quality` (grade_profile, score_metrics), `src.manifest`, `src.utils.read_dat_metadata` |
-| `reactor` | `src.reactor` (ReactorController, Recipe, load_config), `src.manifest` |
+| `reactor` | `src.reactor` (ReactorController, Recipe, load_config), `src.beamline` (SPEC driver), `src.manifest` |
+| `analyzer` | `src.manifest`, `src.utils.read_dat_metadata`, `src.optimizer` (Bayesian campaign), `src.analysis.nanoparticle` |
 | `assistant` | `src.manifest`, `src.utils.read_dat_metadata` |
-| `hub` | nothing from src/ — only stdlib and Flask |
+| `hub` | `src.manifest` (project-root state) — otherwise only stdlib and Flask |
 
 ---
 
