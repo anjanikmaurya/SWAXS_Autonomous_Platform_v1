@@ -101,7 +101,7 @@ spec:
   #          updating DURING a data collection. Needs pyepics + channel access to
   #          the beamline. Verify PVs first: tools/beamline_epics_test.py.
   # "spec":  legacy — read SPEC counters (needs read_refresh_cmd / ct; see below).
-  read_source: "epics"
+  read_source: "spec"
   epics_pvs:                  # ⚠ CONFIRM PV names with the beamline engineer
     temperature: "BL01-5:Aux1Temp.G"
     i0:          "BL01-5:AuxInput.A"
