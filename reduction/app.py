@@ -45,6 +45,8 @@ Design notes
 * matplotlib backend is set once at import time (never inside a handler).
 """
 
+from __future__ import annotations   # allow `X | None` type hints on Python 3.9
+
 import base64
 import collections
 import gc
