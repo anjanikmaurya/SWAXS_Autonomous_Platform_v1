@@ -53,6 +53,28 @@ def test_truncation_defaults():
     assert bg._TRUNC["q_unit"] == "A" and bg._TRUNC["enabled"] is True
 
 
+def test_automated_subtract_applies_truncation(tmp_path):
+    """The auto-subtraction worker (_process_one) must produce the same fixed
+    ML grid as the manual routes — proving truncation is on in AUTOMATED mode."""
+    saved = dict(bg._TRUNC)
+    try:
+        q_nm, I, sig = _src()
+        bg._TRUNC["enabled"] = False                       # write untruncated inputs
+        sam = tmp_path / "sample_avg.dat"
+        bkf = tmp_path / "buffer_avg.dat"
+        bg._write_dat(sam, q_nm, I * 1.05, sig)
+        bg._write_dat(bkf, q_nm, I * 0.50, sig)
+        bg._TRUNC.update(saved); bg._TRUNC["enabled"] = True   # ML truncation ON
+        out_dir = tmp_path / "Subtracted"
+        rec = bg._process_one(sam, bkf, out_dir, "saxs", scale_mode="fixed", fixed_scale=1.0)
+        assert rec is not None
+        data = np.loadtxt((out_dir / "sample_avg_sub.dat").as_posix(), comments="#")
+        assert data.shape == (549, 3)                      # fixed ML grid in auto mode
+        assert abs(data[0, 0] - 0.03) < 1e-9 and abs(data[-1, 0] - 0.6) < 1e-9
+    finally:
+        bg._TRUNC.clear(); bg._TRUNC.update(saved)
+
+
 def test_write_dat_applies_truncation(tmp_path):
     q_nm, I, sig = _src()
     out = tmp_path / "s_sub.dat"
