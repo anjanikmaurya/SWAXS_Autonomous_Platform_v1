@@ -129,7 +129,7 @@ spec:
   # If the PVs won't connect ("cannot connect to ..."), set the Channel Access
   # address to the IOC/gateway IP for BL1-5 (ask the beamline engineer). Leave
   # blank to use CA auto-discovery (broadcast).
-  epics_ca_addr_list: ""        # e.g. "172.30.xx.xx" or the CA gateway host
+  epics_ca_addr_list: "134.79.46.44:5100"   # CA server/gateway (ip:port) from the beamline engineer
   epics_ca_auto_addr_list: "NO" # used only when epics_ca_addr_list is set
   # ── site-specific SPEC strings (used only when read_source: "spec") ──────────
   read_during_collect: false  # true = keep polling temp/bstop/I0 DURING a collection
