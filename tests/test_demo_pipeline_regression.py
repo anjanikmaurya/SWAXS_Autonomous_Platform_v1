@@ -227,6 +227,7 @@ def _run_full_pipeline(project: Path) -> dict:
     from src.quality.core import grade_profile
     from src.analysis.core import guinier_fit, porod_fit
     import background.app as bg
+    bg._TRUNC["enabled"] = False   # golden tests the raw physics; ML truncate/rebin is a separate transform
 
     config = _build_config(project)
     corrections_by_file: dict = {}

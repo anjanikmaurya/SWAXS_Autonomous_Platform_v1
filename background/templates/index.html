@@ -188,6 +188,24 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{ou
               <div class="hint">Tags output and routes results to the matching BG-Sub tab.</div>
             </div>
 
+            <div class="section">
+              <div class="section-title">ML output — truncate &amp; rebin</div>
+              <label style="display:flex;align-items:center;gap:8px">
+                <input type="checkbox" id="tr-enabled" onchange="pushTrunc()">
+                Truncate &amp; rebin every subtracted file (for the ML model)
+              </label>
+              <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:8px;max-width:420px">
+                <div class="field"><label>q min</label><input type="number" id="tr-qmin" step="0.001" min="0" onchange="pushTrunc()"></div>
+                <div class="field"><label>q max</label><input type="number" id="tr-qmax" step="0.001" min="0" onchange="pushTrunc()"></div>
+                <div class="field"><label>Number of points</label><input type="number" id="tr-npts" step="1" min="2" onchange="pushTrunc()"></div>
+                <div class="field"><label>Spacing</label>
+                  <select id="tr-spacing" onchange="pushTrunc()"><option value="linear">linear</option><option value="log">log</option></select></div>
+                <div class="field"><label>q unit</label>
+                  <select id="tr-unit" onchange="pushTrunc()"><option value="A">Å⁻¹</option><option value="nm">nm⁻¹</option></select></div>
+              </div>
+              <div class="hint" id="tr-hint">Default 0.03–0.6 Å⁻¹, 549 pts (linear). Source q is nm⁻¹ and is converted. This replaces the subtracted .dat with the fixed ML grid.</div>
+            </div>
+
             <!-- folders -->
             <div class="section">
               <div class="section-title">Folders</div>
@@ -914,6 +932,31 @@ document.getElementById('browserModal').addEventListener('click',e=>{if(e.target
 // ── util ──────────────────────────────────────────────────────────────────────
 async function post(url,body){return (await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();}
 
+/* ===== ML truncation / rebin settings ===== */
+function _applyTrunc(t){
+  if(!t)return;
+  document.getElementById('tr-enabled').checked = !!t.enabled;
+  document.getElementById('tr-qmin').value = t.q_min;
+  document.getElementById('tr-qmax').value = t.q_max;
+  document.getElementById('tr-npts').value = t.n_points;
+  document.getElementById('tr-spacing').value = t.spacing;
+  document.getElementById('tr-unit').value = t.q_unit;
+}
+async function initTrunc(){
+  try{ const t=await (await fetch('/api/truncation')).json(); _applyTrunc(t); }catch(_){}
+}
+async function pushTrunc(){
+  const body={
+    enabled: document.getElementById('tr-enabled').checked,
+    q_min:   document.getElementById('tr-qmin').value,
+    q_max:   document.getElementById('tr-qmax').value,
+    n_points:document.getElementById('tr-npts').value,
+    spacing: document.getElementById('tr-spacing').value,
+    q_unit:  document.getElementById('tr-unit').value,
+  };
+  try{ _applyTrunc(await post('/api/truncation',body)); }catch(_){}
+}
+
 /* ===== Automated subtraction monitor ===== */
 let _autoES=null;
 let _autoScaleMode='auto';
@@ -1002,7 +1045,7 @@ async function autoPollStatus(){
     }
   }catch(_){ setTimeout(autoPollStatus,5000); }
 }
-window.addEventListener('DOMContentLoaded',()=>{ try{ autoPollStatus(); }catch(_){ } });
+window.addEventListener('DOMContentLoaded',()=>{ try{ autoPollStatus(); }catch(_){ } try{ initTrunc(); }catch(_){ } });
 </script>
 
 <script>

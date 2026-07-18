@@ -122,19 +122,75 @@ def _subtract(q_sam: np.ndarray, I_sam: np.ndarray, sig_sam: np.ndarray,
     return q_sam, I_sub, sig_sub
 
 
+# ── ML truncation / rebinning ────────────────────────────────────────────────
+# The subtracted curve is truncated to a fixed q-range and resampled onto a fixed
+# number of points so it can feed the ML model, which needs EXACTLY this grid.
+# Source q is nm⁻¹; the output range/unit default to Å⁻¹ (nm⁻¹ ÷ 10). Editable
+# live in the app (/api/truncation). Session state — resets to defaults on restart.
+_TRUNC = {
+    "enabled":  True,
+    "q_min":    0.03,        # in q_unit
+    "q_max":    0.6,         # in q_unit
+    "n_points": 549,
+    "spacing":  "linear",    # "linear" | "log"
+    "q_unit":   "A",         # "A" (Å⁻¹) | "nm" (nm⁻¹)
+}
+
+
+def _trunc_q_label() -> str:
+    return "q_A-1" if (_TRUNC.get("enabled") and _TRUNC.get("q_unit") == "A") else "q_nm-1"
+
+
+def truncate_rebin(q_nm: np.ndarray, I: np.ndarray, sigma: np.ndarray,
+                   q_min: float, q_max: float, n_points: int,
+                   spacing: str = "linear", q_unit: str = "A"):
+    """Truncate to [q_min, q_max] and resample onto n_points. Source q is nm⁻¹;
+    output q is in q_unit ('A' → Å⁻¹ = nm⁻¹/10). Linear or log grid. Intensity is
+    interpolated in log-space (same scheme as the background interpolation)."""
+    q_nm = np.asarray(q_nm, float)
+    scale = 0.1 if str(q_unit).lower().startswith("a") else 1.0   # nm⁻¹ → Å⁻¹
+    q_src = q_nm * scale
+    n = int(n_points)
+    if str(spacing).lower().startswith("log"):
+        grid = np.logspace(np.log10(q_min), np.log10(q_max), n)
+    else:
+        grid = np.linspace(float(q_min), float(q_max), n)
+    _, I_g, sig_g = _interpolate_onto(grid, q_src, I, sigma)
+    return grid, I_g, sig_g
+
+
+def _apply_truncation(q: np.ndarray, I: np.ndarray, sigma: np.ndarray):
+    if not _TRUNC.get("enabled"):
+        return q, I, sigma
+    try:
+        return truncate_rebin(q, I, sigma, _TRUNC["q_min"], _TRUNC["q_max"],
+                              _TRUNC["n_points"], _TRUNC["spacing"], _TRUNC["q_unit"])
+    except Exception:
+        return q, I, sigma
+
+
 def _write_dat(out_path: Path, q: np.ndarray, I: np.ndarray, sigma: np.ndarray,
-               header_extra: list[str] | None = None) -> None:
+               header_extra: list[str] | None = None):
+    """Truncate/rebin (if enabled), write the .dat, and RETURN the written
+    (q, I, sigma) so callers use the same arrays for the preview."""
+    q, I, sigma = _apply_truncation(q, I, sigma)
+    label = _trunc_q_label()
     out_path.parent.mkdir(parents=True, exist_ok=True)
     lines = [
         "# SAXS/WAXS background-subtracted data",
-        "# Columns: q_nm-1  I  sigma",
+        f"# Columns: {label}  I  sigma",
     ]
+    if _TRUNC.get("enabled"):
+        lines.append(f"# Truncated/rebinned for ML: {_TRUNC['q_min']}–{_TRUNC['q_max']} "
+                     f"{'Å⁻¹' if _TRUNC.get('q_unit')=='A' else 'nm⁻¹'}, "
+                     f"{_TRUNC['n_points']} pts ({_TRUNC['spacing']})")
     if header_extra:
         lines.extend(header_extra)
-    lines.append("# q_nm-1  I  sigma")
+    lines.append(f"# {label}  I  sigma")
     for qi, Ii, si in zip(q, I, sigma):
         lines.append(f"{qi:.8e}  {Ii:.8e}  {si:.8e}")
     out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return q, I, sigma
 
 
 def _glob_dats(folder: Path, keyword: str | None = None) -> list[Path]:
@@ -410,6 +466,31 @@ def index():
 @app.route("/api/health")
 def health():
     return jsonify({"status": "ok", "app": "background"})
+
+
+@app.route("/api/truncation", methods=["GET", "POST"])
+def api_truncation():
+    """Get/set the ML truncation+rebin applied to every subtracted file:
+    enabled, q_min, q_max (in q_unit), n_points, spacing (linear|log), q_unit (A|nm).
+    Blank/missing keys are left unchanged; values persist until the app restarts."""
+    if request.method == "POST":
+        d = request.get_json(force=True) or {}
+        if "enabled" in d:
+            _TRUNC["enabled"] = bool(d["enabled"])
+        for key in ("q_min", "q_max"):
+            if str(d.get(key, "")).strip() != "":
+                try: _TRUNC[key] = float(d[key])
+                except (TypeError, ValueError): pass
+        if str(d.get("n_points", "")).strip() != "":
+            try: _TRUNC["n_points"] = max(2, int(float(d["n_points"])))
+            except (TypeError, ValueError): pass
+        if str(d.get("spacing", "")).strip():
+            s = str(d["spacing"]).lower()
+            if s in ("linear", "log"): _TRUNC["spacing"] = s
+        if str(d.get("q_unit", "")).strip():
+            u = "A" if str(d["q_unit"]).lower().startswith("a") else "nm"
+            _TRUNC["q_unit"] = u
+    return jsonify(dict(_TRUNC))
 
 
 @app.route("/api/set_project", methods=["POST"])
@@ -752,7 +833,7 @@ def api_subtract_keyword():
             q_r, I_r, sig_r = _subtract(q_s, I_s, sig_s, q_b, I_b, sig_b, scale)
             out_name = f.stem + "_sub.dat"
             out_path = out_folder / out_name
-            _write_dat(out_path, q_r, I_r, sig_r, [
+            q_r, I_r, sig_r = _write_dat(out_path, q_r, I_r, sig_r, [
                 f"# Sample     : {f}",
                 f"# Background : {bkg_file}",
                 f"# Scale      : {scale}",
@@ -868,7 +949,7 @@ def api_subtract_scan_matched():
             q_r, I_r, sig_r = _subtract(q_s, I_s, sig_s, q_b, I_b, sig_b, s_use)
             out_name = f_s.stem + "_sub.dat"
             out_path = out_folder / out_name
-            _write_dat(out_path, q_r, I_r, sig_r, [
+            q_r, I_r, sig_r = _write_dat(out_path, q_r, I_r, sig_r, [
                 f"# Sample     : {f_s}",
                 f"# Background : {f_b}",
                 f"# Scale      : {s_use:.6g}",
@@ -964,7 +1045,7 @@ def api_subtract_individual():
                 s_use = _auto_scale(q_s, I_s, sig_s, q_b, I_b, sig_b, qmin=qmin, qmax=qmax)["scale"]
             q_r, I_r, sig_r = _subtract(q_s, I_s, sig_s, q_b, I_b, sig_b, s_use)
             out_path = out_folder / (f.stem + "_sub.dat")
-            _write_dat(out_path, q_r, I_r, sig_r, [
+            q_r, I_r, sig_r = _write_dat(out_path, q_r, I_r, sig_r, [
                 f"# Sample     : {f}",
                 f"# Background : {bkg_file}",
                 f"# Scale      : {s_use:.6g}",
