@@ -371,6 +371,24 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{ou
             </div>
 
             <div class="section">
+              <div class="section-title">ML output — truncate &amp; rebin</div>
+              <label style="display:flex;align-items:center;gap:8px">
+                <input type="checkbox" id="atr-enabled" onchange="pushTrunc('a')">
+                Truncate &amp; rebin every subtracted file (for the ML model)
+              </label>
+              <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:8px;max-width:420px">
+                <div class="field"><label>q min</label><input type="number" id="atr-qmin" step="0.001" min="0" onchange="pushTrunc('a')"></div>
+                <div class="field"><label>q max</label><input type="number" id="atr-qmax" step="0.001" min="0" onchange="pushTrunc('a')"></div>
+                <div class="field"><label>Number of points</label><input type="number" id="atr-npts" step="1" min="2" onchange="pushTrunc('a')"></div>
+                <div class="field"><label>Spacing</label>
+                  <select id="atr-spacing" onchange="pushTrunc('a')"><option value="linear">linear</option><option value="log">log</option></select></div>
+                <div class="field"><label>q unit</label>
+                  <select id="atr-unit" onchange="pushTrunc('a')"><option value="A">Å⁻¹</option><option value="nm">nm⁻¹</option></select></div>
+              </div>
+              <div class="hint" style="margin:4px 0 0">Same setting as the manual tab — applies to every auto-subtracted file. Default 0.03–0.6 Å⁻¹, 549 pts (linear).</div>
+            </div>
+
+            <div class="section">
               <div class="section-title">Schedule</div>
               <div class="field" style="max-width:220px">
                 <label>Check interval (seconds)</label>
@@ -932,29 +950,24 @@ document.getElementById('browserModal').addEventListener('click',e=>{if(e.target
 // ── util ──────────────────────────────────────────────────────────────────────
 async function post(url,body){return (await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();}
 
-/* ===== ML truncation / rebin settings ===== */
+/* ===== ML truncation / rebin settings (shared by manual + automated tabs) ===== */
+function _tSet(id,v){const e=document.getElementById(id); if(!e)return; if(e.type==='checkbox')e.checked=!!v; else e.value=v;}
+function _tGet(id){const e=document.getElementById(id); return e?(e.type==='checkbox'?e.checked:e.value):'';}
 function _applyTrunc(t){
   if(!t)return;
-  document.getElementById('tr-enabled').checked = !!t.enabled;
-  document.getElementById('tr-qmin').value = t.q_min;
-  document.getElementById('tr-qmax').value = t.q_max;
-  document.getElementById('tr-npts').value = t.n_points;
-  document.getElementById('tr-spacing').value = t.spacing;
-  document.getElementById('tr-unit').value = t.q_unit;
+  for(const p of ['tr-','atr-']){
+    _tSet(p+'enabled',t.enabled); _tSet(p+'qmin',t.q_min); _tSet(p+'qmax',t.q_max);
+    _tSet(p+'npts',t.n_points);   _tSet(p+'spacing',t.spacing); _tSet(p+'unit',t.q_unit);
+  }
 }
 async function initTrunc(){
-  try{ const t=await (await fetch('/api/truncation')).json(); _applyTrunc(t); }catch(_){}
+  try{ _applyTrunc(await (await fetch('/api/truncation')).json()); }catch(_){}
 }
-async function pushTrunc(){
-  const body={
-    enabled: document.getElementById('tr-enabled').checked,
-    q_min:   document.getElementById('tr-qmin').value,
-    q_max:   document.getElementById('tr-qmax').value,
-    n_points:document.getElementById('tr-npts').value,
-    spacing: document.getElementById('tr-spacing').value,
-    q_unit:  document.getElementById('tr-unit').value,
-  };
-  try{ _applyTrunc(await post('/api/truncation',body)); }catch(_){}
+async function pushTrunc(which){
+  const p = (which==='a') ? 'atr-' : 'tr-';   // read from whichever panel changed
+  const body={ enabled:_tGet(p+'enabled'), q_min:_tGet(p+'qmin'), q_max:_tGet(p+'qmax'),
+    n_points:_tGet(p+'npts'), spacing:_tGet(p+'spacing'), q_unit:_tGet(p+'unit') };
+  try{ _applyTrunc(await post('/api/truncation',body)); }catch(_){}   // sync both panels
 }
 
 /* ===== Automated subtraction monitor ===== */
