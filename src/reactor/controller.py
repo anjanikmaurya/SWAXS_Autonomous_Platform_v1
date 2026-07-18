@@ -31,18 +31,6 @@ from ..beamline import make_beamline
 
 STATES = ["idle", "arming", "running", "flushing", "ready", "estop"]
 
-RAMP_START_TEMP_C = 25.0    # assumed ambient start for ramp-mode arming
-
-
-def ramp_wait_seconds(t_final: float, rate_c_per_min: float,
-                      t_start: float = RAMP_START_TEMP_C) -> float:
-    """Seconds to ramp from ``t_start`` (default 25 °C) up to ``t_final`` at
-    ``rate_c_per_min`` °C/min: ``(t_final − t_start) / rate × 60``. Returns 0 if
-    the target is at/below the start or the rate is not positive."""
-    if rate_c_per_min and rate_c_per_min > 0 and t_final > t_start:
-        return (t_final - t_start) / rate_c_per_min * 60.0
-    return 0.0
-
 
 def _noop(*a, **k):
     return None
@@ -106,16 +94,13 @@ class ReactorController:
         # temperature (which come from the recipe / predicted folder file).
         # None = fall back to the config default.
         self.live_duration: float | None = None      # synthesis run duration (s)
-        self.live_arm_mode: str | None = None         # "temperature" | "timed" | "ramp"
+        self.live_arm_mode: str | None = None         # "temperature" | "timed"
         self.live_arm_wait: float | None = None        # timed-arming wait (s)
-        self.live_arm_ramp: float | None = None        # ramp-arming rate (°C/min)
         self.live_flush_rate: float | None = None      # flush rate (µL/min)
         self.live_flush_duration: float | None = None  # flush duration (s)
         arm = cfg.get("arming", {})
         self.default_arm_mode = str(arm.get("default_mode", "temperature")).lower()
         self.default_arm_wait = float(arm.get("default_wait_s", 120.0))
-        self.default_ramp_rate = float(arm.get("default_ramp_rate", 0.0) or 0.0)
-        self.ramp_start_temp = float(arm.get("start_temp_c", RAMP_START_TEMP_C))
         fl = cfg.get("flush", {})
         self.flush_rate = float(fl.get("rate", 100.0))
         self.flush_duration = float(fl.get("duration", 300.0))
@@ -258,7 +243,7 @@ class ReactorController:
     def set_run_settings(self, d: dict) -> None:
         """Apply live run settings from the app inputs — everything EXCEPT the
         flow fractions / F_tot / temperature (those come from the recipe file).
-        Keys: arm_mode, arm_wait_s, arm_ramp_rate, run_duration, flush_rate,
+        Keys: arm_mode, arm_wait_s, run_duration, flush_rate,
         flush_duration, flush_pump.
 
         Once set, a value STICKS for the whole app session and is used for every
@@ -276,12 +261,10 @@ class ReactorController:
         with self._lock:
             if provided("arm_mode"):
                 m = str(d["arm_mode"]).lower()
-                if m in ("temperature", "timed", "ramp"):
+                if m in ("temperature", "timed"):
                     self.live_arm_mode = m
             if provided("arm_wait_s") and (v := num(d["arm_wait_s"])) is not None:
                 self.live_arm_wait = v
-            if provided("arm_ramp_rate") and (v := num(d["arm_ramp_rate"])) is not None:
-                self.live_arm_ramp = v
             if provided("flush_rate") and (v := num(d["flush_rate"])) is not None:
                 self.live_flush_rate = v
             if provided("flush_duration") and (v := num(d["flush_duration"])) is not None:
@@ -491,22 +474,7 @@ class ReactorController:
         self._arm_mode = (self.live_arm_mode or recipe.arm_mode or self.default_arm_mode).lower()
         now = time.time()
         self.state = "arming"
-        if self._arm_mode == "ramp":
-            rate = (self.live_arm_ramp if self.live_arm_ramp is not None
-                    else recipe.arm_ramp_rate if recipe.arm_ramp_rate is not None
-                    else self.default_ramp_rate)
-            wait = ramp_wait_seconds(recipe.T_reac, float(rate or 0.0), self.ramp_start_temp)
-            self._arm_total = float(wait)
-            self._arm_ready_at = now + float(wait)
-            self._arm_deadline = 0.0    # no temperature timeout in ramp mode
-            if rate and rate > 0:
-                self._log(f"📈 arming {recipe.recipe_id}: ramp {self.ramp_start_temp:g}→"
-                          f"{recipe.T_reac:g}°C at {float(rate):g}°C/min → wait "
-                          f"{float(wait):g}s before pumps start", "info")
-            else:
-                self._log(f"⚠ arming {recipe.recipe_id}: no positive ramp rate set — "
-                          f"pumps start immediately", "warn")
-        elif self._arm_mode == "timed":
+        if self._arm_mode == "timed":
             wait = (self.live_arm_wait if self.live_arm_wait is not None
                     else recipe.arm_wait_s if recipe.arm_wait_s is not None
                     else self.default_arm_wait)
@@ -690,7 +658,7 @@ class ReactorController:
             with self._lock:
                 self._safety_check()
                 if self.state == "arming":
-                    if self._arm_mode in ("timed", "ramp"):
+                    if self._arm_mode == "timed":
                         # start the pumps once the computed wait elapses; no
                         # temperature gating and no arm timeout in these modes.
                         if now >= self._arm_ready_at:
@@ -804,7 +772,7 @@ class ReactorController:
             eff = self.live_duration or self.default_duration
             dur = ((self.current.run_duration or eff) if self.current else None)
             flush_left = round(self._flush_deadline - now, 1) if self.state == "flushing" else None
-            _timed_arm = self.state == "arming" and self._arm_mode in ("timed", "ramp")
+            _timed_arm = self.state == "arming" and self._arm_mode == "timed"
             arm_left = round(max(0.0, self._arm_ready_at - now), 1) if _timed_arm else None
             arm_total = round(self._arm_total, 1) if _timed_arm else None
             return {

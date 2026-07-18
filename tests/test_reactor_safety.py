@@ -211,36 +211,6 @@ def test_prime_removed_flush_still_works():
         ctl.shutdown()
 
 
-# ── ramp-rate arming: wait computed from (T_reac − 25) / rate ──────────────────
-
-def test_ramp_wait_math():
-    from src.reactor.controller import ramp_wait_seconds
-    assert ramp_wait_seconds(300, 10) == (300 - 25) / 10 * 60      # 1650 s
-    assert ramp_wait_seconds(180, 5) == (180 - 25) / 5 * 60        # 1860 s
-    assert ramp_wait_seconds(20, 10) == 0.0                        # target ≤ start
-    assert ramp_wait_seconds(300, 0) == 0.0                        # no positive rate
-    assert ramp_wait_seconds(300, 10, t_start=50) == (300 - 50) / 10 * 60
-
-
-def test_controller_ramp_arming_uses_computed_wait():
-    import time
-    from src.reactor.controller import ReactorController
-    cfg = {"pumps": {n: {"max_flow": 1000.0} for n in PUMP_NAMES},
-           "bounds": {"T_reac": [180, 300], "F_tot": [40, 120],
-                      "x_each": [0, 0.3], "x_sum_max": 0.9}}
-    ctl = ReactorController(cfg, backend="mock")
-    try:
-        ctl.set_run_settings({"arm_mode": "ramp", "arm_ramp_rate": "10"})
-        ctl.submit({"T_reac": 245, "F_tot": 100, "x_ODE": 0.2, "x_TOP": 0.1, "x_oley": 0.1})
-        ctl.start()
-        time.sleep(0.3)
-        s = ctl.status()
-        assert s["state"] == "arming" and s["arm_mode"] == "ramp"
-        assert abs(s["arm_total_s"] - (245 - 25) / 10 * 60) < 2      # ≈ 1320 s
-    finally:
-        ctl.shutdown()
-
-
 def test_done_file_includes_flow_series_at_bottom():
     import time
     from src.reactor.controller import ReactorController
@@ -285,11 +255,15 @@ def test_backend_switch_guards():
         ctl.shutdown()
 
 
-def test_recipe_ramp_rate_must_be_positive():
+def test_recipe_arm_modes_are_temperature_or_timed_only():
     from src.reactor.recipe import Recipe, RecipeError
+    base = {"T_reac": 240, "F_tot": 100, "x_ODE": 0.2, "x_TOP": 0.1, "x_oley": 0.1}
+    # temperature + timed are accepted
+    assert Recipe.from_dict({**base, "arm_mode": "timed"}).arm_mode == "timed"
+    assert Recipe.from_dict({**base, "arm_mode": "temperature"}).arm_mode == "temperature"
+    # ramp is no longer a valid mode
     with pytest.raises(RecipeError):
-        Recipe.from_dict({"T_reac": 240, "F_tot": 100, "x_ODE": 0.2, "x_TOP": 0.1,
-                          "x_oley": 0.1, "arm_mode": "ramp", "arm_ramp_rate": 0})
+        Recipe.from_dict({**base, "arm_mode": "ramp"})
 
 
 # ── folder-watcher intake: no partial-write drops ──────────────────────────────

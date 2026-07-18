@@ -155,12 +155,7 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
       <div class="tstep">1 · Start the pumps</div>
       <label style="display:block;margin-bottom:4px">Start pumps when…</label>
       <div class="arm-opt">
-        <label class="toggle"><input type="radio" name="arm_mode" value="ramp" checked onchange="armModeChange()"> ramp from 25&nbsp;°C at</label>
-        <input type="number" id="arm_ramp_rate" value="10" step="0.5" min="0.1" oninput="updateArmHint()" onchange="pushRunSettings()">
-        <span class="arm-unit">°C/min</span>
-      </div>
-      <div class="arm-opt">
-        <label class="toggle"><input type="radio" name="arm_mode" value="timed" onchange="armModeChange()"> after a fixed wait of</label>
+        <label class="toggle"><input type="radio" name="arm_mode" value="timed" checked onchange="armModeChange()"> after a fixed wait of</label>
         <input type="number" id="arm_wait_s" value="120" step="1" min="0" onchange="pushRunSettings()">
         <span class="arm-unit">s</span>
       </div>
@@ -362,33 +357,23 @@ async function submitRecipe(){
   const fr=$('flush_rate').value.trim();    if(fr)body.flush_rate=+fr;
   const fd=$('flush_duration').value.trim();if(fd)body.flush_duration=+fd;
   const mode=document.querySelector('input[name="arm_mode"]:checked');
-  body.arm_mode = mode ? mode.value : 'ramp';
+  body.arm_mode = mode ? mode.value : 'timed';
   if(body.arm_mode==='timed'){
     const w=$('arm_wait_s').value.trim(); if(w!=='')body.arm_wait_s=+w;
-  } else if(body.arm_mode==='ramp'){
-    const r=$('arm_ramp_rate').value.trim(); if(r!=='')body.arm_ramp_rate=+r;
   }
   const r=await api('/api/recipe',body);
   if(!r.ok){$('form-err').textContent=r.error||'rejected';}
 }
 function armModeChange(){
   const mode=(document.querySelector('input[name="arm_mode"]:checked')||{}).value;
-  $('arm_wait_s').disabled     = mode!=='timed';
-  $('arm_ramp_rate').disabled  = mode!=='ramp';
+  $('arm_wait_s').disabled = mode!=='timed';
   updateArmHint();
   pushRunSettings();
 }
 function updateArmHint(){
   const mode=(document.querySelector('input[name="arm_mode"]:checked')||{}).value;
   const h=$('arm-hint');
-  if(mode==='ramp'){
-    const T=+$('T_reac').value||0, r=+$('arm_ramp_rate').value||0;
-    if(r>0 && T>25){
-      h.textContent=`≈ ${fmtDur((T-25)/r*60)} to ramp 25 → ${T}°C, then pumps start.`;
-    } else {
-      h.textContent='Set a target above 25 °C and a positive ramp rate.';
-    }
-  } else if(mode==='timed'){
+  if(mode==='timed'){
     h.textContent='Pumps start after this fixed wait — temperature is not required.';
   } else {
     h.textContent='Pumps start only once the reactor reaches T_reac (needs a wired temperature reading).';
@@ -402,7 +387,6 @@ async function pushRunSettings(){
   await api('/api/run_settings',{
     arm_mode: mode?mode.value:'',
     arm_wait_s: $('arm_wait_s').value.trim(),
-    arm_ramp_rate: $('arm_ramp_rate').value.trim(),
     run_duration: $('run_duration').value.trim(),
     flush_rate: $('flush_rate').value.trim(),
     flush_duration: $('flush_duration').value.trim(),
@@ -677,9 +661,8 @@ function render(st){
   $('t-cur').textContent=st.temperature.current.toFixed(2);
   $('t-tgt').textContent=st.temperature.target.toFixed(2);
   $('t-bstop').textContent = (st.temperature.bstop!=null) ? ('bstop '+Number(st.temperature.bstop).toFixed(4)+' (beam)') : '';
-  if(st.state==='arming'&&(st.arm_mode==='timed'||st.arm_mode==='ramp')){
-    $('t-stable').textContent=(st.arm_mode==='ramp'?'📈 ramp start':'⏲ timed start')
-      +' — pumps in '+fmtDur(st.arm_remaining_s)+' (temperature not gating)';
+  if(st.state==='arming'&&st.arm_mode==='timed'){
+    $('t-stable').textContent='⏲ timed start — pumps in '+fmtDur(st.arm_remaining_s)+' (temperature not gating)';
   }else{
     $('t-stable').textContent=st.temperature.target>0?
       (st.temperature.stable?'✓ at temperature':'… ramping / stabilizing'):'';
@@ -701,7 +684,7 @@ function render(st){
       bar.classList.remove('indeterminate');
       const frac=Math.max(0,Math.min(1,1-(left/total)));
       $('armBarFill').style.width=(frac*100).toFixed(1)+'%';
-      $('armMsg').textContent = st.arm_mode==='ramp' ? 'Ramping to synthesis temperature' : 'Timed start';
+      $('armMsg').textContent = 'Timed start';
       $('armCountdown').textContent='Pumps start in '+fmtDur(left)+' — or click “Start pumps now”.';
     } else {
       bar.classList.add('indeterminate'); $('armBarFill').style.width='';
