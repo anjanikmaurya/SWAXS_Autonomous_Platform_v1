@@ -1,96 +1,111 @@
-# Pump flow calibration (per-pump, for ODE / non-water fluids)
+# Pump flow calibration (per pump)
 
-The Mitos LG16 sensors are water-calibrated and the reactor app bypasses the
-Dolomite FCC, so the app must correct water→fluid flow itself. Two ways, per pump:
+The Mitos LG16 sensors are water-calibrated and the reactor app bypasses the Dolomite
+FCC, so the app corrects water→fluid flow itself. There are **two ways**, per pump:
 
-- **Linear factor** (`calibration_factor`) — one number, live-editable in the app
-  (Pump-limits card, `cal ×`). Use when the response is just proportional.
-- **Power-law table** (`flowrate_table`) — several `[setpoint, measured]` pairs,
-  fitted to `measured ≈ setpoint^a`. Use when the response is nonlinear across the
-  range. Config-only (edit + restart). **A table wins over the factor.**
+| Method | What | Where | Model | Use when |
+|---|---|---|---|---|
+| **A — `cal ×` factor** | one number | **live in the app** (Pump-limits card) | linear: `true = raw × cf` | response is ~proportional; quick |
+| **B — flowrate table** | `[setpoint, measured]` pairs | `reactor/config.yml` (edit + restart) | power law: `true = raw^a` | response is nonlinear across the range |
 
-This doc is the procedure to build a table.
+Precedence: **if a `flowrate_table` is present it wins and `cal ×` is ignored.** Both
+default to identity (`cal × = 1.0`, no table) = no correction.
+
+This doc covers the how-to for both, plus how to measure the numbers.
 
 ---
 
-## What you need
-- The reactor app running (Real backend), the pump primed with the real fluid (ODE).
-- A way to measure **true** delivered flow at a set point, one of:
-  - **Gravimetric:** collect the output for a timed interval, weigh it, divide by
-    density and time → µL/min (most reliable), or
-  - **FCC reference:** in the Dolomite Flow Control Center with **Hexadecane**
-    selected, read the flow it reports (closest preset to ODE).
+## Measuring the "true" flow (needed for either method)
 
-> Only one program can control a pump at a time. If you use the FCC to read, you
-> can't have the reactor app controlling the same pump simultaneously — measure with
-> one, then configure the other.
+Command a flow and measure what's actually delivered, one of:
+- **Gravimetric (most reliable):** collect the output for a timed interval, weigh it,
+  `true µL/min = mass_g / density_g_per_µL / minutes`.
+- **FCC reference:** in the Dolomite Flow Control Center with **Hexadecane** selected
+  (closest preset to ODE), read the flow it reports.
 
-## Step 1 — put the pump in identity mode (so you measure raw response)
-In `reactor/config.yml` for that pump, temporarily set:
-```yaml
-    calibration_factor: 1.0
-    # flowrate_table:   (absent / commented out)
-```
-Restart the reactor app. Now the number you command = the raw instrument setpoint.
+> Only one program controls a pump at a time. If you read with the FCC, the reactor
+> app can't control that pump at the same moment — measure with one, configure the other.
 
-## Step 2 — measure setpoint → true-flow pairs
-Pick 3–5 setpoints spanning the pump's working range (e.g. for a 1–50 µL/min pump:
-10, 20, 30, 40). For each:
-1. Command that flow on the pump (app or FCC), let it stabilize (~30–60 s).
-2. Measure the **true** delivered flow (gravimetric or FCC-Hexadecane reading).
-3. Record the pair `[commanded_setpoint, measured_true]` in µL/min.
+---
 
-Example table you might get:
+## Method A — `cal ×` factor (live, in the app)
 
-| commanded (µL/min) | measured true (µL/min) |
-|---|---|
-| 10 | 8.6 |
-| 20 | 18.1 |
-| 30 | 27.9 |
-| 40 | 38.8 |
+Best for a quick proportional correction; no restart.
 
-## Step 3 — enter the table in config
-Add `flowrate_table` under that pump in `reactor/config.yml` (list of
-`[setpoint, measured]`, both µL/min, **≥ 2 points**):
-```yaml
-pumps:
-  ode_dilution:
-    serial: "4902276A"
-    sensor: "LG16-0480"
-    sensor_min: 0.0
-    max_flow: 50.0
-    max_pressure: 10000.0
-    calibration_factor: 1.0        # ignored while a table is present
-    flowrate_table:
-      - [10, 8.6]
-      - [20, 18.1]
-      - [30, 27.9]
-      - [40, 38.8]
-```
-Repeat per pump (each LG16 differs). Save the file.
+1. In the reactor app, open the **Pump flow limits & calibration** card.
+2. For the pump, at one fixed setpoint, get two numbers **at the same pressure/flow**:
+   - `app_water` = the flow the app shows (water units, `cal ×` = 1.0), and
+   - `true` = the measured true flow (gravimetric or FCC-Hexadecane).
+3. Compute `cal × = true / app_water`.
+4. Enter it in that pump's **`cal ×`** field and click **Apply limits**.
+   - Applies immediately on the serial link and is saved to the project
+     (`reactor_limits.json`), so it persists across restarts.
+5. **Verify** (below).
 
-## Step 4 — apply it
-Restart the reactor app (or flip the backend Mock↔Real toggle). The table is fitted
-to a power-law exponent at startup. From now on:
-- when you command a **true** flow `Q`, the driver sends `Q^(1/a)` to the pump;
-- the pump's raw reading is reported back as `raw^a`;
-so the app's setpoints and live flow are **true fluid µL/min**.
+Example: app shows 40 µL/min, gravimetric true = 34 µL/min → `cal × = 34/40 = 0.85`.
 
-## Step 5 — verify
+---
+
+## Method B — flowrate table (config, power-law)
+
+Best when the setpoint→true-flow curve bends across the range.
+
+1. **Identity mode first.** In `reactor/config.yml` for that pump set
+   `calibration_factor: 1.0` and make sure `flowrate_table` is absent/commented, then
+   restart the app. Now the number you command = the raw instrument setpoint.
+2. **Measure 3–5 pairs** spanning the pump's range (e.g. 10, 20, 30, 40 µL/min). For
+   each: command it, let it stabilize (~30–60 s), measure the true flow, record
+   `[commanded, measured]` (both µL/min).
+
+   | commanded | measured true |
+   |---|---|
+   | 10 | 8.6 |
+   | 20 | 18.1 |
+   | 30 | 27.9 |
+   | 40 | 38.8 |
+
+3. **Enter the table** under that pump in `reactor/config.yml` (≥ 2 points):
+   ```yaml
+   pumps:
+     ode_dilution:
+       serial: "4902276A"
+       sensor: "LG16-0480"
+       sensor_min: 0.0
+       max_flow: 50.0
+       max_pressure: 10000.0
+       calibration_factor: 1.0        # ignored while a table is present
+       flowrate_table:
+         - [10, 8.6]
+         - [20, 18.1]
+         - [30, 27.9]
+         - [40, 38.8]
+   ```
+   Repeat per pump (each LG16 differs).
+4. **Apply:** restart the reactor app (or flip the Mock↔Real backend toggle). The
+   table is fitted to a power-law exponent at startup.
+5. **Verify** (below).
+
+After this, when you command a **true** flow `Q` the driver sends `Q^(1/a)` to the
+pump and reports `raw^a` back — so the app's setpoints and live flow are true fluid
+µL/min.
+
+---
+
+## Verify (both methods)
+
 1. Command a flow that was **not** one of your calibration points (e.g. 25 µL/min).
-2. Measure the true delivered flow (gravimetric / FCC).
-3. It should match the commanded value within your tolerance. If it's off, add that
-   point to the table and restart, or add more points across the range.
+2. Measure the true delivered flow.
+3. It should match the commanded value within tolerance. If off:
+   - Method A: recompute `cal ×` at a representative flow.
+   - Method B: add that point to the table and restart, or add more points.
 
 ---
 
 ## Notes
-- **Table vs factor:** if a `flowrate_table` is present it is used and
-  `calibration_factor` is ignored. Remove/comment the table to fall back to the
-  linear factor.
-- **Units:** all table values are µL/min. The truncation q-unit (Å⁻¹ vs nm⁻¹) is a
-  separate setting and unrelated to flow calibration.
-- **Where it's applied:** `src/reactor/hardware.py` (`_fit_flow_power`, `_to_setpt`,
-  `_to_true`); the flow-OK check compares the true flow to the true setpoint.
-- The table is config-only today. If you want to enter/adjust it live in the app
-  (like the `cal ×` factor), ask and I'll add a table editor to the Pump-limits card.
+- Units: all flows are µL/min. The subtraction q-unit (Å⁻¹ vs nm⁻¹) is unrelated to
+  flow calibration.
+- Where applied: `src/reactor/hardware.py` — `_fit_flow_power`, `_to_setpt`, `_to_true`.
+  The flow-OK safety check compares the **true** flow to the **true** setpoint.
+- To fall back from table → factor, remove/comment the `flowrate_table`.
+- `cal ×` is live in the app; the table is config + restart. If you want the table
+  editable live too (in the Pump-limits card), ask and it can be added.
