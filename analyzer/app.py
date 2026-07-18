@@ -140,9 +140,22 @@ def _downsample(x, n=260):
     return x[idx].tolist()
 
 
+def _q_is_angstrom(header_lines) -> bool:
+    """True if the .dat q column is in Å⁻¹ (e.g. background's ML-truncated files,
+    labelled 'q_A-1'). Otherwise nm⁻¹ (the platform default)."""
+    txt = " ".join(header_lines or []).lower()
+    return ("q_a-1" in txt) or ("a^-1" in txt) or ("å" in txt)
+
+
 def _analyze_file(path: Path) -> None:
     try:
-        _, q, I, sigma, _meta = read_dat_data_metadata(path)
+        hdr, q, I, sigma, _meta = read_dat_data_metadata(path)
+        q = np.asarray(q, float)
+        # The nanoparticle fit + optimizer target work in nm⁻¹ (radius in nm). If the
+        # subtracted file was truncated to Å⁻¹ for the ML model, convert first so sizes
+        # aren't 10× off and the campaign optimizes toward the right target.
+        if _q_is_angstrom(hdr):
+            q = q * 10.0                       # Å⁻¹ → nm⁻¹
         res = analyze_profile(q, I, sigma, dist="auto")
     except Exception as exc:
         _emit(f"✗ {path.name}: {exc}", "error")
@@ -208,7 +221,9 @@ def _watcher() -> None:
         try:
             d = _resolve_sub()
             if d.is_dir():
-                files = sorted(d.rglob("*.dat"), key=lambda p: p.stat().st_mtime)
+                # non-recursive: analyze only the flat Subtracted/*.dat, NOT the
+                # Good/ & NeedsReview/ copies the Quality app makes (avoids re-analysis)
+                files = sorted(d.glob("*.dat"), key=lambda p: p.stat().st_mtime)
                 present = set()
                 for f in files:
                     key = str(f); present.add(key)
