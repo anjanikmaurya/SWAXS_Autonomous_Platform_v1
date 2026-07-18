@@ -289,7 +289,7 @@ class PumpBank:
     """The five named pumps + the marked hardware call points."""
 
     def __init__(self, cfg: dict, backend: str = "mock"):
-        from .config import PUMP_NAMES
+        from .config import PUMP_NAMES, REAGENT_PUMPS, FLUSH_PUMP
         self.backend = backend
         self.pumps: dict[str, object] = {}
         pumps_cfg = cfg.get("pumps", {})
@@ -299,9 +299,18 @@ class PumpBank:
         fsens = float(safety.get("flow_sensitivity", 1.0))   # µL/min low-flow floor
         ftol = float(safety.get("flow_tol", 0.2))            # fractional flow-OK band
         bft = int(safety.get("bad_flow_tol", 3))             # consecutive bad ticks before fault
+        # Only build the pumps that are actually used: the reagents plus the SELECTED
+        # flush pump. The dedicated ode_flush is skipped entirely when a reagent pump
+        # (e.g. ode_dilution) is used for flushing — so a disconnected/no-air ode_flush
+        # is never opened, polled, or able to trip the E-stop. A pump can also be
+        # explicitly turned off with `enabled: false` in config.
+        flush_pump = str(cfg.get("flush", {}).get("pump", FLUSH_PUMP))
+        active = set(REAGENT_PUMPS) | {flush_pump}
         used_addrs: dict[str, str] = {}   # resolved device path -> pump name
         for name in PUMP_NAMES:
             pc = pumps_cfg.get(name, {})
+            if pc.get("enabled", True) is False or name not in active:
+                continue                     # skip unused / disabled pump (e.g. ode_flush)
             mx = float(pc.get("max_flow", 1000.0))
             mn = float(pc.get("sensor_min", 0.0))
             pp = float(pc.get("max_pressure", pmax_global))

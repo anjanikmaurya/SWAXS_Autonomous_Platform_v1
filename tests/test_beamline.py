@@ -282,6 +282,28 @@ def test_collect_now_manual_and_guarded():
         ctl.shutdown()
 
 
+def test_disconnected_flush_pump_is_skipped():
+    from src.reactor.config import PUMP_NAMES, FLUSH_PUMP
+    cfg = {"pumps": {n: {"max_flow": 100.0} for n in PUMP_NAMES},
+           "bounds": {"T_reac": [180, 300], "F_tot": [40, 120], "x_each": [0, 0.3], "x_sum_max": 0.9},
+           "flush": {"pump": "ode_dilution", "rate": 40.0, "duration": 1.0},
+           "spec": {"backend": "mock", "enabled": False}}
+    ctl = ReactorController(cfg, backend="mock")
+    try:
+        # ode_flush is disconnected/unused → not built, so it can't fault or E-stop
+        assert FLUSH_PUMP not in ctl.pumps.pumps
+        assert "ode_dilution" in ctl.pumps.pumps
+        # flushing with ode_dilution must work without touching ode_flush
+        ctl._enter_flush(kind="flush")
+        assert ctl.pumps.pumps["ode_dilution"].target > 0
+        # a safety check must not fault on the missing pump
+        ctl.state = "running"
+        ctl._safety_check()
+        assert ctl.state != "estop"
+    finally:
+        ctl.shutdown()
+
+
 def test_app_run_settings_win_over_recipe_and_persist():
     ctl = _controller({"backend": "mock", "enabled": False})
     try:

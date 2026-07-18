@@ -572,10 +572,11 @@ class ReactorController:
                    else self.current.flush_duration if self.current and self.current.flush_duration
                    else self.flush_duration))
         flush_pump = self._flush_pump
-        # zero every reagent EXCEPT the one we're flushing with, plus the dedicated
-        # ode_flush if we're flushing with a reagent instead
-        to_zero = [p for p in REAGENT_PUMPS if p != flush_pump]
-        if flush_pump != FLUSH_PUMP:
+        # zero every present reagent EXCEPT the one we're flushing with, plus the
+        # dedicated ode_flush if it exists and we're flushing with a reagent instead
+        present = self.pumps.pumps
+        to_zero = [p for p in REAGENT_PUMPS if p != flush_pump and p in present]
+        if flush_pump != FLUSH_PUMP and FLUSH_PUMP in present:
             to_zero.append(FLUSH_PUMP)
         failed = self.pumps.zero_pumps(to_zero)
         if failed:

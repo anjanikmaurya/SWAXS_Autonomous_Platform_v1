@@ -62,10 +62,27 @@ def test_cf_default_is_identity():
 
 
 def test_pumpbank_reads_calibration_factor_from_config():
-    cfg = {"pumps": {n: {"max_flow": 100.0, "calibration_factor": 1.5} for n in PUMP_NAMES}}
+    cfg = {"pumps": {n: {"max_flow": 100.0, "calibration_factor": 1.5} for n in PUMP_NAMES},
+           "flush": {"pump": "ode_flush"}}   # keep all pumps active for this test
     bank = PumpBank(cfg, backend="mock")
     for n in PUMP_NAMES:
         assert bank.pumps[n].calibration_factor == 1.5
+
+
+def test_pumpbank_skips_unused_and_disabled_pumps():
+    from src.reactor.config import FLUSH_PUMP
+    base = {n: {"max_flow": 100.0} for n in PUMP_NAMES}
+    # ode_dilution flushing → dedicated ode_flush not built
+    b1 = PumpBank({"pumps": base, "flush": {"pump": "ode_dilution"}}, backend="mock")
+    assert FLUSH_PUMP not in b1.pumps and "ode_dilution" in b1.pumps
+    # default flush pump → ode_flush present
+    b2 = PumpBank({"pumps": base, "flush": {"pump": FLUSH_PUMP}}, backend="mock")
+    assert FLUSH_PUMP in b2.pumps
+    # explicit enabled:false skips a pump
+    base2 = {n: {"max_flow": 100.0} for n in PUMP_NAMES}
+    base2["top"]["enabled"] = False
+    b3 = PumpBank({"pumps": base2, "flush": {"pump": FLUSH_PUMP}}, backend="mock")
+    assert "top" not in b3.pumps
 
 
 def test_power_law_calibration_wins_and_roundtrips():
