@@ -84,6 +84,22 @@ number** or the **port is held by another program** (vendor GUI, PuTTY) — clos
 There is **no `chmod`** on Windows; on Linux/macOS use `sudo chmod 666 /dev/ttyUSB*`
 for a "Permission denied" error.
 
+### Solvent / liquid calibration (ODE vs water)
+
+The Mitos flow sensors are **water-calibrated**; the per-liquid correction normally
+lives in Dolomite's **Flow Control Center (FCC)** GUI (Info/Settings → *Fluid*:
+Water, Hexadecane, FC-40, Novec 7500, Mineral oil — closest to **ODE** is
+**Hexadecane**). There is **no serial command** to set the liquid, and only one host
+can hold the pump at a time — so the FCC selection does **not** carry over when the
+reactor app drives the pumps. Under the app the sensor reports water-equivalent flow.
+
+To deliver true ODE flow while bypassing the FCC, set a per-pump
+`calibration_factor` in `config.yml` (`cf = true_flow ÷ app_water_reading` at the
+same pressure). The driver commands the pump in water units (`target/cf`) and
+reports `actual = raw × cf`, so the app's setpoints/readouts are true fluid µL/min.
+Default `1.0` (no correction). Get the number by comparing the FCC reading (with
+Hexadecane selected) to the app's water reading at one fixed pressure.
+
 ## 2. Temperature (heated reactor)
 
 The reactor coil/cell is heated; temperature is **commanded and read through SPEC**,

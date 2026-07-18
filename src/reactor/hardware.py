@@ -24,22 +24,122 @@ import time
 
 # ── Pumps ─────────────────────────────────────────────────────────────────────
 
-class MockPump:
+def _fit_flow_power(table) -> float | None:
+    """Fit the paws-style power-law flow calibration: measured ≈ setpoint**a.
+    ``table`` = [[setpt, measured], …] in µL/min. Returns the exponent a, or None
+    if there aren't ≥2 usable points. Uses scipy (paws-identical least squares) if
+    available, else a numpy log-log closed form."""
+    pts = []
+    for row in (table or []):
+        try:
+            s, m = float(row[0]), float(row[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        if s > 0 and m > 0:
+            pts.append((s, m))
+    if len(pts) < 2:
+        return None
+    import numpy as np                                    # noqa: PLC0415
+    s = np.array([p[0] for p in pts]); m = np.array([p[1] for p in pts])
+    try:
+        from scipy.optimize import minimize               # noqa: PLC0415
+        res = minimize(lambda a: float(np.sum((s ** a[0] - m) ** 2)), [1.0])
+        return float(res.x[0])
+    except Exception:
+        ls, lm = np.log(s), np.log(m)                     # log-log fallback: a = Σlns·lnm / Σlns²
+        denom = float(np.sum(ls * ls))
+        return float(np.sum(ls * lm) / denom) if denom > 0 else None
+
+
+def _flow_ok(actual: float, target: float, sensitivity: float, tol: float) -> bool:
+    """True if the true flow is close enough to the true setpoint (paws logic):
+    within ``tol`` (fractional) when the setpoint is above ``sensitivity``, else
+    within ``sensitivity`` absolute."""
+    if target <= 0:
+        return True
+    if target > sensitivity:
+        return abs(actual - target) / target <= tol
+    return abs(actual - target) <= sensitivity
+
+
+class _CalibratedPump:
+    """Shared flow-calibration + flow-OK + delivered-volume logic for both pumps.
+
+    Calibration (per pump): a power-law table wins (paws: true = raw**a,
+    setpt = rate**(1/a)); otherwise a linear ``calibration_factor`` cf
+    (true = raw·cf, setpt = rate/cf). cf=1 / no table = identity."""
+
+    def _init_cal(self, calibration_factor=1.0, flowrate_table=None,
+                  flow_sensitivity=1.0, flow_tol=0.2, bad_flow_tol=3,
+                  volume_limit=None):
+        self.calibration_factor = float(calibration_factor) if calibration_factor else 1.0
+        self.flowrate_table = flowrate_table
+        self.flow_power = _fit_flow_power(flowrate_table)   # None → use linear cf
+        self.flow_sensitivity = float(flow_sensitivity)
+        self.flow_tol = float(flow_tol)
+        self.bad_flow_tol = int(bad_flow_tol)
+        self.volume_limit = None if volume_limit in (None, "", 0) else float(volume_limit)
+        # health/volume state
+        self.flow_ok = True
+        self.flow_bad_count = 0
+        self.flow_fault = False       # sustained bad flow (beyond bad_flow_tol)
+        self.v_delivered = 0.0        # µL delivered since last reset (true flow)
+        self.volume_exceeded = False
+
+    def _to_setpt(self, rate: float) -> float:
+        """Desired TRUE rate → instrument setpoint the pump/sensor understands."""
+        if rate == 0:
+            return 0.0
+        if self.flow_power:
+            return (abs(rate) ** (1.0 / self.flow_power)) * (1 if rate > 0 else -1)
+        return rate / self.calibration_factor
+
+    def _to_true(self, raw: float) -> float:
+        """Raw (water/instrument) reading → true fluid flow."""
+        if raw == 0:
+            return 0.0
+        if self.flow_power:
+            return (abs(raw) ** self.flow_power) * (1 if raw > 0 else -1)
+        return raw * self.calibration_factor
+
+    def _update_health(self, dt: float) -> None:
+        if self.target > 0 and not self.idle:
+            ok = _flow_ok(self.actual, self.target, self.flow_sensitivity, self.flow_tol)
+            self.flow_ok = ok
+            self.flow_bad_count = 0 if ok else self.flow_bad_count + 1
+            self.flow_fault = self.flow_bad_count > self.bad_flow_tol
+        else:
+            self.flow_ok, self.flow_bad_count, self.flow_fault = True, 0, False
+        self.v_delivered += max(0.0, self.actual) * (dt / 60.0)   # µL (rate µL/min × min)
+        if self.volume_limit and self.v_delivered > self.volume_limit:
+            self.volume_exceeded = True
+
+    def reset_volume(self) -> None:
+        self.v_delivered = 0.0
+        self.volume_exceeded = False
+
+
+class MockPump(_CalibratedPump):
     """In-memory pump: `actual` chases `target` so flows look real."""
 
     def __init__(self, name: str, max_flow: float, sensor_min: float = 0.0,
-                 max_pressure: float = 10000.0):
+                 max_pressure: float = 10000.0, calibration_factor: float = 1.0,
+                 flowrate_table=None, flow_sensitivity: float = 1.0,
+                 flow_tol: float = 0.2, bad_flow_tol: int = 3, volume_limit=None):
         self.name = name
         self.max_flow = float(max_flow)
         self.sensor_min = float(sensor_min)
         self.max_pressure = float(max_pressure)
-        self.target = 0.0        # commanded µL/min
-        self.actual = 0.0        # observed µL/min (mock)
+        self.target = 0.0        # commanded µL/min (TRUE)
+        self.actual = 0.0        # observed µL/min (mock, TRUE)
         self.pressure = 0.0      # chamber pressure (mbar, mock)
         self.idle = True
         self.state_code = 0      # 0 IDLE / 1 CONTROLLING / 3 ERROR (mock: never faults)
         self.error_code = 0
         self.fault = False
+        self.stale = False
+        self._init_cal(calibration_factor, flowrate_table, flow_sensitivity,
+                       flow_tol, bad_flow_tol, volume_limit)
 
     def set_flow(self, rate: float) -> None:
         self.target = float(rate)
@@ -53,6 +153,7 @@ class MockPump:
         # mock chamber pressure: rises with flow demand, well under the ceiling
         frac = (self.actual / self.max_flow) if self.max_flow else 0.0
         self.pressure = round(0.6 * self.max_pressure * max(0.0, min(1.0, frac)), 1)
+        self._update_health(dt)
 
     def close(self) -> None:
         pass
@@ -64,16 +165,24 @@ class MockPump:
         pass
 
 
-class RealPump:
+class RealPump(_CalibratedPump):
     """Adapter around the vendored Py_P_Pump SDK (one serial connection)."""
 
     def __init__(self, name: str, address: str, pump_id: int,
                  max_flow: float, sensor_min: float = 0.0,
-                 max_pressure: float = 10000.0):
+                 max_pressure: float = 10000.0, calibration_factor: float = 1.0,
+                 flowrate_table=None, flow_sensitivity: float = 1.0,
+                 flow_tol: float = 0.2, bad_flow_tol: int = 3, volume_limit=None):
         self.name = name
         self.max_flow = float(max_flow)
         self.sensor_min = float(sensor_min)
         self.max_pressure = float(max_pressure)
+        # Flow calibration (bypasses the FCC): power-law table if given, else linear
+        # calibration_factor. The pump/sensor are water-calibrated; we command the
+        # instrument setpoint (_to_setpt) and report true fluid flow (_to_true), so
+        # the app's target/actual are TRUE fluid µL/min.
+        self._init_cal(calibration_factor, flowrate_table, flow_sensitivity,
+                       flow_tol, bad_flow_tol, volume_limit)
         self.target = 0.0
         self.actual = 0.0
         self.pressure = 0.0
@@ -135,11 +244,12 @@ class RealPump:
         self._pump.tare_flow()
 
     def set_flow(self, rate: float) -> None:
-        self.target = float(rate)
+        self.target = float(rate)                       # TRUE fluid setpoint (µL/min)
         self.idle = (rate == 0.0)
         # ⟵ REAL DRIVER: set the flow-rate setpoint in µL/min (driver converts
         # to pl/s and sends 'F<pl_s>'). A 0 setpoint sends flow = 0.
-        self._pump.set_flow(rate, unit="ul/m")
+        # Command the pump in its instrument units (water / power-law setpoint).
+        self._pump.set_flow(self._to_setpt(float(rate)), unit="ul/m")
 
     def idle_now(self) -> None:
         self.target = 0.0
@@ -156,13 +266,15 @@ class RealPump:
             self._poll_accum = 0.0
             try:
                 st = self._pump.read_status()
-                self.actual = st["flow_rate_ulmin"]
+                # raw reading is in instrument (water) units → convert to true flow
+                self.actual = self._to_true(st["flow_rate_ulmin"])
                 self.pressure = st["chamber_pressure"]
                 self.state_code = st["state_code"]
                 self.error_code = st["error_code"]
                 self.fault = (st["state_code"] == 3)   # 3 = ERROR
                 self._poll_fails = 0
                 self.stale = False
+                self._update_health(self._poll_accum if self._poll_accum else 3.0)
             except Exception:
                 # A lost/hung pump must NOT keep its last healthy readings: after
                 # a few consecutive failures, flag it faulted+stale so the
@@ -181,13 +293,23 @@ class PumpBank:
         self.backend = backend
         self.pumps: dict[str, object] = {}
         pumps_cfg = cfg.get("pumps", {})
-        pmax_global = float(cfg.get("safety", {}).get("max_pressure", 10000.0))
+        safety = cfg.get("safety", {})
+        pmax_global = float(safety.get("max_pressure", 10000.0))
+        # global flow-health thresholds (paws-style), overridable per pump
+        fsens = float(safety.get("flow_sensitivity", 1.0))   # µL/min low-flow floor
+        ftol = float(safety.get("flow_tol", 0.2))            # fractional flow-OK band
+        bft = int(safety.get("bad_flow_tol", 3))             # consecutive bad ticks before fault
         used_addrs: dict[str, str] = {}   # resolved device path -> pump name
         for name in PUMP_NAMES:
             pc = pumps_cfg.get(name, {})
             mx = float(pc.get("max_flow", 1000.0))
             mn = float(pc.get("sensor_min", 0.0))
             pp = float(pc.get("max_pressure", pmax_global))
+            cf = float(pc.get("calibration_factor", 1.0) or 1.0)   # water→fluid flow correction
+            tbl = pc.get("flowrate_table")                        # power-law calibration table
+            vlim = pc.get("volume_limit")                         # per-pump delivered-volume cap
+            cal = dict(calibration_factor=cf, flowrate_table=tbl, flow_sensitivity=fsens,
+                       flow_tol=ftol, bad_flow_tol=bft, volume_limit=vlim)
             if backend == "real":
                 try:
                     addr = pc.get("address", "")
@@ -213,7 +335,7 @@ class PumpBank:
                             f"pump '{used_addrs[addr]}'. Two pumps cannot share a "
                             f"port — check the serial/address config.")
                     self.pumps[name] = RealPump(name, addr,
-                                                int(pc.get("pump_id", 0)), mx, mn, pp)
+                                                int(pc.get("pump_id", 0)), mx, mn, pp, **cal)
                     used_addrs[addr] = name
                 except Exception:
                     # release any ports already opened before reporting
@@ -221,7 +343,7 @@ class PumpBank:
                         p.close()
                     raise
             else:
-                self.pumps[name] = MockPump(name, mx, mn, pp)
+                self.pumps[name] = MockPump(name, mx, mn, pp, **cal)
 
     # ── the single real call point ──────────────────────────────────────────
     def set_pump_flow(self, pump: str, rate: float) -> None:
@@ -281,6 +403,20 @@ class PumpBank:
         for p in self.pumps.values():
             p.tick(dt)
 
+    def reset_volumes(self) -> None:
+        """Zero each pump's delivered-volume counter (call at the start of a run)."""
+        for p in self.pumps.values():
+            if hasattr(p, "reset_volume"):
+                p.reset_volume()
+
+    def flow_faults(self) -> list[str]:
+        """Names of pumps with sustained bad flow (true rate far from setpoint)."""
+        return [n for n, p in self.pumps.items() if getattr(p, "flow_fault", False)]
+
+    def volume_exceeded(self) -> list[str]:
+        """Names of pumps that have passed their delivered-volume limit."""
+        return [n for n, p in self.pumps.items() if getattr(p, "volume_exceeded", False)]
+
     def state(self) -> dict:
         return {name: {"target": round(p.target, 3), "actual": round(p.actual, 3),
                        "max_flow": p.max_flow, "sensor_min": p.sensor_min,
@@ -289,6 +425,8 @@ class PumpBank:
                        "idle": p.idle,
                        "fault": bool(getattr(p, "fault", False)),
                        "stale": bool(getattr(p, "stale", False)),
+                       "flow_ok": bool(getattr(p, "flow_ok", True)),
+                       "v_delivered": round(getattr(p, "v_delivered", 0.0), 2),
                        "state_code": int(getattr(p, "state_code", 0))}
                 for name, p in self.pumps.items()}
 

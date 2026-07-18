@@ -131,6 +131,8 @@ class ReactorController:
         s = cfg.get("safety", {})
         self.T_max = float(s.get("T_max", 320.0))
         self.per_pump_max = float(s.get("per_pump_max", 1000.0))
+        self._flow_fault_estop = bool(s.get("flow_fault_estop", False))   # else just warn
+        self._flow_faulted_prev: set = set()   # for one-shot flow-fault warnings
         # SPEC data-collection: fire a 2D acquisition this long before the run ends
         spec = cfg.get("spec", {})
         self._spec_enabled = bool(spec.get("enabled", True))
@@ -186,14 +188,17 @@ class ReactorController:
         return False
 
     def pump_limits(self) -> dict:
-        """Current per-pump {sensor_min, max_flow} (µL/min)."""
-        return {name: {"sensor_min": p.sensor_min, "max_flow": p.max_flow}
+        """Current per-pump {sensor_min, max_flow, calibration_factor} (µL/min)."""
+        return {name: {"sensor_min": p.sensor_min, "max_flow": p.max_flow,
+                       "calibration_factor": getattr(p, "calibration_factor", 1.0)}
                 for name, p in self.pumps.pumps.items()}
 
     def set_pump_limits(self, limits: dict) -> dict:
-        """Update per-pump flow limits live.  ``limits`` = {pump: {sensor_min,
-        max_flow}}.  These feed recipe validation/rejection immediately and the
-        dashboard %-of-max bars.  Raises ValueError on a bad range."""
+        """Update per-pump flow limits + calibration_factor live.  ``limits`` =
+        {pump: {sensor_min, max_flow, calibration_factor}}.  Limits feed recipe
+        validation immediately; calibration_factor scales the water→fluid flow on
+        the serial link. Missing keys keep the current value. Raises ValueError on
+        a bad range or a non-positive factor."""
         with self._lock:
             for name, lim in (limits or {}).items():
                 p = self.pumps.pumps.get(name)
@@ -208,7 +213,13 @@ class ReactorController:
                 pc["max_flow"] = smax
                 p.sensor_min = smin
                 p.max_flow = smax
-            self._log("⚙ pump flow limits updated", "info")
+                if str(lim.get("calibration_factor", "")).strip() != "":
+                    cf = float(lim["calibration_factor"])
+                    if cf <= 0:
+                        raise ValueError(f"{name}: calibration_factor must be > 0 (got {cf})")
+                    pc["calibration_factor"] = cf
+                    p.calibration_factor = cf
+            self._log("⚙ pump limits / calibration updated", "info")
             return self.pump_limits()
 
     def tare_pump(self, name: str, kind: str = "pressure") -> tuple[bool, str]:
@@ -512,6 +523,8 @@ class ReactorController:
                       f"(±{self.temp.tolerance:g})", "info")
 
     def _enter_running(self) -> None:
+        self.pumps.reset_volumes()          # start counting delivered volume for this run
+        self._flow_faulted_prev = set()
         self.pumps.set_all(self.setpoints)
         self._meas_sum = {name: 0.0 for name in self.pumps.pumps}
         self._meas_n = 0
@@ -764,6 +777,24 @@ class ReactorController:
                           f"> max {pmax:.0f} mbar — emergency stop", "error")
                 self.estop()
                 return
+        # delivered-volume limit + sustained-bad-flow checks (during a run)
+        if self.state == "running":
+            vex = self.pumps.volume_exceeded()
+            if vex:
+                self._log(f"🛑 SAFETY: {', '.join(vex)} exceeded delivered-volume limit "
+                          f"— ending run (flush)", "warn")
+                self._run_reason = "volume limit exceeded"
+                self._end_run(flush=True)
+                return
+            ff = set(self.pumps.flow_faults())
+            if ff and self._flow_fault_estop:
+                self._log(f"🛑 SAFETY: {', '.join(sorted(ff))} flow far from setpoint "
+                          f"(check supply/blockage/sensor) — emergency stop", "error")
+                self.estop()
+                return
+            for nm in ff - self._flow_faulted_prev:      # warn once per onset
+                self._log(f"⚠ {nm}: flow far from setpoint (check supply/blockage/sensor)", "warn")
+            self._flow_faulted_prev = ff
 
     # ── status ──────────────────────────────────────────────────────────────────
     def status(self) -> dict:

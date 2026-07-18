@@ -23,6 +23,10 @@ pumps:
     sensor_min: 0.0
     max_flow:   1000.0
     max_pressure: 10000.0       # mbar — pump pressure ceiling (SET to your pump's real max)
+    calibration_factor: 1.0     # water→fluid flow correction (1.0 = none). Set to (true ODE flow ÷ app water-reading) at the same pressure to deliver true flow while bypassing the FCC.
+    # Optional per-pump extras (leave out to disable):
+    #   flowrate_table: [[setpt, measured], ...]  # paws power-law calibration (µL/min); wins over calibration_factor
+    #   volume_limit: 500.0                        # µL: end the run if this pump delivers more than this
   ode_flush:
     serial:    "4902272A"
     address:   "COM7"
@@ -30,6 +34,7 @@ pumps:
     sensor_min: 0.0
     max_flow:   1000.0
     max_pressure: 10000.0
+    calibration_factor: 1.0     # water→fluid flow correction (1.0 = none). Set to (true ODE flow ÷ app water-reading) at the same pressure to deliver true flow while bypassing the FCC.
   # ── 1–50 µL/min sensors (LG16-0480) — low-flow reagent pumps ──
   oleylamine:
     serial:    "4902278A"
@@ -38,6 +43,7 @@ pumps:
     sensor_min: 0.0
     max_flow:   50.0
     max_pressure: 10000.0
+    calibration_factor: 1.0     # water→fluid flow correction (1.0 = none). Set to (true ODE flow ÷ app water-reading) at the same pressure to deliver true flow while bypassing the FCC.
   top:
     serial:    "4902280A"
     address:   "COM4"
@@ -45,6 +51,7 @@ pumps:
     sensor_min: 0.0
     max_flow:   50.0
     max_pressure: 10000.0
+    calibration_factor: 1.0     # water→fluid flow correction (1.0 = none). Set to (true ODE flow ÷ app water-reading) at the same pressure to deliver true flow while bypassing the FCC.
   ode_dilution:
     serial:    "4902276A"
     address:   "COM3"
@@ -52,6 +59,7 @@ pumps:
     sensor_min: 0.0
     max_flow:   50.0
     max_pressure: 10000.0
+    calibration_factor: 1.0     # water→fluid flow correction (1.0 = none). Set to (true ODE flow ÷ app water-reading) at the same pressure to deliver true flow while bypassing the FCC.
 
 # ── Recipe validation bounds (editable) ──────────────────────────────────────
 bounds:
@@ -67,6 +75,11 @@ safety:
   F_tot_max:    150.0         # µL/min absolute ceiling
   per_pump_max: 1000.0        # µL/min absolute per-pump ceiling
   max_pressure: 10000.0       # mbar absolute ceiling; a per-pump max_pressure overrides per pump
+  # Flow-health monitoring during a run (paws-style):
+  flow_sensitivity: 1.0       # µL/min: below this setpoint, judge flow by absolute error
+  flow_tol:        0.2        # fractional band: |actual−target|/target within this = OK
+  bad_flow_tol:    3          # consecutive out-of-band ticks before a pump is flagged
+  flow_fault_estop: false     # true = E-stop on sustained bad flow; false = warn only
 
 # ── Temperature gate (no active heater control — read-only) ──────────────────
 temperature:
