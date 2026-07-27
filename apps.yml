@@ -18,6 +18,14 @@
 # ──────────────────────────────────────────────────────────────────────────────
 
 apps:
+  - id:           calibration
+    name:         "Calibration & Raw Prep"
+    description:  "Convert calibrant .raw → CBF and generate pyFAI .poni files (pre-reduction)"
+    port:         5009
+    entry:        "calibration/app.py"
+    icon:         "🎯"
+    color:        "#AD1457"
+
   - id:           reduction
     name:         "Reduction & Correction"
     description:  "2D → 1D data reduction, normalization, PyFAI integration"

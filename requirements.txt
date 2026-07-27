@@ -10,6 +10,9 @@ simple-websocket==1.0.0
 werkzeug==3.0.3
 websocket-client==1.8.0
 
+# ── Remote data transfer (SFTP data-copy in calibration app) ──────────────────
+paramiko>=3.4.0
+
 # ── AI / LLM ──────────────────────────────────────────────────────────────────
 anthropic>=0.40.0
 chromadb==0.5.23

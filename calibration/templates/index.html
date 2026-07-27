@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Calibration &amp; Raw Prep — SLAC/SSRL</title>
+  <style>
+/* ── SWAXS shared design system — Light theme ─────────────────────────── */
+:root{
+  --bg:#f5f7fa; --surface:#ffffff; --surface2:#f0f2f5;
+  --sidebar:#eef1f5; --sidebar-h:#e3e7ed; --sf:31,41,55;
+  --sidebar-active-bg:rgba(177,4,14,.10); --sidebar-active-fg:#8C1515;
+  --accent:#B1040E; --accent-d:#8C1515; --accent-lt:#fee2e2;
+  --ok:#16a34a; --ok-lt:#dcfce7; --warn:#d97706; --warn-lt:#fef3c7; --err:#dc2626; --err-lt:#fee2e2;
+  --ok-text:#15803d; --warn-text:#b45309; --err-text:#b91c1c;
+  --txt:#1f2937; --txt-strong:#111827; --muted:#4b5563; --faint:#6b7280; --disabled:#9ca3af;
+  --border:#e5e7eb; --border-strong:#c3c9d1;
+  --font:'Inter','Segoe UI',system-ui,-apple-system,sans-serif;
+  --mono:"JetBrains Mono","Fira Code","Courier New",monospace;
+  --radius:8px; --label-w:190px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;font-family:var(--font);font-size:16px;line-height:1.5;color:var(--txt);background:var(--bg)}
+
+/* ── Shell ── */
+#app{display:flex;height:100vh;overflow:hidden}
+
+/* ── Sidebar ── */
+#sidebar{width:220px;flex-shrink:0;background:var(--sidebar);display:flex;flex-direction:column}
+#logo{padding:18px 16px 14px;border-bottom:1px solid rgba(var(--sf),.10)}
+#logo-badge{font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:rgba(var(--sf),.6);margin-bottom:4px}
+#logo-name{font-size:20px;font-weight:700;color:rgba(var(--sf),.95);line-height:1.15}
+#logo-sub{font-size:14px;color:rgba(var(--sf),.5);margin-top:3px}
+.nav-section-label{padding:14px 16px 5px;font-size:13px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:rgba(var(--sf),.45)}
+.nav-btn{display:flex;align-items:center;gap:10px;padding:12px 16px;border:none;background:transparent;color:rgba(var(--sf),.72);font-size:16px;font-weight:500;text-align:left;width:100%;cursor:pointer;transition:background .15s,color .15s;border-left:3px solid transparent}
+.nav-btn:hover{background:var(--sidebar-h);color:var(--sidebar-active-fg)}
+.nav-btn.active{background:var(--sidebar-active-bg);color:var(--sidebar-active-fg);border-left-color:var(--accent);font-weight:700}
+.nav-icon{font-size:19px;width:24px;text-align:center;flex-shrink:0}
+#sidebar-foot{margin-top:auto;padding:10px 14px 12px;font-size:13px;color:rgba(var(--sf),.4);border-top:1px solid rgba(var(--sf),.10);line-height:1.6}
+#sse-row{display:flex;align-items:center;gap:6px;margin-bottom:2px}
+#sse-dot{width:7px;height:7px;border-radius:50%;background:rgba(var(--sf),.25);flex-shrink:0;transition:background .3s,box-shadow .3s}
+#sse-dot.live{background:#16a34a;box-shadow:0 0 6px #16a34a}
+#sse-txt{font-size:12px;color:rgba(var(--sf),.5)}
+
+/* ── Main ── */
+#main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+#topbar{height:44px;flex-shrink:0;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 22px;gap:14px}
+#topbar-title{font-weight:700;color:var(--txt);font-size:17px}
+#topbar-path{font-size:15px;font-family:var(--mono);color:var(--accent);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tab-panel{display:none;flex:1;overflow-y:auto;padding:22px 22px 22px 48px}
+.tab-panel.active{display:flex;flex-direction:column;gap:18px}
+
+/* ── Cards ── */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px 22px}
+.card-hd{font-size:15px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin-bottom:16px;padding-bottom:10px;border-bottom:1px solid var(--border)}
+
+/* ── Form layout ── */
+.fg{display:grid;grid-template-columns:var(--label-w) 1fr;gap:10px 16px;align-items:start}
+.fg>label{text-align:right;padding-top:8px;font-size:15px;color:var(--muted);font-weight:500;line-height:1.3}
+.fg>.cell{display:flex;flex-direction:column;gap:4px}
+.ir{display:flex;gap:6px;align-items:center}.ir input{flex:1}
+.fnote{font-size:14px;color:var(--muted);padding-left:2px}
+input[type="text"],input[type="number"],input[type="password"],select{width:100%;padding:7px 10px;background:var(--surface2);border:1px solid var(--border-strong);border-radius:5px;font-size:15px;color:var(--txt);transition:border-color .15s,box-shadow .15s;appearance:auto}
+input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(140,21,21,.12);background:#fff}
+
+/* ── Buttons ── */
+.btn{padding:7px 15px;border:none;border-radius:5px;font-size:15px;font-weight:600;cursor:pointer;transition:opacity .15s;white-space:nowrap;display:inline-flex;align-items:center;gap:6px}
+.btn:hover{opacity:.86}.btn:disabled{opacity:.35;cursor:not-allowed}
+.btn-primary{background:var(--accent);color:#fff}.btn-ok{background:var(--ok);color:#fff}.btn-err{background:var(--err);color:#fff}
+.btn-ghost{background:var(--surface2);color:var(--txt);border:1px solid var(--border-strong)}
+.btn-sm{padding:5px 11px;font-size:14px}
+.btn-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+
+/* ── Misc ── */
+.pill{display:inline-block;padding:3px 11px;border-radius:999px;font-size:12px;font-weight:600}
+.pill.muted{background:var(--surface2);color:var(--faint)}.pill.ok{background:var(--ok-lt);color:var(--ok-text)}
+.pill.warn{background:var(--warn-lt);color:var(--warn-text)}.pill.err{background:var(--err-lt);color:var(--err-text)}
+table{width:100%;border-collapse:collapse;font-size:13px;margin-top:10px}th,td{text-align:left;padding:6px 9px;border-bottom:1px solid var(--border)}
+th{color:var(--faint);font-weight:600;text-transform:uppercase;font-size:11px;letter-spacing:.05em}
+.gal{display:flex;flex-wrap:wrap;gap:12px;margin-top:12px}.gal figure{margin:0;width:190px}
+.gal img{width:100%;border:1px solid var(--border);border-radius:6px}.gal figcaption{font-size:11.5px;color:var(--faint);margin-top:4px;word-break:break-all}
+.msg{font-size:13.5px;margin-top:10px}.msg.ok{color:var(--ok-text)}.msg.err{color:var(--err-text)}
+code{background:var(--surface2);padding:2px 6px;border-radius:4px;font-family:var(--mono);font-size:12.5px}
+.log{background:#0d1117;color:#e2e8f0;font-family:var(--mono);font-size:12.5px;border-radius:6px;padding:12px 14px;height:260px;overflow:auto;white-space:pre-wrap;margin-top:14px}
+.log .INFO{color:#94a3b8}.log .OK{color:#86efac}.log .WARN{color:#fbbf24}.log .ERR{color:#f87171}
+.sec-label{font-size:14px;font-weight:600;color:var(--muted);margin:16px 0 4px}
+  </style>
+</head>
+<body>
+<div id="app">
+
+<!-- ── Sidebar ── -->
+<nav id="sidebar">
+  <div id="logo">
+    <div id="logo-badge">SLAC · SSRL</div>
+    <div id="logo-name">SWAXS<br>Pipeline</div>
+    <div id="logo-sub">Calibration &amp; Prep</div>
+  </div>
+
+  <div class="nav-section-label">Pre-reduction</div>
+  <button class="nav-btn active" data-tab="copy" onclick="switchTab('copy')">
+    <span class="nav-icon">⇩</span> Copy data
+  </button>
+  <button class="nav-btn" data-tab="calib" onclick="switchTab('calib')">
+    <span class="nav-icon">🎯</span> Calibrate
+  </button>
+
+  <div id="sidebar-foot">
+    <div id="sse-row"><div id="sse-dot"></div><span id="sse-txt" class="pill muted" style="padding:0;background:none">Idle</span></div>
+    localhost:5009
+  </div>
+</nav>
+
+<!-- ── Main ── -->
+<div id="main">
+  <div id="topbar">
+    <span id="topbar-title">Calibration &amp; Raw Prep</span>
+    <span id="topbar-path"></span>
+  </div>
+
+  <!-- ════════ TAB: COPY DATA ════════ -->
+  <div id="tab-copy" class="tab-panel active">
+    <div class="card">
+      <div class="card-hd">⇩ Data copy — SFTP → local</div>
+      <div class="fg">
+        <label>Host</label>
+        <div class="cell"><div class="ir"><input type="text" id="s_host" placeholder="sftp.slac.stanford.edu"></div></div>
+        <label>Port</label>
+        <div class="cell"><div class="ir"><input type="text" id="s_port" value="22" style="max-width:120px"></div></div>
+        <label>Username</label>
+        <div class="cell"><div class="ir"><input type="text" id="s_user"></div></div>
+        <label>Password</label>
+        <div class="cell"><div class="ir"><input type="password" id="s_pass" placeholder="(or use SSH key below)"></div>
+          <span class="fnote">Never written to disk — re-enter each session, or use an SSH key instead.</span></div>
+        <label>SSH key (optional)</label>
+        <div class="cell"><div class="ir"><input type="text" id="s_key" placeholder="/path/to/id_rsa"></div></div>
+        <label>Remote folder</label>
+        <div class="cell"><div class="ir"><input type="text" id="s_remote" placeholder="/data/bl1-5/…"></div></div>
+        <label>Local folder</label>
+        <div class="cell"><div class="ir"><input type="text" id="s_local" placeholder="/Users/…/GoogleDrive/…">
+          <button class="btn btn-ghost btn-sm" onclick="openBrowser('s_local','dir')">Browse…</button></div>
+          <span class="fnote">Destination. Sub-folders preserved; same-size files skipped.</span></div>
+        <label>Check interval (s)</label>
+        <div class="cell"><div class="ir"><input type="text" id="s_interval" value="60" style="max-width:120px"></div></div>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-primary" id="s_start" onclick="sftpStart()">▶ Start copy</button>
+        <button class="btn btn-err" id="s_stop" onclick="sftpStop()" disabled>■ Stop</button>
+        <button class="btn btn-ghost" onclick="sftpTest()">Test connection</button>
+        <span style="margin-left:auto;align-self:center"><span class="pill muted" id="sftp-status">Not running</span></span>
+      </div>
+      <div class="log" id="s_log"></div>
+    </div>
+  </div>
+
+  <!-- ════════ TAB: CALIBRATE ════════ -->
+  <div id="tab-calib" class="tab-panel">
+    <div class="card">
+      <div class="card-hd">1 · Convert calibrant raw → CBF</div>
+      <div class="fg">
+        <label>Raw folder</label>
+        <div class="cell"><div class="ir"><input type="text" id="rawdir" placeholder="/…/Auto_calibration/">
+          <button class="btn btn-ghost btn-sm" onclick="openBrowser('rawdir','dir')">Browse…</button></div>
+          <span class="fnote">Folder of calibrant .raw (AgBehenate / LaB6). Detector auto-detected by size.</span></div>
+        <label>Keywords</label>
+        <div class="cell"><div class="ir"><input type="text" id="kw" placeholder="AgBeh, LaB6"></div>
+          <span class="fnote">Comma-separated; blank = all files.</span></div>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-ghost" onclick="listRaw()">List</button>
+        <button class="btn btn-primary" onclick="convert()">Convert → CBF</button>
+      </div>
+      <div id="rawlist"></div><div id="convmsg" class="msg"></div><div id="gallery" class="gal"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-hd">2 · Generate .poni (pyFAI)</div>
+      <div class="fg">
+        <label>Calibrant</label><div class="cell"><div class="ir"><select id="cal"></select></div></div>
+        <label>Energy (keV)</label><div class="cell"><div class="ir"><input type="number" id="energy" step="0.1" value="12" style="max-width:140px"></div></div>
+        <label>Pixel (µm)</label><div class="cell"><div class="ir"><input type="number" id="pixel" step="1" value="172" style="max-width:140px"></div></div>
+        <label>CBF / raw file</label><div class="cell"><div class="ir"><select id="cbfsel"></select></div></div>
+      </div>
+      <div class="btn-row"><button class="btn btn-primary" onclick="launchCalib()">Open pyFAI-calib2</button></div>
+      <div id="launchmsg" class="msg"></div>
+      <div class="sec-label">Headless auto-refine (needs an initial guess)</div>
+      <div class="fg">
+        <label>Distance (mm)</label><div class="cell"><div class="ir"><input type="number" id="dist" value="1000" style="max-width:140px"></div></div>
+        <label>Beam x (px)</label><div class="cell"><div class="ir"><input type="number" id="bx" placeholder="center" style="max-width:140px"></div></div>
+        <label>Beam y (px)</label><div class="cell"><div class="ir"><input type="number" id="by" placeholder="center" style="max-width:140px"></div></div>
+        <label>Output .poni</label><div class="cell"><div class="ir"><input type="text" id="poni" placeholder="atT_SAXS.poni"></div></div>
+      </div>
+      <div class="btn-row"><button class="btn btn-ghost" onclick="autoCalib()">Auto-refine → poni</button></div>
+      <div id="automsg" class="msg"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-hd">3 · Poni files in the project</div>
+      <p class="fnote" id="ponidir"></p>
+      <div id="ponilist"></div>
+      <div class="btn-row"><button class="btn btn-ghost" onclick="loadPoni()">Refresh</button></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ── File-browser modal (shared pattern) ── -->
+<div id="modal-overlay" onclick="maybeClose(event)"
+     style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100;align-items:center;justify-content:center;">
+  <div style="background:#fff;border:1px solid var(--border);border-radius:10px;width:540px;max-height:78vh;display:flex;flex-direction:column;box-shadow:0 16px 48px rgba(0,0,0,.2);overflow:hidden;">
+    <div style="padding:14px 18px;background:var(--accent);display:flex;align-items:center;justify-content:space-between;">
+      <span style="font-size:15px;font-weight:600;color:#fff;">Browse</span>
+      <button class="btn btn-sm" onclick="closeBrow()" style="background:rgba(255,255,255,.15);color:#fff;border:none;">✕</button>
+    </div>
+    <div id="brow-path" style="padding:9px 16px;background:var(--surface2);border-bottom:1px solid var(--border);font-family:var(--mono);font-size:13px;color:var(--accent);word-break:break-all;"></div>
+    <div id="brow-body" style="flex:1;overflow-y:auto;"></div>
+    <div style="padding:11px 16px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--surface2);">
+      <span id="brow-sel" style="font-size:13px;color:var(--muted);flex:1;word-break:break-all;">—</span>
+      <button class="btn btn-primary btn-sm" onclick="selectDir()">✓ Use this</button>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+async function j(url,body){const o=body?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}:{};return (await fetch(url,o)).json();}
+function kws(){return $("kw").value.split(",").map(s=>s.trim()).filter(Boolean);}
+
+// ── Tabs ──
+function switchTab(name){
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+  $('tab-'+name).classList.add('active');
+  document.querySelector(`[data-tab="${name}"]`).classList.add('active');
+}
+
+// ── Shared folder browser ──
+const S={browTarget:null,browMode:'dir',browPath:''};
+function openBrowser(targetId,mode){S.browTarget=targetId;S.browMode=mode||'dir';
+  $('modal-overlay').style.display='flex';loadBrowDir($(targetId).value.trim()||'');}
+async function loadBrowDir(path){
+  const d=await j('/api/browse?path='+encodeURIComponent(path));
+  S.browPath=d.path;$('brow-path').textContent=d.path;$('brow-sel').textContent=d.path;
+  const body=$('brow-body');body.innerHTML='';
+  if(d.parent)body.appendChild(mkItem('⬆','.. (go up)',()=>loadBrowDir(d.parent)));
+  d.dirs.forEach(n=>{const full=d.path.replace(/[\\/]$/,'')+'/'+n;body.appendChild(mkItem('📁',n,()=>loadBrowDir(full)));});
+  if(S.browMode==='file')d.files.forEach(n=>{const full=d.path.replace(/[\\/]$/,'')+'/'+n;
+    body.appendChild(mkItem('📄',n,()=>{$(S.browTarget).value=full;closeBrow();}));});
+}
+function mkItem(icon,label,cb){const div=document.createElement('div');
+  div.style.cssText='display:flex;align-items:center;gap:9px;padding:9px 16px;cursor:pointer;font-size:14px;border-bottom:1px solid var(--border);color:var(--txt);';
+  div.innerHTML=`<span style="width:18px;text-align:center;">${icon}</span><span>${label}</span>`;
+  div.onmouseenter=()=>div.style.background='var(--surface2)';div.onmouseleave=()=>div.style.background='';
+  div.addEventListener('click',cb);return div;}
+function selectDir(){if(S.browTarget)$(S.browTarget).value=S.browPath;closeBrow();}
+function closeBrow(){$('modal-overlay').style.display='none';}
+function maybeClose(e){if(e.target.id==='modal-overlay')closeBrow();}
+
+// ── init ──
+async function init(){
+  const p=await j("/api/project");
+  $("topbar-path").textContent=p.project_root?`project: ${p.project_root}`:"no project selected";
+  if(p.energy_keV)$("energy").value=p.energy_keV;
+  const c=await j("/api/calibrants");$("cal").innerHTML=c.calibrants.map(x=>`<option>${x}</option>`).join("");
+  const s=await j("/api/sftp/config");const cf=s.config||{};
+  for(const [id,k] of [["s_host","host"],["s_port","port"],["s_user","username"],["s_key","key_path"],["s_remote","remote_dir"],["s_local","local_dir"],["s_interval","interval"]])
+    if(cf[k]!=null)$(id).value=cf[k];
+  loadPoni();pollSftp();
+}
+
+// ── SFTP data copy ──
+function sftpCfg(){return {host:$("s_host").value.trim(),port:$("s_port").value.trim()||"22",username:$("s_user").value.trim(),
+  password:$("s_pass").value,key_path:$("s_key").value.trim(),remote_dir:$("s_remote").value.trim(),
+  local_dir:$("s_local").value.trim(),interval:$("s_interval").value.trim()||"60"};}
+let _seq=0;
+async function sftpStart(){const r=await j("/api/sftp/start",sftpCfg());
+  if(!r.ok){alert(r.error||"failed");return;}$("s_start").disabled=true;$("s_stop").disabled=false;}
+async function sftpStop(){await j("/api/sftp/stop",{});$("s_start").disabled=false;$("s_stop").disabled=true;}
+async function sftpTest(){await j("/api/sftp/test",sftpCfg());}
+async function pollSftp(){
+  try{const r=await j("/api/sftp/status?since="+_seq);const st=r.status||{};
+    const el=$("sftp-status");el.textContent=st.text||"—";el.className="pill "+(st.color||"muted");
+    const dot=$("sse-dot"),txt=$("sse-txt");dot.classList.toggle("live",r.running);txt.textContent=r.running?"Running":"Idle";
+    if(r.logs&&r.logs.length){const box=$("s_log");
+      r.logs.forEach(L=>{_seq=L.seq;const d=document.createElement("div");d.className=L.level;d.textContent=L.msg;box.appendChild(d);});
+      box.scrollTop=box.scrollHeight;}
+    $("s_start").disabled=r.running;$("s_stop").disabled=!r.running;
+  }catch(e){}
+  setTimeout(pollSftp,1200);
+}
+
+// ── calibration ──
+async function listRaw(){const r=await j("/api/list_raw",{raw_dir:$("rawdir").value.trim(),keywords:kws()});
+  if(r.error){$("rawlist").innerHTML=`<div class="msg err">${r.error}</div>`;return;}
+  $("rawlist").innerHTML=`<table><tr><th>file</th><th>detector</th><th>pixels</th></tr>`+
+    r.files.map(f=>`<tr><td>${f.name}</td><td>${f.detector}</td><td>${f.pixels}</td></tr>`).join("")+`</table><div class="msg">${r.count} file(s)</div>`;
+  $("cbfsel").innerHTML=r.files.map(f=>`<option>${f.name}</option>`).join("");}
+async function convert(){$("convmsg").textContent="Converting…";$("convmsg").className="msg";
+  const r=await j("/api/convert",{raw_dir:$("rawdir").value.trim(),keywords:kws()});
+  if(r.error){$("convmsg").className="msg err";$("convmsg").textContent=r.error;return;}
+  const ok=r.results.filter(x=>x.ok).length;$("convmsg").className="msg ok";
+  $("convmsg").innerHTML=`Converted ${ok}/${r.results.length} → <code>${r.out_dir}</code>`;
+  $("gallery").innerHTML=r.results.map(x=>x.ok?`<figure>${x.png?`<img src="${x.png}">`:""}<figcaption>${x.detector} · ${x.file}<br>max ${x.stats.max}, hot ${x.stats.hot_pixels}</figcaption></figure>`:`<figure><figcaption style="color:var(--err-text)">${x.file}: ${x.error}</figcaption></figure>`).join("");
+  const cbfs=r.results.filter(x=>x.ok).map(x=>x.out);if(cbfs.length)$("cbfsel").innerHTML=cbfs.map(c=>`<option>${c}</option>`).join("");}
+async function launchCalib(){const sel=$("cbfsel").value;if(!sel){alert("List/convert first.");return;}
+  const r=await j("/api/calibrate/launch",{cbf:sel,calibrant:$("cal").value,energy_keV:+$("energy").value,pixel_um:+$("pixel").value});
+  $("launchmsg").className="msg "+(r.ok?"ok":"err");$("launchmsg").innerHTML=(r.message||"")+`<br>command: <code>${r.command||""}</code>`;}
+async function autoCalib(){const sel=$("cbfsel").value;const rawName=sel.split(/[\\/]/).pop().replace(/\.cbf$/,".raw");
+  $("automsg").textContent="Refining…";$("automsg").className="msg";
+  const r=await j("/api/calibrate/auto",{raw_dir:$("rawdir").value.trim(),file:rawName,calibrant:$("cal").value,energy_keV:+$("energy").value,pixel_um:+$("pixel").value,
+    dist_mm:+$("dist").value,beam_x:$("bx").value?+$("bx").value:undefined,beam_y:$("by").value?+$("by").value:undefined,poni_name:$("poni").value.trim()});
+  $("automsg").className="msg "+(r.ok?"ok":"err");$("automsg").innerHTML=(r.message||r.error||"")+(r.poni?`<br>saved: <code>${r.poni}</code>`:"");if(r.ok)loadPoni();}
+async function loadPoni(){const r=await j("/api/poni");$("ponidir").innerHTML=`Folder: <code>${r.poni_dir}</code>`;
+  $("ponilist").innerHTML=r.files.length?`<table><tr><th>poni</th><th>path</th></tr>`+r.files.map(f=>`<tr><td>${f.name}</td><td>${f.path}</td></tr>`).join("")+`</table>`:`<div class="msg">No .poni files yet.</div>`;}
+init();
+</script>
+</body>
+</html>

@@ -31,3 +31,13 @@ try:  # pragma: no cover - environment-dependent
     import scipy.stats     # noqa: F401
 except Exception:
     pass
+
+# Same guard for fabio: preload the real fabio (+ CBF/EDF submodules) so the
+# raw→CBF conversion tests (src.preprocess.raw_convert) keep a real fabio in the
+# shared session, rather than a numpy-only test's stub.
+try:  # pragma: no cover - environment-dependent
+    import fabio            # noqa: F401
+    import fabio.cbfimage   # noqa: F401
+    import fabio.edfimage   # noqa: F401
+except Exception:
+    pass
