@@ -42,3 +42,29 @@ def test_load_config_roundtrip(tmp_path, monkeypatch):
 def test_test_connection_requires_host_user():
     ok, msg = ss.test_connection({"username": "u"})
     assert ok is False and "Host" in msg
+
+
+# ── copy mode (watch vs one-time) ────────────────────────────────────────────
+def test_mode_defaults_to_watch():
+    assert ss.SftpSync({}).once is False
+    assert ss.SftpSync({"mode": "watch"}).once is False
+
+
+def test_mode_once_variants_recognised():
+    for m in ("once", "one-time", "onetime", "bulk", "ONCE", " Once "):
+        assert ss.SftpSync({"mode": m}).once is True, m
+
+
+def test_mode_dispatches_to_correct_runner(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ss.SftpSync, "_run_once", lambda self: calls.append("once"))
+    monkeypatch.setattr(ss.SftpSync, "_run_watch", lambda self: calls.append("watch"))
+    ss.SftpSync({"mode": "once"}).run()
+    ss.SftpSync({"mode": "watch"}).run()
+    assert calls == ["once", "watch"]
+
+
+def test_save_config_persists_mode(tmp_path, monkeypatch):
+    monkeypatch.setattr(ss, "CONFIG_FILE", tmp_path / "c.json")
+    ss.save_config({"host": "h", "mode": "once", "password": "p"})
+    assert ss.load_config()["mode"] == "once"

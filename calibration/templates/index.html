@@ -140,8 +140,15 @@ code{background:var(--surface2);padding:2px 6px;border-radius:4px;font-family:va
         <div class="cell"><div class="ir"><input type="text" id="s_local" placeholder="/Users/…/GoogleDrive/…">
           <button class="btn btn-ghost btn-sm" onclick="openBrowser('s_local','dir')">Browse…</button></div>
           <span class="fnote">Destination. Sub-folders preserved; same-size files skipped.</span></div>
+        <label>Copy mode</label>
+        <div class="cell"><div class="ir"><select id="s_mode" onchange="modeChanged()" style="max-width:340px">
+            <option value="watch">Watch — keep copying new files (during beamtime)</option>
+            <option value="once">One-time — copy everything once, then stop (after beamtime)</option>
+          </select></div>
+          <span class="fnote" id="s_modenote">Polls the remote folder on the interval below and copies anything new or changed.</span></div>
         <label>Check interval (s)</label>
-        <div class="cell"><div class="ir"><input type="text" id="s_interval" value="60" style="max-width:120px"></div></div>
+        <div class="cell"><div class="ir"><input type="text" id="s_interval" value="60" style="max-width:120px"></div>
+          <span class="fnote" id="s_intnote">Watch mode only. Change requires Stop → Start.</span></div>
       </div>
       <div class="btn-row">
         <button class="btn btn-primary" id="s_start" onclick="sftpStart()">▶ Start copy</button>
@@ -183,15 +190,7 @@ code{background:var(--surface2);padding:2px 6px;border-radius:4px;font-family:va
       </div>
       <div class="btn-row"><button class="btn btn-primary" onclick="launchCalib()">Open pyFAI-calib2</button></div>
       <div id="launchmsg" class="msg"></div>
-      <div class="sec-label">Headless auto-refine (needs an initial guess)</div>
-      <div class="fg">
-        <label>Distance (mm)</label><div class="cell"><div class="ir"><input type="number" id="dist" value="1000" style="max-width:140px"></div></div>
-        <label>Beam x (px)</label><div class="cell"><div class="ir"><input type="number" id="bx" placeholder="center" style="max-width:140px"></div></div>
-        <label>Beam y (px)</label><div class="cell"><div class="ir"><input type="number" id="by" placeholder="center" style="max-width:140px"></div></div>
-        <label>Output .poni</label><div class="cell"><div class="ir"><input type="text" id="poni" placeholder="atT_SAXS.poni"></div></div>
-      </div>
-      <div class="btn-row"><button class="btn btn-ghost" onclick="autoCalib()">Auto-refine → poni</button></div>
-      <div id="automsg" class="msg"></div>
+      <p class="fnote" style="margin-top:10px">Pick rings and refine in the GUI, then <b>Save as…</b> — the dialog opens in the project <code>poni/</code> folder. Come back and hit Refresh below to see the new file.</p>
     </div>
 
     <div class="card">
@@ -264,15 +263,23 @@ async function init(){
   if(p.energy_keV)$("energy").value=p.energy_keV;
   const c=await j("/api/calibrants");$("cal").innerHTML=c.calibrants.map(x=>`<option>${x}</option>`).join("");
   const s=await j("/api/sftp/config");const cf=s.config||{};
-  for(const [id,k] of [["s_host","host"],["s_port","port"],["s_user","username"],["s_key","key_path"],["s_remote","remote_dir"],["s_local","local_dir"],["s_interval","interval"]])
+  for(const [id,k] of [["s_host","host"],["s_port","port"],["s_user","username"],["s_key","key_path"],["s_remote","remote_dir"],["s_local","local_dir"],["s_interval","interval"],["s_mode","mode"]])
     if(cf[k]!=null)$(id).value=cf[k];
-  loadPoni();pollSftp();
+  modeChanged();loadPoni();pollSftp();
 }
 
 // ── SFTP data copy ──
 function sftpCfg(){return {host:$("s_host").value.trim(),port:$("s_port").value.trim()||"22",username:$("s_user").value.trim(),
   password:$("s_pass").value,key_path:$("s_key").value.trim(),remote_dir:$("s_remote").value.trim(),
-  local_dir:$("s_local").value.trim(),interval:$("s_interval").value.trim()||"60"};}
+  local_dir:$("s_local").value.trim(),interval:$("s_interval").value.trim()||"60",mode:$("s_mode").value};}
+function modeChanged(){const once=$("s_mode").value==="once";
+  $("s_interval").disabled=once;
+  $("s_intnote").style.opacity=once?".45":"1";
+  $("s_modenote").textContent=once
+    ? "Walks the entire remote tree once and stops. Safe to re-run — files already present with the same size are skipped."
+    : "Polls the remote folder on the interval below and copies anything new or changed.";
+  $("s_start").textContent=once?"▶ Copy now":"▶ Start copy";
+  $("s_stop").textContent=once?"■ Cancel":"■ Stop";}
 let _seq=0;
 async function sftpStart(){const r=await j("/api/sftp/start",sftpCfg());
   if(!r.ok){alert(r.error||"failed");return;}$("s_start").disabled=true;$("s_stop").disabled=false;}
@@ -295,22 +302,20 @@ async function listRaw(){const r=await j("/api/list_raw",{raw_dir:$("rawdir").va
   if(r.error){$("rawlist").innerHTML=`<div class="msg err">${r.error}</div>`;return;}
   $("rawlist").innerHTML=`<table><tr><th>file</th><th>detector</th><th>pixels</th></tr>`+
     r.files.map(f=>`<tr><td>${f.name}</td><td>${f.detector}</td><td>${f.pixels}</td></tr>`).join("")+`</table><div class="msg">${r.count} file(s)</div>`;
-  $("cbfsel").innerHTML=r.files.map(f=>`<option>${f.name}</option>`).join("");}
+  $("cbfsel").innerHTML=r.files.map(f=>`<option value="${f.path}">${f.name}</option>`).join("");}
 async function convert(){$("convmsg").textContent="Converting…";$("convmsg").className="msg";
   const r=await j("/api/convert",{raw_dir:$("rawdir").value.trim(),keywords:kws()});
   if(r.error){$("convmsg").className="msg err";$("convmsg").textContent=r.error;return;}
   const ok=r.results.filter(x=>x.ok).length;$("convmsg").className="msg ok";
   $("convmsg").innerHTML=`Converted ${ok}/${r.results.length} → <code>${r.out_dir}</code>`;
   $("gallery").innerHTML=r.results.map(x=>x.ok?`<figure>${x.png?`<img src="${x.png}">`:""}<figcaption>${x.detector} · ${x.file}<br>max ${x.stats.max}, hot ${x.stats.hot_pixels}</figcaption></figure>`:`<figure><figcaption style="color:var(--err-text)">${x.file}: ${x.error}</figcaption></figure>`).join("");
-  const cbfs=r.results.filter(x=>x.ok).map(x=>x.out);if(cbfs.length)$("cbfsel").innerHTML=cbfs.map(c=>`<option>${c}</option>`).join("");}
-async function launchCalib(){const sel=$("cbfsel").value;if(!sel){alert("List/convert first.");return;}
+  const cbfs=r.results.filter(x=>x.ok).map(x=>x.out);
+  if(cbfs.length)$("cbfsel").innerHTML=cbfs.map(c=>`<option value="${c}">${c.split(/[\\/]/).pop()}</option>`).join("");}
+async function launchCalib(){const sel=$("cbfsel").value;if(!sel){alert("List or convert files first.");return;}
+  $("launchmsg").className="msg";$("launchmsg").textContent="Launching pyFAI-calib2…";
   const r=await j("/api/calibrate/launch",{cbf:sel,calibrant:$("cal").value,energy_keV:+$("energy").value,pixel_um:+$("pixel").value});
-  $("launchmsg").className="msg "+(r.ok?"ok":"err");$("launchmsg").innerHTML=(r.message||"")+`<br>command: <code>${r.command||""}</code>`;}
-async function autoCalib(){const sel=$("cbfsel").value;const rawName=sel.split(/[\\/]/).pop().replace(/\.cbf$/,".raw");
-  $("automsg").textContent="Refining…";$("automsg").className="msg";
-  const r=await j("/api/calibrate/auto",{raw_dir:$("rawdir").value.trim(),file:rawName,calibrant:$("cal").value,energy_keV:+$("energy").value,pixel_um:+$("pixel").value,
-    dist_mm:+$("dist").value,beam_x:$("bx").value?+$("bx").value:undefined,beam_y:$("by").value?+$("by").value:undefined,poni_name:$("poni").value.trim()});
-  $("automsg").className="msg "+(r.ok?"ok":"err");$("automsg").innerHTML=(r.message||r.error||"")+(r.poni?`<br>saved: <code>${r.poni}</code>`:"");if(r.ok)loadPoni();}
+  $("launchmsg").className="msg "+(r.ok?"ok":"err");
+  $("launchmsg").innerHTML=(r.message||r.error||"")+`<br>command: <code>${r.command||""}</code>`;}
 async function loadPoni(){const r=await j("/api/poni");$("ponidir").innerHTML=`Folder: <code>${r.poni_dir}</code>`;
   $("ponilist").innerHTML=r.files.length?`<table><tr><th>poni</th><th>path</th></tr>`+r.files.map(f=>`<tr><td>${f.name}</td><td>${f.path}</td></tr>`).join("")+`</table>`:`<div class="msg">No .poni files yet.</div>`;}
 init();

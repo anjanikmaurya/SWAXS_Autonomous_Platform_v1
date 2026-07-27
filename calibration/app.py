@@ -36,7 +36,7 @@ if str(_ROOT) not in sys.path:
 
 from src.preprocess import (                                    # noqa: E402
     DEFAULT_SHAPES, find_raw_files, read_raw, convert_dir,
-    CALIBRANTS, launch_calib2, auto_calibrate, list_poni_files,
+    CALIBRANTS, launch_calib2, list_poni_files,
     SftpSync, sftp_test, sftp_load_config, sftp_save_config,
 )
 
@@ -152,7 +152,8 @@ def api_list_raw():
         for d, sh in shapes.items():
             if size == sh[0] * sh[1]:
                 det = d; break
-        files.append({"name": name, "pixels": int(size), "detector": det or "?"})
+        files.append({"name": name, "path": str(raw_dir / name),
+                      "pixels": int(size), "detector": det or "?"})
     return jsonify({"files": files, "count": len(files)})
 
 
@@ -178,38 +179,20 @@ def api_convert():
 
 @app.route("/api/calibrate/launch", methods=["POST"])
 def api_calib_launch():
+    """Open the pyFAI-calib2 GUI preloaded with the image, calibrant and energy.
+    The GUI's cwd is the project poni/ folder so its save dialog lands there."""
     b = request.get_json(force=True)
     cbf = (b.get("cbf", "") or "").strip()
     if not cbf:
-        return jsonify({"ok": False, "error": "no CBF given"}), 400
-    pixel_m = float(b.get("pixel_um", 172.0)) * 1e-6
+        return jsonify({"ok": False, "error": "no image given"}), 400
+    if not Path(cbf).is_file():
+        return jsonify({"ok": False, "error": f"file not found: {cbf}"}), 400
+    poni_dir = _poni_dir()
     ok, msg, cmd = launch_calib2(cbf, b.get("calibrant", "AgBehenate"),
-                                 b.get("energy_keV", 12.0), pixel_m)
-    return jsonify({"ok": ok, "message": msg, "command": cmd})
-
-
-@app.route("/api/calibrate/auto", methods=["POST"])
-def api_calib_auto():
-    b = request.get_json(force=True)
-    raw_dir = Path((b.get("raw_dir", "") or "").strip())
-    fname = (b.get("file", "") or "").strip()          # a .raw filename in raw_dir
-    if not (raw_dir.is_dir() and fname):
-        return jsonify({"ok": False, "error": "raw_dir + file required"}), 400
-    shapes = _shapes()
-    try:
-        det, data = read_raw(raw_dir / fname, shapes)
-    except Exception as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 400
-    sh = shapes.get(det, next(iter(shapes.values())))
-    pixel_m = float(b.get("pixel_um", 172.0)) * 1e-6
-    poni_name = (b.get("poni_name") or f"{det}.poni").strip()
-    poni_out = _poni_dir() / poni_name
-    ok, msg = auto_calibrate(
-        data, b.get("calibrant", "AgBehenate"), float(b.get("energy_keV", 12.0)),
-        pixel_m, sh, float(b.get("dist_mm", 1000.0)) / 1000.0,
-        float(b.get("beam_x", sh[1] / 2)), float(b.get("beam_y", sh[0] / 2)),
-        str(poni_out))
-    return jsonify({"ok": ok, "message": msg, "poni": str(poni_out) if ok else None})
+                                 b.get("energy_keV", 12.0),
+                                 pixel_um=float(b.get("pixel_um", 172.0)),
+                                 workdir=str(poni_dir))
+    return jsonify({"ok": ok, "message": msg, "command": cmd, "poni_dir": str(poni_dir)})
 
 
 @app.route("/api/poni")
@@ -277,7 +260,9 @@ def api_sftp_stop():
     global _sync
     with _sync_lock:
         if _sync is not None:
-            _sync.stop(); _sync = None
+            _sync.stop()
+            _sync.join(timeout=3.0)      # wait for the poll loop to exit before
+            _sync = None                 # releasing the handle (prevents overlap)
     _sync_status_cb("Stopped", "muted")
     return jsonify({"ok": True})
 

@@ -71,6 +71,9 @@ def test_connection(cfg: dict):
 class SftpSync(threading.Thread):
     """Polls the remote folder every ``interval`` s and downloads new/updated files."""
 
+    #: cfg["mode"] values that mean "copy everything once, then stop"
+    ONCE_MODES = ("once", "one-time", "onetime", "bulk")
+
     def __init__(self, cfg: dict, log_cb=None, status_cb=None):
         super().__init__(daemon=True)
         self.cfg = cfg
@@ -78,6 +81,8 @@ class SftpSync(threading.Thread):
         self._status = status_cb or (lambda text, color: None)
         self._stop = threading.Event()
         self.seen: dict[str, float] = {}   # remote_path → mtime
+        #: True → single full pass (post-beamtime); False → keep polling (live)
+        self.once = str(cfg.get("mode", "watch")).strip().lower() in self.ONCE_MODES
 
     def stop(self):
         self._stop.set()
@@ -111,41 +116,90 @@ class SftpSync(threading.Thread):
         tmp.replace(local_path)                            # atomic; overwrites on Windows too
         return True
 
-    def run(self):
+    def _cycle(self, sftp, verbose: bool):
+        """One full pass over the remote tree. Returns (total, copied, skipped, failed)."""
+        files = self._list_remote(sftp, self.cfg["remote_dir"])
+        total = len(files)
+        if verbose:
+            self.log(f"found {total} remote file(s) — copying")
+        copied = skipped = failed = 0
+        for i, (rp, mtime) in enumerate(files, 1):
+            if self._stop.is_set():
+                break
+            if self.seen.get(rp) is not None and mtime <= self.seen[rp]:
+                skipped += 1
+                continue
+            fn = Path(rp).name
+            try:
+                if self._download(sftp, rp):
+                    copied += 1
+                    self.log(f"[{i}/{total}] saved {fn}", "OK")
+                else:
+                    skipped += 1
+                self.seen[rp] = mtime
+            except Exception as exc:
+                failed += 1
+                self.log(f"[{i}/{total}] failed {fn}: {exc}", "ERR")
+        return total, copied, skipped, failed
+
+    def _run_once(self):
+        """Post-beamtime bulk copy: one full pass, then stop."""
+        self.log("one-time copy — scanning the whole remote folder")
+        self._status("Connecting…", "warn")
+        sftp = ssh = None
+        try:
+            sftp, ssh = _connect(self.cfg)
+            self._status("Copying…", "warn")
+            total, copied, skipped, failed = self._cycle(sftp, verbose=True)
+            if self._stop.is_set():
+                self.log(f"cancelled — {copied} file(s) copied", "WARN")
+                self._status("Cancelled", "muted")
+                return
+            self.log(f"done — {copied} copied, {skipped} already present, {failed} failed "
+                     f"(of {total})", "ERR" if failed else "OK")
+            self._status(f"Completed — {copied} copied" + (f", {failed} failed" if failed else ""),
+                         "err" if failed else "ok")
+        except Exception as exc:
+            self.log(f"connection error: {exc}", "ERR")
+            self._status("Connection failed", "err")
+        finally:
+            self._close(sftp, ssh)
+
+    def _run_watch(self):
+        """Live beamtime mode: poll forever until stopped."""
         interval = int(self.cfg.get("interval", 60) or 60)
-        self.log(f"starting — polling every {interval}s")
+        self.log(f"watch mode — polling every {interval}s")
         self._status("Connecting…", "warn")
         while not self._stop.is_set():
             sftp = ssh = None
             try:
                 sftp, ssh = _connect(self.cfg)
                 self._status("Connected — watching for new files", "ok")
-                new = 0
-                for rp, mtime in self._list_remote(sftp, self.cfg["remote_dir"]):
-                    if self._stop.is_set():
-                        break
-                    if self.seen.get(rp) is None or mtime > self.seen[rp]:
-                        fn = Path(rp).name
-                        try:
-                            if self._download(sftp, rp):
-                                new += 1; self.log(f"saved {fn}", "OK")
-                            self.seen[rp] = mtime
-                        except Exception as exc:
-                            self.log(f"failed {fn}: {exc}", "ERR")
-                self.log(f"cycle done — {new} new file(s)" if new else "no new files this cycle",
-                         "OK" if new else "INFO")
+                _, copied, _, failed = self._cycle(sftp, verbose=False)
+                self.log(f"cycle done — {copied} new file(s)" if copied else "no new files this cycle",
+                         "OK" if copied else "INFO")
             except Exception as exc:
                 self.log(f"connection error: {exc}", "ERR")
                 self._status("Connection failed — retrying…", "err")
             finally:
-                try:
-                    if sftp: sftp.close()
-                    if ssh: ssh.close()
-                except Exception:
-                    pass
+                self._close(sftp, ssh)
             for _ in range(interval * 2):                  # early-exit wait
                 if self._stop.is_set():
                     break
                 time.sleep(0.5)
         self.log("monitor stopped")
         self._status("Stopped", "muted")
+
+    @staticmethod
+    def _close(sftp, ssh):
+        try:
+            if sftp: sftp.close()
+            if ssh: ssh.close()
+        except Exception:
+            pass
+
+    def run(self):
+        if self.once:
+            self._run_once()
+        else:
+            self._run_watch()

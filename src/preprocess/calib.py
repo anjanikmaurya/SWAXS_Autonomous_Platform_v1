@@ -1,17 +1,22 @@
 """
 src/preprocess/calib.py — pyFAI calibration helpers for the calibration app.
 
-Two paths to a .poni from a calibrant image (AgBehenate / LaB6 …):
-  • launch pyFAI-calib2 (the standard interactive GUI) preloaded with the CBF +
-    calibrant + energy — the user picks rings and saves the .poni; and
-  • auto_calibrate(): a best-effort HEADLESS refine (pyFAI SingleGeometry) when a
-    reasonable distance + beam-centre guess is given.
+One path to a .poni from a calibrant image (AgBehenate / LaB6 …): launch
+pyFAI-calib2, the standard interactive GUI, preloaded with the CBF + calibrant +
+energy + pixel size. The user picks rings, refines, and saves the .poni himself.
+
+The GUI's working directory is set to the project's poni/ folder so its
+"Save as…" dialog already points there.
 
 pyFAI is imported lazily so the module loads even where pyFAI isn't installed.
 """
 from __future__ import annotations
 
+import os
+import shutil
 import subprocess
+import sys
+import time
 from pathlib import Path
 
 # Common transmission-SAXS/WAXS calibrants known to pyFAI (get_calibrant names).
@@ -23,69 +28,87 @@ def energy_to_wavelength_m(energy_keV):
     return 12.39842 / float(energy_keV) * 1e-10
 
 
-def build_calib2_command(cbf_path, calibrant, energy_keV, pixel_m=None, poni_init=None):
+def _calib2_launcher():
+    """Resolve how to start pyFAI-calib2. Prefers the console script; falls back
+    to ``python -m pyFAI.app.calib2`` using the CURRENT interpreter, which is
+    what makes this work when the hub spawns the app without the env's bin/ on
+    PATH. Returns (argv_prefix, how) or (None, reason)."""
+    exe = shutil.which("pyFAI-calib2")
+    if exe:
+        return [exe], "console script"
+    try:
+        import pyFAI.app.calib2  # noqa: F401,PLC0415
+        return [sys.executable, "-m", "pyFAI.app.calib2"], "python -m pyFAI.app.calib2"
+    except Exception as exc:
+        return None, f"pyFAI GUI entry point not importable: {exc}"
+
+
+def build_calib2_command(cbf_path, calibrant, energy_keV, pixel_um=None,
+                         poni_init=None, argv_prefix=None):
     """Build the pyFAI-calib2 command (list) to open a calibrant image preloaded.
-    Flags vary slightly across pyFAI versions — the app shows this string so it
-    can be edited if needed."""
-    cmd = ["pyFAI-calib2", "--calibrant", str(calibrant), "--energy", str(energy_keV)]
-    if pixel_m:
-        cmd += ["--pixel", str(pixel_m)]      # detector pixel size in metres
+
+    NOTE pyFAI's ``-p/--pixel`` expects MICRONS (not metres), and ``-i/--poni``
+    takes an optional starting geometry.
+    """
+    cmd = list(argv_prefix or ["pyFAI-calib2"])
+    cmd += ["--calibrant", str(calibrant), "--energy", str(energy_keV)]
+    if pixel_um:
+        cmd += ["--pixel", str(pixel_um)]          # microns
     if poni_init:
         cmd += ["--poni", str(poni_init)]
     cmd.append(str(cbf_path))
     return cmd
 
 
-def launch_calib2(cbf_path, calibrant, energy_keV, pixel_m=None, poni_init=None):
-    """Spawn pyFAI-calib2 (GUI) for interactive calibration. Returns
-    (ok, message, command_string). Best-effort — needs a display + pyqt."""
-    cmd = build_calib2_command(cbf_path, calibrant, energy_keV, pixel_m, poni_init)
+def launch_calib2(cbf_path, calibrant, energy_keV, pixel_um=None,
+                  poni_init=None, workdir=None):
+    """Spawn the pyFAI-calib2 GUI for interactive calibration.
+
+    Returns (ok, message, command_string). Needs a display + Qt. If the process
+    dies immediately (missing Qt, no display) its stderr is reported rather than
+    falsely claiming success.
+    """
+    argv_prefix, how = _calib2_launcher()
+    if argv_prefix is None:
+        cmd_str = " ".join(build_calib2_command(cbf_path, calibrant, energy_keV, pixel_um, poni_init))
+        return False, how, cmd_str
+
+    cmd = build_calib2_command(cbf_path, calibrant, energy_keV, pixel_um, poni_init, argv_prefix)
     cmd_str = " ".join(cmd)
+
+    if workdir:
+        try:
+            Path(workdir).mkdir(parents=True, exist_ok=True)
+        except Exception:
+            workdir = None
+
+    env = dict(os.environ)
+    env.pop("MPLBACKEND", None)          # the app forces Agg; the GUI must not inherit it
+    env.pop("QT_QPA_PLATFORM", None)     # never inherit "offscreen"
+
     try:
-        subprocess.Popen(cmd)
-        return True, "Launched pyFAI-calib2 — pick rings and save the .poni.", cmd_str
+        proc = subprocess.Popen(cmd, cwd=str(workdir) if workdir else None, env=env,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     except FileNotFoundError:
-        return False, ("pyFAI-calib2 not found on PATH. Run the command below in a "
-                       "terminal in the same env."), cmd_str
+        return False, ("pyFAI-calib2 not found. Run the command below in a terminal "
+                       "with the platform env active."), cmd_str
     except Exception as exc:
         return False, f"could not launch pyFAI-calib2: {exc}", cmd_str
 
+    time.sleep(1.5)                       # catch an immediate crash
+    if proc.poll() is not None:
+        err = ""
+        try:
+            err = (proc.stderr.read() or b"").decode(errors="replace").strip()
+        except Exception:
+            pass
+        tail = " · ".join(err.splitlines()[-3:])[:400] if err else "no stderr"
+        return False, (f"pyFAI-calib2 exited immediately (rc={proc.returncode}). "
+                       f"Usually a missing Qt or no display. {tail}"), cmd_str
 
-def auto_calibrate(data, calibrant, energy_keV, pixel_m, shape,
-                   dist_m, beam_x_px, beam_y_px, poni_out, max_rings=8):
-    """HEADLESS best-effort calibration → write a .poni. Needs a decent initial
-    guess (sample-detector distance in m, beam centre in pixels). Returns
-    (ok, message). Ring extraction can fail on noisy/partial patterns — in that
-    case use launch_calib2() instead."""
-    try:
-        import numpy as np                                  # noqa: PLC0415
-        from pyFAI.calibrant import get_calibrant           # noqa: PLC0415
-        from pyFAI.detectors import Detector                # noqa: PLC0415
-        from pyFAI.geometry import Geometry                 # noqa: PLC0415
-        from pyFAI.goniometer import SingleGeometry         # noqa: PLC0415
-    except Exception as exc:
-        return False, f"pyFAI not available: {exc}"
-    try:
-        data = np.asarray(data)
-        wl = energy_to_wavelength_m(energy_keV)
-        det = Detector(pixel1=float(pixel_m), pixel2=float(pixel_m),
-                       max_shape=(int(shape[0]), int(shape[1])))
-        cal = get_calibrant(calibrant); cal.wavelength = wl
-        # initial geometry: poni1 = y (rows) · pixel, poni2 = x (cols) · pixel
-        geo = Geometry(dist=float(dist_m), poni1=float(beam_y_px) * float(pixel_m),
-                       poni2=float(beam_x_px) * float(pixel_m), detector=det, wavelength=wl)
-        sg = SingleGeometry("calib", data, calibrant=cal, detector=det, geometry=geo)
-        sg.extract_cp(max_rings=int(max_rings))
-        n = len(getattr(sg.geometry_refinement, "data", []) or [])
-        if n < 5:
-            return False, (f"only {n} control points found — initial guess likely off; "
-                           f"use the interactive pyFAI-calib2 instead.")
-        sg.geometry_refinement.refine2()
-        Path(poni_out).parent.mkdir(parents=True, exist_ok=True)
-        sg.geometry_refinement.save(str(poni_out))
-        return True, f"refined on ~{n} control points → {poni_out}"
-    except Exception as exc:
-        return False, f"auto-calibration failed ({exc}); use interactive pyFAI-calib2."
+    where = f" Save the .poni into {workdir}." if workdir else ""
+    return True, (f"Launched pyFAI-calib2 via {how} — pick rings, refine, then "
+                  f"save the .poni.{where}"), cmd_str
 
 
 def list_poni_files(poni_dir):
