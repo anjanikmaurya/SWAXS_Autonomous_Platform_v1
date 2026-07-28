@@ -467,6 +467,15 @@ class ReactorController:
         self.setpoints = setpoints
         self._measure_done = False
         self._run_reason = ""
+        # Hand the recipe to the beamline backend. No-op on real SPEC; in mock
+        # mode this is what makes the SIMULATED 2D data reflect this recipe, so
+        # the optimizer sees a real landscape instead of constant results.
+        try:
+            self.beamline.set_recipe(recipe)
+            if self._spec_data_dir:
+                self.beamline.set_project_root(self._spec_data_dir)
+        except Exception:
+            pass
         self.temp.set_temperature(recipe.T_reac)   # recorded for display / gating
         # Precedence: the APP (live_*) value wins once the user has set it, then any
         # recipe-embedded value, then the config default. So whatever is in the app

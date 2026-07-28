@@ -247,8 +247,19 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{ou
                 <span class="fl-count" id="sam-count">none listed</span>
               </div>
               <div class="hint" style="margin:0 0 6px">Mark one file as <b style="color:var(--warn-text)">BG</b> (background); check the rest as <b style="color:var(--accent)">samples</b>.</div>
+              <div class="row" style="margin:0 0 6px">
+                <div class="field"><label>Background name filter</label>
+                  <input type="text" id="ind-bkg-kw" placeholder="e.g. Empty · buffer" oninput="renderSamples()"></div>
+                <div class="field"><label>Sample name filter</label>
+                  <input type="text" id="ind-sam-kw" placeholder="e.g. Dilution · Sample" oninput="renderSamples()"></div>
+              </div>
+              <div class="hint" style="margin:0 0 6px">Comma-separated, case-insensitive, blank = all. Shortens the list: <b>BG</b> can only be marked on a background-filter match, and only sample-filter matches can be checked.</div>
               <div class="filelist" id="sam-filelist"><div class="fl-empty">Click “List” to load .dat files</div></div>
-              <button class="btn btn-sm" style="margin-top:6px" onclick="toggleAll()">Select all samples</button>
+              <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
+                <button class="btn btn-sm" onclick="toggleAll()">Select all samples</button>
+                <button class="btn btn-sm" onclick="clearSamples()">Clear</button>
+                <button class="btn btn-sm" onclick="clearIndFilters()">Reset filters</button>
+              </div>
             </div>
 
             <!-- shared match & review (Scan + Suggested) -->
@@ -569,7 +580,8 @@ function getScale(){return +document.getElementById('scaleNum').value||1.0;}
 function setStatus(m,c=''){document.getElementById('statusMsg').textContent=m;document.getElementById('statusDot').className='dot '+c;}
 
 // ── File listing (individual): one file = background, the rest = samples ────────
-let _samFiles=[], _bgIndex=-1;
+let _samFiles=[], _bgIndex=-1, _samSel=new Set();   // selection kept out of the DOM
+                                                    // so keyword filtering never loses it
 async function listSamples(){
   const folder=document.getElementById('sam-folder').value.trim();
   if(!folder){setStatus('Set a folder','err');return;}
@@ -578,59 +590,93 @@ async function listSamples(){
     const d=await post('/api/scan',{folder});
     if(d.error){setStatus(d.error,'err');return;}
     _samFiles=(d.files||[]).map(f=>({name:f.name,path:folder.replace(/[\\/]+$/,'')+'/'+f.name}));
-    _bgIndex=-1;
+    _bgIndex=-1; _samSel.clear();
     renderSamples();setStatus(`${_samFiles.length} file(s)`,'ok');
   }catch(e){setStatus('List error: '+e,'err');}
 }
+
+// ── keyword filters (individual mode) ──────────────────────────────────────────
+function _kws(id){return (document.getElementById(id)?.value||'').split(',').map(s=>s.trim().toLowerCase()).filter(Boolean);}
+function _hit(name,kws){const n=name.toLowerCase();return !kws.length||kws.some(k=>n.includes(k));}
+function indRoles(i){
+  const n=_samFiles[i].name;
+  const bkw=_kws('ind-bkg-kw'), skw=_kws('ind-sam-kw');
+  return {bgOk:_hit(n,bkw), samOk:_hit(n,skw),
+          // with both filters set, a file matching neither is hidden entirely
+          show:(!bkw.length&&!skw.length) || _hit(n,bkw) || _hit(n,skw)};
+}
+function clearIndFilters(){
+  document.getElementById('ind-bkg-kw').value='';
+  document.getElementById('ind-sam-kw').value='';
+  renderSamples();
+}
+function clearSamples(){_samSel.clear();renderSamples();}
+
 function renderSamples(){
   const box=document.getElementById('sam-filelist');
   if(!_samFiles.length){box.innerHTML='<div class="fl-empty">No .dat files</div>';return;}
-  box.innerHTML='';
+  box.innerHTML=''; let shown=0;
   _samFiles.forEach((f,i)=>{
+    const role=indRoles(i);
+    if(!role.show) return;                          // filtered out
+    shown++;
+    const isBg=(i===_bgIndex);
     const r=document.createElement('div'); r.className='fl-row'; r.id='flrow-'+i;
-    r.innerHTML=
-      `<label class="bgpick" title="Use this file as the background"><input type="radio" name="bgpick" onchange="setBg(${i})">BG</label>`+
-      `<input type="checkbox" class="samp" data-i="${i}" onchange="updCount(event)">`+
+    const bgCell=role.bgOk
+      ? `<label class="bgpick" title="Use this file as the background"><input type="radio" name="bgpick" ${isBg?'checked':''} onchange="setBg(${i})">BG</label>`
+      : `<label class="bgpick" style="opacity:.25" title="Does not match the background filter"><input type="radio" disabled>BG</label>`;
+    r.innerHTML = bgCell+
+      `<input type="checkbox" class="samp" data-i="${i}" ${_samSel.has(i)?'checked':''} `+
+      `${(isBg||!role.samOk)?'disabled':''} onchange="toggleSam(${i},this.checked)">`+
       `<span class="nm" title="${f.name}">${f.name}</span>`+
       `<span class="rbadge" id="rbadge-${i}"></span>`;
     r.querySelector('.nm').onclick=()=>{
       if(i===_bgIndex){setStatus('That file is the background — click a sample to preview','');return;}
       if(_bgIndex<0){setStatus('Mark one file as BG (background) first','err');return;}
-      const cb=r.querySelector('input.samp'); cb.checked=true; updCount();
+      if(!role.samOk){setStatus('That file does not match the sample filter','err');return;}
+      toggleSam(i,true);
       previewPair(f.path, selectedBg());
     };
     box.appendChild(r);
   });
+  if(!shown) box.innerHTML='<div class="fl-empty">No files match the filters</div>';
   refreshRoles(); updCount();
 }
+function toggleSam(i,on){ on?_samSel.add(i):_samSel.delete(i); refreshRoles(); updCount(); }
 function setBg(i){
-  _bgIndex=i;
-  const cb=document.querySelector(`#sam-filelist input.samp[data-i="${i}"]`); if(cb) cb.checked=false;
-  refreshRoles(); updCount();
+  _bgIndex=i; _samSel.delete(i);                    // a file cannot be BG and sample
+  renderSamples();
 }
 function refreshRoles(){
   _samFiles.forEach((f,i)=>{
     const row=document.getElementById('flrow-'+i); if(!row)return;
-    const cb=row.querySelector('input.samp'); const isBg=(i===_bgIndex);
-    cb.disabled=isBg;
+    const isBg=(i===_bgIndex), sel=_samSel.has(i);
     row.classList.toggle('bgrow',isBg);
-    row.classList.toggle('sel',!isBg && cb.checked);
-    const b=document.getElementById('rbadge-'+i);
-    b.className='rbadge'+(isBg?' bg':(cb.checked?' sample':''));
-    b.textContent=isBg?'Background':(cb.checked?'Sample':'');
+    row.classList.toggle('sel',!isBg && sel);
+    const b=document.getElementById('rbadge-'+i); if(!b)return;
+    b.className='rbadge'+(isBg?' bg':(sel?' sample':''));
+    b.textContent=isBg?'Background':(sel?'Sample':'');
   });
 }
 function updCount(ev){
-  refreshRoles();
   const n=selectedSamples().length;
   const bg=_bgIndex>=0?` · BG: ${_samFiles[_bgIndex].name}`:' · no background set';
-  document.getElementById('sam-count').textContent=`${n} sample(s)${bg}`;
+  const hidden=[..._samSel].filter(i=>!indRoles(i).show).length;
+  const filt=(_kws('ind-bkg-kw').length||_kws('ind-sam-kw').length)
+    ? ` · ${document.querySelectorAll('#sam-filelist .fl-row').length}/${_samFiles.length} shown` : '';
+  document.getElementById('sam-count').textContent=
+    `${n} sample(s)${bg}${filt}`+(hidden?` · ${hidden} hidden by filter (not used)`:'');
 }
-function toggleAll(){
-  document.querySelectorAll('#sam-filelist input.samp').forEach(x=>{ if(!x.disabled) x.checked=true; });
-  updCount();
+function toggleAll(){                               // only the visible, eligible rows
+  _samFiles.forEach((f,i)=>{const r=indRoles(i); if(r.show&&r.samOk&&i!==_bgIndex)_samSel.add(i);});
+  renderSamples();
 }
-function selectedSamples(){return [...document.querySelectorAll('#sam-filelist input.samp:checked')].map(x=>_samFiles[+x.dataset.i].path);}
+// Submitted samples = selected AND currently visible/eligible — a filtered-out
+// file is never silently included in the run.
+function selectedSamples(){
+  return [..._samSel].filter(i=>{const r=indRoles(i);return r.show&&r.samOk&&i!==_bgIndex;})
+                     .sort((a,b)=>a-b).map(i=>_samFiles[i].path);
+}
 function selectedBg(){return _bgIndex>=0?_samFiles[_bgIndex].path:'';}
 
 // ── Auto-suggest ───────────────────────────────────────────────────────────────

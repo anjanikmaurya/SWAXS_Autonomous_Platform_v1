@@ -121,15 +121,34 @@ def _is_affected(name: str) -> bool:
     return name in roots or any(name.startswith(r + ".") for r in roots)
 
 
+def _is_stub(mod) -> bool:
+    """Hand-made stand-ins are bare ModuleType objects with no __file__."""
+    return getattr(mod, "__file__", None) is None
+
+
 @pytest.fixture(autouse=True, scope="module")
 def _real_scientific_libs():
     # Module-scoped: swap the real libraries in once for the whole module. Some
     # of them (e.g. silx, imported by pyFAI) register process-global state on
     # import and raise if imported twice, so we must NOT re-import per test.
-    saved = {n: sys.modules[n] for n in list(sys.modules) if _is_affected(n)}
+    #
+    # Nor may we re-import one that is ALREADY real: conftest.py preloads real
+    # pyFAI/fabio/scipy/pandas so the 2D simulator tests can't be poisoned by a
+    # sibling's stub. Dropping a real pyFAI here and importing it again trips
+    # silx's "resource directory pyfai already exists". So: leave already-real
+    # dependency modules exactly where they are, and only swap out the stubs.
+    keep_roots = {dep for dep in _REAL_DEPS
+                  if dep in sys.modules and not _is_stub(sys.modules[dep])}
+
+    def _swap_out(name: str) -> bool:
+        # src/background are always rebuilt so they rebind to the real deps
+        root = name.split(".")[0]
+        return _is_affected(name) and root not in keep_roots
+
+    saved = {n: sys.modules[n] for n in list(sys.modules) if _swap_out(n)}
 
     def _restore():
-        for n in [m for m in list(sys.modules) if _is_affected(m)]:
+        for n in [m for m in list(sys.modules) if _swap_out(m)]:
             del sys.modules[n]
         sys.modules.update(saved)
 

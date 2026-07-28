@@ -28,8 +28,11 @@ from config. Defaults are marked ⚠ CONFIRM — verify them on the beamline.
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
+
+logger = logging.getLogger(__name__)
 from pathlib import Path
 
 
@@ -155,6 +158,19 @@ class BeamlineDriver:
             finally:
                 self._collecting = False
 
+    def set_recipe(self, recipe) -> None:
+        """Tell the backend which recipe is running.
+
+        No-op on real hardware (SPEC doesn't care). MockBeamline uses it to make
+        the SIMULATED particles reflect the recipe being executed, which is what
+        lets the full autonomous loop be tested without beam.
+        """
+        return None
+
+    def set_project_root(self, path: str) -> None:
+        """Where synthetic data should be written (mock only; no-op on real)."""
+        return None
+
     def _read_source(self) -> str:
         return str(self.cfg.get("read_source", "spec")).lower()
 
@@ -253,6 +269,21 @@ class MockBeamline(BeamlineDriver):
         self._collect_s = float(self.cfg.get("mock_collect_s", 0.0))   # simulate acquisition time
         self.collections: list[dict] = []
         self.shutter = "closed"
+        # ── optional synthetic 2D data generator ──
+        # When simulator.enabled is set, every collect() writes real .raw frames
+        # + metadata so the whole reduction→analysis pipeline can run with no beam.
+        self.simulator = None
+        sim_cfg = self.cfg.get("simulator") or {}
+        if sim_cfg.get("enabled"):
+            try:
+                from src.simulator import SimulatedCollector          # noqa: PLC0415
+                self.simulator = SimulatedCollector(
+                    sim_cfg, project_root=self.cfg.get("project_root", ""),
+                    log=lambda m: logger.info("%s", m))
+                logger.info("MockBeamline: 2D simulator ON — %s",
+                            self.simulator.describe_truth())
+            except Exception as exc:                                  # pragma: no cover
+                logger.warning("MockBeamline: simulator disabled (%s)", exc)
 
     def _advance(self):
         now = time.time(); dt = now - self._last; self._last = now
@@ -281,6 +312,15 @@ class MockBeamline(BeamlineDriver):
     def _read_epics_state(self) -> dict:
         return self._do_read_state()
 
+    # Forwarded to the simulator so synthetic particles track the live recipe.
+    def set_recipe(self, recipe) -> None:
+        if self.simulator is not None:
+            self.simulator.set_recipe(recipe)
+
+    def set_project_root(self, path: str) -> None:
+        if self.simulator is not None:
+            self.simulator.set_project_root(path)
+
     def _do_collect(self, **params):
         rec = dict(params); rec["t"] = time.time()
         mf = self.cfg.get("macro_file")
@@ -289,8 +329,26 @@ class MockBeamline(BeamlineDriver):
                 rec["rendered"] = render_macro(Path(mf).read_text(), params)   # for inspection/tests
             except Exception:
                 pass
-        if self._collect_s:
+
+        if self.simulator is not None:
+            # Write real .raw + metadata. Timing is owned by the simulator
+            # (speed_factor: 1.0 honours exposure × frames), so mock_collect_s
+            # is skipped to avoid double-counting the acquisition time.
+            try:
+                rec["simulated"] = self.simulator.collect(
+                    prefix=str(params.get("sample") or params.get("recipe_id") or "mock"),
+                    role=str(params.get("role", "sample")),
+                    data_dir=str(params.get("main_folder") or ""),
+                    exposure=float(params.get("exposure", 1.0)),
+                    frames=int(params.get("frames", 1)),
+                    temperature=float(params.get("temperature", 25.0)),
+                    recipe_id=str(params.get("recipe_id", "")))
+            except Exception as exc:
+                logger.exception("simulator failed: %s", exc)
+                rec["simulator_error"] = str(exc)
+        elif self._collect_s:
             time.sleep(self._collect_s)
+
         self.collections.append(rec)
 
 

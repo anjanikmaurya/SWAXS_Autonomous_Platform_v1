@@ -464,11 +464,46 @@ class Experiment:
             T_sample   = bstop_corr / i0_corr
             bstop_norm = bstop_corr  # no air measurement: unchanged behaviour
 
-        if T_sample > 1.0:
+        # ── Transmission sanity check — scoped to what actually uses T ────────
+        # `transmission` feeds exactly ONE numerical path: the Beer-Lambert
+        # thickness below, and only when `thickness` is not configured. The
+        # normalization factor (bstop / i0 / absolute) never reads it — "bstop"
+        # uses bstop_norm, "i0" uses i0_corr, "absolute" uses bstop_norm × d.
+        #
+        # So T > 1 is only worth a warning when thickness is auto-derived. With
+        # an explicit thickness it is provenance-only, and without an air
+        # measurement T is merely the raw ratio of two differently-gained diodes,
+        # where exceeding 1 is normal and not an error. (Audit fix: the old
+        # message blamed "air measurement values" even when none were configured.)
+        _has_air = i0_air_corr > 0.0 and bstop_air_corr > 0.0
+        _auto_thickness = self.thickness is None
+        _absolute = "absolute" in self.normalization
+
+        if T_sample > 1.0 and _auto_thickness:
+            cause = (
+                "check the air measurement values (i0_air / bstop_air)"
+                if _has_air else
+                "no air measurement is configured (i0_air / bstop_air = 0), so this "
+                "is only the raw bstop/I0 diode ratio, not a true transmission"
+            )
+            impact = (
+                "ABSOLUTE CALIBRATION WILL BE WRONG — set an explicit `thickness` "
+                "(in metres) or measure the empty-beam path."
+                if _absolute else
+                f"reported thickness will be 0 mm; I(q) is unaffected in "
+                f"'{'+'.join(self.normalization) or 'none'}' mode. Set an explicit "
+                f"`thickness` (in metres) to fix the provenance."
+            )
             self._log(
-                f"  ⚠ {fname}: T_sample = {T_sample:.4f} > 1.0 "
-                "(physically unreasonable — check air measurement values). Clipping to 1.0.",
-                "warn"
+                f"  ⚠ {fname}: T_sample = {T_sample:.4f} > 1.0 — {cause}. "
+                f"Clipped to 1.0, so {impact}",
+                "error" if _absolute else "warn"
+            )
+        elif T_sample > 1.0:
+            # Explicit thickness configured → T is not used numerically anywhere.
+            logger.debug(
+                "%s: T_sample = %.4f > 1.0 (clipped); thickness is set explicitly "
+                "so transmission is provenance-only.", fname, T_sample
             )
 
         transmission = np.clip(T_sample, 1e-6, 1.0)

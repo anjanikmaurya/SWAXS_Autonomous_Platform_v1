@@ -50,10 +50,14 @@ _sync_log = collections.deque(maxlen=400)      # (seq, level, msg)
 _sync_seq = 0
 _sync_status = {"text": "Not running", "color": "muted"}
 
+_log_lock = threading.Lock()
+
 def _sync_log_cb(level, msg):
+    """Called from several transfer worker threads — must be serialised."""
     global _sync_seq
-    _sync_seq += 1
-    _sync_log.append((_sync_seq, level, msg))
+    with _log_lock:
+        _sync_seq += 1
+        _sync_log.append((_sync_seq, level, msg))
 
 def _sync_status_cb(text, color):
     _sync_status["text"] = text; _sync_status["color"] = color
@@ -271,8 +275,10 @@ def api_sftp_stop():
 def api_sftp_status():
     since = int(request.args.get("since", 0))
     new = [{"seq": s, "level": lv, "msg": m} for (s, lv, m) in list(_sync_log) if s > since]
-    return jsonify({"running": _sync is not None and _sync.is_alive(),
-                    "status": _sync_status, "logs": new, "seq": _sync_seq})
+    sync = _sync
+    return jsonify({"running": sync is not None and sync.is_alive(),
+                    "status": _sync_status, "logs": new, "seq": _sync_seq,
+                    "progress": sync.progress() if sync is not None else None})
 
 
 if __name__ == "__main__":

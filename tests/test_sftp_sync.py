@@ -64,6 +64,94 @@ def test_mode_dispatches_to_correct_runner(monkeypatch):
     assert calls == ["once", "watch"]
 
 
+# ── throughput settings ──────────────────────────────────────────────────────
+def test_workers_default_and_clamped():
+    assert ss.SftpSync({}).workers == ss.DEFAULT_WORKERS
+    assert ss.SftpSync({"workers": 8}).workers == 8
+    assert ss.SftpSync({"workers": 99}).workers == 16      # ceiling
+    assert ss.SftpSync({"workers": -5}).workers == 1        # floor
+    # 0 / blank are treated as "unset" → default
+    assert ss.SftpSync({"workers": 0}).workers == ss.DEFAULT_WORKERS
+    assert ss.SftpSync({"workers": ""}).workers == ss.DEFAULT_WORKERS
+
+
+def test_needs_copy_uses_listing_size_not_remote_stat(tmp_path):
+    """Skip decision must be local-only — no per-file remote round-trip."""
+    s = ss.SftpSync({"remote_dir": "/r", "local_dir": str(tmp_path)})
+    assert s._needs_copy("/r/a.dat", 4) is True            # missing locally
+    (tmp_path / "a.dat").write_bytes(b"1234")
+    assert s._needs_copy("/r/a.dat", 4) is False           # present, same size
+    assert s._needs_copy("/r/a.dat", 9) is True            # present, size differs
+
+
+# ── progress reporting ───────────────────────────────────────────────────────
+def test_progress_idle_before_start():
+    p = ss.SftpSync({}).progress()
+    assert p["phase"] == "idle" and p["percent"] == 0.0
+    assert p["files_total"] == 0 and p["current"] == []
+
+
+def test_progress_percent_is_byte_based():
+    s = ss.SftpSync({})
+    s._prog_reset("copying", files_total=4, bytes_total=1000)
+    s._prog["bytes_done"] = 250
+    p = s.progress()
+    assert p["percent"] == 25.0 and p["phase"] == "copying"
+    assert p["data_total"] == "1.0 KB" and p["data_done"] == "250 B"
+    assert p["files_done"] == 0
+
+
+def test_progress_reports_gb_for_large_transfers():
+    s = ss.SftpSync({})
+    s._prog_reset("copying", files_total=100, bytes_total=1_500_000_000)
+    s._prog["bytes_done"] = 750_000_000
+    p = s.progress()
+    assert p["data_total"] == "1.50 GB" and p["data_done"] == "750.0 MB"
+    assert p["gb_total"] == 1.5 and p["gb_done"] == 0.75
+    assert p["percent"] == 50.0
+
+
+def test_human_bytes_scales():
+    assert ss.human_bytes(0) == "0 B"
+    assert ss.human_bytes(4096) == "4.1 KB"
+    assert ss.human_bytes(318_700_000) == "318.7 MB"
+    assert ss.human_bytes(2_400_000_000) == "2.40 GB"
+    assert ss.human_bytes(3.5e12) == "3.50 TB"
+
+
+def test_progress_falls_back_to_file_count_when_sizes_unknown():
+    s = ss.SftpSync({})
+    s._prog_reset("copying", files_total=4, bytes_total=0)
+    s._prog["files_done"] = 3
+    assert s.progress()["percent"] == 75.0
+
+
+def test_progress_callback_is_delta_based():
+    """Two concurrent files must not double-count bytes."""
+    s = ss.SftpSync({})
+    s._prog_reset("copying", files_total=2, bytes_total=200)
+    cb_a, cb_b = s._make_cb("a.dat"), s._make_cb("b.dat")
+    cb_a(50, 100); cb_a(100, 100)          # a: cumulative reports
+    cb_b(30, 100); cb_b(100, 100)          # b: cumulative reports
+    p = s.progress()
+    assert p["bytes_done"] == 200 and p["percent"] == 100.0
+    assert {c["name"] for c in p["current"]} == {"a.dat", "b.dat"}
+
+
+def test_progress_eta_none_when_complete():
+    s = ss.SftpSync({})
+    s._prog_reset("copying", files_total=1, bytes_total=100)
+    s._prog["bytes_done"] = 100
+    assert s.progress()["eta_s"] is None
+
+
+def test_human_rate():
+    assert ss.human_rate(10e6, 1.0) == "10.0 MB/s"
+    assert ss.human_rate(2e9, 1.0) == "2.00 GB/s"
+    assert ss.human_rate(50e3, 1.0) == "50 KB/s"
+    assert ss.human_rate(100, 0) == "—"
+
+
 def test_save_config_persists_mode(tmp_path, monkeypatch):
     monkeypatch.setattr(ss, "CONFIG_FILE", tmp_path / "c.json")
     ss.save_config({"host": "h", "mode": "once", "password": "p"})

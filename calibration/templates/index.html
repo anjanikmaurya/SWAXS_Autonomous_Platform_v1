@@ -84,6 +84,23 @@ code{background:var(--surface2);padding:2px 6px;border-radius:4px;font-family:va
 .log{background:#0d1117;color:#e2e8f0;font-family:var(--mono);font-size:12.5px;border-radius:6px;padding:12px 14px;height:260px;overflow:auto;white-space:pre-wrap;margin-top:14px}
 .log .INFO{color:#94a3b8}.log .OK{color:#86efac}.log .WARN{color:#fbbf24}.log .ERR{color:#f87171}
 .sec-label{font-size:14px;font-weight:600;color:var(--muted);margin:16px 0 4px}
+/* ── transfer progress ── */
+#prog-wrap{display:none;margin-top:16px;padding:14px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius)}
+#prog-wrap.on{display:block}
+.bar{height:12px;background:#dfe3e9;border-radius:6px;overflow:hidden;border:1px solid var(--border-strong)}
+.bar-fill{height:100%;width:0%;background:linear-gradient(90deg,var(--accent),var(--accent-d));transition:width .35s ease}
+.bar-fill.done{background:var(--ok)}
+.prog-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:7px;gap:12px}
+.prog-pct{font-size:22px;font-weight:700;color:var(--accent);font-variant-numeric:tabular-nums}
+.prog-phase{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:600}
+.prog-stats{display:flex;flex-wrap:wrap;gap:18px;margin-top:9px;font-size:13.5px;color:var(--muted)}
+.prog-stats b{color:var(--txt);font-weight:600;font-variant-numeric:tabular-nums}
+#prog-cur{margin-top:10px;display:flex;flex-direction:column;gap:5px}
+.cur-row{display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--muted)}
+.cur-row .nm{flex:1;font-family:var(--mono);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cur-row .mini{width:90px;height:5px;background:#dfe3e9;border-radius:3px;overflow:hidden;flex-shrink:0}
+.cur-row .mini i{display:block;height:100%;background:var(--accent);border-radius:3px}
+.cur-row .pc{width:38px;text-align:right;font-variant-numeric:tabular-nums}
   </style>
 </head>
 <body>
@@ -149,12 +166,31 @@ code{background:var(--surface2);padding:2px 6px;border-radius:4px;font-family:va
         <label>Check interval (s)</label>
         <div class="cell"><div class="ir"><input type="text" id="s_interval" value="60" style="max-width:120px"></div>
           <span class="fnote" id="s_intnote">Watch mode only. Change requires Stop → Start.</span></div>
+        <label>Parallel transfers</label>
+        <div class="cell"><div class="ir"><input type="number" id="s_workers" value="4" min="1" max="16" style="max-width:120px"></div>
+          <span class="fnote">Files copied at once (1–16). Raise to 8 for many small files on a fast link; lower to 1–2 if the server throttles.</span></div>
       </div>
       <div class="btn-row">
         <button class="btn btn-primary" id="s_start" onclick="sftpStart()">▶ Start copy</button>
         <button class="btn btn-err" id="s_stop" onclick="sftpStop()" disabled>■ Stop</button>
         <button class="btn btn-ghost" onclick="sftpTest()">Test connection</button>
         <span style="margin-left:auto;align-self:center"><span class="pill muted" id="sftp-status">Not running</span></span>
+      </div>
+      <div id="prog-wrap">
+        <div class="prog-top">
+          <span class="prog-pct" id="prog-pct">0%</span>
+          <span class="prog-phase" id="prog-phase">—</span>
+        </div>
+        <div class="bar"><div class="bar-fill" id="prog-fill"></div></div>
+        <div class="prog-stats">
+          <span>Files <b id="prog-files">0 / 0</b></span>
+          <span>Data <b id="prog-bytes">— / —</b></span>
+          <span>Speed <b id="prog-rate">—</b></span>
+          <span>Elapsed <b id="prog-elapsed">0s</b></span>
+          <span>ETA <b id="prog-eta">—</b></span>
+          <span id="prog-failed-wrap" style="display:none">Failed <b id="prog-failed" style="color:var(--err-text)">0</b></span>
+        </div>
+        <div id="prog-cur"></div>
       </div>
       <div class="log" id="s_log"></div>
     </div>
@@ -263,7 +299,7 @@ async function init(){
   if(p.energy_keV)$("energy").value=p.energy_keV;
   const c=await j("/api/calibrants");$("cal").innerHTML=c.calibrants.map(x=>`<option>${x}</option>`).join("");
   const s=await j("/api/sftp/config");const cf=s.config||{};
-  for(const [id,k] of [["s_host","host"],["s_port","port"],["s_user","username"],["s_key","key_path"],["s_remote","remote_dir"],["s_local","local_dir"],["s_interval","interval"],["s_mode","mode"]])
+  for(const [id,k] of [["s_host","host"],["s_port","port"],["s_user","username"],["s_key","key_path"],["s_remote","remote_dir"],["s_local","local_dir"],["s_interval","interval"],["s_mode","mode"],["s_workers","workers"]])
     if(cf[k]!=null)$(id).value=cf[k];
   modeChanged();loadPoni();pollSftp();
 }
@@ -271,7 +307,8 @@ async function init(){
 // ── SFTP data copy ──
 function sftpCfg(){return {host:$("s_host").value.trim(),port:$("s_port").value.trim()||"22",username:$("s_user").value.trim(),
   password:$("s_pass").value,key_path:$("s_key").value.trim(),remote_dir:$("s_remote").value.trim(),
-  local_dir:$("s_local").value.trim(),interval:$("s_interval").value.trim()||"60",mode:$("s_mode").value};}
+  local_dir:$("s_local").value.trim(),interval:$("s_interval").value.trim()||"60",mode:$("s_mode").value,
+  workers:$("s_workers").value.trim()||"4"};}
 function modeChanged(){const once=$("s_mode").value==="once";
   $("s_interval").disabled=once;
   $("s_intnote").style.opacity=once?".45":"1";
@@ -285,7 +322,30 @@ async function sftpStart(){const r=await j("/api/sftp/start",sftpCfg());
   if(!r.ok){alert(r.error||"failed");return;}$("s_start").disabled=true;$("s_stop").disabled=false;}
 async function sftpStop(){await j("/api/sftp/stop",{});$("s_start").disabled=false;$("s_stop").disabled=true;}
 async function sftpTest(){await j("/api/sftp/test",sftpCfg());}
+function fmtDur(s){if(s==null)return "—";s=Math.round(s);
+  if(s<60)return s+"s";const m=Math.floor(s/60),ss=s%60;
+  if(m<60)return m+"m "+ss+"s";return Math.floor(m/60)+"h "+(m%60)+"m";}
+function renderProgress(p){
+  const wrap=$("prog-wrap");
+  if(!p||p.phase==="idle"&&!p.files_total){wrap.classList.remove("on");return;}
+  wrap.classList.add("on");
+  const pct=p.percent||0, complete=p.files_total>0&&p.files_done>=p.files_total;
+  $("prog-pct").textContent=pct.toFixed(pct<100?1:0)+"%";
+  $("prog-phase").textContent=p.phase==="scanning"?"scanning remote…":(complete?"complete":"copying");
+  const fill=$("prog-fill");fill.style.width=Math.min(100,pct)+"%";fill.classList.toggle("done",complete);
+  $("prog-files").textContent=`${p.files_done} / ${p.files_total}`;
+  $("prog-bytes").textContent=`${p.data_done} / ${p.data_total}`;
+  $("prog-rate").textContent=p.rate||"—";
+  $("prog-elapsed").textContent=fmtDur(p.elapsed_s);
+  $("prog-eta").textContent=complete?"—":fmtDur(p.eta_s);
+  $("prog-failed-wrap").style.display=p.failed?"inline":"none";
+  $("prog-failed").textContent=p.failed||0;
+  $("prog-cur").innerHTML=(p.current||[]).map(c=>
+    `<div class="cur-row"><span class="nm">${c.name}</span>`+
+    `<span class="mini"><i style="width:${c.pct}%"></i></span><span class="pc">${c.pct}%</span></div>`).join("");
+}
 async function pollSftp(){
+  let interval=1200;
   try{const r=await j("/api/sftp/status?since="+_seq);const st=r.status||{};
     const el=$("sftp-status");el.textContent=st.text||"—";el.className="pill "+(st.color||"muted");
     const dot=$("sse-dot"),txt=$("sse-txt");dot.classList.toggle("live",r.running);txt.textContent=r.running?"Running":"Idle";
@@ -293,8 +353,10 @@ async function pollSftp(){
       r.logs.forEach(L=>{_seq=L.seq;const d=document.createElement("div");d.className=L.level;d.textContent=L.msg;box.appendChild(d);});
       box.scrollTop=box.scrollHeight;}
     $("s_start").disabled=r.running;$("s_stop").disabled=!r.running;
+    renderProgress(r.progress);
+    if(r.progress&&r.progress.phase==="copying")interval=600;   // smoother while transferring
   }catch(e){}
-  setTimeout(pollSftp,1200);
+  setTimeout(pollSftp,interval);
 }
 
 // ── calibration ──

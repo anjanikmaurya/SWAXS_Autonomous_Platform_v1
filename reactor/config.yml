@@ -116,6 +116,54 @@ temperature:
 spec:
   backend:     "mock"         # startup default; at runtime the reactor Mock/Real
                               # toggle governs BOTH pumps and beamline together
+
+  # ── Synthetic 2D data (mock backend only) ───────────────────────────────────
+  # When enabled, every triggered collection WRITES REAL .raw frames + metadata
+  # into <data_dir>/SAXS/, so the whole pipeline (reduction → averaging →
+  # subtraction → quality → analyzer → optimizer) can be tested with no beam.
+  #
+  # Particle size/PDI come from a hidden recipe→size model with a known interior
+  # optimum, so a closed-loop run can be checked for convergence. Set the
+  # campaign's target_size to truth.R_opt (4.0 nm) and the loss minimum sits
+  # exactly at (truth.T_opt, truth.x_TOP_opt).
+  #
+  # ⚠ Ignored when backend is "real". Turn OFF before beamtime.
+  simulator:
+    enabled:      false       # ← flip to true for off-rig pipeline testing
+    detector:     "SAXS"      # SAXS only (per design); shape from project config.yml
+    shape:        [1043, 981] # fallback if the project config has no detector_shapes
+    poni:         ""          # blank → project config poni_directory + poni_files.saxs
+    mask:         ""          # blank → project config poni_directory + mask_files.saxs
+    metadata_format: ""       # blank → project config metadata_format ("csv" or "pdi")
+    speed_factor: 1.0         # 1.0 = real time (honours exposure × frames);
+                              # 10 = 10× faster; 0 = write instantly
+    flux:         1.0e6       # counts/s scale at I(0)
+    scale:        800.0       # particle signal strength
+    solvent_bkg:  2.0         # flat solvent/incoherent background
+    porod:        0.0         # optional extra q^-4 tail
+    q_beamstop:   0.02        # nm⁻¹ — beamstop shadow radius (raise to stress low-q masking)
+    transmission: 0.62        # sets bstop = i0 × T in the written metadata
+    # Hidden ground truth — the landscape the optimizer must discover.
+    # ⚠ Keep these INTERIOR to the `bounds:` block above (T_reac 180–300,
+    #   F_tot 40–120, x_each 0–0.3) or the optimum sits on an edge and a
+    #   converging optimizer proves nothing.
+    truth:
+      T_opt:        240.0     # °C   — true optimum temperature (in 180–300)
+      x_TOP_opt:    0.15      # –    — true optimum ligand fraction (in 0–0.3)
+      R_opt:        4.0       # nm   — radius produced at the optimum
+      dR_dT:        0.020     # nm/°C
+      dR_dx_TOP:   -6.0       # nm per unit x_TOP
+      sigma_T:      60.0      # °C   — PDI curvature width (half-range of T bounds)
+      sigma_x:      0.15      # –    — PDI curvature width (half-range of x bounds)
+      pdi_curv_T:   0.20      # keep PDI below pdi_ceil at the box corners, or the
+      pdi_curv_x:   0.20      # landscape saturates flat and gives no gradient
+      F_ref:        80.0      # µL/min — reference flow (mid of the F_tot bounds)
+      pdi_min:      0.02
+      noise_R_frac: 0.03      # 3 % reproducible run-to-run scatter
+      R_min:        1.0       # nm   — clamps (interview: 1–10 nm, PDI 0.001–0.5)
+      R_max:        10.0
+      pdi_floor:    0.001
+      pdi_ceil:     0.5
   base_url:    "http://127.0.0.1:18085/SIS/"   # bServer (same machine as the reactor)
   enabled:     true           # fire the 2D collection during a run
   spec_lead_s: 180.0          # collect this long before the end of run (sample) AND flush (background)

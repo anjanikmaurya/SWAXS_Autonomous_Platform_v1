@@ -126,7 +126,52 @@ def test_transmission_gt_one_is_clipped():
     e = make_exp()
     c = e._compute_corrections({"i0": 1000.0, "bstop": 1200.0}, RAW)
     approx(c["transmission"], 1.0)
-    assert any(t == "warn" for t, _ in e._logs)
+
+
+# ── T > 1 warning is scoped to the selected normalization / thickness ─────────
+# `transmission` feeds only the Beer-Lambert thickness (when `thickness` is not
+# configured). norm_factor never reads it, so warning otherwise is just noise.
+
+def _warns(e):
+    return [(t, m) for t, m in e._logs if t in ("warn", "error") and "T_sample" in m]
+
+def test_t_gt_one_silent_when_thickness_explicit():
+    """bstop/i0 mode + explicit thickness → T is provenance-only, no warning."""
+    for norm in (["bstop"], ["i0"], ["absolute"]):
+        e = make_exp(thickness=0.001, normalization=norm)
+        e._compute_corrections({"i0": 1000.0, "bstop": 1800.0}, RAW)
+        assert _warns(e) == [], f"unexpected T warning for {norm} with explicit thickness"
+
+def test_t_gt_one_warns_when_thickness_auto_derived():
+    e = make_exp(thickness=None, normalization=["bstop"])
+    c = e._compute_corrections({"i0": 1000.0, "bstop": 1800.0}, RAW)
+    w = _warns(e)
+    assert len(w) == 1 and w[0][0] == "warn"
+    # names the real cause (no air configured) — not "check air measurement values"
+    assert "no air measurement is configured" in w[0][1]
+    assert "I(q) is unaffected" in w[0][1] and "'bstop'" in w[0][1]
+    approx(c["transmission"], 1.0)
+
+def test_t_gt_one_is_an_error_for_absolute_with_auto_thickness():
+    """Here it really does corrupt the data: NF collapses to the t_cm floor."""
+    e = make_exp(thickness=None, normalization=["absolute"])
+    e._compute_corrections({"i0": 1000.0, "bstop": 1800.0}, RAW)
+    w = _warns(e)
+    assert len(w) == 1 and w[0][0] == "error"
+    assert "ABSOLUTE CALIBRATION WILL BE WRONG" in w[0][1]
+
+def test_t_gt_one_blames_air_values_only_when_air_configured():
+    e = make_exp(thickness=None, normalization=["bstop"],
+                 i0_air=1000.0, bstop_air=400.0)
+    e._compute_corrections({"i0": 1000.0, "bstop": 1800.0}, RAW)
+    w = _warns(e)
+    assert len(w) == 1 and "check the air measurement values" in w[0][1]
+
+def test_t_below_one_never_warns():
+    e = make_exp(thickness=None, normalization=["bstop"])
+    c = e._compute_corrections({"i0": 1000.0, "bstop": 600.0}, RAW)
+    assert _warns(e) == []
+    approx(c["transmission"], 0.6)
 
 
 # ── Normalization factors ─────────────────────────────────────────────────────

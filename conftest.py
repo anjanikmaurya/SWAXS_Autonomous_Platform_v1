@@ -41,3 +41,20 @@ try:  # pragma: no cover - environment-dependent
     import fabio.edfimage   # noqa: F401
 except Exception:
     pass
+
+# And for pyFAI + pandas: the 2D simulator (src.simulator.pattern) builds its
+# per-pixel q map with a real AzimuthalIntegrator, and the reduction pipeline
+# reads CSV metadata with pandas. Without this preload a numpy-only test's stub
+# wins the race and the simulator silently writes no frames.
+try:  # pragma: no cover - environment-dependent
+    import pyFAI                                # noqa: F401
+    import pyFAI.integrator.azimuthal           # noqa: F401
+except Exception:
+    try:
+        import pyFAI.azimuthalIntegrator        # noqa: F401  (older pyFAI)
+    except Exception:
+        pass
+try:  # pragma: no cover - environment-dependent
+    import pandas           # noqa: F401
+except Exception:
+    pass
