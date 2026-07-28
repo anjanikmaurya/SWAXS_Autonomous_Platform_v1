@@ -34,9 +34,14 @@ DEFAULTS: dict = {
     "mask":           "",         # blank → resolve from the project config
     "speed_factor":   1.0,        # 1.0 = real time (honours exposure × frames)
     "flux":           1.0e6,      # counts/s scale at I(0)
-    "scale":          800.0,      # particle signal strength
-    "solvent_bkg":    2.0,        # flat incoherent solvent level
-    "capillary":      5.0,        # capillary q⁻² upturn, quoted at q = 0.1 nm⁻¹
+    #: Particle signal at I(0), in counts per second of exposure. 800 gave a
+    #: peak of only ~900 counts, so the frame rendered black on any linear
+    #: display; 2e4 puts a 1 s frame in the 10^4 range like real detector data.
+    "scale":          20000.0,
+    #: sample-detector distance used ONLY by the synthetic fallback geometry
+    "fallback_dist_m": 3.0,
+    "solvent_bkg":    50.0,       # flat incoherent solvent level (counts/s)
+    "capillary":      120.0,      # capillary q⁻² upturn, quoted at q = 0.1 nm⁻¹
     "porod":          0.0,
     "q_beamstop":     0.02,       # nm⁻¹ — beamstop shadow radius in q
     "transmission":   0.62,
@@ -73,6 +78,8 @@ class SimulatedCollector:
         self._recipe = None
         self.last: dict | None = None          # ground truth of the last collect
         self.history: list = []
+        self._last_data_dir = ""               # widens the config.yml search
+        self._cfg_source = ""                  # which config.yml supplied geometry
 
     def stop(self) -> None:
         """Cancel an in-flight acquisition (called from MockBeamline.close())."""
@@ -90,16 +97,53 @@ class SimulatedCollector:
     def set_project_root(self, path: str) -> None:
         self.project_root = str(path or "")
 
+    def _config_search_roots(self):
+        """Folders that may hold the project config.yml, most specific first.
+
+        The reactor knows two different paths — the hub PROJECT ROOT (where
+        config.yml lives) and the 2D SAVE FOLDER — and they are not the same.
+        Walking up from the save folder as well means the geometry is found even
+        if only one of them was wired up.
+        """
+        roots = []
+        if self.project_root:
+            roots.append(Path(self.project_root))
+        if self._last_data_dir:
+            d = Path(self._last_data_dir)
+            roots.extend([d, *list(d.parents)[:3]])   # e.g. …/2D/SAXS → …/2D → …
+        seen, out = set(), []
+        for r in roots:
+            s = str(r)
+            if s not in seen:
+                seen.add(s); out.append(r)
+        return out
+
     def _project_cfg(self) -> dict:
-        if not self.project_root:
-            return {}
-        p = Path(self.project_root) / "config.yml"
-        if not p.is_file():
-            return {}
-        try:
-            return yaml.safe_load(p.read_text(encoding="utf-8")) or {}
-        except Exception:
-            return {}
+        for root in self._config_search_roots():
+            p = root / "config.yml"
+            if p.is_file():
+                try:
+                    cfg = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+                except Exception:
+                    continue
+                if cfg.get("poni_files") or cfg.get("detector_shapes"):
+                    self._cfg_source = str(p)
+                    return cfg
+        return {}
+
+    def _discover_poni(self, det: str):
+        """Last resort: find a .poni on disk when config.yml doesn't name one,
+        preferring a filename that mentions this detector."""
+        for root in self._config_search_roots():
+            for d in (root / "poni", root):
+                if not d.is_dir():
+                    continue
+                files = sorted(d.glob("*.poni"))
+                if not files:
+                    continue
+                named = [f for f in files if det.lower() in f.name.lower()]
+                return str((named or files)[0])
+        return ""
 
     def _resolve(self):
         """Detector shape / poni / mask / metadata format — config first, then
@@ -114,13 +158,28 @@ class SimulatedCollector:
                 shape = [int(v[0]), int(v[1])]
         shape = (int(shape[0]), int(shape[1]))
 
-        poni = str(self.cfg["poni"] or "")
+        poni = str(self.cfg["poni"] or "").strip()
+        if poni:
+            pp = Path(poni).expanduser()
+            if pp.is_dir():
+                # A DIRECTORY is allowed: pick the .poni whose name mentions this
+                # detector (else the first), so you can point at poni/ and forget
+                # the exact filename.
+                files = sorted(pp.glob("*.poni"))
+                named = [f for f in files if det.lower() in f.name.lower()]
+                poni = str((named or files)[0]) if files else ""
+                if not files:
+                    self._log(f"simulator: ⚠ no .poni files in {pp}")
+            else:
+                poni = str(pp)
         if not poni:
             pdir = pc.get("poni_directory") or (Path(self.project_root) / "poni"
                                                 if self.project_root else "")
             pfile = (pc.get("poni_files") or {}).get(det.lower())
             if pdir and pfile:
                 poni = str(Path(pdir) / pfile)
+            if not poni or not Path(poni).is_file():
+                poni = self._discover_poni(det) or poni
 
         mask = str(self.cfg["mask"] or "")
         if not mask:
@@ -163,8 +222,26 @@ class SimulatedCollector:
     def collect(self, *, prefix: str, role: str = "sample", data_dir: str = "",
                 exposure: float = 1.0, frames: int = 1,
                 temperature: float = 25.0, recipe_id: str = "") -> dict:
+        self._last_data_dir = str(data_dir or "")     # widen the config.yml search
         det, shape, poni, mask_path, meta_fmt = self._resolve()
-        folder = Path(data_dir or self.project_root or ".").expanduser()
+        if shape[0] <= 0 or shape[1] <= 0:
+            raise ValueError(
+                f"detector shape for {det} resolved to {shape} — cannot generate "
+                f"frames. Fix detector_shapes in the project config.yml or "
+                f"simulator.shape in reactor/config.yml.")
+        # A stop event left set by a previous close()/backend switch would
+        # silently produce zero or partial output on every later acquisition.
+        self._stop = threading.Event()
+        # NEVER default to the process CWD: an unset save folder used to scatter
+        # 4 MB frames into whatever directory the app happened to start in.
+        base = str(data_dir or self.project_root or "").strip()
+        if not base:
+            raise ValueError(
+                "no save folder given for the simulated acquisition — set the "
+                "Save folder in the reactor app (spec.data_dir), or "
+                "spec.mock_data_dir. Refusing to write into the current "
+                "working directory.")
+        folder = Path(base).expanduser()
         two_d = self._two_d_base(folder, det)
 
         # SAFETY INTERLOCK: never write synthetic frames where real detector
@@ -187,8 +264,14 @@ class SimulatedCollector:
             q = q_map(poni, shape)
             geom = f"poni {Path(poni).name}"
         else:
-            q = synthetic_q_map(shape)
-            geom = "synthetic geometry (no .poni found)"
+            q = synthetic_q_map(shape, dist_m=float(self.cfg["fallback_dist_m"]))
+            why = (f"'{poni}' not found" if poni else
+                   "no poni_directory/poni_files.saxs in the project config.yml")
+            geom = f"SYNTHETIC geometry ({why})"
+            self._log(f"simulator: ⚠ using {geom} at "
+                      f"{self.cfg['fallback_dist_m']}m — the pattern will NOT match "
+                      f"your real detector distance. Set poni_files.saxs in the "
+                      f"project config.yml (or simulator.poni) to use the real one.")
 
         mask = load_mask(mask_path, shape)
         bstop = beamstop_mask(shape, q, q_beamstop=float(self.cfg["q_beamstop"]))

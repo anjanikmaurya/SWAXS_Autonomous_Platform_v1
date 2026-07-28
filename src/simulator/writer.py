@@ -185,12 +185,15 @@ class AcquisitionWriter:
                           transmission=0.62, temperature=25.0, i0=1.0e6):
         """``make_image(i)`` returns the int32 array for frame i."""
         written, rows = [], []
+        peak, filled = 0, 0.0
         for i in range(int(frames)):
             if self._stop is not None and self._stop.is_set():
                 self._log(f"simulator: acquisition '{prefix}' cancelled at frame {i}")
                 break
             self._sleep(exposure_s)                     # exposure happens first
             img = make_image(i)
+            peak = max(peak, int(np.max(img)) if img.size else 0)
+            filled = max(filled, float((img > 0).mean()) if img.size else 0.0)
             path = self.det_dir / frame_name(prefix, i, template=self.name_template)
             write_raw(path, img)
             # mild beam decay so transmission/normalisation see realistic variation
@@ -202,5 +205,17 @@ class AcquisitionWriter:
             written.append(path)
         if self.metadata_format == "csv" and rows:
             write_csv_metadata(self.two_d_dir, prefix, rows)
-        self._log(f"simulator: wrote {len(written)} frame(s) → {self.det_dir}/{prefix}_*")
+        nbytes = sum(p.stat().st_size for p in written if p.is_file())
+        # Report the CONTENT, not just the file count: "empty-looking" frames are
+        # almost always dim rather than absent, and the peak count says which.
+        self._log(f"simulator: wrote {len(written)} frame(s), {nbytes/1e6:.1f} MB, "
+                  f"peak {peak:,} counts, {filled*100:.0f}% of pixels non-zero "
+                  f"→ {self.det_dir}/{prefix}_*")
+        if written and nbytes == 0:
+            raise IOError(f"every frame written for '{prefix}' is 0 bytes — "
+                          f"check free disk space and folder permissions")
+        if written and peak < 100:
+            self._log(f"simulator: ⚠ peak is only {peak} counts — frames will look "
+                      f"BLACK on a linear display. Raise simulator.scale / flux "
+                      f"(or the exposure) in reactor/config.yml.")
         return written

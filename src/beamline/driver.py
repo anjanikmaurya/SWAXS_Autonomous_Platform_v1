@@ -272,21 +272,31 @@ class MockBeamline(BeamlineDriver):
         self._collect_s = float(self.cfg.get("mock_collect_s", 0.0))   # simulate acquisition time
         self.collections: list[dict] = []
         self.shutter = "closed"
-        # ── optional synthetic 2D data generator ──
-        # When simulator.enabled is set, every collect() writes real .raw frames
-        # + metadata so the whole reduction→analysis pipeline can run with no beam.
+        # ── synthetic 2D data generator ──
+        # Bound to the BACKEND, not to a free-standing flag: this class is only
+        # ever constructed for backend="mock" (make_beamline picks SpecBeamline
+        # for "real"), so the simulator is ON by default here and CANNOT exist on
+        # real hardware. `simulator.enabled: false` remains available to turn it
+        # off within mock — but no config value can turn it on for "real".
         self.simulator = None
-        sim_cfg = self.cfg.get("simulator") or {}
-        if sim_cfg.get("enabled"):
+        sim_cfg = dict(self.cfg.get("simulator") or {})
+        if str(self.cfg.get("backend", "mock")).strip().lower() == "real":
+            # Defence in depth: should be unreachable (SpecBeamline handles real).
+            logger.error("MockBeamline constructed with backend='real' — refusing "
+                         "to start the 2D simulator")
+        elif sim_cfg.get("enabled", True):
             try:
                 from src.simulator import SimulatedCollector          # noqa: PLC0415
                 self.simulator = SimulatedCollector(
                     sim_cfg, project_root=self.cfg.get("project_root", ""),
                     log=lambda m: logger.info("%s", m))
-                logger.info("MockBeamline: 2D simulator ON — %s",
+                logger.info("MockBeamline: 2D simulator ON (mock backend) — %s",
                             self.simulator.describe_truth())
             except Exception as exc:                                  # pragma: no cover
                 logger.warning("MockBeamline: simulator disabled (%s)", exc)
+        else:
+            logger.info("MockBeamline: 2D simulator OFF "
+                        "(spec.simulator.enabled = false)")
 
     def _advance(self):
         now = time.time(); dt = now - self._last; self._last = now
@@ -348,6 +358,7 @@ class MockBeamline(BeamlineDriver):
             except Exception:
                 pass
 
+        simulated_ok = False
         if self.simulator is not None:
             # Write real .raw + metadata. Timing is owned by the simulator
             # (speed_factor: 1.0 honours exposure × frames), so mock_collect_s
@@ -361,13 +372,17 @@ class MockBeamline(BeamlineDriver):
                     frames=int(params.get("frames", 1)),
                     temperature=float(params.get("temperature", 25.0)),
                     recipe_id=str(params.get("recipe_id", "")))
+                simulated_ok = True
             except Exception as exc:
                 # Keep the traceback out of the console: the reactor log already
                 # reports this in operator-readable form via simulator_error.
                 logger.error("2D simulator could not write frames: %s: %s",
                              exc.__class__.__name__, exc)
                 rec["simulator_error"] = f"{exc.__class__.__name__}: {exc}"
-        elif self._collect_s:
+        if not simulated_ok and self._collect_s:
+            # No frames were produced, so fall back to simulating the acquisition
+            # DURATION — otherwise collect() returns instantly and callers that
+            # rely on is_collecting() see nothing happen.
             time.sleep(self._collect_s)
 
         self.collections.append(rec)

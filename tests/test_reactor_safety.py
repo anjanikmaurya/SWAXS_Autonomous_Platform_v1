@@ -218,7 +218,11 @@ def test_done_file_includes_flow_series_at_bottom():
     cfg = {"pumps": {n: {"max_flow": 1000.0} for n in PUMP_NAMES},
            "bounds": {"T_reac": [180, 300], "F_tot": [40, 120],
                       "x_each": [0, 0.3], "x_sum_max": 0.9},
-           "run": {"default_duration": 1.0, "log_interval_s": 0.2}}
+           "run": {"default_duration": 1.0, "log_interval_s": 0.2},
+           # This test is about the done-file contents, not 2D collection. With
+           # collection on, background_when="before" inserts a blank flush ahead
+           # of the run and it wouldn't finish inside the 2 s window.
+           "spec": {"enabled": False}}
     ctl = ReactorController(cfg, backend="mock",
                             feedback_cb=lambda rid, payload: cap.update({rid: payload}))
     try:

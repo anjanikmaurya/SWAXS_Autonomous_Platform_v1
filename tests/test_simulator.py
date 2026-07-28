@@ -249,7 +249,9 @@ def test_collector_works_without_a_poni(tmp_path):
     rec.set_recipe({"T_reac": 240.0, "x_TOP": 0.15, "recipe_id": "r1"})
     out = rec.collect(prefix="p", role="sample", data_dir=str(tmp_path / "2D"),
                       exposure=1.0, frames=1)
-    assert "synthetic geometry" in out["geometry"] and out["n_frames"] == 1
+    # flagged in CAPS so a fallback is obvious in the log, and it says why
+    assert "SYNTHETIC geometry" in out["geometry"] and out["n_frames"] == 1
+    assert "poni" in out["geometry"]
 
 
 def test_recipe_changes_change_the_generated_particles(tmp_path):

@@ -21,6 +21,10 @@ BASE_CFG = {
     "bounds": {"T_reac": [180, 300], "F_tot": [40, 120],
                "x_each": [0, 0.3], "x_sum_max": 0.9},
     "run": {"default_duration": 5.0},
+    # These tests exercise the control loop / E-stop, not 2D collection. With
+    # collection enabled, background_when="before" inserts a blank flush ahead of
+    # every run, which would delay the states they assert on.
+    "spec": {"enabled": False},
 }
 RECIPE = {"T_reac": 240, "F_tot": 80, "x_ODE": 0.2, "x_TOP": 0.1,
           "x_oley": 0.1, "recipe_id": "r1"}
@@ -247,6 +251,194 @@ def test_mock_beamline_close_stops_the_simulator():
     bl.close()
     assert bl.simulator._stop.is_set(), \
         "an in-flight simulated acquisition would keep writing after a backend switch"
+
+
+# ── simulator is bound to the BACKEND, not to a free-standing flag ───────────
+def test_simulator_exists_only_on_the_mock_backend():
+    from src.beamline import make_beamline
+    mock = make_beamline({"spec": {"backend": "mock"}})
+    assert mock.simulator is not None, "mock should simulate by default"
+    for real_value in ("real", "REAL", "Real", " real "):
+        bl = make_beamline({"spec": {"backend": real_value,
+                                     "simulator": {"enabled": True}}})
+        assert type(bl).__name__ == "SpecBeamline"
+        assert not hasattr(bl, "simulator"), \
+            "no config value may put a simulator on real hardware"
+
+
+def test_simulator_can_still_be_turned_off_within_mock():
+    from src.beamline import make_beamline
+    bl = make_beamline({"spec": {"backend": "mock", "simulator": {"enabled": False}}})
+    assert bl.simulator is None
+
+
+# ── empty / short frames must fail loudly, never land on disk ────────────────
+def test_empty_frame_is_refused_and_leaves_no_stub(tmp_path):
+    import numpy as np
+    from src.simulator import write_raw
+    with pytest.raises(ValueError, match="EMPTY frame"):
+        write_raw(tmp_path / "a.raw", np.zeros((0, 0), dtype=np.int32))
+    assert not list(tmp_path.glob("*")), "a stub file was left behind"
+
+
+def test_simulator_never_writes_into_the_current_working_directory():
+    """With no save folder set it used to fall back to Path('.') and scatter
+    4 MB frames into whatever directory the app was started from."""
+    from src.simulator import SimulatedCollector
+    sim = SimulatedCollector({"enabled": True, "speed_factor": 0, "shape": [32, 32]})
+    sim.set_recipe({"T_reac": 240, "x_TOP": 0.15, "recipe_id": "r"})
+    with pytest.raises(ValueError, match="no save folder"):
+        sim.collect(prefix="p", role="sample", data_dir="", exposure=0.1, frames=1)
+
+
+def test_mock_collect_duration_is_honoured_when_no_frames_are_produced():
+    """collect() must still take mock_collect_s so is_collecting() is observable."""
+    import threading
+    from src.beamline import make_beamline
+    bl = make_beamline({"spec": {"backend": "mock", "mock_collect_s": 0.4,
+                                 "simulator": {"enabled": False}}})
+    threading.Thread(target=lambda: bl.collect(recipe_id="r1", exposure=0.1,
+                                               frames=1), daemon=True).start()
+    time.sleep(0.05)
+    assert bl.is_collecting() is True
+    time.sleep(0.6)
+    assert bl.is_collecting() is False
+
+
+def test_zero_detector_shape_is_refused():
+    from src.simulator import SimulatedCollector
+    sim = SimulatedCollector({"enabled": True, "speed_factor": 0, "shape": [0, 0]})
+    with pytest.raises(ValueError, match="detector shape"):
+        sim.collect(prefix="p", role="sample", data_dir="/tmp/none", exposure=1, frames=1)
+
+
+def test_written_frames_have_the_expected_byte_count(tmp_path):
+    from src.simulator import SimulatedCollector
+    sim = SimulatedCollector({"enabled": True, "speed_factor": 0, "shape": [32, 32]})
+    sim.set_recipe({"T_reac": 240, "x_TOP": 0.15, "recipe_id": "r"})
+    rec = sim.collect(prefix="p", role="sample", data_dir=str(tmp_path),
+                      exposure=0.1, frames=2)
+    sizes = [Path(f).stat().st_size for f in rec["files"]]
+    assert sizes == [32 * 32 * 4] * 2, f"frames are not full int32 images: {sizes}"
+
+
+def test_stale_stop_event_does_not_silence_later_acquisitions(tmp_path):
+    """A close()/backend switch used to leave _stop set forever, so every later
+    acquisition wrote nothing."""
+    from src.simulator import SimulatedCollector
+    sim = SimulatedCollector({"enabled": True, "speed_factor": 0, "shape": [32, 32]})
+    sim.set_recipe({"T_reac": 240, "x_TOP": 0.15, "recipe_id": "r"})
+    sim.stop()
+    rec = sim.collect(prefix="after_stop", role="sample", data_dir=str(tmp_path),
+                      exposure=0.1, frames=2)
+    assert rec["n_frames"] == 2
+
+
+# ── the simulator must use the REAL .poni, not a synthetic fallback ──────────
+PONI = ('poni_version: 2\nDetector: Detector\n'
+        'Detector_config: {"pixel1": 1.72e-4, "pixel2": 1.72e-4, "max_shape": [128, 128]}\n'
+        'Distance: 2.5\nPoni1: 0.011\nPoni2: 0.011\n'
+        'Rot1: 0.0\nRot2: 0.0\nRot3: 0.0\nWavelength: 1.033e-10\n')
+
+
+def _project(tmp_path, *, name="atT_SAXS.poni"):
+    import yaml
+    proj = tmp_path / "MyProject"
+    (proj / "poni").mkdir(parents=True)
+    (proj / "poni" / name).write_text(PONI)
+    (proj / "config.yml").write_text(yaml.safe_dump({
+        "poni_directory": str(proj / "poni"),
+        "poni_files": {"saxs": name},
+        "detector_shapes": {"saxs": [128, 128]},
+        "metadata_format": "csv"}))
+    return proj
+
+
+def test_simulator_uses_the_project_poni_when_project_root_is_set(tmp_path):
+    """Regression: the controller passed the 2D DATA folder as the project root,
+    so config.yml was never found and every frame used synthetic geometry."""
+    pytest.importorskip("pyFAI")
+    from src.beamline import make_beamline
+    proj = _project(tmp_path)
+    bl = make_beamline({"spec": {"backend": "mock", "simulator": {"speed_factor": 0}}})
+    bl.set_project_root(str(proj))
+    bl.set_recipe({"T_reac": 240, "x_TOP": 0.15, "recipe_id": "g"})
+    bl.collect(recipe_id="g", role="sample", sample="g", main_folder=str(proj),
+               temperature=240.0, exposure=0.1, frames=1)
+    assert "atT_SAXS.poni" in bl.simulator.last["geometry"]
+    assert "SYNTHETIC" not in bl.simulator.last["geometry"]
+
+
+def test_poni_is_found_by_walking_up_from_the_data_dir(tmp_path):
+    """Even when only the save folder was wired, the geometry must be found."""
+    pytest.importorskip("pyFAI")
+    from src.simulator import SimulatedCollector
+    proj = _project(tmp_path)
+    sim = SimulatedCollector({"enabled": True, "speed_factor": 0})
+    sim.set_recipe({"T_reac": 240, "x_TOP": 0.15, "recipe_id": "g"})
+    rec = sim.collect(prefix="g", role="sample", data_dir=str(proj / "2D"),
+                      exposure=0.1, frames=1)
+    assert "atT_SAXS.poni" in rec["geometry"]
+
+
+def test_simulator_poni_config_accepts_a_folder_and_picks_the_detector(tmp_path):
+    """You can point `simulator.poni` at the poni/ folder; it must pick the SAXS
+    file, not whatever sorts first (a WAXS poni has a very different distance)."""
+    pytest.importorskip("pyFAI")
+    from src.simulator import SimulatedCollector
+    pdir = tmp_path / "poni"
+    pdir.mkdir()
+    (pdir / "atT_WAXS.poni").write_text(PONI.replace("Distance: 2.5", "Distance: 0.2"))
+    (pdir / "atT_SAXS.poni").write_text(PONI)
+    sim = SimulatedCollector({"enabled": True, "speed_factor": 0,
+                              "poni": str(pdir), "shape": [128, 128]})
+    sim.set_recipe({"T_reac": 240, "x_TOP": 0.15, "recipe_id": "g"})
+    rec = sim.collect(prefix="g", role="sample", data_dir=str(tmp_path / "p"),
+                      exposure=0.1, frames=1)
+    assert "atT_SAXS.poni" in rec["geometry"], rec["geometry"]
+
+
+def test_bad_poni_path_degrades_loudly(tmp_path):
+    from src.simulator import SimulatedCollector
+    sim = SimulatedCollector({"enabled": True, "speed_factor": 0,
+                              "poni": str(tmp_path / "nope"), "shape": [64, 64]})
+    sim.set_recipe({"T_reac": 240, "x_TOP": 0.15, "recipe_id": "g"})
+    rec = sim.collect(prefix="g", role="sample", data_dir=str(tmp_path / "p"),
+                      exposure=0.1, frames=1)
+    assert rec["geometry"].startswith("SYNTHETIC") and "not found" in rec["geometry"]
+
+
+def test_controller_forwards_the_project_root_not_the_data_dir():
+    ctl = _ctl()
+    try:
+        ctl.set_project_root("/some/project")
+        assert ctl._project_root == "/some/project"
+        assert ctl.beamline.simulator.project_root == "/some/project"
+    finally:
+        ctl.shutdown()
+
+
+def test_synthetic_fallback_is_flagged_in_caps_with_a_reason(tmp_path):
+    from src.simulator import SimulatedCollector
+    sim = SimulatedCollector({"enabled": True, "speed_factor": 0, "shape": [32, 32]})
+    sim.set_recipe({"T_reac": 240, "x_TOP": 0.15, "recipe_id": "g"})
+    rec = sim.collect(prefix="g", role="sample", data_dir=str(tmp_path / "bare"),
+                      exposure=0.1, frames=1)
+    assert rec["geometry"].startswith("SYNTHETIC"), rec["geometry"]
+
+
+def test_frames_are_bright_enough_to_see_on_a_linear_display(tmp_path):
+    """A 1 s frame peaked at ~900 counts, which renders black on any linear
+    scale — the reason simulated data 'looked empty'."""
+    import numpy as np
+    from src.simulator import SimulatedCollector
+    sim = SimulatedCollector({"enabled": True, "speed_factor": 0, "shape": [256, 256]})
+    sim.set_recipe({"T_reac": 240, "x_TOP": 0.15, "recipe_id": "g"})
+    rec = sim.collect(prefix="g", role="sample", data_dir=str(tmp_path / "p"),
+                      exposure=1.0, frames=1)
+    d = np.fromfile(rec["files"][0], dtype=np.int32)
+    assert d.max() > 5000, f"peak only {d.max()} counts — will look blank"
+    assert (d > 0).mean() > 0.5, "most of the detector has no signal"
 
 
 def test_switch_backend_refuses_while_collecting():

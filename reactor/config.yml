@@ -79,6 +79,28 @@ pumps:
     #   - [20, 18.1]
     #   - [40, 38.8]
 
+# ── Slack notifications (unattended / overnight operation) ───────────────────
+# CREDENTIALS COME FROM THE ENVIRONMENT — never put them here, this file is in git:
+#   export SWAXS_SLACK_BOT_TOKEN=xoxb-…   → threaded updates + plot uploads (preferred)
+#   export SWAXS_SLACK_WEBHOOK=https://hooks.slack.com/services/…  → flat messages, zero setup
+# If neither is set, notifications are silently OFF.
+#
+# Every send is fire-and-forget on a worker thread with a timeout, and all errors
+# are swallowed: a Slack outage or rate limit can NEVER delay or break a run.
+notify:
+  slack:
+    enabled:  false           # ← turn on once a token/webhook is exported
+    channel:  "#swaxs-autorun"   # bot-token mode only (webhooks carry their own channel)
+    # Which tiers to send:
+    #   alert    — E-stop, safety trips, pump/temperature faults (actionable)
+    #   progress — recipe applied + run complete with the fitted result
+    #   session  — autonomous session start / finish summary
+    tiers:    ["alert", "progress", "session"]
+    thread_per_recipe: true   # one parent message per recipe, updates threaded under it
+    mention_on_alert: ""      # e.g. "<!channel>" or "<@U012ABC>" — only on alerts
+    timeout_s: 6.0            # per-request timeout
+    min_interval_s: 0.4       # throttle so a burst can't hit Slack's rate limit
+
 # ── Recipe validation bounds (editable) ──────────────────────────────────────
 bounds:
   T_reac:  [180.0, 300.0]     # °C
@@ -135,12 +157,26 @@ spec:
   # campaign's target_size to truth.R_opt (4.0 nm) and the loss minimum sits
   # exactly at (truth.T_opt, truth.x_TOP_opt).
   #
-  # ⚠ Ignored when backend is "real". Turn OFF before beamtime.
+  # ── SAFETY: the simulator is bound to the BACKEND, not to this flag ──
+  # It lives inside MockBeamline, which is only ever constructed when
+  # backend = "mock". Switching to "real" builds SpecBeamline instead, which has
+  # no simulator at all — so NO value here can produce synthetic data on real
+  # hardware, and switching to real stops any acquisition already in flight.
+  #
+  # Because of that, `enabled` defaults to TRUE and only has meaning within mock:
+  #   true  (default) — mock runs generate synthetic 2D data
+  #   false           — mock runs log collections but write nothing
   simulator:
-    enabled:      true       # ← flip to true for off-rig pipeline testing
+    enabled:      true       # mock only; ignored entirely when backend = "real"
     detector:     "SAXS"      # SAXS only (per design); shape from project config.yml
     shape:        [1043, 981] # fallback if the project config has no detector_shapes
-    poni:         ""          # blank → project config poni_directory + poni_files.saxs
+    # Detector geometry for the synthetic frames. Use the SAME .poni the
+    # reduction app uses — otherwise the simulated q-scale won't match the
+    # reduction and the recovered particle size will be silently wrong.
+    # Accepts a FILE or a FOLDER (a folder picks the .poni whose name mentions
+    # the detector, e.g. *SAXS*.poni). Blank → project config.yml
+    # poni_directory + poni_files.saxs, then <project>/poni/*.poni.
+    poni:         "/Users/akmaurya/Desktop/Data_local/Auto_Run/poni"
     mask:         ""          # blank → project config poni_directory + mask_files.saxs
     metadata_format: ""       # blank → project config metadata_format ("csv" or "pdi")
     # Where the 2D tree goes under the save folder. The folders are CREATED if
@@ -153,9 +189,15 @@ spec:
     two_d_subdir: "auto"
     speed_factor: 1.0         # 1.0 = real time (honours exposure × frames);
                               # 10 = 10× faster; 0 = write instantly
-    flux:         1.0e6       # counts/s scale at I(0)
-    scale:        800.0       # particle signal strength
-    solvent_bkg:  2.0         # flat solvent/incoherent background
+    # ── Brightness ──────────────────────────────────────────────────────────
+    # Counts PER SECOND of exposure. The old values (scale 800, bkg 2) gave a
+    # peak of ~900 counts in a 1 s frame, which renders as a black image on any
+    # linear display — the "file is empty" symptom. These put a 1 s frame in the
+    # 10^4 range, like real detector data.
+    flux:         1.0e6       # overall counts/s scale
+    scale:        20000.0     # particle signal at I(0)
+    solvent_bkg:  50.0        # flat solvent/incoherent background
+    capillary:    120.0       # capillary q^-2 upturn, quoted at q = 0.1 nm^-1
     porod:        0.0         # optional extra q^-4 tail
     q_beamstop:   0.02        # nm⁻¹ — beamstop shadow radius (raise to stress low-q masking)
     transmission: 0.62        # sets bstop = i0 × T in the written metadata
@@ -204,6 +246,17 @@ spec:
   # {recipe_id}_{bkg_tag} (during flush). Shared recipe_id pairs them for subtraction.
   sample_tag:  "sample"
   bkg_tag:     "bkg"
+  # ── When is the background measured, relative to its synthesis? ─────────────
+  # "before" (default) — flush the line, collect the blank on the CLEAN
+  #     capillary, then run the synthesis. The blank carries the UPCOMING
+  #     recipe_id, so a run is always paired with the background measured just
+  #     before it, and the background is already on disk when the sample frames
+  #     land (subtraction can start immediately, no waiting for the flush).
+  # "after"  — legacy: the blank is collected during the post-synthesis flush
+  #     and tagged with the run that just finished.
+  # Either way the pair shares one recipe_id, which is how the background app
+  # matches them.
+  background_when: "before"
   # ── Live monitors: read from EPICS (recommended) or SPEC counters ───────────
   # "epics": read temperature/i0/bstop straight from EPICS via caget — independent
   #          of SPEC, so NO remote control, NO ct refresh, and the live plot keeps

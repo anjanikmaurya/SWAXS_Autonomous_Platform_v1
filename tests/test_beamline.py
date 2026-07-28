@@ -195,7 +195,10 @@ def test_reactor_fires_sample_then_background_tagged():
 
 def test_estop_is_pumps_only_leaves_beamline_untouched():
     from src.reactor.config import REAGENT_PUMPS, FLUSH_PUMP
-    ctl = _controller({"backend": "mock", "spec_lead_s": 999, "mock_ramp_c_per_s": 500.0})
+    # enabled=False: background_when="before" would otherwise put a blank flush
+    # in front of the run and temp wouldn't be commanded within 0.6 s.
+    ctl = _controller({"backend": "mock", "spec_lead_s": 999,
+                       "mock_ramp_c_per_s": 500.0, "enabled": False})
     try:
         ctl.set_run_settings({"arm_mode": "timed", "arm_wait_s": "0", "run_duration": "10"})
         ctl.submit({"T_reac": 240, "F_tot": 80, "x_ODE": 0.2, "x_TOP": 0.1, "x_oley": 0.1})

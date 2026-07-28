@@ -113,6 +113,45 @@ def _resolve(folder_key: str) -> Path:
     return p
 
 
+# ── Slack notifications (unattended operation) ────────────────────────────────
+# Credentials come from the environment, never config.yml (which is in git):
+#   SWAXS_SLACK_BOT_TOKEN  — threaded updates + plot uploads
+#   SWAXS_SLACK_WEBHOOK    — flat messages, zero setup
+try:
+    from src.notify import SlackNotifier                            # noqa: E402
+    _slack = SlackNotifier(_CFG.get("notify", {}).get("slack", {}), log=_emit)
+except Exception as _exc:                                            # pragma: no cover
+    _slack = None
+    print(f"[Flow Synthesis] Slack notifier unavailable: {_exc}", file=sys.stderr)
+
+
+def _slack_event(etype: str, data: dict) -> None:
+    """Translate reactor events into Slack messages. Wrapped by the caller so a
+    failure here can never reach the control loop."""
+    if _slack is None or not _slack.enabled:
+        return
+    rid = str(data.get("recipe_id") or "")
+    if etype == "reactor.run_start":
+        _slack.recipe_applied(rid, data.get("recipe") or {},
+                              float(data.get("duration_s") or 0.0))
+    elif etype == "reactor.run_complete":
+        _slack.run_complete(rid, str(data.get("reason") or "?"),
+                            float(data.get("duration_s") or 0.0),
+                            result=data.get("analysis"))
+    elif etype == "reactor.estop":
+        failed = data.get("failed_to_idle") or []
+        _slack.fault("EMERGENCY STOP",
+                     (f"pumps that did NOT idle: {', '.join(failed)} — check them "
+                      f"immediately") if failed else "all pumps idle",
+                     recipe_id=rid)
+    elif etype == "reactor.safety":
+        _slack.fault(f"SAFETY: {data.get('check', 'fault')}",
+                     str(data.get("detail") or ""), recipe_id=rid)
+    elif etype == "reactor.backend":
+        _slack.notify(f":gear: backend switched to *{data.get('backend')}*",
+                      tier="session")
+
+
 # ── controller callbacks ──────────────────────────────────────────────────────
 def _event_cb(etype: str, data: dict) -> None:
     if _bus is not None:
@@ -120,6 +159,10 @@ def _event_cb(etype: str, data: dict) -> None:
             _bus.publish(etype, data)
         except Exception:
             pass
+    try:
+        _slack_event(etype, data)
+    except Exception:
+        pass          # notifications must never disturb the reactor
 
 
 def _feedback_cb(recipe_id: str, payload: dict) -> None:
@@ -170,9 +213,18 @@ _emit(f"Flow Synthesis ready — backend={_BACKEND}", "ok")
 # On exit, hand the rig back: idle pumps, close shutter, release SPEC control.
 import atexit as _atexit                                             # noqa: E402
 _atexit.register(lambda: _ctrl.shutdown())
+if _slack is not None and _slack.enabled:
+    _emit(f"🔔 Slack notifications ON ({_slack.mode} transport, "
+          f"tiers: {', '.join(sorted(_slack.tiers))})", "ok")
+    _slack.session_start(_BACKEND, _project_root)
+    _atexit.register(lambda: (_slack.session_end(len(_ctrl.history)), _slack.close()))
 # Point the SPEC save folder at the hub's project folder at startup (translated
 # Windows→Linux via spec.hub_path_map). The user can still override in the app.
 if _project_root:
+    # The project root holds config.yml (poni_files / detector_shapes). The 2D
+    # simulator needs it to reuse the SAME geometry the reduction app uses —
+    # without it, frames were generated with a synthetic fallback geometry.
+    _ctrl.set_project_root(_project_root)
     _sync_data_dir_from_hub(_project_root)
 
 
@@ -363,6 +415,7 @@ def set_project():
     if p:
         os.environ["SWAXS_PROJECT"] = p
         _project_root = p
+        _ctrl.set_project_root(p)    # geometry source for the 2D simulator
         _sync_data_dir_from_hub(p)   # follow the hub folder into SPEC data_dir
         _load_limits()          # pick up saved per-pump flow limits
         _load_recipes_folder()  # pick up saved conditions-folder override

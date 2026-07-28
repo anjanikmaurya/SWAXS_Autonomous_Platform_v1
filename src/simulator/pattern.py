@@ -120,9 +120,16 @@ def q_map(poni_path, shape):
     return q
 
 
-def synthetic_q_map(shape, pixel_m=172e-6, dist_m=1.0, wavelength_m=1.033e-10,
+def synthetic_q_map(shape, pixel_m=172e-6, dist_m=3.0, wavelength_m=1.033e-10,
                     center=None):
-    """Fallback q map when no .poni exists yet (keeps the mock usable off-rig)."""
+    """Fallback q map when no .poni exists yet (keeps the mock usable off-rig).
+
+    ``dist_m`` defaults to 3 m, a realistic transmission-SAXS distance: at the
+    old 1 m the whole Guinier region of a 2–10 nm particle fell inside the
+    central ~50 px and the frame looked blank on a linear display. At 3 m the
+    knee for a 4 nm sphere lands around r ≈ 120 px, so the pattern actually
+    spans a useful fraction of the detector.
+    """
     rows, cols = int(shape[0]), int(shape[1])
     cy, cx = center or (rows / 2.0, cols / 2.0)
     yy, xx = np.mgrid[0:rows, 0:cols]

@@ -136,7 +136,22 @@ class ReactorController:
         self._spec_bkg_tag = str(spec.get("bkg_tag", "bkg"))
         self._spec_fired = False        # sample acquisition fired this run
         self._bkg_fired = False         # background acquisition fired this flush
+        #: which recipe the CURRENT flush's background belongs to ("" = none)
+        self._bkg_recipe_id = ""
+        #: recipe staged behind a pre-synthesis blank flush
+        self._pending: tuple | None = None
+        #: "before" — flush, measure the blank on the clean capillary, THEN run
+        #:            the synthesis (background precedes its sample; pairing is
+        #:            unambiguous and subtraction can start as soon as the sample
+        #:            lands).
+        #: "after"  — legacy: measure the blank during the post-synthesis flush.
+        self.background_when = str(spec.get("background_when", "before")).strip().lower()
+        if self.background_when not in ("before", "after"):
+            self.background_when = "before"
         self._last_collect = None       # {role, recipe_id, path, t} of the last SPEC trigger
+        #: hub project folder — holds config.yml (poni_files, detector_shapes).
+        #: Distinct from _spec_data_dir, which is the 2D save folder.
+        self._project_root = str(cfg.get("project_root", "") or "")
 
         self._lock = threading.RLock()
         self._alive = True
@@ -318,6 +333,17 @@ class ReactorController:
             self._log(f"⚙ data-collection: exp {self._spec_exposure:g}s ×{self._spec_frames}, "
                       f"lead {self._spec_lead:g}s, tags {self._spec_sample_tag}/{self._spec_bkg_tag}, "
                       f"dir {self._spec_data_dir or '(unset)'}", "info")
+
+    def set_project_root(self, path: str) -> None:
+        """Tell the controller (and the 2D simulator) where the hub project
+        folder is. That folder's config.yml supplies poni_files / detector_shapes,
+        so the simulated frames use the SAME geometry the reduction app will."""
+        with self._lock:
+            self._project_root = str(path or "").strip()
+        try:
+            self.beamline.set_project_root(self._project_root)
+        except Exception:
+            pass
 
     def set_data_dir(self, path: str) -> None:
         """Force the SPEC save folder (used when the hub switches project folder —
@@ -523,6 +549,24 @@ class ReactorController:
             self._to_idle()
             return
         recipe, setpoints = self.queue.popleft()
+
+        # ── background BEFORE synthesis (background_when: "before") ───────────
+        # Flush the line, measure the blank on the clean capillary, THEN run the
+        # synthesis. The blank is tagged with the UPCOMING recipe_id, so the
+        # pairing is unambiguous and the background is already on disk when the
+        # sample frames land — subtraction can start immediately.
+        if (self.background_when == "before" and self._spec_enabled
+                and self._pending is None):
+            self._pending = (recipe, setpoints)
+            self._log(f"🧪 blank first for {recipe.recipe_id} — flushing, then a "
+                      f"background collection, then the synthesis", "info")
+            self._enter_flush(kind="blank", bkg_recipe_id=recipe.recipe_id)
+            return
+
+        self._start_recipe(recipe, setpoints)
+
+    def _start_recipe(self, recipe, setpoints) -> None:
+        """Arm and run a recipe (the part of _begin_next after any blank flush)."""
         self.current = recipe
         self.setpoints = setpoints
         self._measure_done = False
@@ -539,7 +583,11 @@ class ReactorController:
         try:
             self.beamline.set_recipe(recipe)
             if self._spec_data_dir:
-                self.beamline.set_project_root(self._spec_data_dir)
+                # The PROJECT ROOT (where config.yml with poni_files lives) —
+                # NOT the 2D data folder. Passing data_dir here meant the
+                # simulator never found the project config and silently fell
+                # back to synthetic geometry.
+                self.beamline.set_project_root(self._project_root or self._spec_data_dir)
         except Exception:
             pass
         self.temp.set_temperature(recipe.T_reac)   # recorded for display / gating
@@ -624,7 +672,11 @@ class ReactorController:
                           f"{self._spec_data_dir}", "info")
         self._event("reactor.run_start",
                     {"recipe_id": self.current.recipe_id,
-                     "setpoints": self.setpoints, "T_reac": self.current.T_reac})
+                     "setpoints": self.setpoints, "T_reac": self.current.T_reac,
+                     # full recipe + planned duration so notifiers can report the
+                     # conditions without reaching back into the controller
+                     "recipe": self.current.to_dict(),
+                     "duration_s": float(dur), "backend": self.backend})
 
     def _end_run(self, flush: bool = True) -> None:
         rec = self.current
@@ -709,12 +761,29 @@ class ReactorController:
         except Exception as exc:
             self._log(f"⚠ feedback/manifest error: {exc}", "warn")
         if flush:
-            self._enter_flush(kind="flush")
+            # In "before" mode the post-synthesis clean-out and the next run's
+            # blank are the SAME flush: the line ends up clean either way, so
+            # running two back-to-back would waste a full flush duration between
+            # every pair of runs. Stage the next recipe and collect its blank at
+            # the end of this one.
+            if (self.background_when == "before" and self._spec_enabled
+                    and self.queue and self._pending is None):
+                nxt_recipe, nxt_setpoints = self.queue.popleft()
+                self._pending = (nxt_recipe, nxt_setpoints)
+                self._log(f"🧪 this flush doubles as the blank for the next "
+                          f"condition ({nxt_recipe.recipe_id})", "info")
+                self._enter_flush(kind="blank", bkg_recipe_id=nxt_recipe.recipe_id)
+            else:
+                self._enter_flush(kind="flush")
         else:
             self._to_idle()
 
     def _enter_flush(self, rate: float | None = None, duration: float | None = None,
-                     kind: str = "flush") -> None:
+                     kind: str = "flush", bkg_recipe_id: str = "") -> None:
+        """kind: "flush" (post-synthesis clean-out) | "blank" (pre-synthesis
+        background) | anything else (manual). ``bkg_recipe_id`` is the recipe the
+        background belongs to — the UPCOMING one for a blank, the just-finished
+        one for a post-run flush."""
         # explicit arg (Flush-now) first, then the APP value, then recipe, then config
         r = float(rate if rate is not None else
                   (self.live_flush_rate if self.live_flush_rate is not None
@@ -747,19 +816,42 @@ class ReactorController:
         self._flush_kind = kind
         self._flush_deadline = time.time() + d
         self._bkg_fired = False        # arm the background acquisition for this flush
-        self._log(f"🧼 FLUSH START ({kind}) — {flush_pump} at {r:g} µL/min for {d:g}s; "
+        # Which recipe this flush's background belongs to. Empty = collect none.
+        if bkg_recipe_id:
+            self._bkg_recipe_id = str(bkg_recipe_id)
+        elif kind == "flush" and self.background_when == "after" and self.current is not None:
+            self._bkg_recipe_id = self.current.recipe_id
+        else:
+            self._bkg_recipe_id = ""
+        self._log(f"🧼 {'BLANK' if kind == 'blank' else 'FLUSH'} START ({kind}) — "
+                  f"{flush_pump} at {r:g} µL/min for {d:g}s; "
                   f"new recipes are blocked until it finishes", "info")
-        if self._spec_enabled and kind == "flush" and self.current is not None:
+        if self._spec_enabled and self._bkg_recipe_id:
             when = d - self._spec_lead
             if when > 0:
-                self._log(f"   📷 background 2D collection due at T+{when:g}s of the flush",
-                          "info")
+                self._log(f"   📷 background for {self._bkg_recipe_id} due at "
+                          f"T+{when:g}s of the flush (on the clean capillary)", "info")
             else:
-                self._log(f"   📷 background 2D collection fires immediately "
-                          f"(lead {self._spec_lead:g}s ≥ flush {d:g}s)", "warn")
+                self._log(f"   📷 background for {self._bkg_recipe_id} fires immediately "
+                          f"(lead {self._spec_lead:g}s ≥ flush {d:g}s) — the line may "
+                          f"not be fully flushed yet", "warn")
 
     def _end_flush(self) -> None:
         self.pumps.set_pump_flow(self._flush_pump, 0.0)
+
+        # A "blank" flush is the FIRST half of starting a recipe: the line is now
+        # clean and the background has been collected, so run the synthesis it
+        # was staged for.
+        if self._flush_kind == "blank" and self._pending is not None:
+            recipe, setpoints = self._pending
+            self._pending = None
+            got_bkg = self._bkg_fired or not self._spec_enabled
+            self._log(f"✓ blank complete for {recipe.recipe_id}"
+                      + ("" if got_bkg else " (⚠ no background was collected)")
+                      + " — starting the synthesis", "ok" if got_bkg else "warn")
+            self._start_recipe(recipe, setpoints)
+            return
+
         nxt = (f"starting next of {len(self.queue)} queued condition(s)"
                if self.queue else "no conditions queued — going idle")
         self._log(f"✓ {self._flush_kind} complete ({self._flush_pump} stopped) — {nxt}", "ok")
@@ -938,11 +1030,11 @@ class ReactorController:
                     # flush ends (pure solvent in the capillary) — only for a real
                     # post-synthesis flush that has a recipe to tag it with
                     if (self._spec_enabled and not self._bkg_fired
-                            and self._flush_kind == "flush" and self.current is not None
+                            and self._bkg_recipe_id
                             and now >= self._flush_deadline - self._spec_lead):
                         self._bkg_fired = True
                         threading.Thread(target=self._fire_spec_collection,
-                                         args=(self.current.recipe_id, "background"),
+                                         args=(self._bkg_recipe_id, "background"),
                                          daemon=True).start()
                     if now > self._flush_deadline:
                         self._end_flush()
@@ -1004,6 +1096,9 @@ class ReactorController:
                 self._log(f"🛑 SAFETY E-STOP: pump(s) {', '.join(faulted)} report "
                           f"ERROR/lost state while {self.state} — check air supply, "
                           f"blockage, flow sensor and serial connection", "error")
+                self._event("reactor.safety", {"check": "pump fault",
+                            "detail": f"pumps in ERROR/lost state: {', '.join(faulted)}",
+                            "pumps": faulted, "state": self.state})
                 self.estop()
                 return
         # A dead temperature source is NOT "25 °C, all good": if read_state()
@@ -1018,6 +1113,9 @@ class ReactorController:
                           f"— the over-temperature interlock cannot protect you. "
                           f"Check the SPEC/EPICS temperature source "
                           f"(spec.temp_counter / spec.epics_pvs).", "error")
+                self._event("reactor.safety", {"check": "temperature reading stale",
+                            "detail": f"no successful read for {self.temp.age_s():.0f}s — "
+                                      f"the over-temperature interlock is blind"})
                 if self._temp_stale_estop:
                     self.estop()
                     return
@@ -1027,6 +1125,8 @@ class ReactorController:
         if self.temp.current > self.T_max + 0.5:
             self._log(f"🛑 SAFETY E-STOP: reactor {self.temp.current:.1f}°C exceeds "
                       f"T_max {self.T_max:g}°C — all pumps idled", "error")
+            self._event("reactor.safety", {"check": "over-temperature",
+                        "detail": f"{self.temp.current:.1f}°C > T_max {self.T_max:g}°C"})
             self.estop()
             return
         for name, p in self.pumps.pumps.items():
@@ -1034,6 +1134,8 @@ class ReactorController:
                 self._log(f"🛑 SAFETY E-STOP: {name} setpoint {p.target:.1f} µL/min "
                           f"exceeds per_pump_max {self.per_pump_max:g} µL/min "
                           f"— check the recipe or safety.per_pump_max", "error")
+                self._event("reactor.safety", {"check": "pump setpoint over limit",
+                            "detail": f"{name} {p.target:.1f} > {self.per_pump_max:g} µL/min"})
                 self.estop()
                 return
             # pump pressure must never exceed the pump's pressure ceiling
@@ -1042,6 +1144,8 @@ class ReactorController:
                 self._log(f"🛑 SAFETY E-STOP: {name} at {p.pressure:.0f} mbar exceeds "
                           f"its {pmax:.0f} mbar ceiling — likely a blockage "
                           f"downstream; check the line and capillary", "error")
+                self._event("reactor.safety", {"check": "over-pressure",
+                            "detail": f"{name} {p.pressure:.0f} > {pmax:.0f} mbar"})
                 self.estop()
                 return
         # delivered-volume limit + sustained-bad-flow checks (during a run)
