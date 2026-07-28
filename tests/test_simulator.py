@@ -199,7 +199,9 @@ def test_csv_metadata_has_one_row_per_frame(tmp_path):
     out = write_csv_metadata(tmp_path, "r001_sample", rows)
     assert out.name == "r001_sample.csv"
     lines = out.read_text().strip().splitlines()
-    assert lines[0].split(",") == ["i0", "bstop", "temp"] and len(lines) == 5
+    # `simulated` marks the rows as synthetic all the way downstream
+    assert lines[0].split(",") == ["i0", "bstop", "temp", "simulated"]
+    assert len(lines) == 5
 
 
 def test_pdi_sidecar_is_parseable_by_the_reduction_parser(tmp_path):

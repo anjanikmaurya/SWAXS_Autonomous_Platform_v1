@@ -71,13 +71,16 @@ class _CalibratedPump:
 
     def _init_cal(self, calibration_factor=1.0, flowrate_table=None,
                   flow_sensitivity=1.0, flow_tol=0.2, bad_flow_tol=3,
-                  volume_limit=None):
+                  volume_limit=None, flow_settle_s=10.0):
         self.calibration_factor = float(calibration_factor) if calibration_factor else 1.0
         self.flowrate_table = flowrate_table
         self.flow_power = _fit_flow_power(flowrate_table)   # None → use linear cf
         self.flow_sensitivity = float(flow_sensitivity)
         self.flow_tol = float(flow_tol)
         self.bad_flow_tol = int(bad_flow_tol)
+        #: grace period after a setpoint change before flow health is judged
+        self.flow_settle_s = float(flow_settle_s)
+        self._settle_left = 0.0
         self.volume_limit = None if volume_limit in (None, "", 0) else float(volume_limit)
         # health/volume state
         self.flow_ok = True
@@ -85,6 +88,11 @@ class _CalibratedPump:
         self.flow_fault = False       # sustained bad flow (beyond bad_flow_tol)
         self.v_delivered = 0.0        # µL delivered since last reset (true flow)
         self.volume_exceeded = False
+
+    def _arm_settle(self, new_target: float) -> None:
+        """Restart the settle window whenever the commanded flow changes."""
+        if abs(float(new_target) - getattr(self, "target", 0.0)) > 1e-9:
+            self._settle_left = self.flow_settle_s
 
     def _to_setpt(self, rate: float) -> float:
         """Desired TRUE rate → instrument setpoint the pump/sensor understands."""
@@ -104,10 +112,18 @@ class _CalibratedPump:
 
     def _update_health(self, dt: float) -> None:
         if self.target > 0 and not self.idle:
-            ok = _flow_ok(self.actual, self.target, self.flow_sensitivity, self.flow_tol)
-            self.flow_ok = ok
-            self.flow_bad_count = 0 if ok else self.flow_bad_count + 1
-            self.flow_fault = self.flow_bad_count > self.bad_flow_tol
+            # Settle window: a pump cannot reach a new setpoint instantly, so for
+            # `flow_settle_s` after a setpoint CHANGE the flow is not judged. Without
+            # this every run logs a flow-fault during the initial ramp — false alarms
+            # that teach the operator to ignore a genuinely important warning.
+            if self._settle_left > 0.0:
+                self._settle_left = max(0.0, self._settle_left - dt)
+                self.flow_ok, self.flow_bad_count, self.flow_fault = True, 0, False
+            else:
+                ok = _flow_ok(self.actual, self.target, self.flow_sensitivity, self.flow_tol)
+                self.flow_ok = ok
+                self.flow_bad_count = 0 if ok else self.flow_bad_count + 1
+                self.flow_fault = self.flow_bad_count > self.bad_flow_tol
         else:
             self.flow_ok, self.flow_bad_count, self.flow_fault = True, 0, False
         self.v_delivered += max(0.0, self.actual) * (dt / 60.0)   # µL (rate µL/min × min)
@@ -125,7 +141,8 @@ class MockPump(_CalibratedPump):
     def __init__(self, name: str, max_flow: float, sensor_min: float = 0.0,
                  max_pressure: float = 10000.0, calibration_factor: float = 1.0,
                  flowrate_table=None, flow_sensitivity: float = 1.0,
-                 flow_tol: float = 0.2, bad_flow_tol: int = 3, volume_limit=None):
+                 flow_tol: float = 0.2, bad_flow_tol: int = 3, volume_limit=None,
+                 flow_settle_s: float = 10.0):
         self.name = name
         self.max_flow = float(max_flow)
         self.sensor_min = float(sensor_min)
@@ -139,9 +156,10 @@ class MockPump(_CalibratedPump):
         self.fault = False
         self.stale = False
         self._init_cal(calibration_factor, flowrate_table, flow_sensitivity,
-                       flow_tol, bad_flow_tol, volume_limit)
+                       flow_tol, bad_flow_tol, volume_limit, flow_settle_s)
 
     def set_flow(self, rate: float) -> None:
+        self._arm_settle(rate)          # ramp grace before flow health is judged
         self.target = float(rate)
         self.idle = (rate == 0.0)
 
@@ -172,7 +190,8 @@ class RealPump(_CalibratedPump):
                  max_flow: float, sensor_min: float = 0.0,
                  max_pressure: float = 10000.0, calibration_factor: float = 1.0,
                  flowrate_table=None, flow_sensitivity: float = 1.0,
-                 flow_tol: float = 0.2, bad_flow_tol: int = 3, volume_limit=None):
+                 flow_tol: float = 0.2, bad_flow_tol: int = 3, volume_limit=None,
+                 flow_settle_s: float = 10.0):
         self.name = name
         self.max_flow = float(max_flow)
         self.sensor_min = float(sensor_min)
@@ -182,7 +201,7 @@ class RealPump(_CalibratedPump):
         # instrument setpoint (_to_setpt) and report true fluid flow (_to_true), so
         # the app's target/actual are TRUE fluid µL/min.
         self._init_cal(calibration_factor, flowrate_table, flow_sensitivity,
-                       flow_tol, bad_flow_tol, volume_limit)
+                       flow_tol, bad_flow_tol, volume_limit, flow_settle_s)
         self.target = 0.0
         self.actual = 0.0
         self.pressure = 0.0
@@ -244,6 +263,7 @@ class RealPump(_CalibratedPump):
         self._pump.tare_flow()
 
     def set_flow(self, rate: float) -> None:
+        self._arm_settle(rate)          # ramp grace before flow health is judged
         self.target = float(rate)                       # TRUE fluid setpoint (µL/min)
         self.idle = (rate == 0.0)
         # ⟵ REAL DRIVER: set the flow-rate setpoint in µL/min (driver converts
@@ -290,6 +310,11 @@ class PumpBank:
 
     def __init__(self, cfg: dict, backend: str = "mock"):
         from .config import PUMP_NAMES, REAGENT_PUMPS, FLUSH_PUMP
+        # Normalise so this layer can never disagree with the beamline layer
+        # about what "real" means (see reactor/app.py).
+        backend = str(backend).strip().lower()
+        if backend not in ("mock", "real"):
+            raise ValueError(f"backend must be 'mock' or 'real', got {backend!r}")
         self.backend = backend
         self.pumps: dict[str, object] = {}
         pumps_cfg = cfg.get("pumps", {})
@@ -299,6 +324,7 @@ class PumpBank:
         fsens = float(safety.get("flow_sensitivity", 1.0))   # µL/min low-flow floor
         ftol = float(safety.get("flow_tol", 0.2))            # fractional flow-OK band
         bft = int(safety.get("bad_flow_tol", 3))             # consecutive bad ticks before fault
+        fset = float(safety.get("flow_settle_s", 10.0))      # ramp grace after a setpoint change
         # Only build the pumps that are actually used: the reagents plus the SELECTED
         # flush pump. The dedicated ode_flush is skipped entirely when a reagent pump
         # (e.g. ode_dilution) is used for flushing — so a disconnected/no-air ode_flush
@@ -318,7 +344,8 @@ class PumpBank:
             tbl = pc.get("flowrate_table")                        # power-law calibration table
             vlim = pc.get("volume_limit")                         # per-pump delivered-volume cap
             cal = dict(calibration_factor=cf, flowrate_table=tbl, flow_sensitivity=fsens,
-                       flow_tol=ftol, bad_flow_tol=bft, volume_limit=vlim)
+                       flow_tol=ftol, bad_flow_tol=bft, volume_limit=vlim,
+                       flow_settle_s=fset)
             if backend == "real":
                 try:
                     addr = pc.get("address", "")
@@ -377,9 +404,18 @@ class PumpBank:
         else:
             raise ValueError(f"unknown tare kind '{kind}'")
 
-    def set_all(self, setpoints: dict) -> None:
+    def set_all(self, setpoints: dict) -> list[str]:
+        """Command every pump. Guarded per-pump like idle_all/zero_pumps: an
+        unguarded raise here used to propagate out of the control loop and kill
+        the supervising thread while the pumps already commanded kept flowing.
+        Returns the names of any pumps that did NOT accept their setpoint."""
+        failed: list[str] = []
         for name in self.pumps:
-            self.set_pump_flow(name, float(setpoints.get(name, 0.0)))
+            try:
+                self.set_pump_flow(name, float(setpoints.get(name, 0.0)))
+            except Exception:
+                failed.append(name)
+        return failed
 
     def idle_all(self) -> list[str]:
         """Idle / vent every pump. Each pump is guarded independently so one
@@ -457,11 +493,33 @@ class TempController:
         self._read_interval = float(t.get("read_interval_s", 1.0))   # throttle beamline reads
         self._read_accum = self._read_interval
         self.target = 0.0
-        self.current = 25.0           # ambient
+        self.current = 25.0           # ambient (see `stale` — never trust blindly)
+        #: wall-clock of the last SUCCESSFUL temperature read. A failed or
+        #: absent read must NOT leave a plausible-looking value standing in for
+        #: a live measurement: `current` would freeze at ambient and the T_max
+        #: E-stop could never trip. Only meaningful when a beamline is wired.
+        self._last_read_ok = time.time()
+        self._read_failures = 0
         self.bstop = None             # live beam-stop counter (from the beamline)
         self.i0 = None                # live incident-flux counter (from the beamline)
         self._in_band_since: float | None = None
         self._lock = threading.Lock()
+
+    @property
+    def stale(self) -> bool:
+        """True when the temperature reading can no longer be trusted.
+
+        Guards the case where the counter name is wrong or the bServer is
+        unreachable: read_state() then returns {} forever, `current` stays at
+        the ambient default, and `current > T_max` is permanently False — i.e.
+        the over-temperature interlock is silently disabled.
+        """
+        if self.beamline is None:
+            return False                      # no live source expected
+        return (time.time() - self._last_read_ok) > max(15.0, 5.0 * self._read_interval)
+
+    def age_s(self) -> float:
+        return time.time() - self._last_read_ok
 
     def set_temperature(self, T: float) -> None:
         """Set the reactor temperature. When a beamline is wired, this COMMANDS
@@ -504,10 +562,14 @@ class TempController:
                     st = self.beamline.read_state()
                     if st.get("temperature") is not None:
                         self.current = float(st["temperature"])
+                        self._last_read_ok = time.time()
+                        self._read_failures = 0
+                    else:
+                        self._read_failures += 1
                     self.bstop = st.get("bstop")
                     self.i0 = st.get("i0")
                 except Exception:
-                    pass
+                    self._read_failures += 1
         elif self.backend != "mock":
             self.current = self.read()
         else:

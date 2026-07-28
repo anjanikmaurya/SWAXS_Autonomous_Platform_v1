@@ -23,7 +23,8 @@ import yaml
 from .ground_truth import truth_from_recipe, describe
 from .pattern import (q_map, synthetic_q_map, load_mask, beamstop_mask,
                       simulate_frame)
-from .writer import AcquisitionWriter
+from .writer import (AcquisitionWriter, assert_safe_to_simulate,
+                     mark_simulated_dir)
 
 DEFAULTS: dict = {
     "enabled":        False,
@@ -41,6 +42,10 @@ DEFAULTS: dict = {
     "transmission":   0.62,
     "name_template":  "",
     "metadata_format": "",        # blank → from the project config.yml
+    #: "auto" → put frames under <folder>/2D/SAXS when <folder> is a project
+    #: root; "" → treat <folder> itself as the 2D base (the rig convention);
+    #: any other string → force that sub-directory name.
+    "two_d_subdir":   "auto",
     "truth":          {},         # overrides for ground_truth.DEFAULTS
 }
 
@@ -68,6 +73,13 @@ class SimulatedCollector:
         self._recipe = None
         self.last: dict | None = None          # ground truth of the last collect
         self.history: list = []
+
+    def stop(self) -> None:
+        """Cancel an in-flight acquisition (called from MockBeamline.close())."""
+        self._stop.set()
+
+    def resume(self) -> None:
+        self._stop = threading.Event()
 
     # ── configuration ────────────────────────────────────────────────────────
     def set_recipe(self, recipe) -> None:
@@ -121,12 +133,53 @@ class SimulatedCollector:
         meta = str(self.cfg["metadata_format"] or pc.get("metadata_format") or "csv")
         return det, shape, poni, mask, meta.lower()
 
+    def _two_d_base(self, folder: Path, detector: str) -> Path:
+        """Where the 2D tree lives, given the configured save folder.
+
+        The rig points ``data_dir`` straight at the 2D base (it already holds
+        SAXS/). The hub, by contrast, hands us a PROJECT ROOT, whose documented
+        layout is ``<project>/2D/SAXS``. Guessing wrong scatters frames where
+        the reduction app will never look, so resolve it explicitly:
+
+          • already named "2D"            → use as-is
+          • already contains <detector>/  → use as-is (rig convention)
+          • contains a "2D" sub-dir       → use that
+          • otherwise                     → create and use <folder>/2D
+        """
+        mode = str(self.cfg.get("two_d_subdir", "auto") or "").strip()
+        if mode and mode.lower() != "auto":
+            return folder / mode                     # explicit override
+        if not mode:
+            return folder                            # forced flat / rig style
+        if folder.name == "2D":
+            return folder
+        if (folder / detector).is_dir():
+            return folder
+        if (folder / "2D").is_dir():
+            return folder / "2D"
+        return folder / "2D"
+
     # ── main entry point ─────────────────────────────────────────────────────
     def collect(self, *, prefix: str, role: str = "sample", data_dir: str = "",
                 exposure: float = 1.0, frames: int = 1,
                 temperature: float = 25.0, recipe_id: str = "") -> dict:
         det, shape, poni, mask_path, meta_fmt = self._resolve()
-        two_d = Path(data_dir or self.project_root or ".")
+        folder = Path(data_dir or self.project_root or ".").expanduser()
+        two_d = self._two_d_base(folder, det)
+
+        # SAFETY INTERLOCK: never write synthetic frames where real detector
+        # data lives. The filename convention is identical, so a collision would
+        # silently overwrite genuine beamtime data.
+        assert_safe_to_simulate(two_d / det)
+
+        # Create the 2D/<detector> tree up front so the folders exist as soon as
+        # a collection starts — not only once the first frame lands.
+        created = not (two_d / det).is_dir()
+        (two_d / det).mkdir(parents=True, exist_ok=True)
+        mark_simulated_dir(two_d)          # stamp so the data is always traceable
+        mark_simulated_dir(two_d / det)
+        if created:
+            self._log(f"simulator: created {two_d / det}")
 
         # geometry: real .poni when available, otherwise a synthetic fallback so
         # the simulator still works before calibration has been done
@@ -175,6 +228,8 @@ class SimulatedCollector:
 
         rec = {"prefix": prefix, "role": role, "files": [str(f) for f in files],
                "n_frames": len(files), "detector": det, "geometry": geom,
+               "two_d_dir": str(two_d), "detector_dir": str(two_d / det),
+               "created_dirs": created,
                "truth": None if is_bkg else truth, "recipe_id": recipe_id}
         self.last = rec
         self.history.append(rec)

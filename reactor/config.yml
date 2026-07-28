@@ -97,7 +97,15 @@ safety:
   flow_sensitivity: 1.0       # µL/min: below this setpoint, judge flow by absolute error
   flow_tol:        0.2        # fractional band: |actual−target|/target within this = OK
   bad_flow_tol:    3          # consecutive out-of-band ticks before a pump is flagged
+  flow_settle_s:  10.0        # grace period after a setpoint CHANGE before flow health
+                              # is judged — a pump can't reach a new setpoint instantly,
+                              # and without this every run logs a false flow fault
+                              # during the initial ramp. Raise if your pumps are slow.
   flow_fault_estop: false     # true = E-stop on sustained bad flow; false = warn only
+  # A dead temperature source freezes the reading at ambient, which would make
+  # the T_max check permanently pass. Staleness is always reported loudly;
+  # set this true to make it trip the E-stop as well.
+  temp_stale_estop: false
 
 # ── Temperature gate (no active heater control — read-only) ──────────────────
 temperature:
@@ -129,12 +137,20 @@ spec:
   #
   # ⚠ Ignored when backend is "real". Turn OFF before beamtime.
   simulator:
-    enabled:      false       # ← flip to true for off-rig pipeline testing
+    enabled:      true       # ← flip to true for off-rig pipeline testing
     detector:     "SAXS"      # SAXS only (per design); shape from project config.yml
     shape:        [1043, 981] # fallback if the project config has no detector_shapes
     poni:         ""          # blank → project config poni_directory + poni_files.saxs
     mask:         ""          # blank → project config poni_directory + mask_files.saxs
     metadata_format: ""       # blank → project config metadata_format ("csv" or "pdi")
+    # Where the 2D tree goes under the save folder. The folders are CREATED if
+    # missing at the start of each collection.
+    #   "auto" — folder already named 2D, or already holding SAXS/ → use as-is
+    #            (the rig convention, where data_dir IS the 2D base);
+    #            otherwise treat it as a project root → <folder>/2D/SAXS
+    #   ""     — always treat the save folder itself as the 2D base
+    #   "2D"   — always append this sub-directory
+    two_d_subdir: "auto"
     speed_factor: 1.0         # 1.0 = real time (honours exposure × frames);
                               # 10 = 10× faster; 0 = write instantly
     flux:         1.0e6       # counts/s scale at I(0)
@@ -177,6 +193,13 @@ spec:
   hub_path_map:
     from: "X:\\bl1-5"                    # Windows prefix the hub picks
     to:   "/msd_data/checkout/bl1-5"     # matching Linux prefix SPEC writes to
+  # ── MOCK backend save folder ────────────────────────────────────────────────
+  # In mock mode the hub_path_map translation above is SKIPPED: no SPEC is
+  # involved and the 2D simulator writes with ordinary local file I/O, so the
+  # hub project folder is used verbatim (a /msd_data/... path wouldn't exist on
+  # a laptop). Set this to pin mock output somewhere else instead; blank = use
+  # the hub folder. Ignored when the backend is "real".
+  mock_data_dir: ""     # e.g. "/Users/akmaurya/Desktop/sim_test"
   # filename role tags → {recipe_id}_{sample_tag} (during run) and
   # {recipe_id}_{bkg_tag} (during flush). Shared recipe_id pairs them for subtraction.
   sample_tag:  "sample"

@@ -119,7 +119,10 @@ def macro_command_lines(text: str) -> list[str]:
 def make_beamline(cfg: dict | None = None):
     c = dict(_DEFAULTS)
     c.update((cfg or {}).get("spec", {}) if cfg else {})
-    return (SpecBeamline(c) if str(c.get("backend", "mock")).lower() == "real"
+    # .strip() as well as .lower(): the pump layer normalises the same way, and
+    # any disagreement between the two means a LIVE beamline paired with
+    # SIMULATED pumps (or the reverse). They must resolve identically.
+    return (SpecBeamline(c) if str(c.get("backend", "mock")).strip().lower() == "real"
             else MockBeamline(c))
 
 
@@ -312,6 +315,21 @@ class MockBeamline(BeamlineDriver):
     def _read_epics_state(self) -> dict:
         return self._do_read_state()
 
+    def _do_close(self):
+        """Stop any in-flight synthetic acquisition.
+
+        Without this, a simulated acquisition (up to frames × exposure seconds of
+        wall clock) kept writing .raw files into the watched folder AFTER the
+        backend had been switched to real — interleaving synthetic and genuine
+        frames in the same directory.
+        """
+        sim = self.simulator
+        if sim is not None:
+            try:
+                sim.stop()
+            except Exception:
+                logger.exception("could not stop the 2D simulator")
+
     # Forwarded to the simulator so synthetic particles track the live recipe.
     def set_recipe(self, recipe) -> None:
         if self.simulator is not None:
@@ -344,8 +362,11 @@ class MockBeamline(BeamlineDriver):
                     temperature=float(params.get("temperature", 25.0)),
                     recipe_id=str(params.get("recipe_id", "")))
             except Exception as exc:
-                logger.exception("simulator failed: %s", exc)
-                rec["simulator_error"] = str(exc)
+                # Keep the traceback out of the console: the reactor log already
+                # reports this in operator-readable form via simulator_error.
+                logger.error("2D simulator could not write frames: %s: %s",
+                             exc.__class__.__name__, exc)
+                rec["simulator_error"] = f"{exc.__class__.__name__}: {exc}"
         elif self._collect_s:
             time.sleep(self._collect_s)
 

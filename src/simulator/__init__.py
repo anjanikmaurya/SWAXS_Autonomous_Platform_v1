@@ -13,7 +13,8 @@ from .pattern import (sphere_form_factor, schulz_weights, iq_curve,
                       background_curve, q_map, synthetic_q_map, load_mask,
                       beamstop_mask, simulate_frame)
 from .writer import (frame_name, write_raw, counters, write_csv_metadata,
-                     write_pdi_metadata, AcquisitionWriter)
+                     write_pdi_metadata, AcquisitionWriter, MARKER,
+                     is_simulated_dir, mark_simulated_dir, assert_safe_to_simulate)
 from .collector import SimulatedCollector, DEFAULTS as SIM_DEFAULTS
 
 __all__ = [
@@ -21,6 +22,7 @@ __all__ = [
     "sphere_form_factor", "schulz_weights", "iq_curve", "background_curve",
     "q_map", "synthetic_q_map", "load_mask", "beamstop_mask", "simulate_frame",
     "frame_name", "write_raw", "counters", "write_csv_metadata",
-    "write_pdi_metadata", "AcquisitionWriter",
+    "write_pdi_metadata", "AcquisitionWriter", "MARKER", "is_simulated_dir",
+    "mark_simulated_dir", "assert_safe_to_simulate",
     "SimulatedCollector", "SIM_DEFAULTS",
 ]

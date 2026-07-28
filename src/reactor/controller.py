@@ -47,6 +47,9 @@ class ReactorController:
     def __init__(self, cfg: dict, backend: str = "mock", *,
                  log_cb=None, event_cb=None, feedback_cb=None, manifest_cb=None):
         self.cfg = cfg
+        backend = str(backend).strip().lower()
+        if backend not in ("mock", "real"):
+            raise ValueError(f"backend must be 'mock' or 'real', got {backend!r}")
         self.backend = backend
         self.pumps = PumpBank(cfg, backend=backend)
         # beamline follows the same backend as the pumps (one Mock/Real switch)
@@ -118,6 +121,10 @@ class ReactorController:
         self.per_pump_max = float(s.get("per_pump_max", 1000.0))
         self._flow_fault_estop = bool(s.get("flow_fault_estop", False))   # else just warn
         self._flow_faulted_prev: set = set()   # for one-shot flow-fault warnings
+        # Stale-temperature handling: warn once by default; set
+        # safety.temp_stale_estop: true to make it trip the E-stop instead.
+        self._temp_stale_warned = False
+        self._temp_stale_estop = bool(s.get("temp_stale_estop", False))
         # SPEC data-collection: fire a 2D acquisition this long before the run ends
         spec = cfg.get("spec", {})
         self._spec_enabled = bool(spec.get("enabled", True))
@@ -204,7 +211,12 @@ class ReactorController:
                         raise ValueError(f"{name}: calibration_factor must be > 0 (got {cf})")
                     pc["calibration_factor"] = cf
                     p.calibration_factor = cf
-            self._log("⚙ pump limits / calibration updated", "info")
+            changed = ", ".join(
+                f"{n}[{v.get('sensor_min', '·')}–{v.get('max_flow', '·')} µL/min"
+                + (f", cal×{v['calibration_factor']}" if str(v.get("calibration_factor", "")).strip() else "")
+                + "]"
+                for n, v in (limits or {}).items())
+            self._log(f"⚙ pump limits updated — {changed or '(no changes)'}", "info")
             return self.pump_limits()
 
     def tare_pump(self, name: str, kind: str = "pressure") -> tuple[bool, str]:
@@ -359,13 +371,22 @@ class ReactorController:
                 self._log("⛔ abort during flush — idling all", "warn")
                 self._to_idle()
 
-    def estop(self) -> None:
+    def estop(self) -> list[str]:
+        """Emergency stop. Returns the names of any pumps that could NOT be idled
+        so the caller (API/UI) can report a partial failure instead of a green
+        tick — this is the one path where a false 'success' is unacceptable."""
         with self._lock:
             # Record the E-stop FIRST: even if a serial write below throws, the
             # system must not be left without the estop state (and _safety_check
             # must see it to stop re-entering).
             self.state = "estop"
             self.current = None
+            # Kill the autonomous loop too: otherwise the folder watcher submits
+            # the next condition and the rig restarts into the unresolved fault.
+            if self.auto_run:
+                self.auto_run = False
+                self._log("⏸ auto-run DISABLED by the emergency stop — re-enable it "
+                          "deliberately after clearing the fault", "warn")
             failed = self.pumps.idle_all()   # guarded per-pump; never blocks on one
             # PUMPS ONLY: deliberately send NOTHING to the beamline/SPEC here, so
             # an in-progress X-ray collection finishes on its own and SPEC is not
@@ -376,6 +397,7 @@ class ReactorController:
             else:
                 self._log("🛑 EMERGENCY STOP — all pumps idle", "error")
             self._event("reactor.estop", {"failed_to_idle": failed})
+            return failed
 
     def reset(self) -> None:
         with self._lock:
@@ -397,13 +419,42 @@ class ReactorController:
                 return True, f"already {backend}"
             if self.state not in ("idle", "ready", "estop"):
                 return False, f"can't switch backend while {self.state} — stop the run first"
+            # A manual collect is allowed in idle/ready/estop and runs in its own
+            # thread. Tearing the beamline down underneath it would release SPEC
+            # remote control mid-acquisition, or hand a queued mock collect to
+            # real hardware.
+            try:
+                if self.beamline.is_collecting():
+                    return False, ("a 2D collection is in progress — wait for it "
+                                   "to finish before switching backend")
+            except Exception:
+                pass
+
+            # Build EVERYTHING before swapping anything. Previously the new pump
+            # bank was installed first, so a later failure (e.g. SpecBeamline's
+            # `import requests`) escaped with REAL pumps open while self.backend
+            # still said "mock" — the operator would believe they were simulating.
+            new_pumps = new_beamline = new_temp = None
             try:
                 new_pumps = PumpBank(self.cfg, backend=backend)   # opens ports for 'real'
+                new_beamline = make_beamline(_spec_cfg_for(self.cfg, backend))
+                new_temp = TempController(self.cfg, backend=backend, beamline=new_beamline)
             except Exception as exc:
+                for p in getattr(new_pumps, "pumps", {}).values():
+                    try:
+                        p.close()
+                    except Exception:
+                        pass
+                try:
+                    if new_beamline is not None:
+                        new_beamline.close()
+                except Exception:
+                    pass
                 self._log(f"⚠ backend stays {self.backend.upper()} — could not start "
                           f"{backend.upper()}: {exc}", "error")
                 return False, str(exc)
-            # release the old backend's pumps, then swap in the new one
+
+            # Only now release the old backend and commit the swap.
             try:
                 self.pumps.idle_all()
             except Exception:
@@ -413,15 +464,14 @@ class ReactorController:
                     p.close()
                 except Exception:
                     pass
-            self.pumps = new_pumps
-            # switch the beamline to the same mode (one toggle covers pumps + SPEC)
             try:
-                self.beamline.close()
+                self.beamline.close()      # MockBeamline stops any simulator thread
             except Exception:
                 pass
-            self.beamline = make_beamline(_spec_cfg_for(self.cfg, backend))
+            self.pumps = new_pumps
+            self.beamline = new_beamline
+            self.temp = new_temp
             self.cfg.setdefault("spec", {})["backend"] = backend
-            self.temp = TempController(self.cfg, backend=backend, beamline=self.beamline)
             self.backend = backend
             self.state = "idle"
             self.current = None
@@ -436,17 +486,27 @@ class ReactorController:
         """Vent every pump so chamber pressure returns to 0, from ANY state and
         in either mode (manual or autonomous). Does NOT stop the autonomous loop
         — auto-run is left as-is, so the next condition file will run normally.
-        The queue is kept."""
+        The queue is kept.
+
+        An E-STOP IS LATCHED and is NOT cleared here: venting is the natural
+        reflex after a fault, and silently dropping to 'idle' would let the
+        folder watcher submit the next recipe straight back into the unresolved
+        fault. Use reset() to leave the E-stop deliberately.
+        """
         with self._lock:
+            was_estop = self.state == "estop"
             failed = self.pumps.idle_all()   # P0 to every pump → chamber → 0
             self.temp.set_temperature(0.0)
-            self.current = None
             self.setpoints = {}
-            self.state = "idle"
+            if not was_estop:
+                self.current = None
+                self.state = "idle"
             if failed:
                 self._log(f"⚠ vent: could not idle {', '.join(failed)} — check these pumps", "warn")
-            self._log("🟦 vented all pumps — chamber pressure reset to 0", "info")
-            self._event("reactor.vent", {})
+            self._log("🟦 vented all pumps — chamber pressure reset to 0"
+                      + (" (E-STOP still latched — press Reset to clear)" if was_estop else ""),
+                      "warn" if was_estop else "info")
+            self._event("reactor.vent", {"estop_latched": was_estop})
 
     # ── flush ─────────────────────────────────────────────────────────────────
     def flush_now(self, rate: float | None = None, duration: float | None = None,
@@ -467,6 +527,12 @@ class ReactorController:
         self.setpoints = setpoints
         self._measure_done = False
         self._run_reason = ""
+        # Clear the PREVIOUS run's measurements now, not in _enter_running — an
+        # abort during arming would otherwise report the last run's flows.
+        self._run_started = 0.0
+        self._meas_sum = {}
+        self._meas_n = 0
+        self._meas_series = []
         # Hand the recipe to the beamline backend. No-op on real SPEC; in mock
         # mode this is what makes the SIMULATED 2D data reflect this recipe, so
         # the optimizer sees a real landscape instead of constant results.
@@ -502,7 +568,15 @@ class ReactorController:
     def _enter_running(self) -> None:
         self.pumps.reset_volumes()          # start counting delivered volume for this run
         self._flow_faulted_prev = set()
-        self.pumps.set_all(self.setpoints)
+        failed_set = self.pumps.set_all(self.setpoints)
+        if failed_set:
+            # Some pumps are flowing and others refused the command — the mixture
+            # is wrong and unsupervised. Stop rather than run a bad composition.
+            self._log(f"🛑 could not command pump(s) {', '.join(failed_set)} — "
+                      f"emergency stop (the remaining pumps would deliver the "
+                      f"wrong composition)", "error")
+            self.estop()
+            return
         self._meas_sum = {name: 0.0 for name in self.pumps.pumps}
         self._meas_n = 0
         self._meas_series = []
@@ -513,7 +587,41 @@ class ReactorController:
         self._run_deadline = self._run_started + float(dur)
         self.state = "running"
         sp = ", ".join(f"{k}={v:g}" for k, v in self.setpoints.items() if v)
-        self._log(f"▶ running {self.current.recipe_id}: {sp} µL/min", "ok")
+        self._log(f"▶ RUN START {self.current.recipe_id} — {sp} µL/min "
+                  f"@ {self.current.T_reac:g}°C for {float(dur):g}s", "ok")
+
+        # Spell out what will END the run, so an unexpectedly short/long run can
+        # be traced to the trigger that actually fired.
+        enders = [f"duration {float(dur):g}s", "measurement-complete signal"]
+        if self.advance_on_new:
+            enders.append(f"next queued condition (after {self.min_dwell:g}s dwell)")
+        self._log(f"   ends on: first of — {'; '.join(enders)}", "info")
+
+        # And when the 2D collection is due. Silence here was the main reason a
+        # missing acquisition was hard to diagnose.
+        if not self._spec_enabled:
+            self._log("   📷 2D collection DISABLED (spec.enabled = false) — "
+                      "no data will be written this run", "warn")
+        elif not self._spec_data_dir:
+            self._log("   ⚠ 2D collection enabled but SPEC data_dir is UNSET — "
+                      "set the Save folder or it will fail", "warn")
+        elif self.backend != "real" and getattr(self.beamline, "simulator", None) is None:
+            self._log("   ⚠ MOCK backend with the 2D simulator OFF — collections "
+                      "will be logged but NO files written. Set "
+                      "spec.simulator.enabled: true to generate synthetic data.",
+                      "warn")
+        else:
+            if self.backend != "real":
+                self._check_mock_dir_writable()
+            fire_in = float(dur) - self._spec_lead
+            if fire_in <= 0:
+                self._log(f"   📷 2D collection fires IMMEDIATELY — lead "
+                          f"{self._spec_lead:g}s ≥ run duration {float(dur):g}s "
+                          f"(reduce spec_lead_s to collect later in the run)", "warn")
+            else:
+                self._log(f"   📷 2D collection due at T+{fire_in:g}s "
+                          f"({self._spec_lead:g}s before the end) → "
+                          f"{self._spec_data_dir}", "info")
         self._event("reactor.run_start",
                     {"recipe_id": self.current.recipe_id,
                      "setpoints": self.setpoints, "T_reac": self.current.T_reac})
@@ -522,6 +630,21 @@ class ReactorController:
         rec = self.current
         ended = time.time()
         reason = self._run_reason or "ended"
+        # A run that never left `arming` produced no flow and no measurement.
+        # Emitting a record here used to copy the PREVIOUS run's measured_flows
+        # and flow_series into a <recipe_id>.done.json marked status="ran" — the
+        # optimizer would then train on a synthesis that never happened.
+        never_ran = not self._run_started
+        if never_ran:
+            self._log(f"⏹ {rec.recipe_id if rec else '?'} ended before the pumps "
+                      f"started ({reason}) — no run record written", "info")
+            self.current = None
+            self.setpoints = {}
+            if flush:
+                self._enter_flush()
+            else:
+                self._to_idle()
+            return
         # stop reagents immediately (guarded per-pump so one failure can't leave
         # the others flowing)
         failed = self.pumps.zero_pumps(REAGENT_PUMPS)
@@ -549,7 +672,28 @@ class ReactorController:
             "reason": reason, "status": "ran",
         }
         self.history.append(record)
-        self._log(f"⏹ run {record['recipe_id']} ended ({reason})", "ok")
+
+        # Elapsed vs planned makes "why was my synthesis shorter than I set?"
+        # answerable from the log alone.
+        planned = (self._run_deadline - self._run_started) if self._run_started else None
+        actual = record["duration_s"]
+        timing = f"{actual:g}s" if actual is not None else "?"
+        if planned and actual is not None:
+            delta = actual - planned
+            timing = (f"{actual:g}s of {planned:g}s planned"
+                      + (f" ({delta:+.0f}s)" if abs(delta) >= 1 else ""))
+        self._log(f"⏹ RUN END {record['recipe_id']} — ran {timing}; "
+                  f"stopped by: {reason}", "ok")
+        if planned and actual is not None and actual < planned - 1 and reason != "duration elapsed":
+            self._log(f"   ↳ ended EARLY by {planned - actual:.0f}s because "
+                      f"'{reason}' fired before the {planned:g}s duration", "info")
+
+        # The most confusing failure mode: the run finished but no 2D data exists.
+        if self._spec_enabled and not self._spec_fired:
+            self._log("   ⚠ NO 2D collection fired this run — the run ended before "
+                      f"T+{max(0.0, (planned or 0) - self._spec_lead):g}s "
+                      f"(spec_lead_s={self._spec_lead:g}s). Shorten spec_lead_s or "
+                      "lengthen the run.", "warn")
         try:
             self._manifest(record)
             # the full delivered-flow trace goes ONLY in the done file (kept out
@@ -594,19 +738,31 @@ class ReactorController:
         # smaller sensor than ode_flush — e.g. ode_dilution maxes at 50 µL/min)
         maxf = float(self.cfg.get("pumps", {}).get(flush_pump, {}).get("max_flow", r))
         if r > maxf:
-            self._log(f"⚠ flush rate {r:g} > {flush_pump} max {maxf:g} µL/min — clamping to {maxf:g}", "warn")
+            self._log(f"⚠ flush rate {r:g} µL/min exceeds {flush_pump}'s max "
+                      f"{maxf:g} µL/min — clamped to {maxf:g} (flush will take longer)",
+                      "warn")
             r = maxf
         self.pumps.set_pump_flow(flush_pump, r)
         self.state = "flushing"
         self._flush_kind = kind
         self._flush_deadline = time.time() + d
         self._bkg_fired = False        # arm the background acquisition for this flush
-        self._log(f"🧼 {kind}: {flush_pump} {r:g} µL/min for {d:g}s "
-                  f"(new recipes blocked)", "info")
+        self._log(f"🧼 FLUSH START ({kind}) — {flush_pump} at {r:g} µL/min for {d:g}s; "
+                  f"new recipes are blocked until it finishes", "info")
+        if self._spec_enabled and kind == "flush" and self.current is not None:
+            when = d - self._spec_lead
+            if when > 0:
+                self._log(f"   📷 background 2D collection due at T+{when:g}s of the flush",
+                          "info")
+            else:
+                self._log(f"   📷 background 2D collection fires immediately "
+                          f"(lead {self._spec_lead:g}s ≥ flush {d:g}s)", "warn")
 
     def _end_flush(self) -> None:
         self.pumps.set_pump_flow(self._flush_pump, 0.0)
-        self._log(f"✓ {self._flush_kind} complete", "ok")
+        nxt = (f"starting next of {len(self.queue)} queued condition(s)"
+               if self.queue else "no conditions queued — going idle")
+        self._log(f"✓ {self._flush_kind} complete ({self._flush_pump} stopped) — {nxt}", "ok")
         if self.current is not None:
             self._event("reactor.ready", {"recipe_id": self.current.recipe_id})
         # advance to the next queued recipe, or idle/vent the pumps and wait
@@ -633,28 +789,86 @@ class ReactorController:
         ``{recipe_id}_{tag}`` so averaging separates the two and background
         subtraction pairs them by the shared recipe_id. Runs in its own thread —
         blocking SPEC I/O must not stall the control loop."""
+        t_start = time.time()
+        # Bind the backend and beamline ONCE. This runs in its own thread, so a
+        # backend switch between dispatch and execution would otherwise send a
+        # mock-initiated collect to real hardware (or vice versa).
+        bl = self.beamline
+        backend_at_dispatch = self.backend
         try:
+            if backend_at_dispatch != self.backend:
+                self._log(f"📷 2D {role} collect CANCELLED — backend changed from "
+                          f"{backend_at_dispatch} to {self.backend} before it ran", "warn")
+                return
             tag = self._spec_sample_tag if role == "sample" else self._spec_bkg_tag
             prefix = f"{recipe_id}_{tag}"
             path = (f"{self._spec_data_dir.rstrip('/')}/{prefix}"
                     if self._spec_data_dir else prefix)
-            self._log(f"📷 SPEC {role} collect → {path} "
-                      f"(exp {self._spec_exposure:g}s ×{self._spec_frames})", "ok")
+            total_s = self._spec_exposure * self._spec_frames
+            self._log(f"📷 2D {role.upper()} collect START — {self._spec_frames} frame(s) "
+                      f"× {self._spec_exposure:g}s = {total_s:g}s total "
+                      f"[{self.backend.upper()}]", "ok")
+            self._log(f"   → {path}_*.raw", "info")
             self._last_collect = {"role": role, "recipe_id": recipe_id, "path": path,
                                   "t": time.time()}
-            self.beamline.collect(recipe_id=recipe_id, role=role, path=path,
-                                  sample=prefix, main_folder=self._spec_data_dir,
-                                  temperature=self.temp.target,
-                                  exposure=self._spec_exposure, frames=self._spec_frames)
-            self._log(f"📷 SPEC {role} collect complete: {recipe_id}", "ok")
+            bl.collect(recipe_id=recipe_id, role=role, path=path,
+                       sample=prefix, main_folder=self._spec_data_dir,
+                       temperature=self.temp.target,
+                       exposure=self._spec_exposure, frames=self._spec_frames)
+            # Report what ACTUALLY landed on disk. In mock mode without the
+            # simulator, collect() is a no-op — saying "DONE" there is a lie that
+            # sends you hunting for files that were never written.
+            sim = getattr(bl, "simulator", None)
+            recs = getattr(bl, "collections", None) or []
+            sim_err = recs[-1].get("simulator_error") if recs else None
+            if backend_at_dispatch != "real" and sim is None:
+                self._log(f"📷 2D {role} collect — NO FILES WRITTEN. The mock "
+                          f"beamline only records the request; set "
+                          f"spec.simulator.enabled: true in reactor/config.yml to "
+                          f"generate synthetic 2D data.", "warn")
+            elif sim_err:
+                self._log(f"📷 2D {role} collect — NO FILES WRITTEN: {sim_err}",
+                          "error")
+            elif sim is not None and getattr(sim, "last", None):
+                last = sim.last
+                self._log(f"📷 2D {role.upper()} collect DONE — {last['n_frames']} "
+                          f"frame(s) written to {last['detector_dir']} "
+                          f"({time.time() - t_start:.0f}s)", "ok")
+            else:
+                self._log(f"📷 2D {role.upper()} collect DONE — {recipe_id} "
+                          f"({time.time() - t_start:.0f}s)", "ok")
             self._event("reactor.spec_collect",
                         {"recipe_id": recipe_id, "role": role, "path": path})
         except Exception as exc:
-            self._log(f"⚠ SPEC {role} collect failed ({recipe_id}): {exc}", "error")
+            self._log(f"⚠ 2D {role} collect FAILED for {recipe_id}: {exc}", "error")
+            self._log(f"   check: SPEC/bServer reachable, save folder writable "
+                      f"({self._spec_data_dir or 'UNSET'}), detector armed", "error")
 
     # ── background loop ─────────────────────────────────────────────────────────
     def _loop(self) -> None:
         while self._alive:
+            # NOTHING may escape this loop. If an unhandled exception killed the
+            # thread, _safety_check() would stop running while reagent pumps are
+            # still commanded — no over-temperature, over-pressure, volume or
+            # flow-fault supervision, and no run deadline. Fail loud and safe.
+            try:
+                self._tick_once()
+            except Exception as exc:                     # noqa: BLE001
+                try:
+                    self._log(f"🛑 CONTROL LOOP FAULT — {exc.__class__.__name__}: {exc}. "
+                              f"Emergency-stopping so pumps are not left running "
+                              f"without supervision.", "error")
+                except Exception:
+                    pass
+                logger.exception("control loop fault")
+                try:
+                    self.estop()
+                except Exception:
+                    logger.exception("estop failed inside loop fault handler")
+            time.sleep(0.2)
+
+    def _tick_once(self) -> None:
+        if True:
             now = time.time()
             dt = now - self._last
             self._last = now
@@ -671,15 +885,25 @@ class ReactorController:
                     if self._arm_mode == "timed":
                         # start the pumps once the computed wait elapses; no
                         # temperature gating and no arm timeout in these modes.
+                        self._arm_progress(now, timed=True)
                         if now >= self._arm_ready_at:
                             self._enter_running()
                     elif self.temp.is_stable():
                         self._enter_running()
                     elif now > self._arm_deadline:
-                        self._log(f"⚠ arm timeout — {self.current.recipe_id if self.current else '?'} "
-                                  f"never reached temperature; aborting", "error")
+                        rid = self.current.recipe_id if self.current else "?"
+                        tgt = self.current.T_reac if self.current else float("nan")
+                        self._log(
+                            f"⚠ ARM TIMEOUT — {rid} aborted after "
+                            f"{now - (self._arm_deadline - self.temp.timeout):.0f}s: "
+                            f"reactor reached {self.temp.current:.1f}°C but needs "
+                            f"{tgt:g}±{self.temp.tolerance:g}°C. Check the heater/"
+                            f"thermocouple, raise arming.timeout_s, or use "
+                            f"arm_mode='timed' if no thermocouple is wired.", "error")
                         self._run_reason = "arm timeout"
                         self._to_idle()
+                    else:
+                        self._arm_progress(now, timed=False)
                 elif self.state == "running":
                     for _nm, _p in self.pumps.pumps.items():
                         self._meas_sum[_nm] = self._meas_sum.get(_nm, 0.0) + getattr(_p, "actual", 0.0)
@@ -722,7 +946,50 @@ class ReactorController:
                                          daemon=True).start()
                     if now > self._flush_deadline:
                         self._end_flush()
-            time.sleep(0.2)
+
+    def _check_mock_dir_writable(self) -> bool:
+        """In mock mode the simulator writes with plain file I/O, so the save
+        folder must exist locally. The shipped config points data_dir at the
+        BEAMLINE path (/msd_data/...), which is unwritable on a laptop — catch
+        that here instead of at the first frame."""
+        from pathlib import Path                                  # noqa: PLC0415
+        d = Path(self._spec_data_dir)
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+            probe = d / ".swaxs_write_test"
+            probe.write_text("")
+            probe.unlink()
+            return True
+        except Exception as exc:
+            self._log(f"   ⛔ save folder is NOT writable: {d} ({exc.__class__.__name__}) "
+                      f"— synthetic data cannot be saved. Point the Save folder at a "
+                      f"local directory, or set spec.mock_data_dir in "
+                      f"reactor/config.yml.", "error")
+            return False
+
+    #: seconds between "still waiting" progress lines while arming
+    ARM_PROGRESS_S = 20.0
+
+    def _arm_progress(self, now: float, timed: bool) -> None:
+        """Periodic 'still arming' line. Without this the app looks frozen while
+        the reactor heats, and there is nothing in the log to show whether the
+        temperature was actually climbing."""
+        last = getattr(self, "_arm_last_log", 0.0)
+        if now - last < self.ARM_PROGRESS_S:
+            return
+        self._arm_last_log = now
+        rid = self.current.recipe_id if self.current else "?"
+        if timed:
+            left = max(0.0, self._arm_ready_at - now)
+            self._log(f"⏲ arming {rid} — {left:.0f}s left of the timed wait "
+                      f"(reactor {self.temp.current:.1f}°C)", "info")
+        else:
+            tgt = self.current.T_reac if self.current else float("nan")
+            left = max(0.0, self._arm_deadline - now)
+            self._log(f"🌡 arming {rid} — {self.temp.current:.1f}°C → "
+                      f"{tgt:g}±{self.temp.tolerance:g}°C "
+                      f"(Δ{tgt - self.temp.current:+.1f}°C, {left:.0f}s before timeout)",
+                      "info")
 
     def _safety_check(self) -> None:
         if self.state == "estop":
@@ -734,44 +1001,75 @@ class ReactorController:
             faulted = [n for n, p in self.pumps.pumps.items()
                        if getattr(p, "fault", False)]
             if faulted:
-                self._log(f"🛑 SAFETY: pump(s) {', '.join(faulted)} in ERROR/lost state "
-                          f"(check air supply / blockage / flow sensor / connection) — emergency stop",
-                          "error")
+                self._log(f"🛑 SAFETY E-STOP: pump(s) {', '.join(faulted)} report "
+                          f"ERROR/lost state while {self.state} — check air supply, "
+                          f"blockage, flow sensor and serial connection", "error")
                 self.estop()
                 return
+        # A dead temperature source is NOT "25 °C, all good": if read_state()
+        # keeps failing, `current` freezes at the ambient default and the T_max
+        # comparison below can never be true — the thermal interlock would be
+        # silently disabled while reagents flow through a hot reactor.
+        if self.state in ("arming", "running", "flushing") and self.temp.stale:
+            if not self._temp_stale_warned:
+                self._temp_stale_warned = True
+                self._log(f"🛑 SAFETY: temperature reading is STALE "
+                          f"({self.temp.age_s():.0f}s since the last successful read) "
+                          f"— the over-temperature interlock cannot protect you. "
+                          f"Check the SPEC/EPICS temperature source "
+                          f"(spec.temp_counter / spec.epics_pvs).", "error")
+                if self._temp_stale_estop:
+                    self.estop()
+                    return
+        elif not self.temp.stale:
+            self._temp_stale_warned = False
+
         if self.temp.current > self.T_max + 0.5:
-            self._log(f"🛑 SAFETY: temperature {self.temp.current:.0f}°C > T_max", "error")
+            self._log(f"🛑 SAFETY E-STOP: reactor {self.temp.current:.1f}°C exceeds "
+                      f"T_max {self.T_max:g}°C — all pumps idled", "error")
             self.estop()
             return
         for name, p in self.pumps.pumps.items():
             if p.target > self.per_pump_max + 1e-6:
-                self._log(f"🛑 SAFETY: {name} target {p.target:.0f} > per_pump_max", "error")
+                self._log(f"🛑 SAFETY E-STOP: {name} setpoint {p.target:.1f} µL/min "
+                          f"exceeds per_pump_max {self.per_pump_max:g} µL/min "
+                          f"— check the recipe or safety.per_pump_max", "error")
                 self.estop()
                 return
             # pump pressure must never exceed the pump's pressure ceiling
             pmax = getattr(p, "max_pressure", 0.0)
             if pmax and getattr(p, "pressure", 0.0) > pmax + 1e-6:
-                self._log(f"🛑 SAFETY: {name} pressure {p.pressure:.0f} mbar "
-                          f"> max {pmax:.0f} mbar — emergency stop", "error")
+                self._log(f"🛑 SAFETY E-STOP: {name} at {p.pressure:.0f} mbar exceeds "
+                          f"its {pmax:.0f} mbar ceiling — likely a blockage "
+                          f"downstream; check the line and capillary", "error")
                 self.estop()
                 return
         # delivered-volume limit + sustained-bad-flow checks (during a run)
         if self.state == "running":
             vex = self.pumps.volume_exceeded()
             if vex:
-                self._log(f"🛑 SAFETY: {', '.join(vex)} exceeded delivered-volume limit "
-                          f"— ending run (flush)", "warn")
+                det = ", ".join(
+                    f"{n} {getattr(self.pumps.pumps.get(n), 'v_delivered', 0.0):.0f}/"
+                    f"{getattr(self.pumps.pumps.get(n), 'volume_limit', 0.0):.0f} µL"
+                    for n in vex)
+                self._log(f"🛑 SAFETY: delivered-volume limit reached ({det}) "
+                          f"— ending the run early and flushing", "warn")
                 self._run_reason = "volume limit exceeded"
                 self._end_run(flush=True)
                 return
             ff = set(self.pumps.flow_faults())
             if ff and self._flow_fault_estop:
-                self._log(f"🛑 SAFETY: {', '.join(sorted(ff))} flow far from setpoint "
-                          f"(check supply/blockage/sensor) — emergency stop", "error")
+                self._log(f"🛑 SAFETY E-STOP: {', '.join(sorted(ff))} flow is far from "
+                          f"setpoint — check supply pressure, blockage and the flow "
+                          f"sensor (set safety.flow_fault_estop=false to warn only)",
+                          "error")
                 self.estop()
                 return
             for nm in ff - self._flow_faulted_prev:      # warn once per onset
-                self._log(f"⚠ {nm}: flow far from setpoint (check supply/blockage/sensor)", "warn")
+                p = self.pumps.pumps.get(nm)
+                act, tgt = getattr(p, "actual", 0.0), getattr(p, "target", 0.0)
+                self._log(f"⚠ {nm}: measured {act:.1f} vs setpoint {tgt:.1f} µL/min "
+                          f"— check supply/blockage/sensor (run continues)", "warn")
             self._flow_faulted_prev = ff
 
     # ── status ──────────────────────────────────────────────────────────────────

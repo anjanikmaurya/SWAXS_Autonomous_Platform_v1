@@ -48,7 +48,15 @@ app = Flask(__name__)
 
 _project_root: str = os.environ.get("SWAXS_PROJECT", "")   # folder selected in the hub
 _CFG = load_config()
-_BACKEND = os.environ.get("SWAXS_REACTOR_BACKEND", "mock")   # "mock" | "real"
+# Normalise and validate: the pump layer and the beamline layer used to compare
+# this string differently ("== 'real'" vs ".lower() == 'real'"), so a value like
+# "REAL" gave a LIVE beamline with SIMULATED pumps. Fail closed instead.
+_BACKEND = os.environ.get("SWAXS_REACTOR_BACKEND", "mock").strip().lower()
+if _BACKEND not in ("mock", "real"):
+    raise SystemExit(
+        f"SWAXS_REACTOR_BACKEND must be 'mock' or 'real' (got "
+        f"{os.environ.get('SWAXS_REACTOR_BACKEND')!r}). Refusing to start rather "
+        f"than guess — an ambiguous value can mean live hardware.")
 
 # ── log buffer (fed by the controller, streamed over SSE) ─────────────────────
 _log: collections.deque = collections.deque(maxlen=500)
@@ -68,10 +76,23 @@ def _sync_data_dir_from_hub(folder: str) -> None:
     """When the hub folder changes, update the SPEC data_dir to follow it. The hub
     folder is a Windows path; SPEC needs the matching Linux path, so translate via
     spec.hub_path_map. If data_dir_from_hub is off or the path can't be mapped,
-    fall back to seeding data_dir only if it's still unset (never send SPEC a bad path)."""
+    fall back to seeding data_dir only if it's still unset (never send SPEC a bad path).
+
+    MOCK backend: no SPEC is involved and the 2D simulator writes with local file
+    I/O, so the beamline path translation is skipped entirely and the hub folder
+    is used verbatim. Translating it would hand the simulator a Linux beamline
+    path like /msd_data/... that doesn't exist on this machine.
+    """
     spec = _CFG.get("spec", {}) or {}
     if not folder:
         return
+
+    if str(getattr(_ctrl, "backend", "mock")).lower() != "real":
+        override = str(spec.get("mock_data_dir", "") or "").strip()
+        target = override or folder
+        _ctrl.set_data_dir(target)
+        return
+
     if spec.get("data_dir_from_hub", True):
         mapped = hub_to_spec_dir(folder, spec.get("hub_path_map"))
         if mapped:
@@ -324,7 +345,10 @@ def api_recipes_folder():
         if folder:
             _CFG.setdefault("folders", {})["recipes"] = folder
             _CFG["folders"]["processed"] = str(Path(folder) / "done")
-            _watch_seen.clear()          # re-scan the new folder from scratch
+            # re-scan the new folder from scratch (these are the real watcher
+            # caches; _watch_seen no longer exists and raised NameError here)
+            _watch_handled.clear()
+            _watch_lastsig.clear()
             _save_recipes_folder(folder)
             _emit(f"📁 conditions folder → {folder}", "info")
     return jsonify({"folder": _CFG.get("folders", {}).get("recipes", ""),
@@ -401,7 +425,13 @@ def api_abort():   _ctrl.abort();  return jsonify({"ok": True})
 
 
 @app.route("/api/estop", methods=["POST"])
-def api_estop():   _ctrl.estop();  return jsonify({"ok": True})
+def api_estop():
+    # NEVER report a bare success here: if a pump could not be idled the operator
+    # must see it, not a green tick.
+    failed = _ctrl.estop() or []
+    return jsonify({"ok": not failed, "failed_to_idle": failed,
+                    "error": (f"could not idle: {', '.join(failed)} — CHECK THESE "
+                              f"PUMPS IMMEDIATELY") if failed else None})
 
 
 @app.route("/api/reset", methods=["POST"])
@@ -416,11 +446,18 @@ def api_vent():    _ctrl.vent_all(); return jsonify({"ok": True})
 def api_backend():
     mode = str((request.get_json(silent=True) or {}).get("backend", "")).lower()
     ok, msg = _ctrl.switch_backend(mode)
+    if ok and _project_root:
+        # mock ⇄ real changes where data should be written (local hub folder vs
+        # the translated beamline path), so re-resolve the save folder.
+        _sync_data_dir_from_hub(_project_root)
     return jsonify({"ok": ok, "backend": _ctrl.backend, "error": None if ok else msg})
 
 
 @app.route("/api/start_now", methods=["POST"])
-def api_start_now():  _ctrl.start_now(); return jsonify({"ok": True})
+def api_start_now():
+    ok = _ctrl.start_now()
+    return jsonify({"ok": bool(ok),
+                    "error": None if ok else "not arming — nothing to skip"})
 
 
 @app.route("/api/queue/clear", methods=["POST"])

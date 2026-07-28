@@ -20,6 +20,52 @@ from pathlib import Path
 import numpy as np
 
 
+#: dropped into any folder the simulator writes to, so synthetic frames can
+#: always be told apart from real detector output
+MARKER = "SIMULATED_DATA.txt"
+
+MARKER_TEXT = (
+    "This folder contains SYNTHETIC SAXS frames written by the SWAXS 2D\n"
+    "simulator (src/simulator) running with spec.backend = mock.\n"
+    "They are NOT real detector data. Do not mix real beamtime data into\n"
+    "this folder — the simulator refuses to write where unmarked .raw files\n"
+    "already exist.\n"
+)
+
+
+def is_simulated_dir(path) -> bool:
+    return (Path(path) / MARKER).is_file()
+
+
+def mark_simulated_dir(path) -> Path:
+    p = Path(path)
+    p.mkdir(parents=True, exist_ok=True)
+    m = p / MARKER
+    if not m.is_file():
+        m.write_text(MARKER_TEXT, encoding="utf-8")
+    return m
+
+
+def assert_safe_to_simulate(det_dir) -> None:
+    """Refuse to write synthetic frames into a folder holding real data.
+
+    The simulator reproduces the beamline's filename convention exactly, so a
+    collision would silently overwrite a genuine .raw. A folder is considered
+    safe only if it is empty of .raw files or already carries our marker.
+    """
+    d = Path(det_dir)
+    if not d.exists() or is_simulated_dir(d.parent) or is_simulated_dir(d):
+        return
+    existing = sorted(p.name for p in d.glob("*.raw"))
+    if existing:
+        raise RuntimeError(
+            f"refusing to write synthetic frames into {d}: it already contains "
+            f"{len(existing)} .raw file(s) (e.g. {existing[0]}) that were not "
+            f"written by the simulator. Point spec.mock_data_dir at a scratch "
+            f"folder instead — synthetic and real data must never share a "
+            f"directory.")
+
+
 def frame_name(prefix: str, index: int, scan: int = 1, template: str = "") -> str:
     """Default '{prefix}_scan1_0000.raw' — matches the SSRL BL1-5 convention."""
     if template:
@@ -32,12 +78,31 @@ def write_raw(path: Path, image: np.ndarray) -> Path:
 
     Written to a .part file and renamed, so a file watcher never sees a
     half-written frame — the real detector behaves the same way.
+
+    The frame and the file on disk are both verified: a 0-byte or short .raw is
+    useless to the reduction app and must fail loudly here rather than surface
+    later as "file exists but is empty".
     """
     path = Path(path)
+    arr = np.asarray(image, dtype=np.int32)
+    if arr.size == 0:
+        raise ValueError(
+            f"refusing to write an EMPTY frame to {path.name} — the detector "
+            f"shape resolved to {arr.shape}. Check detector_shapes in the "
+            f"project config.yml and simulator.shape in reactor/config.yml.")
+
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".part")
-    np.asarray(image, dtype=np.int32).tofile(str(tmp))
-    tmp.replace(path)
+    try:
+        arr.tofile(str(tmp))
+        written = tmp.stat().st_size
+        expected = arr.size * 4                    # int32
+        if written != expected:
+            raise IOError(f"wrote {written} of {expected} bytes (disk full?)")
+        tmp.replace(path)
+    except Exception:
+        tmp.unlink(missing_ok=True)                # never leave a stub behind
+        raise
     return path
 
 
@@ -55,12 +120,16 @@ def write_csv_metadata(two_d_dir: Path, prefix: str, rows: list) -> Path:
     two_d_dir = Path(two_d_dir)
     two_d_dir.mkdir(parents=True, exist_ok=True)
     out = two_d_dir / f"{prefix}.csv"
-    cols = ["i0", "bstop", "temp"]
+    # `simulated` marks every row as synthetic, so a .dat reduced from these
+    # frames carries the provenance all the way downstream.
+    cols = ["i0", "bstop", "temp", "simulated"]
     with out.open("w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=cols)
         w.writeheader()
         for r in rows:
-            w.writerow({k: r.get(k, 0) for k in cols})
+            row = {k: r.get(k, 0) for k in cols}
+            row["simulated"] = 1
+            w.writerow(row)
     return out
 
 

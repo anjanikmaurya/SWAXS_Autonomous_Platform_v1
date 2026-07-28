@@ -27,12 +27,40 @@ spec:
 Then run the reactor normally. Every triggered acquisition writes:
 
 ```
-<data_dir>/SAXS/{recipe_id}_sample_scan1_0000.raw   … int32, detector shape
-<data_dir>/SAXS/{recipe_id}_bkg_scan1_0000.raw      … particle-free background
-<data_dir>/{recipe_id}_sample.csv                   … i0 / bstop / temp per frame
+<2D>/SAXS/{recipe_id}_sample_scan1_0000.raw   … int32, detector shape
+<2D>/SAXS/{recipe_id}_bkg_scan1_0000.raw      … particle-free background
+<2D>/{recipe_id}_sample.csv                   … i0 / bstop / temp per frame
 ```
 
-Point the reduction app at `<data_dir>` and it processes them like real data.
+Point the reduction app's `data_directory` at `<2D>` and it processes them
+like real data.
+
+### Save folder in mock mode
+
+On the rig the hub's Windows folder is translated to the beamline Linux path via
+`spec.hub_path_map`. **In mock mode that translation is skipped** — no SPEC is
+involved and the simulator writes with ordinary local file I/O, so a
+`/msd_data/...` path would be unwritable on a laptop. The hub project folder is
+used verbatim. Flipping the Mock/Real toggle re-resolves it automatically.
+
+Pin mock output elsewhere with `spec.mock_data_dir` (blank = follow the hub;
+ignored when the backend is `real`, so a leftover override can never redirect
+real beamtime data).
+
+### The 2D tree is created for you
+
+**Missing folders are created at the start of each collection**, including
+intermediate ones. Where the tree lands is resolved by `two_d_subdir: "auto"`:
+
+| Save folder | Result |
+|---|---|
+| bare project root | creates `<folder>/2D/SAXS/` |
+| already contains `2D/` | reuses `<folder>/2D/SAXS/` |
+| already contains `SAXS/` (rig style) | uses `<folder>/SAXS/` as-is |
+| literally named `2D` | uses `<folder>/SAXS/` — no nested `2D/2D` |
+
+Set `two_d_subdir: ""` to always treat the save folder itself as the 2D base, or
+to a literal name to force one.
 
 **Turn `enabled` off before beamtime.** It is ignored when `backend: "real"`, but
 don't rely on that alone.
