@@ -22,123 +22,486 @@ html{font-size:18px}
 *{box-sizing:border-box}
 body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--text);font-size:1.02rem}
 .topbar{display:flex;align-items:center;gap:12px;padding:10px 18px;background:#1a1c21;border-bottom:1px solid var(--border)}
-.topbar h1{font-size:var(--fs-lg);font-weight:700;margin:0;color:#fff}
+.topbar h1{font-size:var(--fs-lg);font-weight:700;margin:0;color:#fff;white-space:nowrap}
 .topbar h1 span{color:#f0a6ab;font-weight:500}
 .topbar .sub{font-size:var(--fs-xs);color:#a4abb6}
 .topbar a{color:#f0a6ab;text-decoration:none}
-.theme-toggle{margin-left:auto;width:34px;height:30px;border:1px solid rgba(255,255,255,.25);border-radius:7px;background:transparent;color:#fff;cursor:pointer;font-size:1rem}
+.theme-toggle{width:34px;height:30px;border:1px solid rgba(255,255,255,.25);border-radius:7px;background:transparent;color:#fff;cursor:pointer;font-size:1rem}
 .theme-toggle:hover{background:rgba(255,255,255,.1)}
-.wrap{padding:16px 32px;display:grid;grid-template-columns:500px 1fr;gap:20px;align-items:start}
 .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;margin-bottom:14px}
-.card-hd{font-size:var(--fs-sm);font-weight:700;margin-bottom:10px}
+.card-hd{font-size:var(--fs-sm);font-weight:700;margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.card-hd .hd-right{margin-left:auto;display:flex;gap:6px;align-items:center;font-weight:400}
 label{font-size:var(--fs-xs);color:var(--muted);font-weight:600;display:block;margin-bottom:3px}
-input{width:100%;background:var(--surface2);border:1px solid var(--border-strong);border-radius:6px;color:var(--text);padding:6px 9px;font-size:var(--fs-sm)}
+input,select{width:100%;background:var(--surface2);border:1px solid var(--border-strong);border-radius:6px;color:var(--text);padding:6px 9px;font-size:var(--fs-sm)}
+input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 25%,transparent)}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .btn{padding:7px 12px;border:none;border-radius:var(--radius);font-size:var(--fs-sm);font-weight:600;cursor:pointer;color:#fff;background:var(--surface2)}
 .btn-accent{background:var(--accent)} .btn-ghost{background:var(--surface2);border:1px solid var(--border-strong);color:var(--text)}
+.btn-sm{padding:4px 9px;font-size:var(--fs-xs)}
 .btn:disabled{opacity:.4;cursor:not-allowed}
+.btn:hover:not(:disabled){filter:brightness(1.12)}
 .btn-row,.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:flex-end}
 .sub{font-size:var(--fs-xs);color:var(--muted)}
-.log{max-height:150px;overflow-y:auto;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 11px;font-family:var(--mono);font-size:var(--fs-xs);line-height:1.55}
-/* ── analyzer-specific ───────────────────────────────────────────────────── */
+.log{max-height:170px;overflow-y:auto;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 11px;font-family:var(--mono);font-size:var(--fs-xs);line-height:1.55}
+
+/* ── status strip: the whole state of the loop, at a glance ───────────────── */
+.statusbar{display:flex;gap:9px;flex-wrap:wrap;align-items:center;
+  padding:9px 32px;background:var(--surface);border-bottom:1px solid var(--border)}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:var(--fs-xs);
+  padding:4px 11px;border-radius:999px;background:var(--surface2);
+  border:1px solid var(--border);white-space:nowrap}
+.pill b{font-weight:700}
+.pill .led{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
+.pill.on .led{background:var(--ok)} .pill.off .led{background:var(--err)}
+.pill.warn .led{background:var(--warn)}
+.pill.off{border-color:var(--err)}
+.pill.path{font-family:var(--mono);max-width:44ch;overflow:hidden;text-overflow:ellipsis}
+
+/* ── layout ──────────────────────────────────────────────────────────────── */
+.wrap{padding:14px 32px 40px;display:grid;grid-template-columns:minmax(340px,420px) minmax(0,1fr);
+  gap:20px;align-items:start}
+@media (max-width:1180px){.wrap{grid-template-columns:minmax(0,1fr)}}
+
+/* collapsible cards — the log and the setup form do not need to be open all day */
+.fold>.card-hd{cursor:pointer;user-select:none}
+.fold>.card-hd .chev{transition:transform .15s;display:inline-block;color:var(--muted)}
+.fold.shut>.card-hd .chev{transform:rotate(-90deg)}
+.fold.shut>.foldbody{display:none}
+
+/* ── KPI tiles ───────────────────────────────────────────────────────────── */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:8px;margin:4px 0 11px}
+.kpi{background:var(--surface2);border-radius:8px;padding:7px 10px;min-width:0}
+.kpi span{display:block;font-size:var(--fs-xs);color:var(--muted);white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+.kpi b{font-size:var(--fs-md);font-weight:700;font-variant-numeric:tabular-nums}
+.kpi.hit b{color:var(--ok)} .kpi.miss b{color:var(--warn)}
+
+/* ── campaign progress ───────────────────────────────────────────────────── */
+.bar{height:7px;border-radius:999px;background:var(--surface2);overflow:hidden;margin:8px 0 4px}
+.bar i{display:block;height:100%;background:var(--accent);width:0;transition:width .3s}
+.bar.done i{background:var(--ok)}
+#spark{display:block;width:100%;height:92px;background:var(--surface2);border-radius:8px}
+
+/* ── results table ───────────────────────────────────────────────────────── */
 table{width:100%;border-collapse:collapse;font-size:var(--fs-sm)}
 th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--border)}
 th{color:var(--muted);font-size:var(--fs-xs);font-weight:600}
+th.sortable{cursor:pointer;user-select:none;white-space:nowrap}
+th.sortable:hover{color:var(--text)}
+th .arrow{opacity:.45;font-size:.7rem}
 tbody tr{cursor:pointer} tbody tr:hover{background:var(--surface2)}
 tbody tr.sel{background:var(--surface2);box-shadow:inset 3px 0 0 var(--accent)}
+/* fixed layout so the file column can actually truncate instead of stretching
+   the table off the side of the card */
+.tablewrap table{table-layout:fixed}
+.tablewrap th:nth-child(1){width:44%} .tablewrap th:nth-child(2){width:15%}
+.tablewrap th:nth-child(3){width:14%} .tablewrap th:nth-child(4){width:13%}
+td.name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .badge{display:inline-block;padding:1px 8px;border-radius:999px;font-size:var(--fs-xs);font-weight:700}
 .b-hi{background:#1f3a29;color:#4ade80}.b-mid{background:#3a3120;color:#d8a657}.b-lo{background:#3a3d44;color:#c9ced6}
+/* a long campaign produces hundreds of rows — contain them instead of letting
+   the page grow to thousands of pixels (that scroll cost is felt as "lag" too) */
+.tablewrap{max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:8px}
+.tablewrap th{position:sticky;top:0;background:var(--surface);z-index:1}
+.tablewrap td,.tablewrap th{padding:5px 8px}
+.rowsnote{font-size:var(--fs-xs);color:var(--muted);margin-top:6px;display:flex;gap:8px;align-items:center}
+.rowsnote kbd{font-family:var(--mono);font-size:.72rem;border:1px solid var(--border-strong);
+  border-radius:4px;padding:0 4px;background:var(--surface2)}
 .nums{display:flex;gap:18px;flex-wrap:wrap;margin:6px 0 10px}
 .nums div{font-size:var(--fs-xs);color:var(--muted)}
 .nums b{display:block;font-size:var(--fs-md);color:var(--text);font-weight:700}
-canvas{width:100%;height:300px;background:var(--surface2);border:1px solid var(--border);border-radius:8px}
-.legend{font-size:var(--fs-xs);color:var(--muted);margin-top:5px}
-.dot{display:inline-block;width:9px;height:9px;border-radius:2px;vertical-align:middle;margin-right:4px}
+/* ── fit plot ─────────────────────────────────────────────────────────────── */
+.plotwrap{position:relative;background:var(--surface2);border:1px solid var(--border);
+  border-radius:10px;padding:4px}
+#plot{display:block;width:100%;height:340px}
+#resid{display:block;width:100%;height:78px;margin-top:2px}
+.legend{font-size:var(--fs-xs);color:var(--muted);margin-top:6px;display:flex;
+  gap:16px;flex-wrap:wrap;align-items:center}
+.dot{display:inline-block;width:9px;height:9px;border-radius:2px;vertical-align:middle;margin-right:5px}
+.dot.line{width:16px;height:3px;border-radius:2px}
+/* scale selector */
+.scalebar{display:flex;gap:0;margin:2px 0 8px;border:1px solid var(--border-strong);
+  border-radius:8px;overflow:hidden;width:fit-content}
+.scalebar button{border:0;background:transparent;color:var(--muted);font:inherit;
+  font-size:var(--fs-xs);padding:5px 12px;cursor:pointer;white-space:nowrap}
+.scalebar button:hover{background:var(--surface2);color:var(--text)}
+.scalebar button.on{background:var(--accent);color:#fff;font-weight:700}
+.plottools{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.plottools label{font-size:var(--fs-xs);color:var(--muted);display:flex;gap:5px;
+  align-items:center;cursor:pointer}
+/* crosshair readout */
+#readout{position:absolute;pointer-events:none;background:var(--surface);
+  border:1px solid var(--border-strong);border-radius:6px;padding:3px 7px;
+  font-family:var(--mono);font-size:var(--fs-xs);color:var(--text);display:none;
+  white-space:nowrap;z-index:5}
+
+/* ── parameter-space panel (now under the fit plot, where it has the width) ── */
+.pspace figure{margin:0}
+.pspace img{width:100%;display:block;border-radius:8px;background:#fff;cursor:zoom-in}
+.pspace .ph{min-height:150px;display:flex;align-items:center;justify-content:center;
+  color:var(--muted);font-size:var(--fs-xs);background:var(--surface2);
+  border-radius:8px;text-align:center;padding:16px}
+.selrow{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:9px}
+.selrow select{width:auto;padding:5px 8px;font-size:var(--fs-xs)}
+.viewtabs{display:flex;border:1px solid var(--border-strong);border-radius:8px;
+  overflow:hidden;width:fit-content}
+.viewtabs button{border:0;background:transparent;color:var(--muted);font:inherit;
+  font-size:var(--fs-xs);padding:5px 12px;cursor:pointer;white-space:nowrap}
+.viewtabs button:hover{background:var(--surface2);color:var(--text)}
+.viewtabs button.on{background:var(--accent);color:#fff;font-weight:700}
+.diag{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:8px;margin-top:10px}
+.diag div{background:var(--surface2);border-radius:8px;padding:7px 10px}
+.diag span{display:block;font-size:var(--fs-xs);color:var(--muted)}
+.diag b{font-size:var(--fs-md);font-weight:700;font-variant-numeric:tabular-nums}
+/* click-to-enlarge: these figures are 11 in wide and unreadable in a card */
+#lightbox{position:fixed;inset:0;overflow:auto;background:rgba(0,0,0,.85);
+  display:none;z-index:50;padding:24px;align-items:flex-start;
+  justify-content:center;cursor:zoom-out}
+#lightbox.open{display:flex}
+#lightbox img{max-width:100%;height:auto;border-radius:10px;background:#fff}
 </style></head>
 <body>
 <div class="topbar">
   <h1>Nanoparticle <span>Analyzer</span></h1>
-  <span class="sub">Port 5008 · <a href="http://localhost:5000">← Hub</a> · <span id="watch"></span></span>
-  <button class="theme-toggle" id="themeBtn" onclick="toggleTheme()" title="Toggle light / dark">☾</button>
+  <span class="sub">Port 5008 · <a href="http://localhost:5000">← Hub</a></span>
+  <span class="hd-right" style="margin-left:auto">
+    <button class="theme-toggle" id="themeBtn" onclick="toggleTheme()" title="Toggle light / dark">☾</button>
+  </span>
+</div>
+
+<!-- The whole state of the loop in one strip. Before this you had to read four
+     separate cards to answer "is it running and is it working?" -->
+<div class="statusbar">
+  <span class="pill" id="p_conn"><i class="led"></i><span>connecting…</span></span>
+  <span class="pill" id="p_camp"><i class="led"></i><span>campaign idle</span></span>
+  <span class="pill" id="p_count">— profiles fitted</span>
+  <span class="pill" id="p_best">best —</span>
+  <span class="pill path" id="p_watch" title="watched folder">watching…</span>
 </div>
 
 <div class="wrap">
+  <!-- ══ left: control ══════════════════════════════════════════════════ -->
   <div>
-    <div class="card">
-      <div class="card-hd">📁 Subtracted folder (watched)</div>
-      <div class="row">
-        <div style="flex:1"><label>Folder (relative to project, or absolute)</label>
-          <input id="folder" placeholder="1D/SAXS/Subtracted"></div>
-        <button class="btn btn-accent" onclick="setFolder()">Set</button>
+    <div class="card fold" id="fold-setup">
+      <div class="card-hd" onclick="toggleFold('fold-setup')">
+        <span class="chev">▾</span> 📁 Watched folder
+        <span class="hd-right sub" id="setupHint"></span>
       </div>
-      <div class="sub" id="resolved" style="margin-top:5px"></div>
-      <div class="sub" style="margin-top:4px">New <b>.dat</b> profiles here are auto-fitted (sphere + Schulz/log-normal). Every result carries a 0–1 confidence.</div>
+      <div class="foldbody">
+        <div class="row">
+          <div style="flex:1"><label>Folder (relative to the project, or absolute)</label>
+            <input id="folder" placeholder="1D/SAXS/Subtracted"></div>
+          <button class="btn btn-accent" onclick="setFolder()">Set</button>
+        </div>
+        <div class="sub" id="resolved" style="margin-top:6px"></div>
+        <div class="sub" style="margin-top:4px">New <b>.dat</b> profiles here are fitted automatically
+          (sphere + Schulz / log-normal). Every result carries a 0–1 confidence.</div>
+      </div>
     </div>
 
     <div class="card">
-      <div class="card-hd">🔁 Closed-loop campaign</div>
+      <div class="card-hd">🔁 Closed-loop campaign
+        <span class="hd-right sub" id="c_badge"></span>
+      </div>
       <div class="grid2">
-        <div><label>Target radius (nm)</label><input id="c_target" type="number" value="5" step="0.1"></div>
-        <div><label>Tolerance ± (nm)</label><input id="c_tol" type="number" value="0.3" step="0.05"></div>
-        <div><label>PDI cap</label><input id="c_pdi" type="number" value="0.15" step="0.01"></div>
-        <div><label>Run budget</label><input id="c_budget" type="number" value="25" step="1"></div>
+        <div><label>Target radius (nm)</label><input id="c_target" type="number" value="5" step="0.1" min="0.1"></div>
+        <div><label>Tolerance ± (nm)</label><input id="c_tol" type="number" value="0.3" step="0.05" min="0.01"></div>
+        <div><label>PDI cap</label><input id="c_pdi" type="number" value="0.15" step="0.01" min="0.001"></div>
+        <div><label>Run budget</label><input id="c_budget" type="number" value="25" step="1" min="1"></div>
       </div>
       <div class="btn-row">
         <button class="btn btn-accent" id="c_start" onclick="startCampaign()">▶ Start campaign</button>
-        <button class="btn btn-ghost" id="c_abort" onclick="abortCampaign()">⏹ Abort</button>
+        <button class="btn btn-ghost" id="c_abort" onclick="abortCampaign()" disabled>⏹ Abort</button>
       </div>
-      <div class="sub" id="c_status" style="margin-top:8px">idle</div>
-      <div class="sub" style="margin-top:3px">Proposes conditions to the reactor's Conditions folder; stops when the target is met or the budget runs out.</div>
+      <div class="bar" id="c_bar"><i></i></div>
+      <div class="sub" id="c_status">idle — set a target and start</div>
+      <div class="kpis" id="c_kpis" style="display:none">
+        <div class="kpi"><span>best radius</span><b id="k_r">—</b></div>
+        <div class="kpi"><span>Δ to target</span><b id="k_d">—</b></div>
+        <div class="kpi"><span>best PDI</span><b id="k_p">—</b></div>
+        <div class="kpi"><span>runs</span><b id="k_n">—</b></div>
+      </div>
+      <!-- the small chart answers "is it converging?" without opening a figure -->
+      <canvas id="spark" style="display:none" role="img"
+              aria-label="Measured radius per run against the acceptance band"></canvas>
+      <div class="sub" id="sparkNote" style="margin-top:5px"></div>
+      <div class="sub" style="margin-top:6px">Proposes conditions to the reactor's Conditions folder;
+        stops when a confident run hits the band or the budget runs out.</div>
     </div>
 
     <div class="card">
-      <div class="card-hd">🧬 Analyzed profiles</div>
-      <table><thead><tr><th>file</th><th>R (nm)</th><th>PDI</th><th>conf</th><th>phase</th></tr></thead>
+      <div class="card-hd">🧬 Analysed profiles
+        <span class="hd-right">
+          <button class="btn btn-ghost btn-sm" onclick="exportCsv()" title="Download the table as CSV">⭳ CSV</button>
+        </span>
+      </div>
+      <input id="filter" placeholder="filter by file name — e.g. scan1, recipe id, SAXS"
+             oninput="applyFilter()" style="margin-bottom:8px">
+      <div class="tablewrap" id="tablewrap">
+        <table><thead><tr>
+          <th class="sortable" data-k="name" onclick="setSort('name')">file <span class="arrow"></span></th>
+          <th class="sortable" data-k="radius" onclick="setSort('radius')">R (nm) <span class="arrow"></span></th>
+          <th class="sortable" data-k="pdi" onclick="setSort('pdi')">PDI <span class="arrow"></span></th>
+          <th class="sortable" data-k="confidence" onclick="setSort('confidence')">conf <span class="arrow"></span></th>
+          <th>phase</th>
+        </tr></thead>
         <tbody id="rows"><tr><td colspan="5" class="sub">waiting for profiles…</td></tr></tbody></table>
+      </div>
+      <div class="rowsnote"><span id="rowsnote"></span>
+        <span class="sub" style="margin-left:auto"><kbd>↑</kbd><kbd>↓</kbd> step through fits</span>
+      </div>
     </div>
 
-    <div class="card">
-      <div class="card-hd">📜 Log</div>
-      <div class="log" id="log"></div>
+    <div class="card fold" id="fold-log">
+      <div class="card-hd" onclick="toggleFold('fold-log')">
+        <span class="chev">▾</span> 📜 Log
+        <span class="hd-right sub" id="logHint"></span>
+      </div>
+      <div class="foldbody"><div class="log" id="log"></div></div>
     </div>
   </div>
 
+  <!-- ══ right: the science ═════════════════════════════════════════════ -->
   <div>
     <div class="card">
       <div class="card-hd">📈 Fit — <span id="selName" class="sub">select a profile</span></div>
-      <div class="nums">
-        <div>radius<b id="n-r">—</b></div><div>diameter<b id="n-d">—</b></div>
-        <div>PDI<b id="n-pdi">—</b></div><div>confidence<b id="n-conf">—</b></div>
-        <div>phase<b id="n-phase">—</b></div>
-        <div>Rg (Guinier)<b id="n-rg">—</b></div><div>invariant (rel)<b id="n-inv">—</b></div>
+      <div class="kpis">
+        <div class="kpi"><span>radius</span><b id="n-r">—</b></div>
+        <div class="kpi"><span>diameter</span><b id="n-d">—</b></div>
+        <div class="kpi"><span>PDI</span><b id="n-pdi">—</b></div>
+        <div class="kpi"><span>confidence</span><b id="n-conf">—</b></div>
+        <div class="kpi"><span>R<sub>g</sub> (Guinier)</span><b id="n-rg">—</b></div>
+        <div class="kpi"><span>invariant (rel)</span><b id="n-inv">—</b></div>
+        <div class="kpi"><span>phase</span><b id="n-phase">—</b></div>
       </div>
-      <canvas id="plot" width="720" height="300"></canvas>
-      <div class="legend"><span class="dot" style="background:var(--info)"></span>data (log-log I vs q)
-        &nbsp;&nbsp;<span class="dot" style="background:var(--accent)"></span>fitted model</div>
+      <div class="plottools">
+        <div class="scalebar" id="scalebar">
+          <button data-scale="loglog"  onclick="setScale('loglog')"  title="log I vs log q — the standard SAXS view; power laws are straight lines">log–log</button>
+          <button data-scale="semilogy" onclick="setScale('semilogy')" title="log I vs linear q — shows the high-q decay clearly">semilog Y</button>
+          <button data-scale="semilogx" onclick="setScale('semilogx')" title="linear I vs log q">semilog X</button>
+          <button data-scale="linear"  onclick="setScale('linear')"  title="linear both — useful for a single dominant feature">linear</button>
+          <button data-scale="guinier" onclick="setScale('guinier')" title="ln I vs q² — a straight line confirms the Guinier region and gives Rg">Guinier</button>
+        </div>
+        <label><input type="checkbox" id="showResid" checked onchange="redraw()" style="width:auto"> residuals</label>
+        <label><input type="checkbox" id="showErr" onchange="redraw()" style="width:auto"> error bars</label>
+      </div>
+      <div class="plotwrap">
+        <canvas id="plot" role="img" aria-label="Measured scattering intensity with the fitted model"></canvas>
+        <canvas id="resid"></canvas>
+        <div id="readout"></div>
+      </div>
+      <div class="legend">
+        <span><span class="dot line" style="background:var(--info)"></span>measured I(q)</span>
+        <span><span class="dot line" style="background:var(--accent)"></span>fitted model</span>
+        <span id="lg-stats" class="sub"></span>
+      </div>
       <div class="sub" id="llmNote" style="margin-top:8px"></div>
+    </div>
+
+    <div class="card pspace">
+      <div class="card-hd">🗺 Parameter space &amp; convergence
+        <span class="hd-right">
+          <button class="btn btn-ghost btn-sm" onclick="psLoad(true)" title="Re-render from the current campaign">⟳</button>
+        </span>
+      </div>
+      <div class="selrow">
+        <div class="viewtabs" id="ps_tabs">
+          <button data-view="slice" onclick="psView('slice')"
+                  title="GP posterior mean, uncertainty, acquisition, and the predicted-size contour">surrogate</button>
+          <button data-view="convergence" onclick="psView('convergence')"
+                  title="Best-so-far loss, size vs the acceptance band, PDI vs cap, uncertainty decay">convergence</button>
+          <button data-view="trajectory" onclick="psView('trajectory')"
+                  title="Every recipe tried, and whether the search narrowed">trajectory</button>
+        </div>
+        <span id="ps_axes" style="display:flex;gap:8px;align-items:center">
+          <select id="ps_x" onchange="psLoad()" aria-label="slice x axis"></select>
+          <span class="sub">vs</span>
+          <select id="ps_y" onchange="psLoad()" aria-label="slice y axis"></select>
+          <select id="ps_anchor" onchange="psLoad()" aria-label="slice anchor">
+            <option value="best">through the best recipe</option>
+            <option value="mid">through the box centre</option>
+          </select>
+        </span>
+      </div>
+      <div id="ps_wrap"><div class="ph" id="ps_ph">Start a campaign to see where the loop predicts
+        the next measurement, and how that prediction converges.</div></div>
+      <div class="diag" id="ps_diag"></div>
+      <div class="sub" style="margin-top:8px">Read-only — opening this panel cannot change the next
+        proposed recipe. Click a figure to enlarge. Reading guide:
+        <b>docs/PARAMETER_SPACE_AND_CONVERGENCE.md</b></div>
     </div>
   </div>
 </div>
 
+<div id="lightbox" onclick="this.classList.remove('open')"><img id="lbimg" alt=""></div>
+
 <script>
 const $=id=>document.getElementById(id);
-async function api(u,b){const o={method:b?'POST':'GET',headers:{}};if(b){o.headers['Content-Type']='application/json';o.body=JSON.stringify(b);}return (await fetch(u,o)).json();}
-let _sel=null, _lastPlot=null;
 const cssv=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim()||'#888';
 
-function badge(c){const cls=c>=0.6?'b-hi':(c>=0.3?'b-mid':'b-lo');return `<span class="badge ${cls}">${c}</span>`;}
-
-function renderRows(rs){
-  const tb=$('rows');
-  if(!rs.length){tb.innerHTML='<tr><td colspan="5" class="sub">waiting for profiles…</td></tr>';return;}
-  tb.innerHTML=rs.map(r=>`<tr data-n="${r.name}" onclick="select('${r.name}')" class="${r.name===_sel?'sel':''}">
-    <td title="${r.name}">${r.name.length>26?r.name.slice(0,24)+'…':r.name}</td>
-    <td>${r.radius??'—'}</td><td>${r.pdi??'—'}</td><td>${badge(r.confidence)}</td>
-    <td class="sub">${r.phase||'—'}</td></tr>`).join('');
+/* Every fetch goes through here and NEVER throws. A 500 from one endpoint used
+   to leave the page in a half-updated state with a silent console error; now the
+   caller gets {error} and can say so. */
+async function api(u,b){
+  const o={method:b?'POST':'GET',headers:{}};
+  if(b){o.headers['Content-Type']='application/json';o.body=JSON.stringify(b);}
+  try{
+    const r=await fetch(u,o);
+    if(!r.ok) return {error:'HTTP '+r.status};
+    return await r.json();
+  }catch(e){ return {error:String(e&&e.message||e)}; }
 }
+
+let _sel=null, _lastPlot=null;
+let _rows=new Map();          // name -> summary, the client-side model
+let _sortKey='seq', _sortDir=-1, _filter='';
+
+function badge(c){const cls=c>=0.6?'b-hi':(c>=0.3?'b-mid':'b-lo');return `<span class="badge ${cls}">${(+c).toFixed(2)}</span>`;}
+const num=(v,n)=>(v==null||!isFinite(v))?'—':(+v).toFixed(n==null?2:n);
+
+/* ── collapsible cards ───────────────────────────────────────────────────── */
+function toggleFold(id, force){
+  const el=$(id); if(!el) return;
+  const shut = force==null ? !el.classList.contains('shut') : force;
+  el.classList.toggle('shut', shut);
+  try{ localStorage.setItem('swaxs-an-'+id, shut?'1':'0'); }catch(_){}
+}
+['fold-setup','fold-log'].forEach(id=>{
+  try{ if(localStorage.getItem('swaxs-an-'+id)==='1') toggleFold(id,true); }catch(_){}
+});
+
+/* ── status strip ────────────────────────────────────────────────────────── */
+function setPill(id, cls, text){
+  const el=$(id); if(!el) return;
+  el.className='pill'+(cls?' '+cls:'')+(id==='p_watch'?' path':'');
+  const t=el.querySelector('span');
+  if(t) t.textContent=text; else el.textContent=text;
+}
+
+/* ── results table: filter, sort, incremental render ─────────────────────── */
+/* Was: rebuild the ENTIRE <tbody> innerHTML on every SSE frame (once a second)
+   from a payload that re-sent every summary. At a few thousand profiles that is
+   a multi-MB parse plus a full re-layout every second — the source of the lag.
+   Now the client keeps a Map and only touches rows that changed. */
+const MAX_ROWS = 250;
+const _rowEls = new Map();          // name -> <tr>
+
+function rowHTML(r){
+  const short = r.name.length > 34 ? '…' + r.name.slice(-32) : r.name;
+  return `<td class="name" title="${r.name}">${short}</td>` +
+         `<td>${num(r.radius)}</td><td>${num(r.pdi,3)}</td>` +
+         `<td>${badge(r.confidence)}</td><td class="sub">${r.phase || '—'}</td>`;
+}
+
+function visibleRows(){
+  let v=[..._rows.values()];
+  if(_filter){
+    const f=_filter.toLowerCase();
+    v=v.filter(r=>r.name.toLowerCase().includes(f));
+  }
+  const k=_sortKey;
+  v.sort((a,b)=>{
+    let x=a[k], y=b[k];
+    if(k==='name'){ return _sortDir*String(x).localeCompare(String(y)); }
+    x=(x==null||!isFinite(x))?-Infinity:+x; y=(y==null||!isFinite(y))?-Infinity:+y;
+    return _sortDir*(x-y);
+  });
+  return v.slice(0, MAX_ROWS);
+}
+
+function paintTable(){
+  const tb=$('rows'), want=visibleRows();
+  if(!want.length){
+    tb.innerHTML = '<tr><td colspan="5" class="sub">' +
+      (_rows.size ? 'no file matches “'+_filter+'”' : 'waiting for profiles…') + '</td></tr>';
+    _rowEls.clear(); rowsNote(); return;
+  }
+  const keep=new Set(want.map(r=>r.name));
+  // drop rows that filtered out, keep the DOM nodes of the rest
+  for(const [name,tr] of [..._rowEls]){
+    if(!keep.has(name)){ tr.remove(); _rowEls.delete(name); }
+  }
+  if(tb.firstElementChild && !tb.firstElementChild.dataset.n) tb.innerHTML='';
+  let prev=null;
+  for(const r of want){
+    let tr=_rowEls.get(r.name);
+    if(!tr){
+      tr=document.createElement('tr'); tr.dataset.n=r.name;
+      tr.onclick=()=>select(r.name);
+      _rowEls.set(r.name,tr);
+    }
+    tr.innerHTML=rowHTML(r);                  // patch in place
+    tr.classList.toggle('sel', r.name===_sel);
+    // place in sorted order without rebuilding the whole body
+    const target = prev ? prev.nextSibling : tb.firstChild;
+    if(tr !== target) tb.insertBefore(tr, target);
+    prev=tr;
+  }
+  rowsNote();
+}
+
+/* kept as the SSE entry point; `reset` means the server sent a fresh snapshot */
+function renderRows(rs, reset){
+  if(reset){ _rows.clear(); _rowEls.clear(); $('rows').innerHTML=''; }
+  for(const r of rs||[]) _rows.set(r.name, r);
+  paintTable();
+}
+
+function rowsNote(total){
+  if(total!=null) rowsNote._total=total;
+  const el=$('rowsnote'); if(!el) return;
+  const t=rowsNote._total||_rows.size, shown=_rowEls.size;
+  el.textContent = _filter
+    ? `${shown} of ${_rows.size} shown · filter “${_filter}”`
+    : (t>shown ? `showing the ${shown} most recent of ${t} this session`
+               : (shown ? `${shown} profile${shown===1?'':'s'} analysed` : ''));
+}
+
+function applyFilter(){ _filter=$('filter').value.trim(); paintTable(); }
+
+function sortArrows(){
+  document.querySelectorAll('th.sortable').forEach(th=>{
+    th.querySelector('.arrow').textContent = th.dataset.k===_sortKey ? (_sortDir>0?'▲':'▼') : '';
+  });
+}
+function setSort(k){
+  if(_sortKey===k){ _sortDir=-_sortDir; } else { _sortKey=k; _sortDir=(k==='name')?1:-1; }
+  sortArrows(); paintTable();
+}
+
+function exportCsv(){
+  const rows=[..._rows.values()].sort((a,b)=>(a.seq||0)-(b.seq||0));
+  if(!rows.length) return;
+  const cols=['seq','ts','name','radius','diameter','pdi','confidence','distribution',
+              'phase','guinier_rg','invariant_rel'];
+  const esc=v=>v==null?'':(/[",\n]/.test(String(v))?'"'+String(v).replace(/"/g,'""')+'"':String(v));
+  const csv=[cols.join(',')].concat(rows.map(r=>cols.map(c=>esc(r[c])).join(','))).join('\n');
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.download='analyzer_results_'+new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')+'.csv';
+  a.click(); setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
+}
+
+/* ↑/↓ walk the visible list — during beamtime you want to flick through fits
+   without moving your hand to the mouse */
+document.addEventListener('keydown', e=>{
+  if(e.key!=='ArrowUp' && e.key!=='ArrowDown') return;
+  const t=e.target.tagName;
+  if(t==='INPUT'||t==='SELECT'||t==='TEXTAREA') return;
+  const names=[..._rowEls.keys()];
+  if(!names.length) return;
+  let i=names.indexOf(_sel);
+  i = i<0 ? 0 : Math.min(names.length-1, Math.max(0, i + (e.key==='ArrowDown'?1:-1)));
+  e.preventDefault(); select(names[i]);
+  const tr=_rowEls.get(names[i]);
+  if(tr && tr.scrollIntoView) tr.scrollIntoView({block:'nearest'});
+});
+
 async function select(name){
-  _sel=name; document.querySelectorAll('#rows tr').forEach(t=>t.classList.toggle('sel',t.dataset.n===name));
-  const d=await api('/api/result/'+encodeURIComponent(name)); if(d.error)return;
+  _sel=name;
+  document.querySelectorAll('#rows tr').forEach(t=>t.classList.toggle('sel',t.dataset.n===name));
+  const d=await api('/api/result/'+encodeURIComponent(name));
+  if(d.error){ $('selName').textContent=name+' — could not load ('+d.error+')'; return; }
   const s=d.summary;
   $('selName').textContent=name;
   $('n-r').textContent=s.radius!=null?s.radius+' nm':'—';
@@ -152,54 +515,522 @@ async function select(name){
   $('llmNote').textContent = note ? ('🧠 '+note) : '';
   _lastPlot=d.plot; drawPlot(d.plot);
 }
+/* ── fit plot ──────────────────────────────────────────────────────────────
+   Replaces a fixed-size 720x300 canvas that drew one arc() per point, labelled
+   its axes "log10 q" with only two tick values, and offered log-log only.
+   Now: device-pixel-ratio aware (crisp on retina), decade gridlines with real
+   tick labels, selectable scales, a residuals strip, and a hover readout. */
+let _scale = localStorage.getItem('swaxs-an-scale') || 'loglog';
+
+function setScale(s){
+  _scale = s; localStorage.setItem('swaxs-an-scale', s);
+  document.querySelectorAll('#scalebar button').forEach(b =>
+    b.classList.toggle('on', b.dataset.scale === s));
+  redraw();
+}
+function redraw(){ if(_lastPlot) drawPlot(_lastPlot); }
+
+/* size a canvas in CSS pixels but back it with devicePixelRatio pixels */
+function fitCanvas(cv, cssH){
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth || cv.parentElement.clientWidth || 700;
+  cv.style.height = cssH + 'px';
+  cv.width  = Math.round(w * dpr);
+  cv.height = Math.round(cssH * dpr);
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { ctx, W: w, H: cssH };
+}
+
+/* "nice" linear ticks */
+function linTicks(lo, hi, want){
+  if(!(hi > lo)) return [lo];
+  const raw = (hi - lo) / Math.max(2, want);
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(v => v >= raw) || mag * 10;
+  const out = []; for(let v = Math.ceil(lo / step) * step; v <= hi + 1e-12; v += step) out.push(v);
+  return out;
+}
+function fmt(v){
+  const a = Math.abs(v);
+  if(a === 0) return '0';
+  if(a >= 1e4 || a < 1e-3) return v.toExponential(0).replace('e+', 'e');
+  return String(+v.toPrecision(3));
+}
+
+/* transform per scale: returns the plotted value + whether the axis is log */
+function axisMap(scale){
+  if(scale === 'loglog')   return { fx: q => Math.log10(q), fy: I => Math.log10(I), lx: true,  ly: true,  xl: 'q (nm⁻¹)',   yl: 'I (a.u.)' };
+  if(scale === 'semilogy') return { fx: q => q,             fy: I => Math.log10(I), lx: false, ly: true,  xl: 'q (nm⁻¹)',   yl: 'I (a.u.)' };
+  if(scale === 'semilogx') return { fx: q => Math.log10(q), fy: I => I,             lx: true,  ly: false, xl: 'q (nm⁻¹)',   yl: 'I (a.u.)' };
+  if(scale === 'guinier')  return { fx: q => q * q,         fy: I => Math.log(I),   lx: false, ly: false, xl: 'q² (nm⁻²)',  yl: 'ln I' };
+  return { fx: q => q, fy: I => I, lx: false, ly: false, xl: 'q (nm⁻¹)', yl: 'I (a.u.)' };
+}
+
+let _px = null;   // last pixel mapping, for the hover readout
+
 function drawPlot(p){
-  if(!p)return; _lastPlot=p;
-  const cv=$('plot'), ctx=cv.getContext('2d'), W=cv.width, H=cv.height, pad=44;
-  const cAxis=cssv('--border-strong'), cText=cssv('--muted'), cData=cssv('--info'), cModel=cssv('--accent'), cBg=cssv('--surface2');
-  ctx.clearRect(0,0,W,H); ctx.fillStyle=cBg; ctx.fillRect(0,0,W,H);
-  const q=p.q, I=p.I, pts=[];
-  for(let i=0;i<q.length;i++){if(q[i]>0&&I[i]>0)pts.push([Math.log10(q[i]),Math.log10(I[i])]);}
-  if(!pts.length)return;
-  const xs=pts.map(a=>a[0]), ys=pts.map(a=>a[1]);
-  const xmin=Math.min(...xs),xmax=Math.max(...xs),ymin=Math.min(...ys),ymax=Math.max(...ys);
-  const mx=v=>pad+(v-xmin)/(xmax-xmin||1)*(W-pad-12), my=v=>H-pad-(v-ymin)/(ymax-ymin||1)*(H-pad-12);
-  ctx.strokeStyle=cAxis;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(pad,12);ctx.lineTo(pad,H-pad);ctx.lineTo(W-12,H-pad);ctx.stroke();
-  ctx.fillStyle=cText;ctx.font='11px system-ui';
-  ctx.fillText('log₁₀ q',W/2-18,H-14);ctx.save();ctx.translate(13,H/2+20);ctx.rotate(-Math.PI/2);ctx.fillText('log₁₀ I',0,0);ctx.restore();
-  ctx.fillText(xmin.toFixed(1),pad-6,H-pad+14);ctx.fillText(xmax.toFixed(1),W-26,H-pad+14);
-  ctx.fillText(ymax.toFixed(1),6,18);ctx.fillText(ymin.toFixed(1),6,H-pad);
-  ctx.fillStyle=cData;pts.forEach(a=>{ctx.beginPath();ctx.arc(mx(a[0]),my(a[1]),1.6,0,6.28);ctx.fill();});
-  if(p.model){ctx.strokeStyle=cModel;ctx.lineWidth=2;ctx.beginPath();let st=false;
-    for(let i=0;i<q.length;i++){if(q[i]>0&&p.model[i]>0){const X=mx(Math.log10(q[i])),Y=my(Math.log10(p.model[i]));st?ctx.lineTo(X,Y):(ctx.moveTo(X,Y),st=true);}}ctx.stroke();}
-}
-function logLines(ls){const b=$('log');const c={ok:'var(--ok)',warn:'var(--warn)',error:'var(--err)',info:'var(--muted)'};
-  ls.forEach(l=>{const d=document.createElement('div');d.style.color=c[l.tag]||'var(--text)';d.textContent=`[${l.ts}] ${l.msg}`;b.appendChild(d);});
-  while(b.childNodes.length>300)b.removeChild(b.firstChild);b.scrollTop=b.scrollHeight;}
+  if(!p) return; _lastPlot = p;
+  const showR = $('showResid').checked && p.model;
+  const { ctx, W, H } = fitCanvas($('plot'), showR ? 300 : 340);
+  const m = axisMap(_scale);
+  const cGrid = cssv('--border'), cAxis = cssv('--border-strong'),
+        cText = cssv('--muted'), cData = cssv('--info'), cModel = cssv('--accent');
+  const L = 62, R = 14, T = 14, B = 40;
 
-async function setFolder(){const f=$('folder').value.trim();const r=await api('/api/folder',{folder:f});$('resolved').textContent='Watching: '+r.resolved;$('watch').textContent=r.resolved;}
-async function startCampaign(){await api('/api/campaign/start',{target_size:+$('c_target').value,tolerance:+$('c_tol').value,pdi_cap:+$('c_pdi').value,budget:+$('c_budget').value});}
-async function abortCampaign(){await api('/api/campaign/abort',{});}
+  ctx.clearRect(0, 0, W, H);
+
+  /* collect finite points valid for this scale */
+  const q = p.q, I = p.I, mo = p.model, sg = p.sigma;
+  const pts = [], mpts = [];
+  for(let i = 0; i < q.length; i++){
+    const okq = m.lx || _scale === 'guinier' ? q[i] > 0 : isFinite(q[i]);
+    const okI = m.ly || _scale === 'guinier' ? I[i] > 0 : isFinite(I[i]);
+    if(!(okq && okI)) continue;
+    const X = m.fx(q[i]), Y = m.fy(I[i]);
+    if(!isFinite(X) || !isFinite(Y)) continue;
+    pts.push([X, Y, q[i], I[i], sg ? sg[i] : null]);
+    if(mo && mo[i] > 0){ const MY = m.fy(mo[i]); if(isFinite(MY)) mpts.push([X, MY]); }
+  }
+  if(!pts.length){
+    ctx.fillStyle = cText; ctx.font = '13px system-ui';
+    ctx.fillText('no positive points for this scale', L, H / 2);
+    _px = null; return;
+  }
+
+  const xs = pts.map(a => a[0]), ys = pts.map(a => a[1]).concat(mpts.map(a => a[1]));
+  let x0 = Math.min(...xs), x1 = Math.max(...xs);
+  let y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const padY = (y1 - y0) * 0.06 || 1; y0 -= padY; y1 += padY;
+  const sx = v => L + (v - x0) / (x1 - x0 || 1) * (W - L - R);
+  const sy = v => H - B - (v - y0) / (y1 - y0 || 1) * (H - T - B);
+  _px = { sx, sy, x0, x1, y0, y1, L, R, T, B, W, H, m, pts };
+
+  /* gridlines + ticks */
+  ctx.font = '11px system-ui'; ctx.textBaseline = 'middle';
+  ctx.lineWidth = 1;
+  const xt = m.lx ? decades(x0, x1) : linTicks(x0, x1, 6);
+  const yt = m.ly ? decades(y0, y1) : linTicks(y0, y1, 5);
+  ctx.strokeStyle = cGrid;
+  ctx.textAlign = 'center';
+  xt.forEach(t => {
+    const X = sx(t); if(X < L - 1 || X > W - R + 1) return;
+    ctx.beginPath(); ctx.moveTo(X, T); ctx.lineTo(X, H - B); ctx.stroke();
+    ctx.fillStyle = cText;
+    ctx.fillText(m.lx ? tenPow(t) : fmt(t), X, H - B + 14);
+  });
+  ctx.textAlign = 'right';
+  yt.forEach(t => {
+    const Y = sy(t); if(Y < T - 1 || Y > H - B + 1) return;
+    ctx.beginPath(); ctx.moveTo(L, Y); ctx.lineTo(W - R, Y); ctx.stroke();
+    ctx.fillStyle = cText;
+    ctx.fillText(m.ly ? tenPow(t) : fmt(t), L - 8, Y);
+  });
+
+  /* frame */
+  ctx.strokeStyle = cAxis; ctx.beginPath();
+  ctx.rect(L, T, W - L - R, H - T - B); ctx.stroke();
+
+  /* axis titles */
+  ctx.fillStyle = cText; ctx.textAlign = 'center';
+  ctx.fillText(m.xl, L + (W - L - R) / 2, H - 8);
+  ctx.save(); ctx.translate(14, T + (H - T - B) / 2); ctx.rotate(-Math.PI / 2);
+  ctx.fillText(m.yl, 0, 0); ctx.restore();
+
+  /* error bars (opt-in — they hide the curve when sigma is large) */
+  if($('showErr').checked && sg){
+    ctx.strokeStyle = cData; ctx.globalAlpha = .35; ctx.beginPath();
+    for(const [X, Y, qq, II, ss] of pts){
+      if(!(ss > 0)) continue;
+      const yhi = m.fy(II + ss), ylo = m.fy(Math.max(II - ss, 1e-30));
+      if(!isFinite(yhi) || !isFinite(ylo)) continue;
+      ctx.moveTo(sx(X), sy(ylo)); ctx.lineTo(sx(X), sy(yhi));
+    }
+    ctx.stroke(); ctx.globalAlpha = 1;
+  }
+
+  /* data: thin connecting line + small markers — far cleaner AND much faster
+     than one arc() per point */
+  ctx.strokeStyle = cData; ctx.lineWidth = 1.25; ctx.globalAlpha = .55;
+  ctx.beginPath(); pts.forEach(([X, Y], i) => i ? ctx.lineTo(sx(X), sy(Y)) : ctx.moveTo(sx(X), sy(Y)));
+  ctx.stroke(); ctx.globalAlpha = 1;
+  ctx.fillStyle = cData;
+  const step = Math.max(1, Math.ceil(pts.length / 140));   // hard cap on markers
+  for(let i = 0; i < pts.length; i += step){
+    ctx.fillRect(sx(pts[i][0]) - 1.5, sy(pts[i][1]) - 1.5, 3, 3);
+  }
+
+  /* model */
+  if(mpts.length){
+    ctx.strokeStyle = cModel; ctx.lineWidth = 2.2; ctx.beginPath();
+    mpts.forEach(([X, Y], i) => i ? ctx.lineTo(sx(X), sy(Y)) : ctx.moveTo(sx(X), sy(Y)));
+    ctx.stroke();
+  }
+
+  drawResiduals(p, showR, sx, x0, x1, L, R);
+  statsLine(p, pts, mo);
+}
+
+/* decade ticks for a log10 axis */
+function decades(lo, hi){
+  const out = [];
+  for(let d = Math.floor(lo); d <= Math.ceil(hi); d++) out.push(d);
+  return out.length > 12 ? out.filter((_, i) => i % 2 === 0) : out;
+}
+function tenPow(d){
+  if(Math.abs(d - Math.round(d)) > 1e-9) return fmt(Math.pow(10, d));
+  const sup = String(Math.round(d)).replace('-', '⁻')
+    .replace(/[0-9]/g, c => '⁰¹²³⁴⁵⁶⁷⁸⁹'[+c]);
+  return '10' + sup;
+}
+
+/* residuals: (data − model) / sigma when available, else relative % */
+function drawResiduals(p, show, sxOuter, x0, x1, L, R){
+  const cv = $('resid');
+  if(!show){ cv.style.display = 'none'; return; }
+  cv.style.display = 'block';
+  const { ctx, W, H } = fitCanvas(cv, 78);
+  const m = axisMap(_scale), B = 22, T = 8;
+  const cGrid = cssv('--border'), cAxis = cssv('--border-strong'),
+        cText = cssv('--muted'), cData = cssv('--info');
+  ctx.clearRect(0, 0, W, H);
+  const rs = [];
+  for(let i = 0; i < p.q.length; i++){
+    const I = p.I[i], M = p.model ? p.model[i] : null;
+    if(!(I > 0) || !(M > 0)) continue;
+    const X = m.fx(p.q[i]); if(!isFinite(X)) continue;
+    const s = p.sigma ? p.sigma[i] : null;
+    rs.push([X, (s > 0) ? (I - M) / s : (I - M) / M * 100]);
+  }
+  const unit = (p.sigma && p.sigma.some(v => v > 0)) ? 'σ' : '%';
+  if(!rs.length){ return; }
+  const av = rs.map(r => Math.abs(r[1]));
+  const lim = Math.max(1e-9, Math.min(Math.max(...av), quantile(av, .98) * 1.6));
+  const sx = v => L + (v - x0) / (x1 - x0 || 1) * (W - L - R);
+  const sy = v => T + (1 - (v + lim) / (2 * lim)) * (H - T - B);
+  ctx.strokeStyle = cGrid; ctx.lineWidth = 1;
+  [-lim, 0, lim].forEach(v => { ctx.beginPath(); ctx.moveTo(L, sy(v)); ctx.lineTo(W - R, sy(v)); ctx.stroke(); });
+  ctx.strokeStyle = cAxis; ctx.beginPath(); ctx.rect(L, T, W - L - R, H - T - B); ctx.stroke();
+  ctx.fillStyle = cData;
+  const rstep = Math.max(1, Math.ceil(rs.length / 140));
+  for(let i = 0; i < rs.length; i += rstep){
+    const [X, v] = rs[i];
+    const Y = Math.max(T, Math.min(H - B, sy(v)));
+    ctx.fillRect(sx(X) - 1, Y - 1, 2, 2);
+  }
+  ctx.fillStyle = cText; ctx.font = '10px system-ui';
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  ctx.fillText('+' + fmt(lim), L - 8, sy(lim));
+  ctx.fillText('0', L - 8, sy(0));
+  ctx.textAlign = 'left';
+  ctx.fillText('residual (' + unit + ')', L + 6, T + 8);
+}
+function quantile(a, p){ const b = [...a].sort((x, y) => x - y); return b[Math.min(b.length - 1, Math.floor(p * b.length))]; }
+
+/* legend stats: how good is this fit, in numbers */
+function statsLine(p, pts, mo){
+  const el = $('lg-stats'); if(!el) return;
+  if(!mo){ el.textContent = pts.length + ' points · no model fitted'; return; }
+  let n = 0, chi = 0, rel = 0;
+  for(let i = 0; i < p.q.length; i++){
+    const I = p.I[i], M = mo[i], s = p.sigma ? p.sigma[i] : null;
+    if(!(I > 0) || !(M > 0)) continue;
+    n++; rel += Math.abs(I - M) / I;
+    if(s > 0) chi += ((I - M) / s) ** 2;
+  }
+  const parts = [n + ' points'];
+  if(n) parts.push('mean |Δ| ' + (rel / n * 100).toFixed(1) + '%');
+  if(chi && n) parts.push('χ²/N ' + (chi / n).toFixed(2));
+  el.textContent = parts.join(' · ');
+}
+
+/* hover readout */
+(function(){
+  const cv = $('plot'), out = $('readout');
+  if(!cv) return;
+  cv.addEventListener('mousemove', ev => {
+    if(!_px){ out.style.display = 'none'; return; }
+    const r = cv.getBoundingClientRect();
+    const mx = ev.clientX - r.left;
+    let best = null, bd = 1e9;
+    for(const pt of _px.pts){
+      const d = Math.abs(_px.sx(pt[0]) - mx);
+      if(d < bd){ bd = d; best = pt; }
+    }
+    if(!best || bd > 30){ out.style.display = 'none'; return; }
+    out.textContent = 'q ' + fmt(best[2]) + '   I ' + fmt(best[3]);
+    out.style.display = 'block';
+    out.style.left = Math.min(_px.W - 130, _px.sx(best[0]) + 10) + 'px';
+    out.style.top  = Math.max(2, _px.sy(best[1]) - 26) + 'px';
+  });
+  cv.addEventListener('mouseleave', () => { out.style.display = 'none'; });
+})();
+
+/* keep the plot crisp when the window is resized */
+let _rzT = null;
+window.addEventListener('resize', () => {
+  clearTimeout(_rzT); _rzT = setTimeout(redraw, 120);
+});
+
+
+function logLines(ls){
+  const b=$('log');
+  const c={ok:'var(--ok)',warn:'var(--warn)',error:'var(--err)',info:'var(--muted)'};
+  ls.forEach(l=>{const d=document.createElement('div');d.style.color=c[l.tag]||'var(--text)';
+    d.textContent=`[${l.ts}] ${l.msg}`;b.appendChild(d);});
+  while(b.childNodes.length>300)b.removeChild(b.firstChild);
+  b.scrollTop=b.scrollHeight;
+  const last=ls[ls.length-1];
+  if(last) $('logHint').textContent=last.msg.length>46?last.msg.slice(0,44)+'…':last.msg;
+}
+
+async function setFolder(){
+  const f=$('folder').value.trim();
+  const r=await api('/api/folder',{folder:f});
+  if(r.error){ $('resolved').textContent='could not set the folder: '+r.error; return; }
+  $('resolved').textContent='Watching: '+r.resolved;
+  setPill('p_watch','', r.resolved);
+  $('setupHint').textContent=(r.resolved||'').split('/').slice(-2).join('/');
+}
+
+async function startCampaign(){
+  const body={target_size:+$('c_target').value, tolerance:+$('c_tol').value,
+              pdi_cap:+$('c_pdi').value, budget:+$('c_budget').value};
+  for(const [k,v] of Object.entries(body)){
+    if(!isFinite(v)||v<=0){ $('c_status').textContent='✗ '+k+' must be a positive number'; return; }
+  }
+  $('c_start').disabled=true;
+  const r=await api('/api/campaign/start', body);
+  $('c_start').disabled=false;
+  if(r.error||r.ok===false) $('c_status').textContent='✗ could not start: '+(r.error||'rejected');
+}
+
+async function abortCampaign(){
+  if(!confirm('Abort the campaign? The reactor keeps whatever recipe it is running.')) return;
+  await api('/api/campaign/abort',{});
+}
+
+/* ── campaign card ───────────────────────────────────────────────────────── */
+const _BADGE={running:'🟢 running',converged:'🎯 converged',
+              exhausted:'⏹ budget exhausted',aborted:'⏹ aborted',idle:'idle'};
+
 function renderCampaign(c){
-  if(!c||c.status==='idle'){$('c_status').textContent='idle — set a target and start';return;}
-  const b=c.best, bs=b&&b.size!=null?`best R=${(+b.size).toFixed(2)} nm (loss ${(+b.loss).toFixed(2)})`:'no valid fit yet';
-  const badge={running:'🟢 running',converged:'🎯 converged',exhausted:'⏹ budget exhausted',aborted:'⏹ aborted'}[c.status]||c.status;
-  let extra='';
-  if(c.status==='converged'&&c.converged_condition){const p=c.converged_condition.params;
-    extra=` → T=${(+p.T_reac).toFixed(0)}°C F=${(+p.F_tot).toFixed(0)} x=(${(+p.x_ODE).toFixed(2)},${(+p.x_TOP).toFixed(2)},${(+p.x_oley).toFixed(2)})`;}
-  $('c_status').textContent=`${badge} · ${c.n_evaluations}/${c.budget} runs · target ${c.target_size}±${c.tolerance} nm · ${bs}${extra}`;
+  const idle = !c || c.status==='idle';
+  $('c_abort').disabled = !c || c.status!=='running';
+  $('c_start').disabled = !!(c && c.status==='running');
+  $('c_badge').textContent = idle?'':(_BADGE[c.status]||c.status);
+  setPill('p_camp', idle?'':(c.status==='running'?'on':(c.status==='converged'?'on':'warn')),
+          idle?'campaign idle':(_BADGE[c.status]||c.status)+
+               ' · '+c.n_evaluations+'/'+c.budget);
+  if(idle){
+    $('c_status').textContent='idle — set a target and start';
+    $('c_bar').style.display='none'; $('c_kpis').style.display='none';
+    $('spark').style.display='none'; $('sparkNote').textContent='';
+    setPill('p_best','','best —');
+    return;
+  }
+  const frac = c.budget ? Math.min(1, c.n_evaluations/c.budget) : 0;
+  const bar=$('c_bar'); bar.style.display='block';
+  bar.classList.toggle('done', c.status==='converged');
+  bar.firstElementChild.style.width=(100*frac).toFixed(1)+'%';
+
+  const b=c.best;
+  $('c_kpis').style.display='grid';
+  const dr = (b&&b.size!=null) ? Math.abs(b.size-c.target_size) : null;
+  $('k_r').textContent = b&&b.size!=null ? num(b.size,3)+' nm' : '—';
+  $('k_d').textContent = dr!=null ? (dr<=c.tolerance?'✓ ':'')+num(dr,3)+' nm' : '—';
+  $('k_d').parentElement.className='kpi'+(dr==null?'':(dr<=c.tolerance?' hit':' miss'));
+  $('k_p').textContent = b&&b.pdi!=null ? num(b.pdi,3) : '—';
+  $('k_p').parentElement.className='kpi'+(b&&b.pdi!=null?(b.pdi<=c.pdi_cap?' hit':' miss'):'');
+  $('k_n').textContent = c.n_evaluations+' / '+c.budget;
+
+  let txt=`target ${c.target_size} ± ${c.tolerance} nm · PDI ≤ ${c.pdi_cap}`;
+  if(c.status==='converged'&&c.converged_condition){
+    const p=c.converged_condition.params;
+    txt += ` → accepted T=${num(p.T_reac,0)}°C F=${num(p.F_tot,0)} `+
+           `x=(${num(p.x_ODE)},${num(p.x_TOP)},${num(p.x_oley)})`;
+  }
+  $('c_status').textContent=txt;
+  setPill('p_best','', b&&b.size!=null
+    ? `best ${num(b.size,3)} nm · PDI ${num(b.pdi,3)}` : 'best — no valid fit yet');
 }
 
-/* theme (default dark, remembered) — same behaviour as the other apps */
+/* ── convergence sparkline ───────────────────────────────────────────────── */
+/* The full convergence figure is one click away, but during a run the single
+   question is "are the points landing in the band?" — that fits in 92 px. */
+function drawSpark(conv){
+  const cv=$('spark');
+  const sz=(conv&&conv.size||[]).map(v=>v==null?NaN:+v);
+  if(!sz.length || !sz.some(v=>isFinite(v))){ cv.style.display='none'; return; }
+  cv.style.display='block';
+  const {ctx,W,H}=fitCanvas(cv,92);
+  const L=34,R=8,T=8,B=16;
+  const tgt=+conv.target_size, tol=+conv.tolerance;
+  const fin=sz.filter(isFinite);
+  let lo=Math.min(tgt-1.6*tol,...fin), hi=Math.max(tgt+1.6*tol,...fin);
+  const pad=(hi-lo)*0.08||0.1; lo-=pad; hi+=pad;
+  const sx=i=>L+(sz.length<2?0.5:i/(sz.length-1))*(W-L-R);
+  const sy=v=>H-B-((v-lo)/(hi-lo))*(H-T-B);
+  ctx.clearRect(0,0,W,H);
+  // acceptance band
+  ctx.fillStyle=cssv('--accent'); ctx.globalAlpha=.16;
+  ctx.fillRect(L, sy(tgt+tol), W-L-R, Math.max(1, sy(tgt-tol)-sy(tgt+tol)));
+  ctx.globalAlpha=1;
+  ctx.strokeStyle=cssv('--accent'); ctx.lineWidth=1.2;
+  ctx.beginPath(); ctx.moveTo(L,sy(tgt)); ctx.lineTo(W-R,sy(tgt)); ctx.stroke();
+  // the Sobol → BO handoff, so a flat prefix is not misread as a stalled optimizer
+  if(conv.n_init && conv.n_init < sz.length){
+    ctx.strokeStyle=cssv('--muted'); ctx.setLineDash([3,3]); ctx.beginPath();
+    ctx.moveTo(sx(conv.n_init-0.5),T); ctx.lineTo(sx(conv.n_init-0.5),H-B); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  // measured radii
+  ctx.fillStyle=cssv('--info');
+  sz.forEach((v,i)=>{ if(!isFinite(v)) return;
+    ctx.beginPath(); ctx.arc(sx(i), Math.max(T,Math.min(H-B,sy(v))), 2.4, 0, 6.2832); ctx.fill(); });
+  // axis labels
+  ctx.fillStyle=cssv('--muted'); ctx.font='10px system-ui';
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  ctx.fillText(fmt(hi),L-5,T+3); ctx.fillText(fmt(lo),L-5,H-B-3);
+  ctx.textAlign='left'; ctx.fillText('nm',4,T+3);
+  ctx.textAlign='center'; ctx.textBaseline='top';
+  ctx.fillText('run '+sz.length, (L+W-R)/2, H-B+3);
+  const inband=sz.filter(v=>isFinite(v)&&Math.abs(v-tgt)<=tol).length;
+  $('sparkNote').textContent=`${inband}/${sz.filter(isFinite).length} runs inside the band`;
+}
+
+/* ── parameter space panel ─────────────────────────────────────────────────
+   Figures are rendered server-side by src/optimizer/plots.py — the same
+   renderer that produced the figures in the report, so the panel and the
+   document can never disagree. Refreshed when a run lands, not on the SSE tick:
+   each figure is a few hundred KB and a run takes minutes, so polling it every
+   second would reintroduce exactly the lag we just removed. */
+let _psView = 'slice', _psLastN = -1, _psBusy = false;
+
+function psAxes(names){
+  const xs=$('ps_x'), ys=$('ps_y');
+  if(xs.options.length) return;
+  names.forEach(n=>{ xs.add(new Option(n,n)); ys.add(new Option(n,n)); });
+  xs.value = names.includes('T_reac') ? 'T_reac' : names[0];
+  ys.value = names.includes('x_TOP') ? 'x_TOP' : names[1];
+}
+
+function psView(v){
+  _psView=v;
+  document.querySelectorAll('#ps_tabs button').forEach(b=>b.classList.toggle('on',b.dataset.view===v));
+  $('ps_axes').style.display = v==='slice' ? 'flex' : 'none';
+  try{ localStorage.setItem('swaxs-an-psview', v); }catch(_){}
+  psLoad(true);
+}
+
+function psLoad(force){
+  if(_psBusy && !force) return;
+  const slice = _psView==='slice';
+  let url=`/api/campaign/plot/${_psView}.png?t=${Date.now()}`;
+  if(slice){
+    const x=$('ps_x').value, y=$('ps_y').value;
+    if(x && y && x===y){                       // a degenerate slice is meaningless
+      $('ps_wrap').innerHTML='<div class="ph">pick two different axes</div>';
+      return;
+    }
+    if(x&&y) url+=`&x=${x}&y=${y}&anchor=${$('ps_anchor').value}`;
+  }
+  const wrap=$('ps_wrap');
+  if(!wrap.querySelector('img')) wrap.innerHTML='<div class="ph">rendering…</div>';
+  _psBusy=true;
+  const img=new Image();
+  img.alt=_psView+' figure';
+  img.onclick=()=>{ $('lbimg').src=img.src; $('lightbox').classList.add('open'); };
+  img.onload=()=>{ _psBusy=false; wrap.innerHTML=''; wrap.appendChild(img); };
+  img.onerror=()=>{ _psBusy=false;
+    wrap.innerHTML='<div class="ph">could not render this figure — is a campaign running?</div>'; };
+  img.src=url;
+  psDiag();
+}
+
+async function psDiag(){
+  const d=await api('/api/campaign/diagnostics');
+  if(!d || !d.ok){ $('ps_diag').innerHTML=''; return; }
+  if(d.names) psAxes(d.names);
+  const s=d.summary, pct=v=>(v==null||!isFinite(v))?'—':(100*v).toFixed(0)+'%';
+  $('ps_diag').innerHTML =
+    `<div><span>runs</span><b>${s.n} / ${s.budget}</b></div>` +
+    `<div><span>best loss</span><b>${num(s.best_loss,3)}</b></div>` +
+    `<div title="fraction of the prior uncertainty the surrogate has removed">` +
+      `<span>space explained</span><b>${pct(s.uncertainty_drop)}</b></div>` +
+    `<div title="distance between consecutive proposals in the unit cube — falls as the loop exploits">` +
+      `<span>step early → late</span><b>${num(s.mean_step_early)} → ${num(s.mean_step_late)}</b></div>`;
+  if(d.convergence) drawSpark(d.convergence);
+}
+
+/* ── theme ───────────────────────────────────────────────────────────────── */
 (function(){const K='swaxs-theme';let d=localStorage.getItem(K)?localStorage.getItem(K)==='dark':true;
-  function ap(x){document.documentElement.setAttribute('data-theme',x?'dark':'light');const b=$('themeBtn');if(b)b.textContent=x?'☀':'☾';if(_lastPlot)drawPlot(_lastPlot);}
+  function ap(x){document.documentElement.setAttribute('data-theme',x?'dark':'light');
+    const b=$('themeBtn');if(b)b.textContent=x?'☀':'☾';
+    if(_lastPlot)drawPlot(_lastPlot);}
   ap(d);window.toggleTheme=function(){d=!d;localStorage.setItem(K,d?'dark':'light');ap(d);};})();
 
-(async()=>{const p=await api('/api/project');$('watch').textContent=p.watching;$('resolved').textContent='Watching: '+p.watching;
-  const f=await api('/api/folder');$('folder').value=f.folder;})();
+/* ── boot ────────────────────────────────────────────────────────────────── */
+(async()=>{
+  const p=await api('/api/project');
+  if(!p.error){ setPill('p_watch','',p.watching); }
+  const f=await api('/api/folder');
+  if(!f.error){
+    $('folder').value=f.folder||'';
+    $('resolved').textContent='Watching: '+f.resolved;
+    setPill('p_watch','',f.resolved);
+    $('setupHint').textContent=(f.resolved||'').split('/').slice(-2).join('/');
+  }
+  try{ psView(localStorage.getItem('swaxs-an-psview')||'slice'); }catch(_){ psView('slice'); }
+  sortArrows(); setScale(_scale);
+})();
 
-const es=new EventSource('/api/stream');
-es.onmessage=e=>{try{const d=JSON.parse(e.data);renderRows(d.results||[]);if(d.logs&&d.logs.length)logLines(d.logs);
-  renderCampaign(d.campaign);
-  if(!_sel&&d.results&&d.results.length)select(d.results[0].name);}catch(_){}};
+/* ── live stream, with reconnect ───────────────────────────────────────────
+   EventSource used to be opened once with no error handler: if the analyzer was
+   restarted (or a network blip hit), the page went quietly dead and kept showing
+   stale numbers — the worst failure mode for an unattended run. Now it
+   reconnects with backoff and the status strip says so. */
+let _es=null, _tries=0, _lastFrame=0;
+
+function connect(){
+  try{ if(_es) _es.close(); }catch(_){}
+  _es=new EventSource('/api/stream');
+  _es.onopen=()=>{ _tries=0; setPill('p_conn','on','live'); };
+  _es.onmessage=e=>{
+    _lastFrame=Date.now();
+    setPill('p_conn','on','live');
+    let d; try{ d=JSON.parse(e.data); }catch(_){ return; }
+    // `results` carries ONLY rows newer than what this client has already seen
+    // (plus a bounded snapshot in the very first frame).
+    if(d.results && (d.results.length || d.reset)) renderRows(d.results, !!d.reset);
+    rowsNote(d.total);
+    setPill('p_count','', (d.total||0)+' profiles fitted');
+    if(d.logs && d.logs.length) logLines(d.logs);
+    renderCampaign(d.campaign);
+    psMaybeRefresh(d.campaign);
+    if(!_sel && d.results && d.results.length) select(d.results[d.results.length-1].name);
+  };
+  _es.onerror=()=>{
+    try{ _es.close(); }catch(_){}
+    _tries=Math.min(_tries+1,6);
+    const wait=400*Math.pow(2,_tries);
+    setPill('p_conn','off','reconnecting in '+Math.round(wait/1000)+'s');
+    setTimeout(connect, wait);
+  };
+}
+connect();
+
+/* a stream that is open but silent is also a failure — say so after 8 s */
+setInterval(()=>{
+  if(_lastFrame && Date.now()-_lastFrame > 8000)
+    setPill('p_conn','warn','no data for '+Math.round((Date.now()-_lastFrame)/1000)+'s');
+}, 3000);
+
+function psMaybeRefresh(c){
+  if(!c || c.status==='idle') return;
+  const n=c.n_evaluations||0;
+  if(n!==_psLastN){ _psLastN=n; psLoad(true); }
+}
 </script>
-</body></html>
+</body>
+</html>

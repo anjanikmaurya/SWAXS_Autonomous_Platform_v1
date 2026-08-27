@@ -245,6 +245,140 @@ def test_credentials_are_read_from_env_not_config(monkeypatch):
     assert n.token == "" and n.webhook == ""
 
 
+# ── recipe_id recovery from a filename ────────────────────────────────────────
+def test_recipe_id_is_recovered_from_a_measurement_filename():
+    from src.optimizer.io import recipe_id_from_filename as rid
+    assert rid("auto_20260728_010448_e5a0_sample_scan1_0002_SAXS.dat") == \
+        "auto_20260728_010448_e5a0"
+    assert rid("r001_bkg_scan1_0000.raw") == "r001"
+    assert rid("r001_sample_SAXS_subtracted.dat") == "r001"
+    assert rid("something_unrelated.dat") == ""       # no role tag → no guess
+
+
+# ── the analyzer result lands in the recipe's thread ─────────────────────────
+def test_analysis_result_is_posted_into_the_recipe_thread(monkeypatch):
+    sent = []
+    n = _bot(monkeypatch, sent)
+    n.recipe_applied("r1", {"T_reac": 240}, 600.0)
+    _drain()
+    n.notify(":bar_chart: *Fit result* — `r1`", tier=PROGRESS, recipe_id="r1",
+             fields={"size (nm)": 4.12, "PDI": 0.023, "confidence": 0.91,
+                     "loss": 0.115})
+    _drain()
+    n.close()
+    assert sent[1].get("thread_ts") == "111.2", "fit result was not threaded"
+    t = sent[1]["text"]
+    assert "4.12" in t and "0.91" in t and "0.115" in t
+
+
+def test_low_confidence_fit_is_an_alert(monkeypatch):
+    """A suspect fit should reach the alert tier so it isn't lost in progress noise."""
+    sent = []
+    n = _bot(monkeypatch, sent, tiers=[ALERT])          # progress disabled
+    n.notify(":mag: *Fit LOW CONFIDENCE* — `r9`", tier=ALERT, recipe_id="r9",
+             fields={"confidence": 0.08})
+    _drain()
+    n.close()
+    assert sent and "LOW CONFIDENCE" in sent[0]["text"]
+
+
+def test_upload_png_is_skipped_without_a_bot_token(monkeypatch, tmp_path):
+    monkeypatch.setenv(S.ENV_WEBHOOK, "https://hooks.slack.com/x")
+    p = tmp_path / "qc.png"; p.write_bytes(b"\x89PNG\r\n\x1a\n")
+    n = SlackNotifier({"enabled": True})
+    n.upload_png(str(p), "t")                   # webhook mode → no-op, must not raise
+    _drain()
+    n.close()
+
+
+def test_upload_png_ignores_a_missing_file(monkeypatch):
+    sent = []
+    n = _bot(monkeypatch, sent)
+    n.upload_png("/definitely/not/here.png", "t", recipe_id="r1")
+    _drain()
+    n.close()                                   # must not raise
+
+
+# ── runtime arm/disarm (the "leaving the beamline" button) ───────────────────
+def test_configured_but_disabled_can_be_armed_at_runtime(monkeypatch):
+    """Credentials present + config enabled:false → armable from the UI without
+    restarting the app."""
+    sent = []
+    monkeypatch.setenv(S.ENV_TOKEN, "xoxb-test")
+    monkeypatch.setattr(S, "_post",
+                        lambda url, payload, token="", timeout=6.0:
+                        (sent.append(payload), {"ok": True, "ts": "1.0"})[1])
+    n = SlackNotifier({"enabled": False, "channel": "#c", "min_interval_s": 0.0})
+    assert n.configured is True and n.enabled is False
+    n.notify("dropped")                      # disarmed → nothing sent
+    _drain()
+    assert sent == []
+
+    ok, msg = n.enable()
+    assert ok and "ON" in msg and n.enabled
+    n.notify("now sent")
+    _drain()
+    assert any("now sent" in p["text"] for p in sent)
+    n.close()
+
+
+def test_disarm_stops_sending_but_keeps_it_armable(monkeypatch):
+    sent = []
+    n = _bot(monkeypatch, sent)
+    n.notify("first")
+    _drain()
+    before = len(sent)
+    ok, _ = n.disable()
+    assert ok and n.enabled is False
+    n.notify("while off")
+    _drain()
+    assert len(sent) == before, "message sent while disarmed"
+    n.enable()
+    n.notify("back on")
+    _drain()
+    assert len(sent) > before
+    n.close()
+
+
+def test_enable_without_credentials_reports_why(monkeypatch):
+    n = SlackNotifier({"enabled": False})
+    ok, msg = n.enable()
+    assert not ok and S.ENV_TOKEN in msg, msg
+
+
+def test_enable_in_bot_mode_requires_a_channel(monkeypatch):
+    monkeypatch.setenv(S.ENV_TOKEN, "xoxb-test")
+    n = SlackNotifier({"enabled": False, "channel": ""})
+    ok, msg = n.enable()
+    assert not ok and "channel" in msg
+    n.close()
+
+
+def test_re_enable_restarts_a_dead_worker(monkeypatch):
+    sent = []
+    n = _bot(monkeypatch, sent)
+    n.close()                                # worker stopped
+    assert not n._worker.is_alive()
+    ok, _ = n.enable()
+    assert ok and n._worker.is_alive(), "worker was not restarted"
+    n.notify("after restart")
+    _drain()
+    assert any("after restart" in p["text"] for p in sent)
+    n.close()
+
+
+def test_status_reports_what_the_ui_needs(monkeypatch):
+    sent = []
+    n = _bot(monkeypatch, sent, tiers=[ALERT, PROGRESS])
+    s = n.status()
+    for k in ("enabled", "configured", "mode", "channel", "tiers",
+              "thread_per_recipe", "queued", "threads_open"):
+        assert k in s, f"status() missing {k}"
+    assert s["mode"] == "bot" and s["configured"] is True
+    assert s["tiers"] == [ALERT, PROGRESS]
+    n.close()
+
+
 def test_token_is_not_included_in_the_message_payload(monkeypatch):
     sent = []
     n = _bot(monkeypatch, sent)

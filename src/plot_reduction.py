@@ -80,7 +80,12 @@ def _write_averaged_dat(
         for k, v in metadata.items():
             lines.append(f"# {k}: {v}")
 
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # Atomic publish: a bare write_text can be caught mid-way (or truncated by a
+    # full disk), and a permanently short .dat looks perfectly STABLE to every
+    # downstream size+mtime check — so it gets consumed as if it were complete.
+    tmp = path.with_suffix(path.suffix + ".part")
+    tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    tmp.replace(path)
 
 
 def _average_group(

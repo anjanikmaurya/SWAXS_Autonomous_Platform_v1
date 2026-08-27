@@ -14,6 +14,7 @@ import gc
 import hashlib
 import io
 import json
+import os
 import sys
 import threading
 import time
@@ -41,6 +42,7 @@ from src.manifest import (                                             # noqa: E
     update_manifest,
     add_file_entry, make_provenance,
 )
+from src.runstate import save_monitor, load_monitor, monitor_alive        # noqa: E402
 
 # ── Event bus (graceful degradation) ─────────────────────────────────────────
 try:
@@ -64,8 +66,21 @@ _avg_log: collections.deque = collections.deque(maxlen=500)   # (seq, line) item
 _avg_seq: int = 0
 # (detector, keyword) -> number of frames already consumed into batches
 _avg_batch_state: dict = {}
+#: (det, keyword) -> frames waiting, so the 'still waiting' line is
+#: logged once per change instead of every poll
+_avg_pending: dict = {}
 _avg_status: dict = {"monitoring": False, "batches": 0, "last": None,
                      "frames_per_average": None, "interval": None}
+
+
+_FRAMES_RE = __import__("re").compile(r"_(\d+)files_")
+
+
+def _frames_from_name(name: str) -> int:
+    """Frames averaged, from the filename average_and_save wrote. 0 if unknown —
+    an honest 0 is better than a plausible wrong number in the event payload."""
+    m = _FRAMES_RE.search(str(name))
+    return int(m.group(1)) if m else 0
 
 
 def _avg_emit(msg: str, tag: str = "info") -> None:
@@ -371,10 +386,15 @@ def api_load():
 
     for det, raw in [("saxs", body.get("saxs_folder", "")),
                      ("waxs", body.get("waxs_folder", ""))]:
-        folder = Path(raw.strip()) if raw else Path("")
+        # A blank field means "this detector is not in use" — skip it. The old
+        # code built Path(""), which is the CWD: it exists, so the guard below
+        # never fired and a SAXS-only run averaged whatever .dat files happened to
+        # be in the launch directory as if they were experiment data.
+        if not (raw or "").strip():
+            continue
+        folder = Path(raw.strip())
         if not folder.exists():
-            if raw.strip():
-                response["errors"].append(f"{det.upper()} not found: {raw}")
+            response["errors"].append(f"{det.upper()} not found: {raw}")
             continue
         try:
             files = read_folder(folder, keywords=keywords or None)
@@ -457,10 +477,15 @@ def api_average():
 
     for det, raw in [("saxs", body.get("saxs_folder", "")),
                      ("waxs", body.get("waxs_folder", ""))]:
-        folder = Path(raw.strip()) if raw else Path("")
+        # A blank field means "this detector is not in use" — skip it. The old
+        # code built Path(""), which is the CWD: it exists, so the guard below
+        # never fired and a SAXS-only run averaged whatever .dat files happened to
+        # be in the launch directory as if they were experiment data.
+        if not (raw or "").strip():
+            continue
+        folder = Path(raw.strip())
         if not folder.exists():
-            if raw.strip():
-                response["errors"].append(f"{det.upper()} not found: {raw}")
+            response["errors"].append(f"{det.upper()} not found: {raw}")
             continue
         try:
             saved = average_and_save(str(folder), keywords,
@@ -471,6 +496,10 @@ def api_average():
                 response["saved"].append(str(out_path))
                 _, q, I, sigma, _ = read_dat_data_metadata(out_path)
                 mask = (q > 0) & (I > 0)
+                # The true frame count is in the filename written by
+                # average_and_save ("{kw}_{n}files_..."). It is NOT mask.sum(),
+                # which counts positive q-points.
+                n_avg = _frames_from_name(out_path.name)
                 response[det][kw] = {
                     "q":     q[mask].tolist(),
                     "I":     I[mask].tolist(),
@@ -483,7 +512,11 @@ def api_average():
                         _bus.emit_file_averaged(
                             str(out_path),
                             keyword  = kw,
-                            n_files  = mask.sum(),
+                            # int(), not mask.sum(): that is an np.int64, which
+                            # json.dumps refuses — and publishing one used to take
+                            # the event bus down for the rest of the process. It is
+                            # also the wrong number (positive q-points, not frames).
+                            n_files  = n_avg,
                             detector = det,
                         )
                     except Exception:
@@ -524,6 +557,19 @@ def api_average():
 
 
 # ── Auto-averaging monitor routes ─────────────────────────────────────────────
+
+def _frames_per_acquisition() -> int:
+    """How many frames the reactor writes per 2D acquisition (0 = unknown).
+
+    Read from the reactor's own config so the two halves of the loop cannot
+    silently disagree about something this consequential.
+    """
+    try:
+        from src.reactor import load_config              # noqa: PLC0415
+        return int((load_config().get("spec") or {}).get("frames", 0) or 0)
+    except Exception:
+        return 0
+
 
 def _avg_monitor_loop(dets, n_per_batch, interval, i0_filter_pct,
                       n_pts, keywords, label_suffix, q_min=None, q_max=None):
@@ -566,6 +612,22 @@ def _avg_monitor_loop(dets, n_per_batch, interval, i0_filter_pct,
                 grp.sort(key=lambda d: d.get("scan_idx", 0))
                 key = (det, kw)
                 consumed = _avg_batch_state.get(key, 0)
+
+                # Say where each group stands. Without this the loop was SILENT
+                # whenever a group had fewer frames than one batch — and because
+                # loop frames are grouped per {recipe_id}_{role}, a recipe that
+                # produces spec.frames (10) frames can never reach a 30-frame
+                # batch: no average is EVER written, the autonomous loop gets no
+                # subtracted profile, and the only symptom is "averaging seems
+                # slow". It was not slow; it was deadlocked.
+                have = len(grp) - consumed
+                if have < n_per_batch:
+                    if _avg_pending.get(key) != have:
+                        _avg_pending[key] = have
+                        _avg_emit(f"…  {kw} [{det}]: {have}/{n_per_batch} frames — "
+                                  f"waiting for {n_per_batch - have} more", "info")
+                else:
+                    _avg_pending.pop(key, None)
 
                 while _avg_monitoring and (len(grp) - consumed) >= n_per_batch:
                     batch    = grp[consumed:consumed + n_per_batch]
@@ -643,6 +705,16 @@ def _avg_monitor_loop(dets, n_per_batch, interval, i0_filter_pct,
     _avg_status["monitoring"] = False
     _avg_emit("⏹  Auto-averaging stopped", "warn")
 
+def _stale_monitor_notice() -> None:
+    """The previous worker thread is gone but its flag was still set. Say so —
+    silently taking over would hide the fact that processing had stopped."""
+    try:
+        _avg_emit("⚠  the previous monitor thread had died (its status still said "
+              "running) — taking over with the new settings", "warn")
+    except Exception:
+        pass
+
+
 
 @app.route("/api/monitor/start", methods=["POST"])
 def monitor_start():
@@ -653,8 +725,13 @@ def monitor_start():
             keywords?, label_suffix? }
     """
     global _avg_monitoring, _avg_monitor_thread, _avg_batch_state
-    if _avg_monitoring:
+    # Refuse only if the worker is ACTUALLY alive. A bare flag check meant that a
+    # monitor whose thread had died reported "Already monitoring" forever, so the
+    # app could never be restarted from the UI (src/runstate.monitor_alive).
+    if monitor_alive(_avg_monitoring, _avg_monitor_thread):
         return jsonify({"ok": False, "error": "Already monitoring"})
+    if _avg_monitoring:
+        _stale_monitor_notice()
 
     body          = request.get_json(force=True)
     n_per_batch   = max(int(body.get("frames_per_average", 0) or 0), 1)
@@ -681,7 +758,24 @@ def monitor_start():
         return jsonify({"ok": False,
                         "error": "No reduction folder provided"}), 400
 
+    # Catch the configuration deadlock BEFORE it wastes a night.
+    #
+    # Loop frames are grouped per {recipe_id}_{role}, so frames from different
+    # recipes never combine. If one acquisition delivers fewer frames than a batch
+    # needs, that group can never complete and NOTHING is ever averaged — the
+    # autonomous loop then has no subtracted profile, no fit and no next recipe,
+    # with no error anywhere. The shipped reactor default is spec.frames = 10 and
+    # the shipped batch size here is 30, which is exactly that deadlock.
+    per_acq = _frames_per_acquisition()
+    if per_acq and n_per_batch > per_acq:
+        _avg_emit(f"⚠  frames/batch is {n_per_batch} but the reactor collects "
+                  f"{per_acq} frames per acquisition. Loop frames are grouped per "
+                  f"recipe, so a batch of {n_per_batch} can NEVER complete and no "
+                  f"average will be written. Set frames/batch to {per_acq} (or "
+                  f"lower), or raise spec.frames in reactor/config.yml.", "error")
+
     _avg_batch_state = {}
+    _avg_pending.clear()
     _avg_status.update({"monitoring": True, "batches": 0, "last": None,
                         "frames_per_average": n_per_batch, "interval": interval})
     _avg_monitoring = True
@@ -705,7 +799,10 @@ def monitor_stop():
 
 @app.route("/api/monitor/status")
 def monitor_status():
-    return jsonify(_avg_status)
+    # Report the THREAD, not the flag: a dead worker used to read as healthy.
+    return jsonify({**_avg_status,
+                    "monitoring": monitor_alive(_avg_monitoring,
+                                                _avg_monitor_thread)})
 
 
 @app.route("/api/monitor/stream")
@@ -901,6 +998,63 @@ def api_save_average():
 
 
 # ─── Entry point ─────────────────────────────────────────────────────────────
+
+# ── resume the processing loop after a restart (platform audit O1) ────────────
+# Every automation used to start ONLY from an operator click and persisted
+# nothing, so a 03:00 restart left the platform looking correctly restored — the
+# hub even remembered the project folder — while doing nothing at all. Frames
+# accumulated, nothing was processed, and every card stayed green.
+#
+# The saved body is replayed through the SAME endpoint, so there is no second
+# copy of the argument parsing to drift out of sync.
+_MON_APP = "viewer"
+
+
+def _state_root() -> str:
+    """Where run-state lives. Several apps leave `_project_root` empty until the
+    hub POSTs it, so fall back to the env var the hub also sets — otherwise the
+    state silently has nowhere to go."""
+    return (_project_root or os.environ.get("SWAXS_PROJECT", "") or "").strip()
+
+
+@app.after_request
+def _persist_monitor_state(resp):
+    try:
+        if request.path == "/api/monitor/start" and resp.status_code == 200:
+            if (resp.get_json(silent=True) or {}).get("ok", True):
+                save_monitor(_state_root(), _MON_APP, True,
+                             request.get_json(silent=True) or {})
+        elif request.path == "/api/monitor/stop":
+            save_monitor(_state_root(), _MON_APP, False)
+    except Exception:
+        pass
+    return resp
+
+
+def _boot_resume_monitor() -> None:
+    time.sleep(2.0)                      # let the hub push the project folder first
+    try:
+        params = load_monitor(_state_root(), _MON_APP)
+        if not params:
+            return
+        rv = app.test_client().post("/api/monitor/start", json=params)
+        body = rv.get_json(silent=True) or {}
+        # "Already monitoring" is a SUCCESS for our purposes: the loop is running.
+        # Without this a second resume attempt (e.g. the hub re-POSTing the project
+        # folder) logged an alarming failure for a perfectly healthy state.
+        already = "already" in str(body.get("error", "")).lower()
+        if body.get("ok", rv.status_code == 200) or already:
+            _avg_emit("♻  auto-processing RESUMED after restart "
+                   "(saved settings reused)", "ok")
+        else:
+            _avg_emit(f"⚠  could not resume auto-processing: {body.get('error')}",
+                   "warn")
+    except Exception as exc:
+        _avg_emit(f"⚠  auto-processing resume failed: {exc}", "warn")
+
+
+threading.Thread(target=_boot_resume_monitor, daemon=True).start()
+
 if __name__ == "__main__":
     import os
     _project_root = os.environ.get("SWAXS_PROJECT", "")

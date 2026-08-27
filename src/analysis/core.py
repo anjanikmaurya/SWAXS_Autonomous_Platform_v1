@@ -443,7 +443,10 @@ def guinier_quality(result: dict, shape: str = "globular") -> dict:
         warns.append(f"q_max·Rg = {qRg_max} exceeds ~{upper} for a {shape} particle.")
     if qRg_min > 0.65:
         warns.append(f"q_min·Rg = {qRg_min} is high — extend to lower q if possible.")
-    r2 = result.get("r2")
+    # guinier_fit returns "R2" (capital), so the old result.get("r2") was always
+    # None and this entire quality gate was unreachable — a Guinier fit with
+    # R² = 0.4 was reported as PASS. Accept both spellings.
+    r2 = result.get("R2", result.get("r2"))
     if r2 is not None and r2 < 0.99:
         warns.append(f"Guinier R² = {r2} (<0.99) — fit may be poor.")
     verdict = "PASS" if not warns else "WARN"

@@ -39,6 +39,8 @@ _ROOT = _HERE.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+from src import proc_lifecycle as pl        # noqa: E402  (needs sys.path above)
+
 # ── Load .env into os.environ before anything else reads it ──────────────────
 # This makes the hub self-sufficient regardless of how it was launched
 # (./start_platform.sh, uv run hub/app.py, IDE, etc.).
@@ -79,6 +81,14 @@ except ImportError:
     )
 
 # ── App registry ──────────────────────────────────────────────────────────────
+
+#: The hub's own port. Overridable because 5000 collides with AirPlay Receiver on
+#: macOS and with assorted dev servers elsewhere; an operator needs an escape
+#: hatch that does not involve editing code.
+try:
+    _HUB_PORT = int(os.environ.get("SWAXS_HUB_PORT", "5000") or 5000)
+except ValueError:
+    _HUB_PORT = 5000
 
 _APPS_YML = _ROOT / "apps.yml"
 
@@ -164,6 +174,38 @@ def _app_by_id(app_id: str) -> dict | None:
     return next((a for a in APPS if a["id"] == app_id), None)
 
 
+# ── child registry (survives a hub SIGKILL) ──────────────────────────────────
+# The hub's atexit handler cannot run if the hub is SIGKILLed or the machine loses
+# power. Without a record on disk, the next hub has no idea nine of its apps are
+# still running: every port is taken, the UI says "Stopped", and those orphans
+# keep polling folders and writing to the project (platform audit O11).
+_CHILDREN_FILE = _ROOT / "logs" / "hub_children.json"
+
+
+def _record_children() -> None:
+    """Snapshot which app is which PID. Cheap; called on every start/stop."""
+    live = {}
+    for a in APPS:
+        p = _procs.get(a["id"])
+        if p is not None and p.poll() is None:
+            live[a["id"]] = {"pid": p.pid, "port": a["port"],
+                             "entry": a["entry"], "started": time.time()}
+    pl.write_children(_CHILDREN_FILE, live)
+
+
+def _reap_previous_run() -> list[str]:
+    """Kill anything left over from a previous hub, so this hub starts clean."""
+    prev = pl.read_children(_CHILDREN_FILE)
+    if not prev:
+        return []
+    apps = {a["id"]: {"port": a["port"], "entry": a["entry"]} for a in APPS}
+    notes = pl.reap_orphans(prev, apps, _ROOT)
+    for n in notes:
+        logger.info("[Hub] reaped orphan from a previous run: %s", n)
+    pl.write_children(_CHILDREN_FILE, {})
+    return notes
+
+
 def _is_running(app_id: str) -> bool:
     proc = _procs.get(app_id)
     return proc is not None and proc.poll() is None
@@ -172,51 +214,78 @@ def _is_running(app_id: str) -> bool:
 def _port_in_use(port: int) -> bool:
     """True if something is already listening on localhost:port (e.g. an orphaned
     app from a previous hub run still holding it)."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.settimeout(0.3)
-        return s.connect_ex(("127.0.0.1", int(port))) == 0
+    return pl.port_in_use(port)
+
+
+def _health_probe(port: int, timeout: float = 1.0) -> tuple[bool, dict | None]:
+    """One request to /api/health → (alive, summary).
+
+    This used to be two functions making two HTTP requests to the same endpoint,
+    for every app, on every 2 s status tick — 18 requests per tick with nine apps.
+    Worse, each blocks up to `timeout`, so a few wedged apps could push a single
+    tick past the tick interval and stall the whole status stream. One request,
+    and a short timeout, keeps the tick bounded.
+    """
+    try:
+        url = f"http://localhost:{port}/api/health"
+        with urllib.request.urlopen(url, timeout=timeout) as r:
+            if r.status != 200:
+                return False, None
+            body = r.read(65536).decode("utf-8", "replace")
+    except Exception:
+        return False, None
+    try:
+        data = json.loads(body or "{}")
+        if isinstance(data, dict) and "good" in data and "bad" in data:
+            return True, {"good": data.get("good", 0), "bad": data.get("bad", 0),
+                          "graded": data.get("graded", 0)}
+    except Exception:
+        pass                       # answered 200 but not with JSON we understand
+    return True, None
 
 
 def _health_check(port: int, timeout: float = 1.0) -> bool:
-    try:
-        url = f"http://localhost:{port}/api/health"
-        with urllib.request.urlopen(url, timeout=timeout) as r:
-            return r.status == 200
-    except Exception:
-        return False
+    return _health_probe(port, timeout)[0]
 
 
 def _health_summary(port: int, timeout: float = 1.0) -> dict | None:
-    """Return a short status summary an app exposes on /api/health (e.g. the
-    Quality Gate's good/bad counts), or None.  Best-effort, never raises."""
-    try:
-        url = f"http://localhost:{port}/api/health"
-        with urllib.request.urlopen(url, timeout=timeout) as r:
-            data = json.loads(r.read().decode() or "{}")
-        if "good" in data and "bad" in data:
-            return {"good": data.get("good", 0), "bad": data.get("bad", 0),
-                    "graded": data.get("graded", 0)}
-    except Exception:
-        pass
-    return None
+    return _health_probe(port, timeout)[1]
 
 
 def _start_app(app_id: str) -> tuple[bool, str]:
-    """Launch the sub-app process. Returns (success, message)."""
+    """Launch the sub-app process FRESH. Returns (success, message).
+
+    "Fresh" means three things, all of which used to be missing:
+      * anything still holding the port is dealt with first, not reported as an
+        error the operator has no way to fix from the UI;
+      * the child gets its own process group, so stopping it later kills the
+        whole tree;
+      * the previous log is rotated rather than truncated, so a start attempt
+        never destroys the traceback from the crash that prompted it.
+    """
     meta = _app_by_id(app_id)
     if meta is None:
         return False, f"Unknown app: {app_id}"
     if _is_running(app_id):
         return True, "Already running"
-    # Port already taken by something the hub didn't spawn (e.g. an orphan from a
-    # previous run). Don't launch a colliding process that would just fail to bind.
-    if _port_in_use(meta["port"]):
-        return False, (f"Port {meta['port']} is already in use — a previous "
-                       f"instance may still be running. Free that port and retry.")
 
     entry = _ROOT / meta["entry"]
     if not entry.exists():
         return False, f"Entry file not found: {entry}"
+
+    # A held port is normally OUR own orphan: a previous hub run that was killed,
+    # or a stop that raced the socket teardown. Reclaim it (only when the holder
+    # identifies as this app) instead of dead-ending the operator.
+    note = ""
+    if pl.port_in_use(meta["port"]):
+        freed, why, killed = pl.reclaim_port(meta["port"], entry, _ROOT)
+        if not freed:
+            return False, why
+        note = f" ({why})"
+        if killed:
+            _hub_emit("app.reclaimed", {"app_id": app_id, "port": meta["port"],
+                                        "killed": [k["pid"] for k in killed]})
+        logger.info("[Hub] %s: %s", app_id, why)
 
     env = os.environ.copy()
     if _project_root:
@@ -232,6 +301,7 @@ def _start_app(app_id: str) -> tuple[bool, str]:
     log_dir = _ROOT / "logs"
     log_dir.mkdir(exist_ok=True)
     log_path = log_dir / f"{app_id}.log"
+    pl.rotate_log(log_path)          # keep the previous run's traceback (audit O17)
 
     def _launch(cmd):
         logf = open(log_path, "w", encoding="utf-8")
@@ -241,6 +311,8 @@ def _start_app(app_id: str) -> tuple[bool, str]:
             env=env,
             stdout=logf,
             stderr=subprocess.STDOUT,
+            # own process group → stopping the app can signal the whole tree
+            **pl.popen_kwargs(),
         )
 
     # Launch with the SAME interpreter that runs the hub. This guarantees the
@@ -252,25 +324,56 @@ def _start_app(app_id: str) -> tuple[bool, str]:
     try:
         proc = _launch([sys.executable, str(entry)])
         _procs[app_id] = proc
+        _crashed.pop(app_id, None)
+        _last_running[app_id] = True
+        _record_children()
         _hub_emit("app.started", {"app_id": app_id, "pid": proc.pid})
-        return True, f"Started (PID {proc.pid})"
+        return True, f"Started (PID {proc.pid}){note}"
     except Exception as exc:
         return False, str(exc)
 
 
 def _stop_app(app_id: str) -> tuple[bool, str]:
+    """Stop the app and make sure nothing of it is left running.
+
+    Previously this returned "Not running" whenever the hub's own Popen handle was
+    gone — so closing an app that had been started by an EARLIER hub run did
+    nothing at all, while that process kept polling folders and writing files. It
+    also returned before the listening socket was released, so an immediate
+    restart could fail to bind.
+    """
+    meta = _app_by_id(app_id)
+    port = meta["port"] if meta else None
+    entry = (_ROOT / meta["entry"]) if meta else ""
     proc = _procs.get(app_id)
-    if proc is None or proc.poll() is not None:
-        _procs[app_id] = None
-        return True, "Not running"
-    try:
-        proc.terminate()
-        proc.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        proc.kill()
+    notes = []
+
+    if proc is not None and proc.poll() is None:
+        notes.append(pl.kill_tree(proc, grace=5.0))
     _procs[app_id] = None
+
+    # Whatever the handle said, the port is the ground truth. If something is
+    # still listening and it identifies as this app, it is an orphan of ours.
+    if port is not None and pl.port_in_use(port):
+        if not pl.wait_port_free(port, timeout=3.0):
+            freed, why, killed = pl.reclaim_port(port, entry, _ROOT)
+            notes.append(why)
+            if killed:
+                logger.info("[Hub] %s: %s", app_id, why)
+            if not freed:
+                _record_children()
+                return False, "; ".join(n for n in notes if n)
+
+    # A deliberate stop is not a crash: clear the edge state so the next status
+    # tick sees no running→dead transition, and drop any stale crash badge.
+    _last_running[app_id] = False
+    _crashed.pop(app_id, None)
+    _record_children()
     _hub_emit("app.stopped", {"app_id": app_id})
-    return True, "Stopped"
+    detail = "; ".join(n for n in notes if n and n != "already-gone")
+    if not detail:
+        return True, "Not running"
+    return True, f"Stopped ({detail})" if detail != "terminated" else "Stopped"
 
 
 # ── Event bus helpers ─────────────────────────────────────────────────────────
@@ -370,20 +473,33 @@ def health():
     return jsonify({"status": "ok", "app": "hub"})
 
 
-@app.route("/api/status")
-def api_status():
-    """Snapshot status of all apps (used for initial page load)."""
+def _app_status() -> dict:
+    """Per-app status, built once and used by both /api/status and the SSE stream.
+    Two copies of this loop had already drifted apart — the stream reported
+    crashes and the snapshot did not, so a page load right after a crash showed a
+    plain "Stopped"."""
     out = {}
     for a in APPS:
-        running = _is_running(a["id"])
-        alive   = _health_check(a["port"]) if running else False
-        out[a["id"]] = {
+        aid = a["id"]
+        running = _is_running(aid)
+        alive, summary = _health_probe(a["port"]) if running else (False, None)
+        proc = _procs.get(aid)
+        out[aid] = {
             "running": running,
             "healthy": alive,
             "port":    a["port"],
-            "pid":     _procs[a["id"]].pid if running else None,
-            "summary": _health_summary(a["port"]) if alive else None,
+            "pid":     proc.pid if (running and proc is not None) else None,
+            "summary": summary,
+            "crashed": _crashed.get(aid),
         }
+    return out
+
+
+@app.route("/api/status")
+def api_status():
+    """Snapshot status of all apps (used for initial page load)."""
+    _detect_crashes()
+    out = _app_status()
     return jsonify({
         "apps":           out,
         "project_root":   _project_root,
@@ -392,29 +508,133 @@ def api_status():
     })
 
 
+#: app_id → (exit_code, when) for a child that died on its own
+_crashed: dict = {}
+#: app_id → last observed running state, for edge detection
+_last_running: dict = {}
+
+
+def _disk_free_gb():
+    """Free space on the project volume. A 24 h run writes thousands of 4 MB
+    frames; filling the disk truncates .dat files that then look perfectly
+    stable to every downstream watcher."""
+    try:
+        import shutil
+        target = _project_root or str(_ROOT)
+        return round(shutil.disk_usage(target).free / 1e9, 1)
+    except Exception:
+        return None
+
+
+def _exit_reason(code) -> str:
+    """A human exit reason. `None` used to be rendered as the word "null", which
+    is what an operator saw on the card and could do nothing with."""
+    if code is None:
+        return "unknown"
+    if code < 0:                                   # POSIX: killed by a signal
+        try:
+            return f"killed by {signal.Signals(-code).name}"
+        except Exception:
+            return f"killed by signal {-code}"
+    return f"exit {code}"
+
+
+def _log_tail(app_id: str, lines: int = 12) -> list[str]:
+    """The last few log lines, so the crash can be diagnosed without leaving the
+    hub. Reading a whole log would be wasteful; a tail is what is actually read."""
+    try:
+        p = _ROOT / "logs" / f"{app_id}.log"
+        if not p.is_file():
+            return []
+        with p.open("rb") as fh:
+            fh.seek(0, 2)
+            fh.seek(max(0, fh.tell() - 8192))
+            txt = fh.read().decode("utf-8", "replace")
+        return [ln.rstrip() for ln in txt.splitlines() if ln.strip()][-lines:]
+    except Exception:
+        return []
+
+
+def _detect_crashes() -> None:
+    """Notice a child that exited ON ITS OWN and say so LOUDLY.
+
+    Previously nothing watched the subprocesses: if the reduction app died at
+    02:00, frames kept landing, nothing processed them, the campaign advanced
+    zero steps, and the hub card just went grey. An unattended run needs the
+    crash surfaced the moment it happens.
+
+    But "not running any more" is not the same as "crashed". `_stop_app` clears
+    `_procs[aid]`, so the previous version saw a running→dead transition on every
+    deliberate Stop, reported a crash, and — because the handle was already gone —
+    had no exit code to show. That is where **"⚠ CRASHED (exit null)"** came from:
+    the operator pressing Stop. A crash is now only ever reported when we STILL
+    HOLD the handle and that process has exited by itself.
+    """
+    for a in APPS:
+        aid = a["id"]
+        proc = _procs.get(aid)
+        if proc is None:
+            # Deliberately stopped, or never started. Not a crash, and the state
+            # was already cleared by _stop_app.
+            _last_running[aid] = False
+            continue
+        code = proc.poll()
+        running = code is None
+        was = _last_running.get(aid)
+        _last_running[aid] = running
+        if was and not running:                     # exited without being asked
+            reason = _exit_reason(code)
+            _crashed[aid] = {"exit_code": code, "reason": reason,
+                             "at": time.time(), "tail": _log_tail(aid)}
+            _procs[aid] = None                      # reap; the handle is spent
+            logger.error("APP CRASHED: %s %s — see logs/%s.log", aid, reason, aid)
+            for ln in _crashed[aid]["tail"][-4:]:
+                logger.error("    %s | %s", aid, ln[:160])
+            try:
+                _hub_emit("app.crashed", {"app": aid, "exit_code": code,
+                                          "reason": reason,
+                                          "log": f"logs/{aid}.log"})
+            except Exception:
+                pass
+        elif running and aid in _crashed:
+            _crashed.pop(aid, None)                 # started again by the operator
+
+
 @app.route("/api/status/stream")
 def api_status_stream():
-    """SSE stream — pushes a status JSON every 2 seconds."""
+    """SSE stream — pushes a status JSON every 2 seconds.
+
+    Every tick is guarded. One unhandled exception in here used to end the
+    generator, which closes the stream: the page then froze on its last frame and
+    kept showing whatever was true minutes ago — a status display that lies is
+    worse than one that is obviously broken. Now a failed tick reports itself and
+    the stream carries on.
+    """
     def generate():
+        fails = 0
         while True:
-            out = {}
-            for a in APPS:
-                running = _is_running(a["id"])
-                alive   = _health_check(a["port"]) if running else False
-                out[a["id"]] = {
-                    "running": running,
-                    "healthy": alive,
-                    "port":    a["port"],
-                    "pid":     _procs[a["id"]].pid if running else None,
-                    "summary": _health_summary(a["port"]) if alive else None,
-                }
-            payload = json.dumps({
-                "apps":         out,
-                "project_root": _project_root,
-                "ws_clients":   len(_ws_clients),
-            })
+            try:
+                _detect_crashes()
+                payload = json.dumps({
+                    "apps":         _app_status(),
+                    "project_root": _project_root,
+                    "ws_clients":   len(_ws_clients),
+                    # so the UI can warn when the bus is down (fit reports + the
+                    # measurement-complete signal depend on it)
+                    "event_bus":    _SOCK_AVAILABLE,
+                    "disk_free_gb": _disk_free_gb(),
+                    "hub_error":    None,
+                })
+                fails = 0
+            except Exception as exc:
+                fails += 1
+                logger.exception("[Hub] status tick failed (%d in a row)", fails)
+                payload = json.dumps({"apps": {}, "project_root": _project_root,
+                                      "hub_error": f"{type(exc).__name__}: {exc}"})
             yield f"data: {payload}\n\n"
-            time.sleep(2)
+            # back off a little if we are failing, so a persistent fault does not
+            # spin the CPU or flood the log
+            time.sleep(2 if fails == 0 else min(2 + fails * 2, 15))
 
     return Response(generate(), mimetype="text/event-stream",
                     headers={"Cache-Control": "no-cache",
@@ -431,6 +651,51 @@ def api_start(app_id: str):
 def api_stop(app_id: str):
     ok, msg = _stop_app(app_id)
     return jsonify({"ok": ok, "message": msg})
+
+
+@app.route("/api/restart/<app_id>", methods=["POST"])
+def api_restart(app_id: str):
+    """Stop then start, in one call. Not exposed as a button — the card keeps to
+    Start / Stop / Open — but useful from a script, and it is the same sequence
+    those two buttons perform: stop waits for the port to be released, start
+    reclaims it if anything is still holding it."""
+    ok, stop_msg = _stop_app(app_id)
+    if not ok:
+        return jsonify({"ok": False, "message": f"could not stop: {stop_msg}"})
+    ok, start_msg = _start_app(app_id)
+    return jsonify({"ok": ok, "message": f"{stop_msg} → {start_msg}"})
+
+
+@app.route("/api/stop_all", methods=["POST"])
+def api_stop_all():
+    """Close every app and leave no process behind."""
+    results = {}
+    for a in APPS:
+        try:
+            ok, msg = _stop_app(a["id"])
+        except Exception as exc:
+            ok, msg = False, str(exc)
+        results[a["id"]] = {"ok": ok, "message": msg}
+    stuck = [k for k, v in results.items() if not v["ok"]]
+    return jsonify({"ok": not stuck, "results": results, "stuck": stuck})
+
+
+@app.route("/api/ports")
+def api_ports():
+    """Who is holding each app's port. The answer to "why won't it start?"."""
+    out = []
+    for a in APPS:
+        busy = pl.port_in_use(a["port"])
+        row = {"app_id": a["id"], "port": a["port"], "in_use": busy,
+               "managed": _is_running(a["id"]), "holders": []}
+        if busy and not row["managed"]:
+            entry = _ROOT / a["entry"]
+            for h in pl.listeners(a["port"]):
+                info = pl.describe(h)
+                info["ours"] = pl.is_our_app(h, entry, _ROOT)
+                row["holders"].append(info)
+        out.append(row)
+    return jsonify({"ports": out})
 
 
 @app.route("/api/set_project", methods=["POST"])
@@ -512,37 +777,118 @@ def api_reload_apps():
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
+_shutdown_done = threading.Event()
+
+
 def _shutdown_all_apps() -> None:
-    """Stop every sub-app the hub spawned so none are orphaned (which would keep
-    their ports bound after the hub closes). Idempotent + best-effort."""
+    """Stop every sub-app so none is orphaned. Idempotent + best-effort.
+
+    Closing the hub must close the apps: an orphan keeps its port, keeps polling
+    the project folder and keeps writing files, while nothing in the UI can reach
+    it. Registered on atexit AND called from the SIGTERM/SIGINT handler, guarded
+    so the two paths cannot fight.
+    """
+    if _shutdown_done.is_set():
+        return
+    _shutdown_done.set()
     for app_id in list(_procs):
         try:
             if _is_running(app_id):
-                _stop_app(app_id)
+                ok, msg = _stop_app(app_id)
+                logger.info("[Hub] shutdown %s: %s", app_id, msg)
         except Exception:
             pass
+    try:
+        pl.write_children(_CHILDREN_FILE, {})
+    except Exception:
+        pass
 
 
 # Run on normal exit / Ctrl-C, and on SIGTERM (kill) where supported.
 atexit.register(_shutdown_all_apps)
-for _sig in ("SIGTERM", "SIGINT"):
+def _on_signal(signum, _frame):
+    """Ctrl-C / kill must take the children with it.
+
+    `sys.exit(0)` alone relied on atexit, which does not run reliably from a
+    signal handler while Flask's request threads are alive — so a Ctrl-C in the
+    launching terminal used to leave nine apps running.
+    """
+    logger.info("[Hub] signal %s — stopping all apps", signum)
+    _shutdown_all_apps()
+    os._exit(0)
+
+
+for _sig in ("SIGTERM", "SIGINT", "SIGHUP"):
     try:
-        signal.signal(getattr(signal, _sig), lambda *_: sys.exit(0))
+        signal.signal(getattr(signal, _sig), _on_signal)
     except (ValueError, AttributeError, OSError):
         pass   # not in main thread / not supported on this OS
 
 
+def _hub_port_error(reason: str) -> None:
+    """Explain an unusable hub port and give the operator a way out.
+
+    A bare `OSError: [Errno 48] Address already in use` is a poor answer to
+    "start the platform", especially on macOS where port 5000 belongs to AirPlay
+    Receiver by default.
+    """
+    print()
+    print(f"  ✗ {reason}")
+    for h in pl.listeners(_HUB_PORT):
+        d = pl.describe(h)
+        print(f"    held by PID {d['pid']} ({d['name']}): {d['cmdline'][:110]}")
+    if _HUB_PORT == 5000 and sys.platform == "darwin":
+        print("    On macOS, port 5000 is also used by AirPlay Receiver.")
+        print("    Turn it off in System Settings → General → AirDrop & Handoff,")
+        print("    or run the hub on a different port:")
+    else:
+        print("    Free that port, or run the hub on a different one:")
+    print("        SWAXS_HUB_PORT=5100 ./start_platform.sh")
+    print()
+
+
 if __name__ == "__main__":
+    # Before anything else: clean up after a hub that did not exit cleanly, so
+    # this run starts from a known state instead of colliding with its own ghosts.
+    _reaped = _reap_previous_run()
+
+    # The hub's OWN port. If a previous hub is still bound to it, take it back;
+    # otherwise say nothing and let Flask bind.
+    #
+    # This must NEVER refuse to start on the basis of the process table. On macOS,
+    # AirPlay Receiver (ControlCenter) listens on port 5000 and a Flask app binds
+    # 127.0.0.1:5000 alongside it perfectly happily — so "port 5000 is held by
+    # ControlCenter" is not a reason to give up. `can_bind` asks the kernel the
+    # only question that matters, and if the answer is still no, Flask's own
+    # error is more trustworthy than anything we could infer.
+    if not pl.can_bind(_HUB_PORT):
+        _freed, _why, _killed = pl.reclaim_port(_HUB_PORT, _HERE / "app.py", _ROOT)
+        if _killed:
+            print(f"  port {_HUB_PORT}: {_why}")
+        # Re-test with the SAME question Flask will ask. If we still cannot bind,
+        # this is a fact rather than an inference, and worth failing on with
+        # instructions instead of letting werkzeug print a bare socket error.
+        if not pl.can_bind(_HUB_PORT):
+            _hub_port_error(f"port {_HUB_PORT} is not available")
+            sys.exit(1)
+
     print("━" * 58)
+    if _reaped:
+        print(f"  Reaped {len(_reaped)} orphaned app(s) from a previous run:")
+        for _n in _reaped:
+            print(f"      {_n}")
     print("  SWAXS Platform Hub")
-    print("  → http://localhost:5000")
+    print(f"  → http://localhost:{_HUB_PORT}")
     if _SOCK_AVAILABLE:
-        print("  → ws://localhost:5000/ws  (event bus)")
+        print(f"  → ws://localhost:{_HUB_PORT}/ws  (event bus)")
     print(f"  → {len(APPS)} app(s) registered from apps.yml")
     for a in APPS:
         print(f"      {a['icon']}  {a['name']}  :{a['port']}")
     print("━" * 58)
     try:
-        app.run(debug=False, port=5000, threaded=True)
+        app.run(debug=False, port=_HUB_PORT, threaded=True)
+    except OSError as exc:                     # belt and braces
+        _hub_port_error(str(exc))
+        sys.exit(1)
     finally:
         _shutdown_all_apps()   # ensure children die when the hub exits

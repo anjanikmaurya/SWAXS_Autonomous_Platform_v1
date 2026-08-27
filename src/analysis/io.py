@@ -69,12 +69,19 @@ def _scalar_results(results: dict) -> dict:
     """Keep only finite scalar (number) result fields — drop arrays/curves."""
     out = {}
     for k, v in (results or {}).items():
+        # Bools used to be dropped here, which silently discarded the two fields
+        # that say whether the fit can be trusted: `converged` from the optimiser
+        # and `at_bounds` from the parameter check. A railed radius was persisted
+        # as a clean number, indistinguishable from a good fit.
         if isinstance(v, bool):
-            continue
-        if isinstance(v, (int, float)):
+            out[k] = v
+        elif isinstance(v, (int, float)):
             out[k] = v
         elif isinstance(v, str) and k not in ("plot",):
             out[k] = v
+        elif isinstance(v, (list, tuple)) and k in ("at_bounds", "warnings", "flags"):
+            # short diagnostic lists are the point of the record; keep them flat
+            out[k] = ", ".join(str(x) for x in v) if v else ""
     return out
 
 

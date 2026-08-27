@@ -267,7 +267,15 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,
 
   <!-- Main -->
   <main class="main">
-    <div class="section-title">Applications</div>
+    <div class="section-title" style="display:flex;align-items:center;gap:12px">
+      <span>Applications</span>
+      <span style="margin-left:auto;display:flex;gap:8px;font-weight:400">
+        <button class="btn btn-stop" onclick="stopAllApps()"
+                title="Stop every app and leave no process running">■ Stop all</button>
+        <button class="btn btn-stop" onclick="whoHasPorts()"
+                title="Show what is holding each app's port">🔌 Ports</button>
+      </span>
+    </div>
     <div class="section-hint">
       New here? First pick your project folder (top-right), then work through in order:
       <b>⚙️ Reduction</b><span class="arrow">→</span><b>📊 Viewer</b><span class="arrow">→</span><b>🔬 Background</b><span class="arrow">→</span><b>📈 Analysis</b>.
@@ -368,9 +376,59 @@ const _TYPE_CLASS = {
 };
 
 // ── SSE status stream ──────────────────────────────────────────────────────
-const es = new EventSource('/api/status/stream');
-es.onmessage = (e) => {
-  const data = JSON.parse(e.data);
+/* The status stream, with reconnect. Opened once with no error handler, it went
+   quietly dead if the hub restarted — and the page then kept displaying whatever
+   was true at the moment it died. */
+let es = null, _esTries = 0, _lastTick = 0;
+
+function connectStatus() {
+  try { if (es) es.close(); } catch (_) { }
+  es = new EventSource('/api/status/stream');
+  es.onopen = () => { _esTries = 0; setHubLink(true); };
+  es.onerror = () => {
+    try { es.close(); } catch (_) { }
+    _esTries = Math.min(_esTries + 1, 6);
+    const wait = 500 * Math.pow(2, _esTries);
+    setHubLink(false, `reconnecting in ${Math.round(wait / 1000)}s`);
+    try { log(`Status stream lost — reconnecting in ${Math.round(wait / 1000)}s`, 'err'); }
+    catch (_) { }
+    setTimeout(connectStatus, wait);
+  };
+  es.onmessage = onStatus;
+}
+
+/* One banner for "the page is not being updated", so a frozen display can never
+   be mistaken for a healthy one. */
+function setHubLink(ok, note) {
+  let b = document.getElementById('hubLink');
+  if (!b) {
+    b = document.createElement('div');
+    b.id = 'hubLink';
+    b.style.cssText = 'display:none;margin:0 0 10px;padding:8px 12px;border-radius:8px;' +
+      'background:#7f1d1d33;border:1px solid #f8717188;color:#f8b4b4;font-size:13px';
+    const main = document.querySelector('.main');
+    if (main) main.insertBefore(b, main.firstChild);
+  }
+  if (ok) { b.style.display = 'none'; return; }
+  b.style.display = 'block';
+  b.textContent = '⚠ Not receiving status from the hub' + (note ? ' — ' + note : '') +
+    '. The values below may be stale.';
+}
+
+setInterval(() => {
+  if (_lastTick && Date.now() - _lastTick > 9000)
+    setHubLink(false, `no update for ${Math.round((Date.now() - _lastTick) / 1000)}s`);
+}, 3000);
+
+const onStatus = (e) => {
+  _lastTick = Date.now();
+  let data;
+  try { data = JSON.parse(e.data); } catch (_) { return; }
+  if (data.hub_error) {
+    setHubLink(false, data.hub_error);
+    return;                     // a failed tick carries no app data
+  }
+  setHubLink(true);
   _projectRoot = data.project_root || '';
   document.getElementById('projectPath').textContent =
     _projectRoot || 'No project selected — click to choose';
@@ -388,8 +446,38 @@ es.onmessage = (e) => {
       el.style.display = data.ws_clients > 0 ? '' : 'none';
     }
   }
+  // Persistent warnings for the two conditions that silently break an
+  // unattended run: the event bus being down, and the disk filling up.
+  showHubWarnings(data);
 };
-es.onerror = () => log('SSE connection lost — retrying…', 'err');
+
+connectStatus();
+
+function showHubWarnings(data) {
+  let bar = document.getElementById('hubWarn');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'hubWarn';
+    bar.style.cssText = 'margin:8px 0;padding:8px 12px;border-radius:8px;' +
+      'font-size:.9rem;line-height:1.5;background:#3a2020;color:#ffb4b4;' +
+      'border:1px solid #6b2b2b;display:none';
+    const host = document.querySelector('.wrap') || document.body;
+    host.insertBefore(bar, host.firstChild);
+  }
+  const msgs = [];
+  if (data.event_bus === false) {
+    msgs.push('⚠ <b>Event bus DOWN</b> — remote fit reports and the ' +
+              'measurement-complete signal are disabled; runs will end on the ' +
+              'timer instead. Install <code>flask-sock</code> + ' +
+              '<code>websocket-client</code>.');
+  }
+  if (typeof data.disk_free_gb === 'number' && data.disk_free_gb < 20) {
+    msgs.push(`⚠ <b>Only ${data.disk_free_gb} GB free</b> on the project volume — ` +
+              'a full disk truncates .dat files that still look valid downstream.');
+  }
+  bar.innerHTML = msgs.join('<br>');
+  bar.style.display = msgs.length ? '' : 'none';
+}
 
 function updateCard(id, info) {
   const dot  = document.getElementById(`dot-${id}`);
@@ -409,13 +497,54 @@ function updateCard(id, info) {
     }
     open.removeAttribute('disabled');
   } else if (info.running) {
-    dot.classList.add('starting');
-    lbl.textContent = 'Starting…';
+    // Distinguish "still coming up" from "wedged". A hung app used to read
+    // "Starting…" for the rest of the night, so nobody investigated.
+    const t0 = (window._startSeen = window._startSeen || {});
+    t0[id] = t0[id] || Date.now();
+    const secs = Math.round((Date.now() - t0[id]) / 1000);
+    if (secs > 20) {
+      dot.classList.add('stopped');
+      lbl.innerHTML = `<b style="color:var(--red)">Not responding</b> · ${secs}s ` +
+                      `· check logs/${id}.log`;
+    } else {
+      dot.classList.add('starting');
+      lbl.textContent = 'Starting…';
+    }
     open.setAttribute('disabled', '');
+  } else if (info.crashed) {
+    // Exited on its own — the pipeline is silently broken until restarted.
+    // The reason comes from the server ("exit 1", "killed by SIGKILL") because
+    // an exit code of `null` rendered as the word "null", which told the operator
+    // nothing. The last log lines are shown inline so the cause is right here
+    // rather than in a file they have to go and find.
+    dot.classList.add('stopped');
+    const c = info.crashed;
+    const why = c.reason || (c.exit_code == null ? 'reason unknown' : `exit ${c.exit_code}`);
+    lbl.innerHTML = `<b style="color:var(--red)">⚠ CRASHED</b> (${_esc(why)}) · press Start`;
+    const tail = (c.tail || []).filter(Boolean);
+    let box = document.getElementById(`crash-${id}`);
+    if (tail.length) {
+      if (!box) {
+        box = document.createElement('pre');
+        box.id = `crash-${id}`;
+        box.style.cssText = 'margin:6px 0 0;padding:7px 9px;background:#00000033;' +
+          'border-radius:6px;font-size:11px;line-height:1.45;max-height:104px;' +
+          'overflow:auto;white-space:pre-wrap;color:#f0a6ab';
+        lbl.parentElement.appendChild(box);
+      }
+      box.textContent = tail.slice(-6).join('\n') + `\n— logs/${id}.log`;
+    } else if (box) { box.remove(); }
+    open.setAttribute('disabled', '');
+    if (window._startSeen) delete window._startSeen[id];
   } else {
     dot.classList.add('stopped');
     lbl.textContent = 'Stopped';
     open.setAttribute('disabled', '');
+    if (window._startSeen) delete window._startSeen[id];
+  }
+  if (!info.crashed) {
+    const box = document.getElementById(`crash-${id}`);
+    if (box) box.remove();
   }
 }
 
@@ -561,17 +690,74 @@ function log(msg, cls = 'info') {
 }
 
 // ── App control ────────────────────────────────────────────────────────────
-async function startApp(id) {
-  log(`Starting ${id}…`, 'info');
-  const r = await fetch(`/api/start/${id}`, {method: 'POST'});
-  const j = await r.json();
-  log(j.ok ? `${id}: ${j.message}` : `${id} failed: ${j.message}`, j.ok ? 'ok' : 'err');
+async function _ctl(path, id, verb) {
+  log(`${verb} ${id}…`, 'info');
+  try {
+    const r = await fetch(path, {method: 'POST'});
+    const j = await r.json();
+    // Always show the server's own message. It carries the part that matters —
+    // "reclaimed port 5003 from orphaned app process(es) 8141" — which used to be
+    // swallowed by a hard-coded "stopped".
+    log(`${id}: ${j.message || (j.ok ? 'ok' : 'failed')}`, j.ok ? 'ok' : 'err');
+    if (!j.ok) await whoHasPort(id);
+    return j;
+  } catch (e) {
+    log(`${id}: ${e.message}`, 'err');
+    return {ok: false};
+  }
 }
-async function stopApp(id) {
-  log(`Stopping ${id}…`, 'info');
-  const r = await fetch(`/api/stop/${id}`, {method: 'POST'});
-  const j = await r.json();
-  log(j.ok ? `${id} stopped` : `${id} stop failed: ${j.message}`, j.ok ? 'ok' : 'err');
+const startApp = id => _ctl(`/api/start/${id}`, id, 'Starting');
+const stopApp  = id => _ctl(`/api/stop/${id}`,  id, 'Stopping');
+
+/* When a start fails, say WHO is holding the port instead of leaving the
+   operator to run lsof. */
+async function whoHasPort(id) {
+  try {
+    const j = await (await fetch('/api/ports')).json();
+    const row = (j.ports || []).find(p => p.app_id === id);
+    if (!row || !row.in_use) return;
+    if (!row.holders.length) {
+      log(`port ${row.port} is busy but its owner could not be identified`, 'warn');
+      return;
+    }
+    row.holders.forEach(h => log(
+      `port ${row.port} held by PID ${h.pid} (${h.name})` +
+      (h.ours ? ' — an orphan of ours; press Start to reclaim it' : ' — NOT part of this platform') +
+      `: ${h.cmdline}`, h.ours ? 'warn' : 'err'));
+  } catch (_) { }
+}
+
+/* Report every port at once — the fastest way to explain a refused start. */
+async function whoHasPorts() {
+  try {
+    const j = await (await fetch('/api/ports')).json();
+    const busy = (j.ports || []).filter(p => p.in_use);
+    if (!busy.length) { log('All app ports are free.', 'ok'); return; }
+    busy.forEach(p => {
+      if (p.managed) { log(`port ${p.port} — ${p.app_id} (started by this hub)`, 'ok'); return; }
+      if (!p.holders.length) {
+        log(`port ${p.port} — ${p.app_id}: busy, owner not identifiable`, 'warn'); return;
+      }
+      p.holders.forEach(h => log(
+        `port ${p.port} — ${p.app_id}: PID ${h.pid} (${h.name})` +
+        (h.ours ? ' — orphan of ours; Start will reclaim it' : ' — foreign process'),
+        h.ours ? 'warn' : 'err'));
+    });
+  } catch (e) { log(`port check failed: ${e.message}`, 'err'); }
+}
+
+/* Close every app and leave no process behind. */
+async function stopAllApps() {
+  if (!confirm('Stop every running app? Any automated processing will halt.')) return;
+  log('Stopping all apps…', 'info');
+  try {
+    const j = await (await fetch('/api/stop_all', {method: 'POST'})).json();
+    Object.entries(j.results || {}).forEach(([id, r]) => {
+      if (r.message !== 'Not running') log(`${id}: ${r.message}`, r.ok ? 'ok' : 'err');
+    });
+    log(j.ok ? 'All apps stopped — no processes left running.'
+             : `Could not stop: ${(j.stuck || []).join(', ')}`, j.ok ? 'ok' : 'err');
+  } catch (e) { log(`stop all failed: ${e.message}`, 'err'); }
 }
 
 // ── Folder browser ─────────────────────────────────────────────────────────

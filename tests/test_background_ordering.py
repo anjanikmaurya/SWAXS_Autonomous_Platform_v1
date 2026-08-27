@@ -25,15 +25,15 @@ def _cfg(tmp_path, **spec_over):
     cfg = yaml.safe_load(open("reactor/config.yml"))
     cfg["spec"]["data_dir"] = str(tmp_path / "proj")
     cfg["spec"]["simulator"].update(speed_factor=0, poni="", shape=[64, 64])
-    cfg["spec"].update(exposure_s=0.1, frames=1, spec_lead_s=0.3)
+    cfg["spec"].update(exposure_s=0.05, frames=1, spec_lead_s=0.15)
     cfg["spec"].update(spec_over)
-    cfg["flush"]["duration"] = 0.7
+    cfg["flush"]["duration"] = 0.3
     cfg["arming"] = {**cfg.get("arming", {}), "default_mode": "timed",
-                     "default_wait_s": 0.1}
+                     "default_wait_s": 0.05}
     return cfg
 
 
-def _run(cfg, n=2, dur=0.8, wait=26.0):
+def _run(cfg, n=2, dur=0.35, wait=20.0):
     logs: list = []
     ctl = ReactorController(cfg, backend="mock",
                             log_cb=lambda m, t="info": logs.append(m))
@@ -43,9 +43,9 @@ def _run(cfg, n=2, dur=0.8, wait=26.0):
         ctl.start()
         t0 = time.time()
         while time.time() - t0 < wait and not (ctl.state in ("ready", "idle")
-                                               and time.time() - t0 > 3.0):
+                                               and time.time() - t0 > 1.2):
             time.sleep(0.1)
-        time.sleep(0.4)                      # let the last collect thread finish
+        time.sleep(0.25)                     # let the last collect thread finish
     finally:
         ctl.shutdown()
     return ctl, logs
@@ -79,7 +79,7 @@ def test_background_is_collected_before_the_synthesis(tmp_path):
 
 
 def test_each_run_is_preceded_by_its_own_blank(tmp_path):
-    _, logs = _run(_cfg(tmp_path), n=3, wait=30.0)
+    _, logs = _run(_cfg(tmp_path), n=3, wait=22.0)
     ev = [e for e in _events(logs) if e in ("blank", "bkg") or e.startswith("run:")]
     # expect blank, bkg, run:r1, blank, bkg, run:r2, ...
     runs = [e for e in ev if e.startswith("run:")]
@@ -113,7 +113,7 @@ def test_blank_is_tagged_with_the_upcoming_recipe_not_the_previous(tmp_path):
 def test_the_post_run_flush_doubles_as_the_next_blank(tmp_path):
     """Running a clean-out flush AND a separate blank flush would waste a full
     flush duration between every pair of runs."""
-    _, logs = _run(_cfg(tmp_path), n=3, wait=30.0)
+    _, logs = _run(_cfg(tmp_path), n=3, wait=22.0)
     ev = _events(logs)
     # never two flush-type events in a row
     flushes = [i for i, e in enumerate(ev) if e in ("blank", "flush")]
@@ -142,14 +142,14 @@ def test_invalid_background_when_falls_back_to_before(tmp_path):
 # ── the staged recipe must not be lost ───────────────────────────────────────
 def test_aborting_during_the_blank_does_not_strand_the_recipe(tmp_path):
     cfg = _cfg(tmp_path)
-    cfg["flush"]["duration"] = 6.0            # long blank so we can abort inside it
+    cfg["flush"]["duration"] = 3.0            # long blank so we can abort inside it
     logs: list = []
     ctl = ReactorController(cfg, backend="mock",
                             log_cb=lambda m, t="info": logs.append(m))
     try:
         ctl.submit({**RECIPE, "recipe_id": "r1", "run_duration": 1.0})
         ctl.start()
-        time.sleep(0.6)
+        time.sleep(0.4)
         assert ctl.state == "flushing" and ctl._pending is not None
         ctl.abort()
         time.sleep(0.5)

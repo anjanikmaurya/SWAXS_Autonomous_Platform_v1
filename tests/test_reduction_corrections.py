@@ -33,13 +33,53 @@ for _name in ("fabio", "pyFAI", "pandas"):
         sys.modules[_name] = types.ModuleType(_name)
 
 # xraydb stub with a controllable material_mu (cm⁻¹). Default 10 cm⁻¹.
+#
+# This used to be installed only `if "xraydb" not in sys.modules`, which made the
+# test mean DIFFERENT things depending on import order. When a sibling test had
+# already imported the REAL xraydb (test_simulator_reduction_metadata needs it),
+# the stub was skipped, `material_mu` returned the true coefficient for H2O at
+# 12 keV, and the Beer–Lambert assertions — which hard-code µ = 10 cm⁻¹ — failed
+# with a confusing 3.2× mismatch that looks like a science bug in the product.
+# The dangerous half is the opposite case: a test whose reference value silently
+# depends on import order can also PASS while the code under test is wrong.
+#
+# The fixture below pins `core`'s view of material_mu for every test in this
+# module, whether the stub or the real library is loaded, and restores it after.
 if "xraydb" not in sys.modules:
     _xr = types.ModuleType("xraydb")
     _xr._MU_CM = 10.0
     _xr.material_mu = lambda formula, energy=None, density=None, **kw: _xr._MU_CM
     sys.modules["xraydb"] = _xr
 
+import pytest  # noqa: E402
+
 from src.reduction import core  # noqa: E402
+
+#: µ in cm⁻¹ that every Beer–Lambert expectation in this file is computed from.
+MU_CM = 10.0
+
+
+@pytest.fixture(autouse=True)
+def _pin_material_mu():
+    """Make µ deterministic regardless of which xraydb is in sys.modules."""
+    xr = core.xraydb
+    had = hasattr(xr, "material_mu")
+    prev = getattr(xr, "material_mu", None)
+    prev_mu = getattr(xr, "_MU_CM", None)
+    xr._MU_CM = MU_CM
+    xr.material_mu = lambda formula, energy=None, density=None, **kw: xr._MU_CM
+    try:
+        yield
+    finally:
+        if had:
+            xr.material_mu = prev
+        else:
+            delattr(xr, "material_mu")
+        if prev_mu is None:
+            if hasattr(xr, "_MU_CM"):
+                delattr(xr, "_MU_CM")
+        else:
+            xr._MU_CM = prev_mu
 
 RAW = Path("sample_0001.raw")
 TOL = 1e-6

@@ -70,17 +70,22 @@ class SlackNotifier:
         self.thread_per_recipe = bool(cfg.get("thread_per_recipe", True))
         self.timeout = float(cfg.get("timeout_s", 6.0))
         self.min_interval_s = float(cfg.get("min_interval_s", 0.4))
+        #: True → describe what would be sent, touch no network. File uploads go
+        #: straight to urllib (not through _post), so they need this flag too.
+        self.dry_run = bool(cfg.get("dry_run", False))
         self._log = log or (lambda msg, tag="info": None)
 
         self.token = os.environ.get(ENV_TOKEN, "").strip()
         self.webhook = os.environ.get(ENV_WEBHOOK, "").strip()
         #: bot token → threading + uploads; webhook → flat messages only
         self.mode = "bot" if self.token else ("webhook" if self.webhook else "")
-        if self.enabled and not self.mode:
-            self._log(f"⚠ Slack notifications enabled but neither {ENV_TOKEN} nor "
+        #: credentials are present — notifications CAN be turned on at runtime
+        self.configured = bool(self.mode)
+        if self.enabled and not self.configured:
+            self._log(f"⚠ Slack notifications requested but neither {ENV_TOKEN} nor "
                       f"{ENV_WEBHOOK} is set — notifications are OFF", "warn")
             self.enabled = False
-        if self.enabled and self.mode == "webhook" and self.thread_per_recipe:
+        if self.configured and self.mode == "webhook" and self.thread_per_recipe:
             self._log("ℹ Slack: webhook transport cannot thread — posting flat "
                       f"messages. Set {ENV_TOKEN} for threaded updates.", "info")
             self.thread_per_recipe = False
@@ -91,9 +96,40 @@ class SlackNotifier:
         self._last_send = 0.0
         self._worker = None
         if self.enabled:
+            self._ensure_worker()
+
+    # ── runtime on/off (the "I'm leaving the beamline" switch) ────────────────
+    def _ensure_worker(self) -> None:
+        if self._worker is None or not self._worker.is_alive():
+            self._alive = True
             self._worker = threading.Thread(target=self._run, daemon=True,
                                             name="slack-notifier")
             self._worker.start()
+
+    def enable(self) -> tuple[bool, str]:
+        """Turn notifications ON at runtime. Returns (ok, message)."""
+        if not self.configured:
+            return False, (f"no Slack credentials — export {ENV_TOKEN} (preferred) "
+                           f"or {ENV_WEBHOOK} and restart the app")
+        if self.mode == "bot" and not self.channel:
+            return False, "notify.slack.channel is empty (required in bot mode)"
+        self.enabled = True
+        self._ensure_worker()
+        return True, f"Slack notifications ON ({self.mode} mode)"
+
+    def disable(self) -> tuple[bool, str]:
+        """Turn notifications OFF. The worker is left running (idle) so it can be
+        re-enabled instantly."""
+        self.enabled = False
+        return True, "Slack notifications OFF"
+
+    def status(self) -> dict:
+        return {"enabled": self.enabled, "configured": self.configured,
+                "mode": self.mode, "channel": self.channel,
+                "tiers": sorted(self.tiers),
+                "thread_per_recipe": self.thread_per_recipe,
+                "queued": self._q.qsize(),
+                "threads_open": len(self._threads)}
 
     # ── public API (never blocks, never raises) ───────────────────────────────
     def notify(self, text: str, *, tier: str = PROGRESS, recipe_id: str = "",
@@ -170,6 +206,12 @@ class SlackNotifier:
         """Attach a plot. Bot token only; silently skipped otherwise."""
         if not self.enabled or self.mode != "bot":
             return
+        if self.dry_run:
+            self._log(f"[dry-run] would upload {path} as '{title}'"
+                      + (f" (thread {recipe_id})" if recipe_id else ""), "info")
+            print(f"\n[files.upload]  ↳ THREADED ({recipe_id})\n   {title}\n   {comment}\n"
+                  f"   file: {path}")
+            return
         threading.Thread(target=self._upload_png_blocking, daemon=True,
                          args=(path, title, recipe_id, comment)).start()
 
@@ -203,8 +245,13 @@ class SlackNotifier:
                 payload["thread_ts"] = ts
             _post(f"{SLACK_API}/files.completeUploadExternal", payload,
                   token=self.token, timeout=self.timeout)
-        except Exception:
-            logger.exception("slack png upload failed")
+        except Exception as exc:
+            # Best-effort only: a missing plot is not worth a scary traceback in
+            # the reactor console.
+            logger.warning("slack png upload failed: %s: %s",
+                           exc.__class__.__name__, exc)
+            self._log(f"⚠ Slack plot upload failed ({exc.__class__.__name__}) — "
+                      f"the message itself was sent", "warn")
 
     # ── convenience formatters for the reactor's events ───────────────────────
     def session_start(self, backend: str, project: str = "") -> None:

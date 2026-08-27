@@ -26,3 +26,6 @@ logs/
 
 # Local experiment data / autonomous test conditions (not part of the codebase)
 1D/
+
+# node_modules for the jsdom UI runtime checks (optional, dev only)
+tests/ui/node_modules/

@@ -302,3 +302,134 @@ def test_intake_reprocesses_a_corrected_rewrite():
     assert decide_intake(k, (30, 333), handled, last) == "wait"   # new sig, wait for stable
     last[k] = (30, 333)
     assert decide_intake(k, (30, 333), handled, last) == "go"     # then re-ingested
+
+
+# ── temperature staleness must not blame the sensor for our own acquisition ───
+# Reported from the beamline as:
+#   🛑 SAFETY: temperature reading is STALE (15s since the last successful read)
+#   — the over-temperature interlock cannot protect you. Check the SPEC/EPICS
+#   temperature source (spec.temp_counter / spec.epics_pvs).
+# Nothing was wrong with the counter. With read_source "spec" a collection holds
+# the SPEC lock, read_state() returns {} by design for the whole acquisition, and
+# the shipped exposure_s 10 x frames 10 makes that 100 s — so the alarm fired on
+# EVERY acquisition and sent the operator to inspect working hardware.
+class _Bl:
+    """Minimal beamline stand-in with a controllable collecting flag."""
+
+    def __init__(self, read_source="spec", during=False, temp=200.0):
+        self.cfg = {"read_source": read_source, "read_during_collect": during}
+        self._collecting = False
+        self._temp = temp
+
+    def is_collecting(self):
+        return self._collecting
+
+    def read_state(self):
+        if self._collecting and self.cfg["read_source"] != "epics" \
+                and not self.cfg["read_during_collect"]:
+            return {}                      # the SPEC lock is held — by design
+        return {"temperature": self._temp, "bstop": 1.0, "i0": 2.0}
+
+    def set_temperature(self, T):
+        pass
+
+
+def _tc(bl):
+    from src.reactor.hardware import TempController
+    return TempController({"temperature": {"read_interval_s": 1.0}},
+                          backend="real", beamline=bl)
+
+
+def test_a_collection_does_not_make_the_temperature_look_broken():
+    bl = _Bl()
+    tc = _tc(bl)
+    tc.tick(1.0)
+    assert tc.stale is False and tc.polling_paused is False
+
+    bl._collecting = True
+    tc.tick(1.0)
+    tc._last_read_ok -= 100          # a long acquisition, as shipped (100 s)
+    assert tc.polling_paused is True
+    assert tc.stale is False, \
+        "our own acquisition is still reported as a stale sensor"
+    assert tc.blind_during_collect is True, "the config trade-off is not detected"
+
+    bl._collecting = False           # acquisition over, reads resume
+    tc.tick(1.0)
+    assert tc.stale is False and tc.polling_paused is False
+    assert tc.age_s() < 2.0
+
+
+def test_a_genuinely_dead_source_is_still_reported():
+    """The other half: the alarm must not be silenced, only correctly attributed."""
+    bl = _Bl()
+    bl.read_state = lambda: {}       # broken counter, nothing collecting
+    tc = _tc(bl)
+    tc.tick(1.0)
+    tc._last_read_ok -= 100
+    assert tc.polling_paused is False
+    assert tc.stale is True, "a dead temperature source is no longer flagged"
+
+
+def test_epics_keeps_reading_during_a_collection():
+    """The remedy the message now recommends has to actually work."""
+    bl = _Bl(read_source="epics")
+    tc = _tc(bl)
+    bl._collecting = True
+    tc.tick(1.0)
+    assert tc.blind_during_collect is False
+    assert tc.age_s() < 2.0, "epics reads did not survive the collection"
+    assert tc.stale is False
+
+
+def test_read_during_collect_also_clears_the_blind_window():
+    bl = _Bl(during=True)
+    tc = _tc(bl)
+    bl._collecting = True
+    tc.tick(1.0)
+    assert tc.blind_during_collect is False
+    assert tc.age_s() < 2.0
+
+
+def test_the_two_messages_are_distinguishable():
+    """An operator must be able to tell "we are mid-acquisition" from "your
+    sensor is dead" — the old wording only ever said the latter."""
+    src = (_ROOT / "src" / "reactor" / "controller.py").read_text() \
+        if "ROOT" in dir() else \
+        (__import__("pathlib").Path(__file__).resolve().parents[1]
+         / "src" / "reactor" / "controller.py").read_text()
+    assert "temperature polling is paused" in src
+    assert 'spec.read_source: \\"epics\\"' in src or 'read_source: "epics"' in src, \
+        "the note does not name the remedy"
+    stale = src[src.index("temperature reading is STALE"):][:400]
+    assert "no acquisition is running" in stale, \
+        "the safety message does not rule out the benign cause"
+
+
+# ── timing is never compressed ───────────────────────────────────────────────
+# A mock time-scale was tried and then removed at the operator's request: a mock
+# rehearsal must be timed exactly like the beamline run it stands in for, so a
+# 60 s synthesis takes 60 s everywhere. This test keeps it out.
+def test_no_time_compression_exists_anywhere_in_the_reactor():
+    src = (_ROOT / "src" / "reactor" / "controller.py").read_text()
+    for banned in ("time_scale", "_scaled(", "mock_time_scale"):
+        assert banned not in src, \
+            f"time compression is back in the controller ({banned})"
+    cfg = (_ROOT / "reactor" / "config.yml").read_text()
+    assert "mock_time_scale" not in cfg
+
+
+def test_durations_are_used_verbatim():
+    """arming / synthesis / flush must equal exactly what the config says."""
+    from src.reactor import ReactorController, load_config
+    cfg = load_config()
+    cfg.setdefault("spec", {})["backend"] = "mock"
+    cfg["spec"].setdefault("simulator", {})["enabled"] = False
+    c = ReactorController(cfg, backend="mock")
+    try:
+        run = cfg.get("run", {}); fl = cfg.get("flush", {}); arm = cfg.get("arming", {})
+        assert c.default_duration == float(run.get("default_duration", 600.0))
+        assert c.flush_duration == float(fl.get("duration", 300.0))
+        assert c.default_arm_wait == float(arm.get("default_wait_s", 120.0))
+    finally:
+        c.shutdown()

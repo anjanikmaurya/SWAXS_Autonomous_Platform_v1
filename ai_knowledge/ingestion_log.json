@@ -59,6 +59,36 @@
       "hash": "ffe16ca114a1bb2606a8334d0a63daa9597ac01f23c5f27e8f11da7b6b6b2b18",
       "chunks": 10,
       "ingested_at": "2026-06-24T20:23:08.800783+00:00"
+    },
+    "/sessions/stoic-epic-bell/mnt/SWAXS_Autonomous_Platform_v1/reduction/knowledge.md": {
+      "hash": "469418acca4025ca2c905e66c6597e8f98c3870173980ad99805c224e3bcf6be",
+      "chunks": 0,
+      "ingested_at": "2026-07-30T02:22:53.832234+00:00"
+    },
+    "/sessions/stoic-epic-bell/mnt/SWAXS_Autonomous_Platform_v1/viewer/knowledge.md": {
+      "hash": "93a692f44f0f58e4de2eb0348d10b5d3336c09554b5b063e30c0eacd6d232bd3",
+      "chunks": 0,
+      "ingested_at": "2026-07-30T02:22:53.846894+00:00"
+    },
+    "/sessions/stoic-epic-bell/mnt/SWAXS_Autonomous_Platform_v1/background/knowledge.md": {
+      "hash": "6a9797024377d7b986e9ea629a142f2c023cb6fe1114035d4478e1eaf20656ae",
+      "chunks": 0,
+      "ingested_at": "2026-07-30T02:22:53.852230+00:00"
+    },
+    "/sessions/stoic-epic-bell/mnt/SWAXS_Autonomous_Platform_v1/analysis/knowledge.md": {
+      "hash": "29a7ebde3b75202de9881c13f3f963f0a2614dcf62b1fe5b4f673bd00f5de7a1",
+      "chunks": 0,
+      "ingested_at": "2026-07-30T02:22:53.859248+00:00"
+    },
+    "/sessions/stoic-epic-bell/mnt/SWAXS_Autonomous_Platform_v1/assistant/knowledge.md": {
+      "hash": "44395973ccb41f089bd86912d89ebca21093bf3ff019a2966bb25f07c3ff9fdf",
+      "chunks": 0,
+      "ingested_at": "2026-07-30T02:22:53.862538+00:00"
+    },
+    "/sessions/stoic-epic-bell/mnt/SWAXS_Autonomous_Platform_v1/hub/knowledge.md": {
+      "hash": "ffe16ca114a1bb2606a8334d0a63daa9597ac01f23c5f27e8f11da7b6b6b2b18",
+      "chunks": 0,
+      "ingested_at": "2026-07-30T02:22:53.867656+00:00"
     }
   },
   "beamline": {
@@ -71,6 +101,11 @@
       "hash": "af9a65e2603e0eff2f49965acba63fb7349103ac887dbd61097670c0c63fe163",
       "chunks": 374,
       "ingested_at": "2026-06-24T20:23:10.000857+00:00"
+    },
+    "/sessions/stoic-epic-bell/mnt/SWAXS_Autonomous_Platform_v1/ai_knowledge/beamline/ssrl_1-5.yml": {
+      "hash": "af9a65e2603e0eff2f49965acba63fb7349103ac887dbd61097670c0c63fe163",
+      "chunks": 0,
+      "ingested_at": "2026-07-30T02:22:53.875248+00:00"
     }
   },
   "user_papers": {},

@@ -1,0 +1,7 @@
+{
+  "name": "swaxs-ui-checks",
+  "private": true,
+  "description": "Runtime checks for the Flask app templates. jsdom only; no build step.",
+  "scripts": { "check": "node analyzer_ui_check.js" },
+  "devDependencies": { "jsdom": "^24" }
+}

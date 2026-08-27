@@ -26,7 +26,12 @@ def find_row_number_to_read(raw_file_path: Path) -> int:
     Parse the 4-digit index from a raw filename (e.g. run_0009.raw → 9).
     This index is used as the row number when reading the paired CSV file.
     """
-    match = re.search(r"_(\d{4})\.", str(raw_file_path))
+    # Match on the FILENAME only. Searching the whole path meant a directory
+    # containing a "_NNNN." token (e.g. /data/Auto_Run_0002.5/…) matched first —
+    # re.search returns the leftmost hit — so EVERY frame in the run read the
+    # same CSV row, i.e. the same i0/bstop, silently wrecking normalisation and
+    # defeating the I0 outlier filter.
+    match = re.search(r"_(\d{4})\.", Path(raw_file_path).name)
     if match is None:
         raise RuntimeError(
             f"Could not parse 4-digit index from filename: {raw_file_path.name}\n"

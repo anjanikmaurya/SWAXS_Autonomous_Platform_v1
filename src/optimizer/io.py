@@ -16,6 +16,23 @@ def to_param_file(recipe_id: str, params: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def recipe_id_from_filename(filename: str, tags=("sample", "bkg")) -> str:
+    """Recover the recipe_id from a measurement filename WITHOUT a candidate list.
+
+    The reactor names every acquisition ``{recipe_id}_{sample|bkg}``, so the id is
+    everything before the role tag. Needed for notifications and provenance,
+    where there is no set of pending ids to match against (``match_recipe_id``).
+    Returns "" when the filename doesn't follow the convention.
+    """
+    name = str(filename or "")
+    for tag in tags:
+        marker = f"_{tag}"
+        i = name.find(marker)
+        if i > 0:
+            return name[:i]
+    return ""
+
+
 def match_recipe_id(filename: str, pending_ids) -> str | None:
     """Return the pending recipe_id that this measurement filename belongs to
     (the id is carried in the filename), or None. Longest id first so a longer

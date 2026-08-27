@@ -30,7 +30,8 @@ _FAIL_LOSS = 1e3      # loss assigned when a profile could not be sized
 class CampaignController:
     def __init__(self, space: ParameterSpace, *, target_size: float, tolerance: float,
                  pdi_cap: float, budget: int = 25, n_init: int = 10,
-                 confidence_min: float = 0.5, weight_pdi: float = 1.0, seed: int = 0):
+                 confidence_min: float = 0.5, weight_pdi: float = 1.0, seed: int = 0,
+                 loss_transform: str = "none"):
         self.space = space
         self.target_size = float(target_size)
         self.tolerance = float(tolerance)
@@ -40,6 +41,7 @@ class CampaignController:
         self.confidence_min = float(confidence_min)
         self.weight_pdi = float(weight_pdi)
         self.seed = int(seed)
+        self.loss_transform = str(loss_transform)
 
         self.status_str = "idle"          # idle | running | converged | exhausted | aborted
         self.history: list[dict] = []     # {params, size, pdi, confidence, loss}
@@ -102,15 +104,67 @@ class CampaignController:
         elif len(self.history) >= self.budget:
             self.status_str = "exhausted"
 
+    def _transform(self, y: np.ndarray) -> np.ndarray:
+        """Optional monotone transform applied before the GP sees the loss.
+
+        The raw loss spans ~0.3 to >200 across the search box, and one unsized
+        profile contributes the 1e3 sentinel. A stationary GP with a single
+        length scale cannot represent that dynamic range: the fit is dominated by
+        the worst corner, so the posterior is flat exactly where the good recipes
+        are. ``log1p`` compresses it. The transform is monotone, so the ranking
+        EI produces is unchanged in spirit while the surrogate becomes fittable.
+
+        Default is ``"none"`` — the historical behaviour. Nothing about a live
+        campaign changes unless the operator opts in, because switching the
+        objective scale mid-campaign would invalidate the history.
+        """
+        if self.loss_transform == "log1p":
+            return np.log1p(np.clip(y, 0.0, None))
+        return y
+
+    def peek(self) -> dict | None:
+        """The condition ``ask()`` would return next, WITHOUT consuming it.
+
+        Diagnostics plots need to show where the loop is about to measure; they
+        must not perturb the campaign to find out.
+        """
+        if self.status_str != "running":
+            return None
+        if self._n_asked < len(self._seeds):
+            return dict(self._seeds[self._n_asked])
+        return dict(self._suggest_bo())
+
     # ── BO proposal ────────────────────────────────────────────────────────────
-    def _suggest_bo(self) -> dict:
-        X = np.array([self.space.to_unit(h["params"]) for h in self.history])
-        y = np.array([h["loss"] for h in self.history])
-        conf = np.array([max(h["confidence"], 0.05) for h in self.history])
+    def fit_surrogate(self, upto: int | None = None):
+        """The GP the proposal is actually made from — exposed so diagnostics
+        plot the real surrogate rather than a lookalike rebuilt with different
+        noise or length scale.
+
+        ``upto`` fits on only the first N observations, which is how the
+        retrospective uncertainty-decay trace is produced.
+
+        Returns ``(gp, X, y)`` or None when there is nothing to fit.
+        """
+        hist = self.history if upto is None else self.history[:upto]
+        if not hist:
+            return None
+        X = np.array([self.space.to_unit(h["params"]) for h in hist])
+        y = self._transform(np.array([h["loss"] for h in hist], float))
+        conf = np.array([max(h["confidence"], 0.05) for h in hist])
         base = 0.05 * max(np.var(y), 1e-6) + 1e-6
         noise = base / conf                                   # low confidence → high noise
-        gp = GP(length_scale=0.3).fit(X, y, noise)
-        cand = self.space.sobol(256, seed=self.seed + self._n_asked + 1)
+        return GP(length_scale=0.3).fit(X, y, noise), X, y
+
+    def candidate_pool(self, n: int = 256, seed_offset: int | None = None) -> list[dict]:
+        """The constraint-valid Sobol pool the acquisition is maximised over."""
+        off = self._n_asked + 1 if seed_offset is None else int(seed_offset)
+        return self.space.sobol(int(n), seed=self.seed + off)
+
+    def _suggest_bo(self) -> dict:
+        # y here is already on the transformed scale, and so is gp — EI must be
+        # evaluated against the incumbent on that same scale.
+        gp, X, y = self.fit_surrogate()
+        cand = self.candidate_pool(256)
         Xc = np.array([self.space.to_unit(c) for c in cand])
         mu, var = gp.predict(Xc)
         ei = expected_improvement(mu, var, float(np.min(y)))

@@ -505,6 +505,35 @@ class TempController:
         self._in_band_since: float | None = None
         self._lock = threading.Lock()
 
+    def _stale_limit(self) -> float:
+        return max(15.0, 5.0 * self._read_interval)
+
+    @property
+    def polling_paused(self) -> bool:
+        """True while a 2D acquisition is deliberately blocking counter reads.
+
+        With ``read_source: "spec"`` and ``read_during_collect: false`` — the
+        shipped defaults — ``read_state()`` returns ``{}`` for the WHOLE
+        acquisition, because the collect operation holds the SPEC lock and
+        read_state() is intentionally non-blocking. That is by design, not a
+        fault. With the shipped ``exposure_s: 10 × frames: 10`` an acquisition is
+        100 s, so the reading goes "stale" on every single one.
+
+        This is why the raw age must not be read as evidence of a broken sensor:
+        the previous code reported
+        "🛑 SAFETY: temperature reading is STALE … Check the SPEC/EPICS
+        temperature source (spec.temp_counter / spec.epics_pvs)"
+        on every acquisition, sending the operator to inspect a counter that was
+        working perfectly.
+        """
+        bl = self.beamline
+        if bl is None:
+            return False
+        try:
+            return bool(bl.is_collecting())
+        except Exception:
+            return False
+
     @property
     def stale(self) -> bool:
         """True when the temperature reading can no longer be trusted.
@@ -513,10 +542,35 @@ class TempController:
         unreachable: read_state() then returns {} forever, `current` stays at
         the ambient default, and `current > T_max` is permanently False — i.e.
         the over-temperature interlock is silently disabled.
+
+        A pause we caused ourselves (see :attr:`polling_paused`) does not count.
+        The interlock really is blind during an acquisition, which the controller
+        reports once per run as a configuration warning — but it is not a sensor
+        fault and must not be raised as one every time we take data.
         """
         if self.beamline is None:
             return False                      # no live source expected
-        return (time.time() - self._last_read_ok) > max(15.0, 5.0 * self._read_interval)
+        if self.polling_paused:
+            return False
+        return self.age_s() > self._stale_limit()
+
+    @property
+    def blind_during_collect(self) -> bool:
+        """True if a collection will blank the temperature reading.
+
+        The honest remedy is a source that does not go through the SPEC lock:
+        ``spec.read_source: "epics"`` (reads the live monitors directly and keeps
+        working during a collection) or ``spec.read_during_collect: true``.
+        """
+        bl = self.beamline
+        if bl is None:
+            return False
+        try:
+            cfg = getattr(bl, "cfg", {}) or {}
+            src = str(cfg.get("read_source", "spec")).strip().lower()
+            return src != "epics" and not cfg.get("read_during_collect", False)
+        except Exception:
+            return False
 
     def age_s(self) -> float:
         return time.time() - self._last_read_ok

@@ -48,6 +48,93 @@ Put the export in whatever starts the platform, e.g. `start_platform.sh`.
 
 ---
 
+## Arming from the app — "Leaving the beamline"
+
+The intended workflow is: set everything up, start the measurement, confirm the
+first condition looks right, **then** arm notifications on your way out. There's a
+card in the reactor app (bottom-left, under E-STOP) that does exactly that:
+
+```
+🔔 Leaving the beamline
+   Arm Slack notifications once the measurement is running, so recipes,
+   results and any fault reach you while you're away.
+ ┌──────────────────────────────────────────┐
+ │      🔔  Notify me on Slack              │   ← blue when ready
+ └──────────────────────────────────────────┘
+ [ Send test message ]   ready · bot mode
+```
+
+Armed, it turns green (`🔔 Notifications ARMED — click to stop`) and posts a
+confirmation into the channel so you know it works *before* you walk away.
+
+- **Send test message** — one message now, without arming. Do this first.
+- The button is **disabled with an explanation** when no credentials are exported,
+  so it can't silently do nothing.
+- `notify.slack.enabled` in config.yml is only the STARTUP default. The button
+  overrides it at runtime, no restart needed.
+
+Routes: `GET /api/slack` (status), `POST /api/slack` (`{}` toggles, or
+`{"enabled": true|false}`), `POST /api/slack/test`.
+
+---
+
+## Testing it
+
+`tools/slack_test.py` verifies everything without waiting for a beamtime run.
+It defaults to `--check`, so running it bare never sends anything.
+
+```bash
+# 1. Is it wired up? Reads config + env, sends NOTHING.
+uv run tools/slack_test.py --check
+
+# 2. See the exact messages without touching the network (no credentials needed).
+uv run tools/slack_test.py --demo --dry-run
+
+# 3. One real message, to confirm the token/channel work.
+uv run tools/slack_test.py --ping
+
+# 4. A full simulated 2-condition campaign: threaded fit results,
+#    a low-confidence fit with the QC plot attached, and the fault alerts.
+uv run tools/slack_test.py --demo
+
+# 5. Just the alert tier — what would wake you at 3 a.m.
+uv run tools/slack_test.py --fault
+```
+
+`--check` tells you precisely what is missing:
+
+```
+✓ reactor/config.yml → notify.slack.enabled: True
+✓ SWAXS_SLACK_BOT_TOKEN is set (xoxb-1234…abcd) → bot mode (threading + plot uploads)
+! SWAXS_SLACK_WEBHOOK not set
+✓ channel: #swaxs-autorun
+✓ tiers: alert, progress, session
+✓ thread_per_recipe: True
+
+✓ notifier would be ACTIVE at reactor startup
+```
+
+The demo posts under `slacktest_*` recipe ids so it is obvious in the channel
+and can't be confused with real data.
+
+### Offline unit tests
+
+```bash
+uv run pytest tests/test_slack_notify.py -v      # 25 tests, no network
+```
+
+These cover the isolation guarantees (hangs, exceptions, full queue, rejected
+auth), tier filtering, threading, and that credentials never reach a payload.
+
+### End-to-end with the mock rig
+
+With `enabled: true` and a token exported, start the platform in mock mode and
+queue a couple of conditions — the simulator produces real frames, the analyzer
+fits them, and the results appear threaded in Slack. That exercises the same code
+path beamtime will use.
+
+---
+
 ## What gets posted
 
 Three tiers, selected by `notify.slack.tiers`:

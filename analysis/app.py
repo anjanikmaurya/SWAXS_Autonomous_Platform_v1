@@ -282,10 +282,32 @@ def _detector_of(path: Path) -> str:
     return "waxs" if "/WAXS/" in s or "_WAXS" in s else "saxs"
 
 
+#: Exact on-disk folder names, keyed by a normalised alias. The Quality Gate
+#: writes its accepted profiles to Subtracted/Good and its rejects to
+#: Subtracted/NeedsReview (src/quality), so both must be addressable.
+_STAGE_DIRS = {
+    "reduction": "Reduction",
+    "averaged": "Averaged",
+    "subtracted": "Subtracted",
+    "good": "Subtracted/Good",
+    "needsreview": "Subtracted/NeedsReview",
+    "analysed": "Analysed",
+    "analyzed": "Analysed",
+}
+
+
 def _stage_dir(detector: str, stage: str = "Subtracted") -> Path | None:
     if not _project_root:
         return None
-    d = Path(_project_root) / "1D" / detector.upper() / stage.capitalize()
+    # capitalize() lowercases the rest of the string, so "NeedsReview" became
+    # "Needsreview" — a folder that does not exist, silently yielding an empty
+    # file list. And the quality gate's accepted set lives in
+    # Subtracted/Good, which this could not express at all.
+    stage = (stage or "").strip()
+    key = stage.lower().replace("_", "").replace("-", "")
+    exact = _STAGE_DIRS.get(key)
+    d = (Path(_project_root) / "1D" / detector.upper() / exact) if exact else \
+        (Path(_project_root) / "1D" / detector.upper() / stage)
     return d if d.is_dir() else None
 
 

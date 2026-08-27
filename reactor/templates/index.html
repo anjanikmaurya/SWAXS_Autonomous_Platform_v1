@@ -235,6 +235,25 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
               title="Fault or danger: idle ALL pumps immediately and lock the panel until you press Reset.">🛑 EMERGENCY STOP</button>
     </div>
 
+    <!-- Leaving the hutch: arm Slack so the run reports to you -->
+    <div class="card">
+      <div class="card-hd">🔔 Leaving the beamline</div>
+      <div class="muted" style="font-size:var(--fs-sm);margin-bottom:8px" id="slackHint">
+        Arm Slack notifications once the measurement is running, so recipes,
+        results and any fault reach you while you're away.
+      </div>
+      <button class="btn" id="slackBtn" style="width:100%" onclick="toggleSlack()"
+              title="Turn Slack notifications on or off without restarting the app.">
+        🔔 Notify me on Slack
+      </button>
+      <div class="btn-row" style="margin-top:6px">
+        <button class="btn btn-ghost" id="slackTestBtn" onclick="testSlack()"
+                title="Send one message now to confirm the channel works — do this BEFORE you leave.">
+          Send test message</button>
+        <span class="muted" id="slackState" style="font-size:var(--fs-xs);align-self:center"></span>
+      </div>
+    </div>
+
     <div class="card">
       <div class="card-hd">🎚 Pump flow limits (µL/min) &amp; calibration</div>
       <div class="lim-row muted"><span>pump</span><span>min</span><span>max</span><span>cal ×</span></div>
@@ -608,6 +627,64 @@ async function setBackend(mode){
   if(r && !r.ok){ alert('Could not switch to '+mode.toUpperCase()+':\n\n'+(r.error||'unknown error')); }
   // the pill updates from the next status frame
 }
+/* ── Slack notifications: arm on the way out ─────────────────────────────── */
+function renderSlack(s){
+  const btn=$('slackBtn'), st=$('slackState'), hint=$('slackHint'), tb=$('slackTestBtn');
+  if(!btn) return;
+  if(!s || !s.configured){
+    btn.disabled=true; tb.disabled=true;
+    btn.className='btn btn-ghost';
+    btn.textContent='🔔 Notifications not configured';
+    st.textContent='';
+    hint.innerHTML='No channel configured. In <code>.env</code> set either a Slack '+
+      'credential (<code>SWAXS_SLACK_BOT_TOKEN</code> / '+
+      '<code>SWAXS_SLACK_WEBHOOK</code>) <b>or</b> email '+
+      '(<code>SWAXS_SMTP_HOST</code> + <code>SWAXS_NOTIFY_EMAIL</code> — needs no '+
+      'workspace approval), then restart. Check with '+
+      '<code>uv run tools/notify_test.py --check</code>.';
+    return;
+  }
+  btn.disabled=false; tb.disabled=false;
+  const where=[];
+  if(s.slack&&s.slack.configured) where.push('Slack'+(s.slack.enabled?'':' (off)'));
+  if(s.email&&s.email.configured) where.push('email'+(s.email.enabled?'':' (off)'));
+  if(s.enabled){
+    btn.className='btn btn-ok';
+    btn.textContent='🔔 Notifications ARMED — click to stop';
+    st.textContent=`${s.mode}`+((s.email&&s.email.enabled&&s.email.to&&s.email.to.length)
+        ? ` → ${s.email.to.join(', ')}` : '');
+    hint.textContent='You will get a message for each recipe, its fitted result, '+
+                     'and immediately for any fault. Safe to leave.';
+  }else{
+    btn.className='btn btn-primary';
+    btn.textContent='🔔 Notify me when I leave';
+    st.textContent=`ready · ${where.join(' + ')||s.mode}`;
+    hint.textContent='Arm notifications once the measurement is running, so '+
+                     'recipes, results and any fault reach you while you\'re away.';
+  }
+}
+async function toggleSlack(){
+  const btn=$('slackBtn'); btn.disabled=true;
+  try{
+    const r=await api('/api/slack',{});          // no body = toggle
+    if(r && r.error) $('form-err').textContent=r.error;
+    renderSlack(r);
+  }catch(e){}
+  finally{ btn.disabled=false; }
+}
+async function testSlack(){
+  const tb=$('slackTestBtn'), old=tb.textContent;
+  tb.disabled=true; tb.textContent='sending…';
+  try{
+    const r=await api('/api/slack/test',{});
+    if(r && r.error) $('form-err').textContent=r.error;
+    tb.textContent = (r && r.ok) ? 'sent ✓ check Slack' : 'failed';
+    renderSlack(r);
+  }catch(e){ tb.textContent='failed'; }
+  setTimeout(()=>{ tb.textContent=old; tb.disabled=false; }, 2500);
+}
+api('/api/slack').then(renderSlack).catch(()=>{});
+
 function updateBackendPill(backend, state){
   window._backend=backend;
   const busy=!['idle','ready','estop'].includes(state);

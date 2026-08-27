@@ -88,6 +88,7 @@ from src.reduction import core as reduction_core  # noqa: E402
 from src.manifest import (                        # noqa: E402
     update_manifest, add_file_entry, make_provenance, set_project_meta,
 )
+from src.runstate import save_monitor, load_monitor, monitor_alive        # noqa: E402
 
 
 def _now_iso() -> str:
@@ -486,12 +487,27 @@ def run_stop():
     _emit("⏹  Stop requested — finishing current file then halting…", "warn")
     return jsonify({"ok": True})
 
+def _stale_monitor_notice() -> None:
+    """The previous worker thread is gone but its flag was still set. Say so —
+    silently taking over would hide the fact that processing had stopped."""
+    try:
+        _emit("⚠  the previous monitor thread had died (its status still said "
+              "running) — taking over with the new settings", "warn")
+    except Exception:
+        pass
+
+
 
 @app.route("/api/monitor/start", methods=["POST"])
 def monitor_start():
     global _monitoring, _monitor_thread
-    if _monitoring:
+    # Refuse only if the worker is ACTUALLY alive. A bare flag check meant that a
+    # monitor whose thread had died reported "Already monitoring" forever, so the
+    # app could never be restarted from the UI (src/runstate.monitor_alive).
+    if monitor_alive(_monitoring, _monitor_thread):
         return jsonify({"ok": False, "error": "Already monitoring"})
+    if _monitoring:
+        _stale_monitor_notice()
 
     data     = request.json or {}
     config   = data.get("config", {})
@@ -613,7 +629,8 @@ def monitor_stop():
 
 @app.route("/api/monitor/status")
 def monitor_status():
-    return jsonify({"monitoring": _monitoring})
+    # Report the THREAD, not the flag: a dead worker used to read as healthy.
+    return jsonify({"monitoring": monitor_alive(_monitoring, _monitor_thread)})
 
 
 @app.route("/api/reset", methods=["POST"])
@@ -829,6 +846,69 @@ def raw_image():
 # ─────────────────────────────────────────────────────────────────────────────
 # Entry point
 # ─────────────────────────────────────────────────────────────────────────────
+
+
+# ── resume the processing loop after a restart (platform audit O1) ────────────
+# Every automation used to start ONLY from an operator click and persisted
+# nothing, so a 03:00 restart left the platform looking correctly restored — the
+# hub even remembered the project folder — while doing nothing at all. Frames
+# accumulated, nothing was processed, and every card stayed green.
+#
+# The saved body is replayed through the SAME endpoint, so there is no second
+# copy of the argument parsing to drift out of sync.
+_MON_APP = "reduction"
+
+
+def _state_root() -> str:
+    """Where run-state lives. Several apps leave `_project_root` empty until the
+    hub POSTs it, so fall back to the env var the hub also sets — otherwise the
+    state silently has nowhere to go."""
+    # `_project_root` does not exist in THIS app (unlike viewer/background) —
+    # referencing it raised NameError, which both callers swallowed, so the
+    # monitor state was never saved and never resumed. Reduction alone did not
+    # come back after a restart while every other app did. Read the env var the
+    # hub sets, plus whatever set_project() recorded.
+    return (globals().get("_project_root", "")
+            or os.environ.get("SWAXS_PROJECT", "") or "").strip()
+
+
+@app.after_request
+def _persist_monitor_state(resp):
+    try:
+        if request.path == "/api/monitor/start" and resp.status_code == 200:
+            if (resp.get_json(silent=True) or {}).get("ok", True):
+                save_monitor(_state_root(), _MON_APP, True,
+                             request.get_json(silent=True) or {})
+        elif request.path == "/api/monitor/stop":
+            save_monitor(_state_root(), _MON_APP, False)
+    except Exception:
+        pass
+    return resp
+
+
+def _boot_resume_monitor() -> None:
+    time.sleep(2.0)                      # let the hub push the project folder first
+    try:
+        params = load_monitor(_state_root(), _MON_APP)
+        if not params:
+            return
+        rv = app.test_client().post("/api/monitor/start", json=params)
+        body = rv.get_json(silent=True) or {}
+        # "Already monitoring" is a SUCCESS for our purposes: the loop is running.
+        # Without this a second resume attempt (e.g. the hub re-POSTing the project
+        # folder) logged an alarming failure for a perfectly healthy state.
+        already = "already" in str(body.get("error", "")).lower()
+        if body.get("ok", rv.status_code == 200) or already:
+            _emit("♻  auto-processing RESUMED after restart "
+                   "(saved settings reused)", "ok")
+        else:
+            _emit(f"⚠  could not resume auto-processing: {body.get('error')}",
+                   "warn")
+    except Exception as exc:
+        _emit(f"⚠  auto-processing resume failed: {exc}", "warn")
+
+
+threading.Thread(target=_boot_resume_monitor, daemon=True).start()
 
 if __name__ == "__main__":
     print()

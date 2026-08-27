@@ -631,9 +631,14 @@ class Experiment:
                 error_model=self.error_model,
                 mask=self.saxs_mask,
                 normalization_factor=corrections["normalization_factor"],
-                filename=str(output_path),
+                # Write to a .part first: the footer is appended in a SECOND
+                # open, so a watcher that read the final path in between saw a
+                # complete-looking .dat with NO metadata (no transmission, no
+                # thickness) — and marked it done forever.
+                filename=str(_part_path(output_path)),
             )
-            _append_metadata_to_dat(output_path, metadata)
+            _append_metadata_to_dat(_part_path(output_path), metadata)
+            _part_path(output_path).replace(output_path)      # atomic publish
 
             return {
                 "filename":    output_path.name,
@@ -672,9 +677,14 @@ class Experiment:
                 error_model=self.error_model,
                 mask=self.waxs_mask,
                 normalization_factor=corrections["normalization_factor"],
-                filename=str(output_path),
+                # Write to a .part first: the footer is appended in a SECOND
+                # open, so a watcher that read the final path in between saw a
+                # complete-looking .dat with NO metadata (no transmission, no
+                # thickness) — and marked it done forever.
+                filename=str(_part_path(output_path)),
             )
-            _append_metadata_to_dat(output_path, metadata)
+            _append_metadata_to_dat(_part_path(output_path), metadata)
+            _part_path(output_path).replace(output_path)      # atomic publish
 
             return {
                 "filename":    output_path.name,
@@ -707,6 +717,11 @@ def _fmt_result_line(result: dict) -> str:
         f"      I0={i0:.2f}  Bstop={bstop:.2f}  T={t:.4f}  "
         f"thickness={thick:.3f} mm{calib_str}{ctemp_str}"
     )
+
+
+def _part_path(dat_path: Path) -> Path:
+    """Sibling temp name used so a .dat is published atomically, footer included."""
+    return dat_path.with_suffix(dat_path.suffix + ".part")
 
 
 def _append_metadata_to_dat(dat_path: Path, metadata: dict):

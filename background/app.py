@@ -16,6 +16,7 @@ import collections
 import datetime
 import gc
 import json
+import os
 import sys
 import threading
 import time
@@ -31,11 +32,13 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from src.utils.read_dat_metadata import read_dat_data_metadata   # noqa: E402
+from src.reactor.intake import decide_intake                     # noqa: E402
 from src.manifest import (                                        # noqa: E402
     update_manifest,
     add_file_entry, add_background_entry,
     manifest_path_for, make_provenance,
 )
+from src.runstate import save_monitor, load_monitor, monitor_alive        # noqa: E402
 
 # ── Event bus (graceful degradation) ─────────────────────────────────────────
 try:
@@ -57,7 +60,15 @@ _sub_monitor_thread: threading.Thread | None = None
 _sub_lock = threading.Lock()
 _sub_log: collections.deque = collections.deque(maxlen=500)   # (seq, line)
 _sub_seq: int = 0
-_sub_done: set = set()        # resolved sample paths already subtracted
+# Resolved sample path -> the size+mtime signature that was subtracted (or that
+# hard-failed). A DICT, not a set, because decide_intake() remembers by signature:
+# if the averager rewrites the same filename with more frames, the new version has
+# a new signature and gets subtracted again instead of being ignored forever.
+_sub_done: dict = {}
+# Size+mtime signature of the version last SEEN, so a file still being written is
+# never parsed. A .dat read mid-write parses as a shorter VALID profile, and one
+# short frame permanently clips the batch's q-range (platform audit O5).
+_sub_lastsig: dict = {}
 _sub_status: dict = {"monitoring": False, "subtracted": 0, "flagged": 0,
                      "last": None, "interval": None}
 
@@ -151,30 +162,63 @@ def truncate_rebin(q_nm: np.ndarray, I: np.ndarray, sigma: np.ndarray,
     scale = 0.1 if str(q_unit).lower().startswith("a") else 1.0   # nm⁻¹ → Å⁻¹
     q_src = q_nm * scale
     n = int(n_points)
+
+    # NEVER extrapolate. np.interp holds the edge value flat outside the source
+    # range, so a window wider than the detector's actual q coverage produced a
+    # long fabricated plateau (measured: 74% of the default 0.03–0.6 Å⁻¹ grid on a
+    # 3 m camera). That plateau is invented data: it biases the fitted PDI ~2× and
+    # corrupts the confidence the optimizer gates on. Clip the request to what was
+    # really measured and report the clip.
+    lo_src, hi_src = float(np.nanmin(q_src)), float(np.nanmax(q_src))
+    lo = max(float(q_min), lo_src)
+    hi = min(float(q_max), hi_src)
+    if not (hi > lo):
+        raise ValueError(
+            f"requested q window [{q_min:g}, {q_max:g}] does not overlap the "
+            f"measured range [{lo_src:g}, {hi_src:g}] — nothing to rebin")
+    clipped = (lo > float(q_min) + 1e-12) or (hi < float(q_max) - 1e-12)
+
     if str(spacing).lower().startswith("log"):
-        grid = np.logspace(np.log10(q_min), np.log10(q_max), n)
+        grid = np.logspace(np.log10(lo), np.log10(hi), n)
     else:
-        grid = np.linspace(float(q_min), float(q_max), n)
+        grid = np.linspace(lo, hi, n)
     _, I_g, sig_g = _interpolate_onto(grid, q_src, I, sigma)
-    return grid, I_g, sig_g
+    return grid, I_g, sig_g, clipped, (lo, hi)
 
 
 def _apply_truncation(q: np.ndarray, I: np.ndarray, sigma: np.ndarray):
+    """Returns (q, I, sigma, applied).
+
+    ``applied`` matters: the column label is chosen from the CONFIGURED unit, so
+    if truncation silently failed and returned the original nm⁻¹ arrays while the
+    header still said ``q_A-1``, the analyzer would multiply q by 10 and report a
+    radius 10× too small. The caller must label from what was actually written.
+    """
     if not _TRUNC.get("enabled"):
-        return q, I, sigma
+        return q, I, sigma, False
     try:
-        return truncate_rebin(q, I, sigma, _TRUNC["q_min"], _TRUNC["q_max"],
-                              _TRUNC["n_points"], _TRUNC["spacing"], _TRUNC["q_unit"])
-    except Exception:
-        return q, I, sigma
+        g, I_g, s_g, clipped, (lo, hi) = truncate_rebin(
+            q, I, sigma, _TRUNC["q_min"], _TRUNC["q_max"],
+            _TRUNC["n_points"], _TRUNC["spacing"], _TRUNC["q_unit"])
+        if clipped:
+            _sub_emit(f"ℹ truncation window clipped to the measured range "
+                  f"[{lo:.4g}, {hi:.4g}] {_TRUNC['q_unit']}⁻¹ — the requested "
+                  f"[{_TRUNC['q_min']:g}, {_TRUNC['q_max']:g}] extends beyond the "
+                  f"detector's coverage (no data is invented)", "info")
+        return g, I_g, s_g, True
+    except Exception as exc:
+        _sub_emit(f"⚠ truncation failed ({exc.__class__.__name__}: {exc}) — writing the "
+              f"untruncated profile in nm⁻¹ instead", "warn")
+        return q, I, sigma, False
 
 
 def _write_dat(out_path: Path, q: np.ndarray, I: np.ndarray, sigma: np.ndarray,
                header_extra: list[str] | None = None):
     """Truncate/rebin (if enabled), write the .dat, and RETURN the written
     (q, I, sigma) so callers use the same arrays for the preview."""
-    q, I, sigma = _apply_truncation(q, I, sigma)
-    label = _trunc_q_label()
+    q, I, sigma, _applied = _apply_truncation(q, I, sigma)
+    # Label from what was ACTUALLY written, never from the config alone.
+    label = _trunc_q_label() if _applied else "q_nm-1"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     lines = [
         "# SAXS/WAXS background-subtracted data",
@@ -189,7 +233,12 @@ def _write_dat(out_path: Path, q: np.ndarray, I: np.ndarray, sigma: np.ndarray,
     lines.append(f"# {label}  I  sigma")
     for qi, Ii, si in zip(q, I, sigma):
         lines.append(f"{qi:.8e}  {Ii:.8e}  {si:.8e}")
-    out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # Atomic publish (platform audit O5): the Quality Gate and analyzer poll this
+    # folder, and a .dat caught mid-write parses as a SHORTER VALID profile that
+    # then looks perfectly stable to any size+mtime check.
+    _tmp = out_path.with_suffix(out_path.suffix + ".part")
+    _tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    _tmp.replace(out_path)
     return q, I, sigma
 
 
@@ -408,6 +457,17 @@ def _pick_background(sample: Path, bkgs: list[Path]) -> Path | None:
         keyed = [b for b in bkgs if _recipe_key(b.name) == skey]
         if keyed:
             return sorted(keyed, key=lambda b: abs(_seq_index(b) - s_idx))[0]
+        # This sample carries a recipe key but its OWN blank isn't here (yet, or
+        # the collection failed). Only refuse when the background pool is itself
+        # recipe-keyed — i.e. we are in an autonomous campaign, where falling
+        # through would silently subtract ANOTHER recipe's background (different
+        # temperature and composition, possibly hours old).
+        #
+        # In a manual dataset the blanks carry no recipe key at all (e.g.
+        # `nylon_sample_*` against `buffer_*`), and the nearest-index heuristic is
+        # exactly what the operator wants — so keep it.
+        if any(_recipe_key(b.name) for b in bkgs):
+            return None
 
     s_tok = _sample_base_tokens(sample.name)
 
@@ -1178,6 +1238,37 @@ def _process_one(sample: Path, bkg: Path, out_folder: Path, det: str,
             "clamped": bool(adj["clamped"]) if adj else False, "bkg": bkg}
 
 
+#: Samples we have already complained about having no background, so the log does
+#: not repeat the same line every poll for hours.
+_sub_nobkg: set = set()
+#: Last (n_dat, n_sample, n_bkg) split reported per detector, so the heartbeat
+#: only speaks when something changed.
+_sub_seen: dict = {}
+
+
+def _sub_pending_note(sample: Path, bkgs: list) -> None:
+    """Say WHY a sample is being skipped, once per sample.
+
+    Silence here is what made the broken monitor so hard to diagnose: an operator
+    saw "Auto-subtraction started" and then nothing, with no way to tell whether
+    the loop was scanning, waiting for a blank, or dead. Waiting for a background
+    is normal and expected in a campaign — but it has to be visible.
+    """
+    rp = str(sample.resolve())
+    if rp in _sub_nobkg:
+        return
+    _sub_nobkg.add(rp)
+    key = _recipe_key(sample.name)
+    if key and any(_recipe_key(b.name) for b in bkgs):
+        why = (f"waiting for the blank of recipe '{key}' "
+               f"({len(bkgs)} background(s) present, none from this recipe)")
+    elif not bkgs:
+        why = "no background file in the watched folder yet"
+    else:
+        why = f"no usable background among {len(bkgs)} candidate(s)"
+    _sub_emit(f"⏳  {sample.name}: {why}", "info")
+
+
 def _sub_monitor_loop(dets, interval, sample_kw="", bkg_kw="",
                       scale_mode="auto", fixed_scale=1.0):
     """Continuous auto-subtraction loop (runs in a daemon thread).
@@ -1210,25 +1301,51 @@ def _sub_monitor_loop(dets, interval, sample_kw="", bkg_kw="",
             bkgs = [f for f in dats if _is_bg(f.name)]
             sams = [f for f in dats
                     if not _is_bg(f.name) and (not sk or sk in f.name.lower())]
+            # One heartbeat per detector when the split changes. Without it there
+            # is no way to tell "0 samples because the keyword filter excluded
+            # them all" from "the loop is dead".
+            split = (len(dats), len(sams), len(bkgs))
+            if _sub_seen.get(det) != split:
+                _sub_seen[det] = split
+                _sub_emit(f"…  [{det}] {len(dats)} .dat in the watched folder → "
+                          f"{len(sams)} sample(s), {len(bkgs)} background(s)",
+                          "info" if sams and bkgs else "warn")
 
             for sample in sams:
                 if not _sub_monitoring:
                     break
                 rp = str(sample.resolve())
-                if rp in _sub_done:
+                # Only touch a file whose size+mtime were unchanged across two
+                # polls — otherwise we may read it half-written.
+                try:
+                    st = sample.stat(); sig = (st.st_size, st.st_mtime_ns)
+                except OSError:
+                    continue
+                # decide_intake returns "skip" | "wait" | "go" — NOT "handle".
+                # Comparing against "handle" made every branch fall through to
+                # `continue`, so the monitor skipped every file forever while
+                # logging nothing at all: it looked like it was running fine and
+                # simply never produced a subtracted profile.
+                action = decide_intake(rp, sig, _sub_done, _sub_lastsig)
+                if action == "skip":
+                    continue
+                if action == "wait":
+                    _sub_lastsig[rp] = sig
                     continue
                 bkg = _pick_background(sample, bkgs)
                 if bkg is None:
+                    _sub_pending_note(sample, bkgs)
                     continue            # no background yet — wait, retry next cycle
                 try:
                     rec = _process_one(sample, bkg, Path(out_folder), det,
                                        scale_mode=s_mode, fixed_scale=fixed_scale)
                 except Exception as exc:
                     _sub_emit(f"✗  {sample.name}: {exc}", "error")
-                    _sub_done.add(rp)   # don't retry a hard-failing file forever
+                    _sub_done[rp] = sig   # don't retry THIS version forever
                     continue
 
-                _sub_done.add(rp)
+                _sub_done[rp] = sig
+                _sub_lastsig.pop(rp, None)
                 _sub_status["subtracted"] += 1
                 _sub_status["last"] = rec["out"].name
                 tag = {"PASS": "ok", "WARN": "warn", "FAIL": "error"}[rec["verdict"]]
@@ -1247,6 +1364,16 @@ def _sub_monitor_loop(dets, interval, sample_kw="", bkg_kw="",
     _sub_status["monitoring"] = False
     _sub_emit("⏹  Auto-subtraction stopped", "warn")
 
+def _stale_monitor_notice() -> None:
+    """The previous worker thread is gone but its flag was still set. Say so —
+    silently taking over would hide the fact that processing had stopped."""
+    try:
+        _sub_emit("⚠  the previous monitor thread had died (its status still said "
+              "running) — taking over with the new settings", "warn")
+    except Exception:
+        pass
+
+
 
 @app.route("/api/monitor/start", methods=["POST"])
 def monitor_start():
@@ -1258,8 +1385,13 @@ def monitor_start():
             scale_mode? ("auto"|"fixed"), fixed_scale? }
     """
     global _sub_monitoring, _sub_monitor_thread, _sub_done
-    if _sub_monitoring:
+    # Refuse only if the worker is ACTUALLY alive. A bare flag check meant that a
+    # monitor whose thread had died reported "Already monitoring" forever, so the
+    # app could never be restarted from the UI (src/runstate.monitor_alive).
+    if monitor_alive(_sub_monitoring, _sub_monitor_thread):
         return jsonify({"ok": False, "error": "Already monitoring"})
+    if _sub_monitoring:
+        _stale_monitor_notice()
 
     body        = request.get_json(force=True)
     interval    = max(int(body.get("interval", 10) or 10), 1)
@@ -1287,7 +1419,8 @@ def monitor_start():
     if not dets:
         return jsonify({"ok": False, "error": "No Averaged folder provided"}), 400
 
-    _sub_done = set()
+    _sub_done = {}
+    _sub_nobkg.clear(); _sub_seen.clear(); _sub_lastsig.clear()
     _sub_status.update({"monitoring": True, "subtracted": 0, "flagged": 0,
                         "last": None, "interval": interval})
     _sub_monitoring = True
@@ -1308,7 +1441,10 @@ def monitor_stop():
 
 @app.route("/api/monitor/status")
 def monitor_status():
-    return jsonify(_sub_status)
+    # Report the THREAD, not the flag: a dead worker used to read as healthy.
+    return jsonify({**_sub_status,
+                    "monitoring": monitor_alive(_sub_monitoring,
+                                                _sub_monitor_thread)})
 
 
 @app.route("/api/monitor/stream")
@@ -1328,6 +1464,63 @@ def monitor_stream():
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
+
+# ── resume the processing loop after a restart (platform audit O1) ────────────
+# Every automation used to start ONLY from an operator click and persisted
+# nothing, so a 03:00 restart left the platform looking correctly restored — the
+# hub even remembered the project folder — while doing nothing at all. Frames
+# accumulated, nothing was processed, and every card stayed green.
+#
+# The saved body is replayed through the SAME endpoint, so there is no second
+# copy of the argument parsing to drift out of sync.
+_MON_APP = "background"
+
+
+def _state_root() -> str:
+    """Where run-state lives. Several apps leave `_project_root` empty until the
+    hub POSTs it, so fall back to the env var the hub also sets — otherwise the
+    state silently has nowhere to go."""
+    return (_project_root or os.environ.get("SWAXS_PROJECT", "") or "").strip()
+
+
+@app.after_request
+def _persist_monitor_state(resp):
+    try:
+        if request.path == "/api/monitor/start" and resp.status_code == 200:
+            if (resp.get_json(silent=True) or {}).get("ok", True):
+                save_monitor(_state_root(), _MON_APP, True,
+                             request.get_json(silent=True) or {})
+        elif request.path == "/api/monitor/stop":
+            save_monitor(_state_root(), _MON_APP, False)
+    except Exception:
+        pass
+    return resp
+
+
+def _boot_resume_monitor() -> None:
+    time.sleep(2.0)                      # let the hub push the project folder first
+    try:
+        params = load_monitor(_state_root(), _MON_APP)
+        if not params:
+            return
+        rv = app.test_client().post("/api/monitor/start", json=params)
+        body = rv.get_json(silent=True) or {}
+        # "Already monitoring" is a SUCCESS for our purposes: the loop is running.
+        # Without this a second resume attempt (e.g. the hub re-POSTing the project
+        # folder) logged an alarming failure for a perfectly healthy state.
+        already = "already" in str(body.get("error", "")).lower()
+        if body.get("ok", rv.status_code == 200) or already:
+            _sub_emit("♻  auto-processing RESUMED after restart "
+                   "(saved settings reused)", "ok")
+        else:
+            _sub_emit(f"⚠  could not resume auto-processing: {body.get('error')}",
+                   "warn")
+    except Exception as exc:
+        _sub_emit(f"⚠  auto-processing resume failed: {exc}", "warn")
+
+
+threading.Thread(target=_boot_resume_monitor, daemon=True).start()
+
 if __name__ == "__main__":
     import os
     _project_root = os.environ.get("SWAXS_PROJECT", "")

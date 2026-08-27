@@ -20,6 +20,7 @@ This module is pure Python (no Flask).  The app injects callbacks:
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from collections import deque
@@ -28,6 +29,12 @@ from .config import REAGENT_PUMPS, FLUSH_PUMP, PUMP_NAMES
 from .hardware import PumpBank, TempController
 from .recipe import Recipe, RecipeError, recipe_to_setpoints, validate
 from ..beamline import make_beamline
+
+#: Module logger. Its absence used to be a safety defect, not a cosmetic one:
+#: the control-loop fault handler called `logger.exception(...)` BEFORE the
+#: emergency stop, so the resulting NameError skipped the E-stop and killed the
+#: supervisor thread with the pumps still commanded.
+logger = logging.getLogger("swaxs_platform")
 
 STATES = ["idle", "arming", "running", "flushing", "ready", "estop"]
 
@@ -84,6 +91,10 @@ class ReactorController:
         self._meas_last_sample = 0.0  # time of the last trace sample
 
         run = cfg.get("run", {})
+        # NOTE: there is deliberately NO time compression, in mock or anywhere
+        # else. Every duration below is real seconds on every backend, so a mock
+        # rehearsal is timed exactly like the beamline run it stands in for. Use
+        # short durations in the app if you want a short test.
         self.default_duration = float(run.get("default_duration", 600.0))
         self.end_on_measurement = bool(run.get("end_on_measurement", True))
         # how often (s) to sample the delivered-flow trace saved in the done file
@@ -124,6 +135,8 @@ class ReactorController:
         # Stale-temperature handling: warn once by default; set
         # safety.temp_stale_estop: true to make it trip the E-stop instead.
         self._temp_stale_warned = False
+        #: one-shot note that polling is paused for an acquisition (not a fault)
+        self._temp_paused_noted = False
         self._temp_stale_estop = bool(s.get("temp_stale_estop", False))
         # SPEC data-collection: fire a 2D acquisition this long before the run ends
         spec = cfg.get("spec", {})
@@ -155,6 +168,10 @@ class ReactorController:
 
         self._lock = threading.RLock()
         self._alive = True
+        # Control-loop fault bookkeeping. A loop that has faulted must never look
+        # identical to a healthy one in the status payload.
+        self._loop_faults = 0
+        self._last_fault: str | None = None
         self._last = time.time()
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
@@ -946,18 +963,69 @@ class ReactorController:
             try:
                 self._tick_once()
             except Exception as exc:                     # noqa: BLE001
+                # ORDER MATTERS. This handler used to log first:
+                #
+                #     logger.exception("control loop fault")   # NameError!
+                #     try: self.estop()
+                #
+                # `logger` was never imported in this module, so the NameError
+                # fired BEFORE estop() and then escaped the except block — killing
+                # the supervisor thread with reagent pumps still commanded and
+                # heaters still on, while `self._alive` remained True so the
+                # controller reported itself healthy. Exactly the outcome the
+                # comment above forbids.
+                #
+                # The E-stop now runs FIRST, in its own guard, and no path out of
+                # here can skip it.
+                try:
+                    self.estop()
+                except Exception:                        # noqa: BLE001
+                    try:
+                        self._log("🛑 CONTROL LOOP FAULT and the EMERGENCY STOP "
+                                  "ALSO FAILED — go to the hutch and cut power to "
+                                  "the pumps and heater.", "error")
+                    except Exception:
+                        pass
+                    try:
+                        logger.critical("estop failed inside loop fault handler",
+                                        exc_info=True)
+                    except Exception:
+                        pass
                 try:
                     self._log(f"🛑 CONTROL LOOP FAULT — {exc.__class__.__name__}: {exc}. "
-                              f"Emergency-stopping so pumps are not left running "
+                              f"Emergency-stopped so pumps are not left running "
                               f"without supervision.", "error")
                 except Exception:
                     pass
-                logger.exception("control loop fault")
                 try:
-                    self.estop()
+                    logger.exception("control loop fault")
                 except Exception:
-                    logger.exception("estop failed inside loop fault handler")
+                    pass
+                # Remember it, so status/UI can say the loop faulted rather than
+                # implying everything is fine.
+                self._loop_faults += 1
+                self._last_fault = f"{exc.__class__.__name__}: {exc}"
             time.sleep(0.2)
+
+        # Reaching here means the loop is finished. If _alive is still True the
+        # thread is dying for a reason nobody asked for — say so instead of
+        # leaving a controller that believes it is supervising.
+        if self._alive:
+            self._alive = False
+            self._last_fault = self._last_fault or "control loop exited unexpectedly"
+            try:
+                self._log("🛑 CONTROL LOOP EXITED — supervision has stopped. "
+                          "Emergency-stopping.", "error")
+            except Exception:
+                pass
+            try:
+                self.estop()
+            except Exception:
+                pass
+            try:
+                logger.critical("control loop exited unexpectedly")
+            except Exception:
+                pass
 
     def _tick_once(self) -> None:
         if True:
@@ -1021,7 +1089,15 @@ class ReactorController:
                         # synthesis duration reached — applies to manual AND auto
                         self._run_reason = self._run_reason or "duration elapsed"
                         self._end_run(flush=True)
-                    elif self.advance_on_new and self.queue and (now - self._run_started) >= self.min_dwell:
+                    elif (self.advance_on_new and self.queue
+                            and (now - self._run_started) >= self.min_dwell
+                            # NEVER advance before the 2D collection has fired:
+                            # with the shipped 600 s duration / 180 s lead the
+                            # sample collect is due at T+420 s but min_dwell is
+                            # 60 s, so a queued condition could end the run with
+                            # NO DATA — which then stalls the campaign, because
+                            # nothing ever reports the measurement.
+                            and (self._spec_fired or not self._spec_enabled)):
                         # a newer condition is queued — advance early (before duration)
                         self._run_reason = "next condition available"
                         self._end_run(flush=True)
@@ -1105,13 +1181,34 @@ class ReactorController:
         # keeps failing, `current` freezes at the ambient default and the T_max
         # comparison below can never be true — the thermal interlock would be
         # silently disabled while reagents flow through a hot reactor.
+        # A pause WE caused is not a sensor fault. While a 2D acquisition holds the
+        # SPEC lock, read_state() returns {} by design, so the age climbs on every
+        # single collection (100 s with the shipped exposure × frames). Reporting
+        # that as "🛑 SAFETY … check spec.temp_counter" sent the operator to
+        # inspect a counter that was working perfectly. Say what is actually
+        # happening, once per run, and name the remedy that actually fixes it.
+        if self.state in ("arming", "running", "flushing") and self.temp.polling_paused:
+            if not self._temp_paused_noted:
+                self._temp_paused_noted = True
+                if self.temp.blind_during_collect:
+                    self._log(
+                        "ℹ temperature polling is paused for the duration of the 2D "
+                        "acquisition (the collect holds the SPEC lock). The "
+                        "over-temperature interlock has no fresh reading until it "
+                        "finishes. To keep it live during data collection set "
+                        "spec.read_source: \"epics\", or spec.read_during_collect: "
+                        "true.", "warn")
+        elif not self.temp.polling_paused:
+            self._temp_paused_noted = False
+
         if self.state in ("arming", "running", "flushing") and self.temp.stale:
             if not self._temp_stale_warned:
                 self._temp_stale_warned = True
                 self._log(f"🛑 SAFETY: temperature reading is STALE "
-                          f"({self.temp.age_s():.0f}s since the last successful read) "
-                          f"— the over-temperature interlock cannot protect you. "
-                          f"Check the SPEC/EPICS temperature source "
+                          f"({self.temp.age_s():.0f}s since the last successful read, "
+                          f"and no acquisition is running) — the over-temperature "
+                          f"interlock cannot protect you. Check the SPEC/EPICS "
+                          f"temperature source "
                           f"(spec.temp_counter / spec.epics_pvs).", "error")
                 self._event("reactor.safety", {"check": "temperature reading stale",
                             "detail": f"no successful read for {self.temp.age_s():.0f}s — "
@@ -1190,6 +1287,13 @@ class ReactorController:
             return {
                 "state": self.state,
                 "backend": self.backend,
+                # A supervisor that has faulted must not look identical to a
+                # healthy one. `supervising` is the ground truth: the loop thread
+                # is alive AND has not been told to stop.
+                "supervising": bool(self._alive and self._thread is not None
+                                    and self._thread.is_alive()),
+                "loop_faults": self._loop_faults,
+                "last_fault": self._last_fault,
                 "auto_run": self.auto_run,
                 "arm_mode": self._arm_mode if self.state == "arming" else None,
                 "arm_remaining_s": arm_left,

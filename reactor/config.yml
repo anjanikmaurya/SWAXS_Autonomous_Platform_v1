@@ -101,6 +101,31 @@ notify:
     timeout_s: 6.0            # per-request timeout
     min_interval_s: 0.4       # throttle so a burst can't hit Slack's rate limit
 
+  # ── Email — needs NO workspace approval ─────────────────────────────────────
+  # Works when a Slack app install is still pending, pushes to a phone, and can
+  # ALSO deliver into Slack: in the channel choose
+  #   Settings → Integrations → "Send emails to this channel"
+  # and put the generated address in SWAXS_NOTIFY_EMAIL.
+  #
+  # Credentials/recipients live in .env (git-ignored, sourced by start_platform.sh):
+  #   SWAXS_SMTP_HOST=smtp.stanford.edu
+  #   SWAXS_SMTP_PORT=587            # optional; inferred from the mode
+  #   SWAXS_SMTP_USER=you@stanford.edu     # omit for an unauthenticated relay
+  #   SWAXS_SMTP_PASSWORD=app-password
+  #   SWAXS_SMTP_FROM=you@stanford.edu     # optional; defaults to the user
+  #   SWAXS_NOTIFY_EMAIL=you@stanford.edu,+15551234567@txt.example.net
+  #
+  # Run `uv run tools/notify_test.py --check` — it PROBES which SMTP options
+  # actually work from this machine instead of making you guess.
+  email:
+    enabled: false            # startup default; the app's button arms it
+    mode: ""                  # "" = infer (starttls with auth, plain without);
+                              # or force "starttls" | "ssl" | "plain"
+    tiers: ["alert", "progress", "session"]
+    subject_prefix: "[SWAXS]"
+    timeout_s: 15.0
+    min_interval_s: 1.0       # email is slower than Slack — throttle harder
+
 # ── Recipe validation bounds (editable) ──────────────────────────────────────
 bounds:
   T_reac:  [180.0, 300.0]     # °C
@@ -263,6 +288,15 @@ spec:
   #          updating DURING a data collection. Needs pyepics + channel access to
   #          the beamline. Verify PVs first: tools/beamline_epics_test.py.
   # "spec":  legacy — read SPEC counters (needs read_refresh_cmd / ct; see below).
+  #
+  # ⚠ CONSEQUENCE OF "spec": a collection holds the SPEC lock for its whole
+  #   duration, and counter reads are deliberately non-blocking, so temperature /
+  #   i0 / bstop READS STOP for the entire acquisition. With exposure_s: 10 and
+  #   frames: 10 that is 100 s per acquisition with no fresh temperature — the
+  #   over-temperature interlock has nothing to compare against for that window.
+  #   The app now says so once per run instead of raising a sensor fault, but the
+  #   real fix is read_source: "epics" (keeps reading during a collection) or
+  #   read_during_collect: true below.
   read_source: "spec"
   epics_pvs:                  # ⚠ CONFIRM PV names with the beamline engineer
     temperature: "BL01-5:Aux1Temp.G"
@@ -320,6 +354,11 @@ arming:
 
 # ── Run lifecycle ────────────────────────────────────────────────────────────
 run:
+  # ── timing ───────────────────────────────────────────────────────────────────
+  # These are REAL seconds on every backend, mock included: there is no time
+  # compression anywhere in the reactor, by design. A mock rehearsal is timed
+  # exactly like the beamline run it stands in for. If you want a short test,
+  # shorten the durations themselves in the app.
   default_duration: 600.0     # s fallback run time = 10 min (recipe may override)
   end_on_measurement: true    # end the run when a new SAXS averaged file appears
   # Autonomous loop: hold each condition (keep flowing) until the NEXT param
@@ -327,6 +366,17 @@ run:
   # ML/processing pipeline keeps writing new files into the recipes folder.
   advance_on_new_file: true   # true = hold-until-next-file; false = use duration
   min_dwell_s: 60.0           # min seconds a condition runs before it can advance
+                              # NOTE: advancing is now also blocked until the 2D
+                              # collection has fired, so a run can never finish
+                              # with no data (which would stall the campaign).
+  # ── Restart recovery ────────────────────────────────────────────────────────
+  # The DATA-PROCESSING apps (reduction, averaging, subtraction, quality) resume
+  # their loops automatically after a restart — they only read and write files.
+  # Auto-run moves PUMPS, so it is NOT resumed by default: a power blip must not
+  # start reagents flowing into a hot reactor with nobody in the hutch. The app
+  # reports that auto-run was on and waits for a deliberate Start.
+  # Set true only when you want fully unattended recovery.
+  resume_auto_run: false
 
 # ── Flush / clean ────────────────────────────────────────────────────────────
 flush:

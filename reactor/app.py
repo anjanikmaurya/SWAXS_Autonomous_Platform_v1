@@ -118,11 +118,13 @@ def _resolve(folder_key: str) -> Path:
 #   SWAXS_SLACK_BOT_TOKEN  — threaded updates + plot uploads
 #   SWAXS_SLACK_WEBHOOK    — flat messages, zero setup
 try:
-    from src.notify import SlackNotifier                            # noqa: E402
-    _slack = SlackNotifier(_CFG.get("notify", {}).get("slack", {}), log=_emit)
+    from src.notify import MultiNotifier                            # noqa: E402
+    # One object, both transports (Slack + email). Email needs no workspace
+    # approval, so it works when a Slack app install is still pending.
+    _slack = MultiNotifier(_CFG.get("notify", {}) or {}, log=_emit)
 except Exception as _exc:                                            # pragma: no cover
     _slack = None
-    print(f"[Flow Synthesis] Slack notifier unavailable: {_exc}", file=sys.stderr)
+    print(f"[Flow Synthesis] notifier unavailable: {_exc}", file=sys.stderr)
 
 
 def _slack_event(etype: str, data: dict) -> None:
@@ -214,26 +216,129 @@ _emit(f"Flow Synthesis ready — backend={_BACKEND}", "ok")
 import atexit as _atexit                                             # noqa: E402
 _atexit.register(lambda: _ctrl.shutdown())
 if _slack is not None and _slack.enabled:
-    _emit(f"🔔 Slack notifications ON ({_slack.mode} transport, "
-          f"tiers: {', '.join(sorted(_slack.tiers))})", "ok")
+    _emit(f"🔔 notifications ON ({_slack.mode})", "ok")
     _slack.session_start(_BACKEND, _project_root)
     _atexit.register(lambda: (_slack.session_end(len(_ctrl.history)), _slack.close()))
 # Point the SPEC save folder at the hub's project folder at startup (translated
 # Windows→Linux via spec.hub_path_map). The user can still override in the app.
+# ── restart recovery (platform audit O1) ─────────────────────────────────────
+# DELIBERATELY DIFFERENT from the data-processing apps: those just read and write
+# files, so they resume automatically. Auto-run moves PUMPS. A power blip must not
+# cause reagents to flow into a hot reactor with nobody in the hutch, so we only
+# REPORT that auto-run was on and wait for a human to press Start.
+# Set run.resume_auto_run: true once you trust it for a long unattended campaign.
+def _persist_auto_run(on: bool) -> None:
+    try:
+        from src.runstate import save_state
+        save_state(_project_root, "reactor_auto", {"auto_run": bool(on)})
+    except Exception:
+        pass
+
+
+def _restore_auto_run() -> None:
+    try:
+        from src.runstate import load_state
+        st = load_state(_project_root, "reactor_auto", max_age_s=24 * 3600)
+        if not st or not st.get("auto_run"):
+            return
+        if bool((_CFG.get("run", {}) or {}).get("resume_auto_run", False)):
+            _ctrl.set_auto_run(True)
+            _emit("♻ auto-run RESUMED after restart (run.resume_auto_run: true) — "
+                  "pumps may start as soon as a condition is queued", "warn")
+        else:
+            _emit("⚠ auto-run was ON before this restart. It is NOT resumed "
+                  "automatically because it moves pumps — check the rig, then "
+                  "press Start (or set run.resume_auto_run: true).", "warn")
+    except Exception:
+        pass
+
+
+#: The live run settings (arming mode/wait, synthesis duration, flush rate and
+#: duration) were IN-MEMORY ONLY. So an operator who set 60 s synthesis + 60 s
+#: flush in the app got those values until the next restart — after which the
+#: reactor silently fell back to reactor/config.yml (600 s and 1200 s), and a
+#: resumed autonomous run used the long defaults with nothing to say so.
+_RUN_SETTINGS_STATE = "reactor_run_settings"
+
+
+def _save_run_settings(d: dict) -> None:
+    try:
+        from src.runstate import save_state
+        save_state(_project_root, _RUN_SETTINGS_STATE, dict(d or {}))
+    except Exception:
+        pass
+
+
+def _restore_run_settings() -> None:
+    """Re-apply the operator's own run settings after a restart."""
+    try:
+        from src.runstate import load_state
+        st = load_state(_project_root, _RUN_SETTINGS_STATE, max_age_s=48 * 3600)
+        if not st:
+            return
+        # drop runstate's own bookkeeping keys (_saved_at) before replaying
+        st = {k: v for k, v in st.items() if not k.startswith("_") and v is not None}
+        if not st:
+            return
+        _ctrl.set_run_settings(st)
+        _emit("♻  run settings restored: "
+              + ", ".join(f"{k}={v}" for k, v in sorted(st.items())), "ok")
+    except Exception as exc:
+        _emit(f"⚠ could not restore the run settings: {exc}", "warn")
+
+
+
 if _project_root:
     # The project root holds config.yml (poni_files / detector_shapes). The 2D
     # simulator needs it to reuse the SAME geometry the reduction app uses —
     # without it, frames were generated with a synthetic fallback geometry.
     _ctrl.set_project_root(_project_root)
     _sync_data_dir_from_hub(_project_root)
+    # Restore the operator's run settings BEFORE auto-run may start a recipe, so a
+    # resumed campaign uses the durations they actually chose.
+    _restore_run_settings()
+    _restore_auto_run()
 
 
 # ── hub bus: end the run when SAXS produces a new averaged file ───────────────
 def _on_bus_event(event: dict) -> None:
     etype = event.get("type") or event.get("event_type") or ""
+    data = event.get("data", event)
     if etype == "file.averaged":
-        data = event.get("data", event)
         _ctrl.signal_measurement_complete(str(data.get("file_path", "")))
+    elif etype == "analysis.complete":
+        # The analyzer's answer — the message actually worth reading at 3 a.m.
+        # Posted into this recipe's Slack thread, with the QC plot attached when
+        # the fit is suspect.
+        try:
+            _slack_analysis(data)
+        except Exception:
+            pass
+
+
+def _slack_analysis(data: dict) -> None:
+    if _slack is None or not _slack.enabled:
+        return
+    rid = str(data.get("recipe_id") or "")
+    size, pdi = data.get("size"), data.get("pdi")
+    conf = data.get("confidence")
+    suspect = bool(data.get("suspect"))
+    fields = {}
+    for label, key in (("size (nm)", "size"), ("PDI", "pdi"),
+                       ("confidence", "confidence"), ("loss", "loss"),
+                       ("distribution", "distribution"), ("phase", "phase")):
+        if data.get(key) is not None:
+            fields[label] = data[key]
+    fields["file"] = data.get("file", "")
+    head = (":mag: *Fit LOW CONFIDENCE*" if suspect else ":bar_chart: *Fit result*")
+    _slack.notify(f"{head} — `{rid or data.get('file', '?')}`",
+                  tier=("alert" if suspect else "progress"),
+                  recipe_id=rid, fields=fields)
+    png = str(data.get("plot_png") or "")
+    if suspect and png:
+        _slack.upload_png(png, title=f"{rid} I(q) + fit", recipe_id=rid,
+                          comment=(f"low-confidence fit ({conf}) — R={size} nm, "
+                                   f"PDI={pdi}"))
 
 
 if _bus is not None:
@@ -495,6 +600,68 @@ def api_reset():   _ctrl.reset();  return jsonify({"ok": True})
 def api_vent():    _ctrl.vent_all(); return jsonify({"ok": True})
 
 
+# ── Slack notifications: arm on the way out of the hutch ──────────────────────
+def _slack_status() -> dict:
+    if _slack is None:
+        return {"enabled": False, "configured": False, "mode": "",
+                "error": "notifier unavailable"}
+    return _slack.status()
+
+
+@app.route("/api/slack")
+def api_slack():
+    return jsonify(_slack_status())
+
+
+@app.route("/api/slack", methods=["POST"])
+def api_slack_set():
+    """Toggle notifications while the platform is running — the point is to arm
+    them AFTER the measurement is started and you're about to walk away."""
+    if _slack is None:
+        return jsonify({"ok": False, "error": "notifier unavailable"}), 400
+    body = request.get_json(silent=True) or {}
+    want = body.get("enabled")
+    which = str(body.get("channel", "all") or "all")
+    want = (not _slack.enabled) if want is None else bool(want)   # None = toggle
+    ok, msg = _slack.enable(which) if want else _slack.disable(which)
+    if ok:
+        _emit(f"🔔 {msg}", "ok" if want else "info")
+        if want:
+            # Confirm in the channel itself, so you know it works before leaving.
+            _slack.notify(
+                f":bell: *Notifications armed* — the reactor will report from here "
+                f"(backend `{_ctrl.backend}`, state `{_ctrl.state}`)",
+                tier="session")
+    else:
+        _emit(f"⚠ Slack: {msg}", "warn")
+    return jsonify({"ok": ok, "error": None if ok else msg, **_slack_status()})
+
+
+@app.route("/api/slack/test", methods=["POST"])
+def api_slack_test():
+    """Send one message now, so the channel can be verified before walking away."""
+    if _slack is None or not _slack.configured:
+        return jsonify({"ok": False,
+                        "error": "no notification channel configured — set a Slack "
+                                 "credential, or SWAXS_SMTP_HOST + "
+                                 "SWAXS_NOTIFY_EMAIL in .env"}), 400
+    was = _slack.enabled
+    for ch in _slack.channels.values():        # a test must not be silenced
+        if ch.configured:
+            ch.enabled = True
+            ch._ensure_worker()
+    _slack.notify(":wave: *Test from the reactor app* — notifications are working.",
+                  tier="session")
+    if not was:
+        # leave it as we found it; the queued messages still go out
+        def _restore():
+            for ch in _slack.channels.values():
+                ch.enabled = False
+        threading.Timer(3.0, _restore).start()
+    _emit(f"🔔 test message queued ({_slack.mode or 'no channel'})", "info")
+    return jsonify({"ok": True, **_slack_status()})
+
+
 @app.route("/api/backend", methods=["POST"])
 def api_backend():
     mode = str((request.get_json(silent=True) or {}).get("backend", "")).lower()
@@ -530,6 +697,7 @@ def api_flush():
 def api_auto_run():
     b = request.get_json(force=True)
     _ctrl.set_auto_run(bool(b.get("on", False)))
+    _persist_auto_run(_ctrl.auto_run)      # so a restart can REPORT it (not resume it)
     return jsonify({"ok": True, "auto_run": _ctrl.auto_run})
 
 
@@ -550,6 +718,8 @@ def api_collect_now():
 def api_run_settings():
     b = request.get_json(force=True) or {}
     _ctrl.set_run_settings(b)
+    # persist, so a restart does not quietly revert to the config defaults
+    _save_run_settings(b)
     return jsonify({"ok": True})
 
 

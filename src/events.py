@@ -66,6 +66,28 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _json_safe(obj):
+    """Last-resort encoder for values json cannot handle natively.
+
+    numpy scalars and arrays are the realistic case here — `arr.sum()` is an
+    np.int64, and passing one used to disable the whole event bus (see publish()).
+    Anything else degrades to its string form rather than killing the event.
+    """
+    try:
+        item = getattr(obj, "item", None)          # numpy scalar → Python scalar
+        if callable(item):
+            return item()
+    except Exception:
+        pass
+    try:
+        tolist = getattr(obj, "tolist", None)      # numpy array → list
+        if callable(tolist):
+            return tolist()
+    except Exception:
+        pass
+    return str(obj)
+
+
 def make_event(event_type: str, source_app: str, data: dict) -> dict:
     """
     Build a canonical SWAXS event dict.
@@ -162,8 +184,25 @@ class EventBusClient:
                          self._app_id, event_type)
             return False
         event = make_event(event_type, self._app_id, data)
+
+        # Encoding is NOT a transport failure, and must not be treated as one.
+        # A numpy scalar in the payload (`mask.sum()` is np.int64, not int) raised
+        # TypeError inside the old combined try, which then set _connected = False
+        # and dropped the socket. The socket was still open, so the reconnect loop
+        # never fired — one bad payload silently disabled the app's event bus for
+        # the rest of the process, and with it the closed loop that advances on
+        # `file.averaged`. `default=_json_safe` also means a stray numpy value can
+        # no longer take the bus down at all.
         try:
-            self._ws.send(json.dumps(event))
+            wire = json.dumps(event, default=_json_safe)
+        except Exception as exc:                     # noqa: BLE001
+            logger.error("[EventBus:%s] %s payload is not serialisable (%s) — "
+                         "event dropped, connection kept", self._app_id,
+                         event_type, exc)
+            return False
+
+        try:
+            self._ws.send(wire)
             logger.debug("[EventBus:%s] ↑ %s", self._app_id, event_type)
             return True
         except Exception as exc:

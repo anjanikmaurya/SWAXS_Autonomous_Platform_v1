@@ -45,6 +45,7 @@ from src.manifest import (                                      # noqa: E402
     update_manifest, add_quality_entry, make_provenance,
 )
 from src.utils.read_dat_metadata import read_dat_data_metadata  # noqa: E402
+from src.runstate import save_monitor, load_monitor, monitor_alive        # noqa: E402
 
 # ── Event bus (graceful degradation) ─────────────────────────────────────────
 try:
@@ -202,10 +203,22 @@ def _spark(path: Path):
 
 
 def _effective_verdict(rec: dict) -> str:
-    """Verdict honoring (a) a user override, else (b) the live threshold."""
+    """Verdict honouring (a) a user override, else (b) the LLM adjudication for a
+    borderline profile, else (c) the live threshold.
+
+    (b) used to be missing, which made the whole adjudication pointless: the
+    grader assigned `rec["verdict"] = adj["verdict"]` and then, one line later,
+    `rec["verdict"] = _effective_verdict(rec)` overwrote it with the plain
+    threshold result. Every borderline profile was sorted by the rule score alone,
+    while the manifest recorded the verdict with source="ai" — and one paid API
+    call per borderline profile bought nothing but a cosmetic note.
+    """
     ov = _overrides.get(rec["path"])
     if ov:
         return ov["verdict"]
+    llm = rec.get("llm_verdict")
+    if llm in ("good", "bad"):
+        return llm
     return "good" if rec["score"] >= _pass_threshold() else "bad"
 
 
@@ -394,6 +407,7 @@ def _recount() -> None:
 
 def _recolor() -> None:
     """Re-derive verdicts from the current threshold without re-reading files."""
+    _invalidate_grades()   # rules changed → re-grade next cycle
     for rec in _results.values():
         rec["verdict"] = _effective_verdict(rec)
         try:
@@ -407,6 +421,7 @@ def _rescore_all() -> None:
     """Recompute score/flags/reasons for every cached profile from its stored
     metrics (no file re-read) after a scoring-parameter change, then re-derive
     verdicts and re-sort."""
+    _invalidate_grades()   # rules changed → re-grade next cycle
     for rec in _results.values():
         t = _active_thresholds(rec.get("detector"))
         score, flags, reasons = score_metrics(rec.get("metrics", {}), t)
@@ -427,6 +442,7 @@ def _adapt_threshold() -> None:
     """Gently move the pass threshold to agree with the user's overrides:
     place it midway between the highest score the user called 'bad' and the
     lowest score they called 'good' (damped, clamped 20–90)."""
+    _invalidate_grades()   # rules changed → re-grade next cycle
     gs, bs = _adapt["good_scores"], _adapt["bad_scores"]
     if not gs or not bs:
         return
@@ -462,6 +478,21 @@ def _on_bus_event(event: dict) -> None:
         _emit(f"⚠  event grade failed: {exc}", "warn")
 
 
+#: resolved path -> (size, mtime_ns) of the version already graded. A dict, not
+#: a set, so a re-written profile IS re-graded while an unchanged one is not.
+_graded: dict = {}
+
+
+def _invalidate_grades() -> None:
+    """Forget what has been graded, so the next cycle re-grades everything.
+
+    Called whenever the RULES change (threshold, weights, a manual override that
+    moves the adaptive threshold) — otherwise the memo above would pin every
+    profile to a verdict computed under the old settings.
+    """
+    _graded.clear()
+
+
 def _grader_loop(dets, interval):
     global _grading
     _emit(f"▶  Quality grading started — every {interval}s  ·  "
@@ -474,10 +505,31 @@ def _grader_loop(dets, interval):
             for prof in _list_profiles(fp):
                 if not _grading:
                     break
+                # Skip files that have not changed since we graded them.
+                #
+                # This loop used to re-grade EVERY profile on EVERY cycle. Each
+                # re-grade re-reads the file twice, re-runs the LLM call for a
+                # borderline profile, and performs a full locked
+                # read-modify-write of manifest.json. With 300 profiles and the
+                # default 10 s interval that is ~2.6 million manifest rewrites a
+                # night, holding the same cross-process lock that reduction,
+                # background and the analyzer need in order to record data — and
+                # a paid API call per borderline profile per cycle. Nothing in the
+                # log looked wrong, because a line is only emitted when the
+                # verdict changes.
                 try:
-                    _grade_and_record(prof, det)     # always reprocess
+                    st = prof.stat(); sig = (st.st_size, st.st_mtime_ns)
+                except OSError:
+                    continue
+                rp = str(prof.resolve())
+                if _graded.get(rp) == sig:
+                    continue
+                try:
+                    _grade_and_record(prof, det)
+                    _graded[rp] = sig
                 except Exception as exc:
                     _emit(f"✗  {prof.name}: {exc}", "error")
+                    _graded[rp] = sig       # don't retry a hard failure forever
         _recount()
         gc.collect()
         time.sleep(interval)
@@ -753,12 +805,27 @@ def api_report():
                     "counts": {"good": _status["good"], "bad": _status["bad"],
                                "total": _status["graded"]}})
 
+def _stale_monitor_notice() -> None:
+    """The previous worker thread is gone but its flag was still set. Say so —
+    silently taking over would hide the fact that processing had stopped."""
+    try:
+        _emit("⚠  the previous monitor thread had died (its status still said "
+              "running) — taking over with the new settings", "warn")
+    except Exception:
+        pass
+
+
 
 @app.route("/api/monitor/start", methods=["POST"])
 def monitor_start():
     global _grading, _grader_thread, _watch, _llm_enabled, _llm_model
-    if _grading:
+    # Refuse only if the worker is ACTUALLY alive. A bare flag check meant that a
+    # monitor whose thread had died reported "Already monitoring" forever, so the
+    # app could never be restarted from the UI (src/runstate.monitor_alive).
+    if monitor_alive(_grading, _grader_thread):
         return jsonify({"ok": False, "error": "Already monitoring"})
+    if _grading:
+        _stale_monitor_notice()
     body = request.get_json(force=True)
     interval = max(int(body.get("interval", 10) or 10), 1)
     saxs = (body.get("saxs_folder", "") or "").strip()
@@ -793,7 +860,9 @@ def monitor_stop():
 
 @app.route("/api/monitor/status")
 def monitor_status():
-    return jsonify(_status)
+    # Report the THREAD, not the flag: a dead worker used to read as healthy.
+    return jsonify({**_status,
+                    "monitoring": monitor_alive(_grading, _grader_thread)})
 
 
 @app.route("/api/monitor/stream")
@@ -821,6 +890,63 @@ if _bus is not None:
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
+
+# ── resume the processing loop after a restart (platform audit O1) ────────────
+# Every automation used to start ONLY from an operator click and persisted
+# nothing, so a 03:00 restart left the platform looking correctly restored — the
+# hub even remembered the project folder — while doing nothing at all. Frames
+# accumulated, nothing was processed, and every card stayed green.
+#
+# The saved body is replayed through the SAME endpoint, so there is no second
+# copy of the argument parsing to drift out of sync.
+_MON_APP = "quality"
+
+
+def _state_root() -> str:
+    """Where run-state lives. Several apps leave `_project_root` empty until the
+    hub POSTs it, so fall back to the env var the hub also sets — otherwise the
+    state silently has nowhere to go."""
+    return (_project_root or os.environ.get("SWAXS_PROJECT", "") or "").strip()
+
+
+@app.after_request
+def _persist_monitor_state(resp):
+    try:
+        if request.path == "/api/monitor/start" and resp.status_code == 200:
+            if (resp.get_json(silent=True) or {}).get("ok", True):
+                save_monitor(_state_root(), _MON_APP, True,
+                             request.get_json(silent=True) or {})
+        elif request.path == "/api/monitor/stop":
+            save_monitor(_state_root(), _MON_APP, False)
+    except Exception:
+        pass
+    return resp
+
+
+def _boot_resume_monitor() -> None:
+    time.sleep(2.0)                      # let the hub push the project folder first
+    try:
+        params = load_monitor(_state_root(), _MON_APP)
+        if not params:
+            return
+        rv = app.test_client().post("/api/monitor/start", json=params)
+        body = rv.get_json(silent=True) or {}
+        # "Already monitoring" is a SUCCESS for our purposes: the loop is running.
+        # Without this a second resume attempt (e.g. the hub re-POSTing the project
+        # folder) logged an alarming failure for a perfectly healthy state.
+        already = "already" in str(body.get("error", "")).lower()
+        if body.get("ok", rv.status_code == 200) or already:
+            _emit("♻  auto-processing RESUMED after restart "
+                   "(saved settings reused)", "ok")
+        else:
+            _emit(f"⚠  could not resume auto-processing: {body.get('error')}",
+                   "warn")
+    except Exception as exc:
+        _emit(f"⚠  auto-processing resume failed: {exc}", "warn")
+
+
+threading.Thread(target=_boot_resume_monitor, daemon=True).start()
+
 if __name__ == "__main__":
     _project_root = os.environ.get("SWAXS_PROJECT", "")
     print("━" * 52)
