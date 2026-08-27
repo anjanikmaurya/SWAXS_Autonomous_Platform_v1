@@ -1,9 +1,16 @@
 # Running the SWAXS Platform on Windows
 
 This guide covers running the platform on a Windows laptop. The project was
-developed on macOS, so a few things differ — mainly that `start_platform.sh`
-is a bash script and won't run in PowerShell. On Windows you start the hub's
-Python directly instead; everything else is the same.
+developed on macOS, so a few things differ — `start_platform.sh` is a bash
+script and won't run in PowerShell. Use `start_platform.ps1` (PowerShell) or
+`start_platform.bat` (Anaconda Prompt, or double-click) instead; everything else
+is the same.
+
+**New here? Start with [QUICKSTART.md](QUICKSTART.md)** — it has the
+step-by-step install for PowerShell *and* the Anaconda Prompt, plus a
+`start_platform.ps1` / `start_platform.bat` launcher so you no longer have to
+run the hub's Python by hand. This document is the deeper reference: how the
+pieces fit together, and the Windows-specific details behind those steps.
 
 For the cross-laptop git workflow, see `SYNC.md`.
 
@@ -43,10 +50,19 @@ Open **PowerShell** in the project folder and run:
 cd C:\Users\akmaurya\dev\SWAXS_Autonomous_Platform_v1
 python -m venv venv
 venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+pip install -r requirements-core.txt
 ```
 
 You should see `(venv)` at the start of your prompt after activating.
+
+> **Use `requirements-core.txt`, not `requirements.txt`.**
+> `requirements.txt` is a `pip freeze` of the original developer's Mac: it pins
+> exact versions (`numpy==2.2.6`, `scipy==1.15.3`, …) that have no prebuilt
+> Windows wheel on older Pythons, so pip tries to *compile* numpy and dies with
+> "Microsoft Visual C++ 14.0 or greater is required". It also drags in ~1 GB the
+> platform never imports (PyQt6, silx, pyopencl, torch, jupyter).
+> `requirements-core.txt` is 16 packages, all prebuilt wheels, ~1–3 minutes, no
+> compiler. Python **3.10 or newer** (3.11/3.12 recommended).
 
 If PowerShell blocks the activate script ("running scripts is disabled on this
 system"), run this once, then re-activate:
@@ -96,6 +112,28 @@ Ports: hub 5000 · reduction 5001 · viewer 5002 · background 5003 · analysis 
 
 ## Troubleshooting installation
 
+Every failure below comes from installing `requirements.txt`. If you used
+`requirements-core.txt`, you should not see any of them — and if you already hit
+one, the fix is the same in each case: start a fresh venv and install
+`requirements-core.txt`.
+
+### "Microsoft Visual C++ 14.0 or greater is required"
+
+**Cause:** the exact pins in `requirements.txt` (`numpy==2.2.6`,
+`scipy==1.15.3`, `matplotlib==3.10.3`) have no prebuilt Windows wheel for your
+Python — most often because it is 3.9 or older — so pip falls back to compiling
+numpy from source, which needs a full C/Fortran toolchain.
+
+**Fix:** you do **not** need Visual Studio. Use Python 3.11 or 3.12 and install
+`requirements-core.txt`, which uses minimum versions so pip picks a wheel that
+exists:
+
+```powershell
+python -m venv venv
+venv\Scripts\Activate.ps1
+pip install -r requirements-core.txt
+```
+
 ### numpy / chromadb dependency conflict
 
 **Symptom:**
@@ -106,17 +144,16 @@ because these package versions have conflicting dependencies.
     chromadb 0.5.3 depends on numpy<2.0.0 and >=1.22.5
 ```
 
-**Cause:** `chromadb==0.5.3` requires `numpy<2`, but the platform pins
-`numpy==2.2.6`. (The macOS venv predates this pin, so it never had to resolve
-both together.)
+**Cause:** old `chromadb` caps `numpy<2`, but `requirements.txt` pins
+`numpy==2.2.6`.
 
-**Fix (already applied in `requirements.txt`):** chromadb dropped the
-`numpy<2` cap in 0.5.7, so the requirement is now `chromadb==0.5.23` — the
-latest 0.5.x, which works with numpy 2 while keeping the same 0.5.x API the
-assistant code was written against. Just re-run:
+**Fix:** `chromadb` is an *optional* AI-assistant dependency and is not in
+`requirements-core.txt` at all, so the conflict disappears. If you want the
+searchable knowledge base, add it afterwards — on its own, where a resolver
+failure cannot block the platform:
 
 ```powershell
-pip install -r requirements.txt
+pip install -r requirements-ai.txt
 ```
 
 > If the AI Assistant later complains about its vector database, delete the
@@ -125,21 +162,18 @@ pip install -r requirements.txt
 
 ### pyopencl fails to build/install
 
-`pyopencl` needs an OpenCL runtime and is the package most likely to fail on a
-fresh Windows machine. If `pip install` errors on it:
+`pyopencl` needs an OpenCL SDK present *at import time* and is the package most
+likely to fail on a fresh Windows machine.
 
-- Install your GPU vendor's OpenCL driver (Intel / NVIDIA / AMD), **or**
-- Install a prebuilt `pyopencl` wheel matching your Python version, then re-run
-  `pip install -r requirements.txt`.
-
-`pyopencl` accelerates PyFAI integration but is not strictly required for the
-core reduction to run.
+**Fix:** nothing imports it. It is not in `requirements-core.txt`. Don't install
+it — PyFAI integration runs fine on the CPU, and at this data rate (one frame per
+few seconds) the GPU path saves nothing worth the install pain.
 
 ### Other common issues
 
 | Symptom | Fix |
 |---|---|
-| `./start_platform.sh` not recognized | On Windows use `python hub/app.py` — the `.sh` script is macOS/Linux only. |
+| `./start_platform.sh` not recognized | On Windows use `.\start_platform.ps1` (PowerShell) or `start_platform.bat` (Anaconda Prompt / double-click) — the `.sh` script is macOS/Linux only. |
 | Activate script blocked by PowerShell | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, then re-activate. |
 | Browser can't connect to localhost:5000 | The hub isn't running — check PowerShell for errors. |
 | An app card stuck on "Starting…" | Run that app directly (`python reduction\app.py`) to see the real error. |

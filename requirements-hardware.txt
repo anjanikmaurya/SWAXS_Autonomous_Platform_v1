@@ -1,0 +1,14 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# requirements-hardware.txt — ONLY for the machine wired to the real reactor.
+#
+#     pip install -r requirements-core.txt -r requirements-hardware.txt
+#
+# You do NOT need this to run the platform in mock, to reduce data, or to use
+# any of the analysis apps. Without it the reactor app still runs in mock; it
+# refuses to switch to the "real" backend and says which package is missing.
+# ─────────────────────────────────────────────────────────────────────────────
+
+pyserial>=3.5      # the Dolomite Mitos P-pumps (src/reactor/drivers/Py_P_Pump.py)
+pyepics>=3.5       # live temperature / I0 / beamstop via EPICS caget
+                   #   (spec.read_source: "epics" — recommended, keeps reading
+                   #    during a 2D collection, unlike the SPEC counter path)

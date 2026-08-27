@@ -32,15 +32,18 @@ python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\
 ## 3. Install dependencies
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements-core.txt
 ```
 
-**Extra packages for REAL hardware** (not in `requirements.txt`, imported lazily so
-Mock mode works without them):
+(Use `requirements-core.txt`, not `requirements.txt` — see
+[QUICKSTART.md](../QUICKSTART.md). `requirements.txt` is a `pip freeze` of a Mac
+and fails to install on Windows.)
+
+**Extra packages for REAL hardware** (not in `requirements-core.txt`, imported
+lazily so Mock mode works without them):
 
 ```bash
-pip install pyserial     # real pumps  (src/reactor/drivers/Py_P_Pump.py)
-pip install requests     # real beamline / SPEC bServer (src/beamline/driver.py)
+pip install -r requirements-hardware.txt   # pyserial (pumps) + pyepics (temperature)
 ```
 
 Mock mode (default) needs neither — good for developing the loop off the rig.
@@ -101,7 +104,7 @@ interpreter so they share the installed environment — use `python` here too.)
 
 ## 7. First-run checklist
 
-1. `pip install -r requirements.txt` succeeds; add `pyserial`+`requests` for real.
+1. `pip install -r requirements-core.txt` succeeds; add `requirements-hardware.txt` for real.
 2. App opens at `http://localhost:5007`, backend pill shows the expected mode.
 3. **Mock:** submit a recipe, Start — watch it arm → run → flush; live plot animates.
 4. **Real (on the rig):** bench-test the beamline in isolation FIRST with the app

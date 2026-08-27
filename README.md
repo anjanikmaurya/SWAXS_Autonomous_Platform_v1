@@ -4,6 +4,8 @@ A local, AI-assisted toolkit for processing **small- and wide-angle X-ray scatte
 
 Everything runs on your own machine. Your data never leaves your computer; the only outbound calls are to the Claude API, and only if you enable the AI Assistant.
 
+### 🚀 New laptop? → [Quick start](#quick-start) · macOS · Windows (PowerShell **and** Anaconda Prompt) · Linux
+
 ---
 
 ## What it does
@@ -33,34 +35,158 @@ For self-driving nanoparticle synthesis at the beamline, the reactor and analyze
 
 ## Quick start
 
-### 1. Requirements
+About **10 minutes**, ~500 MB of downloads. Needs **Python 3.10 or newer** and
+**git**. Pick your platform — each block is self-contained.
 
-- Python 3.12 (3.9+ may work with minor changes)
-- [`uv`](https://docs.astral.sh/uv/) recommended (the platform uses `uv run`); plain `python` also works
-- Git
+> ### ⚠ Install from `requirements-core.txt`, not `requirements.txt`
+>
+> `requirements.txt` is an old `pip freeze` of one developer's Mac. It carries
+> ~1 GB the platform never imports (PyQt6, silx, pyopencl, torch) and pins exact
+> versions with **no Windows build for Python 3.9** — pip then tries to compile
+> numpy from source and the install dies with *"Microsoft Visual C++ 14.0 or
+> greater is required"*. `requirements-core.txt` is 16 packages, verified to
+> install from prebuilt wheels on Windows, macOS and Linux with no compiler.
 
-### 2. Get the code and install dependencies
+<details open>
+<summary><b>🍎 macOS</b></summary>
+
+Open **Terminal** (⌘-Space → `Terminal`):
 
 ```bash
+python3 --version          # need 3.10+; get it from python.org if missing
+
+cd ~/Desktop
 git clone https://github.com/anjanikmaurya/SWAXS_Autonomous_Platform_v1.git
 cd SWAXS_Autonomous_Platform_v1
 
-# Create and activate a virtual environment
-python -m venv venv
-source venv/bin/activate          # Windows: venv\Scripts\activate
+python3 -m venv venv
+source venv/bin/activate               # prompt should now show (venv)
 
-# Install everything (this takes a few minutes)
-pip install -r requirements.txt
+pip install --upgrade pip
+pip install -r requirements-core.txt   # 1-3 minutes
+
+./start_platform.sh
 ```
 
-### 3. (Optional) Enable the AI Assistant
+Open **http://localhost:5000**.
 
-The AI Assistant authenticates to **SLAC-managed AI services** via the enterprise
-gateway. Request a token (ServiceNow, see SLAC IT KB0015379) and put it in
+*Port 5000 busy?* macOS AirPlay Receiver uses it too. Usually harmless; if the
+hub can't bind, run `SWAXS_HUB_PORT=5100 ./start_platform.sh` or turn AirPlay
+Receiver off in System Settings → General → AirDrop & Handoff.
+
+</details>
+
+<details open>
+<summary><b>🪟 Windows — PowerShell</b></summary>
+
+First install [Python 3.11/3.12](https://www.python.org/downloads/windows/) —
+**tick "Add python.exe to PATH"** on the installer's first screen, it is easy to
+miss and nothing works without it — and [Git for Windows](https://git-scm.com/download/win).
+
+Then in **PowerShell**:
+
+```powershell
+python --version           # must be 3.10+. 3.9 has no science wheels on Windows.
+
+cd $HOME\Documents
+git clone https://github.com/anjanikmaurya/SWAXS_Autonomous_Platform_v1.git
+cd SWAXS_Autonomous_Platform_v1
+
+python -m venv venv
+.\venv\Scripts\Activate.ps1           # prompt should now show (venv)
+
+python -m pip install --upgrade pip
+python -m pip install -r requirements-core.txt
+
+.\start_platform.ps1
+```
+
+Open **http://localhost:5000**.
+
+*"running scripts is disabled on this system"?* Allow scripts for your own
+account, once — then repeat the activate:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+Or skip the policy entirely and use `start_platform.bat`.
+
+</details>
+
+<details open>
+<summary><b>🐍 Windows — Anaconda Prompt</b></summary>
+
+Open **Anaconda Prompt** from the Start menu (not PowerShell). Conda gives you
+the science stack as prebuilt binaries — the most reliable route on Windows.
+
+```bat
+cd %USERPROFILE%\Documents
+git clone https://github.com/anjanikmaurya/SWAXS_Autonomous_Platform_v1.git
+cd SWAXS_Autonomous_Platform_v1
+
+conda create -y -n swaxs python=3.12
+conda activate swaxs                   REM prompt should now show (swaxs)
+
+conda install -y -c conda-forge numpy scipy pandas matplotlib pyyaml h5py
+python -m pip install -r requirements-core.txt
+
+start_platform.bat
+```
+
+Open **http://localhost:5000**.
+
+`start_platform.bat` also works by **double-clicking it** in File Explorer, and
+needs no execution-policy change. Don't install into conda `base` — a broken
+`base` breaks every other conda project you have.
+
+</details>
+
+<details open>
+<summary><b>🐧 Linux</b></summary>
+
+```bash
+sudo apt install -y python3 python3-venv python3-pip git   # Debian/Ubuntu
+
+cd ~
+git clone https://github.com/anjanikmaurya/SWAXS_Autonomous_Platform_v1.git
+cd SWAXS_Autonomous_Platform_v1
+
+python3 -m venv venv
+source venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements-core.txt
+
+./start_platform.sh
+```
+
+Open **http://localhost:5000**. On a headless server the plots render
+server-side, so no display is needed — forward the port with
+`ssh -L 5000:localhost:5000 you@server`.
+
+</details>
+
+### Optional extras
+
+Install only what you need. Everything degrades gracefully without them: the app
+says what is missing and keeps working.
+
+| You want | Run |
+|---|---|
+| The real reactor (pumps + EPICS temperature) | `pip install -r requirements-hardware.txt` |
+| AI Assistant chat | `pip install anthropic` + a token (see below) |
+| AI searchable knowledge base | `pip install -r requirements-ai.txt` — **pulls torch, ~2 GB** |
+| Model fitting in the analysis app | `pip install sasmodels` |
+| The test suite | `pip install pytest` then `pytest -q` |
+
+### Enabling the AI Assistant (optional)
+
+The assistant authenticates to **SLAC-managed AI services** via the enterprise
+gateway. Request a token (ServiceNow, SLAC IT KB0015379) and put it in
 **`~/.claude/settings.json`** — the SLAC-sanctioned location, shared with the
-Claude Code CLI. The SWAXS app reads the token, endpoint, and model from that one
-file automatically. **Never commit the token or put it in `.env`.** Full steps
-are in **`SECURITY.md`**; in short:
+Claude Code CLI. The platform reads the token, endpoint and model from that one
+file. **Never commit it, and never put it in `.env`.** Full steps in
+`SECURITY.md`; in short:
 
 ```bash
 mkdir -p ~/.claude && chmod 700 ~/.claude
@@ -68,22 +194,37 @@ nano ~/.claude/settings.json      # paste the KB0015379 JSON, insert your token
 chmod og-rwx ~/.claude/settings.json
 ```
 
-You must be **on the SLAC network or VPN**. Without a token the data-processing
-apps work normally — only the AI-powered features (AI Assistant and Quality Gate)
-are disabled.
+You must be on the SLAC network or VPN. Without a token every data-processing app
+works normally — only the AI features are disabled.
 
-### 4. Start the platform
+### First run
 
-```bash
-./start_platform.sh
-```
+1. **Pick your project folder** — top-right of the hub page (layout below). No
+   data yet? Point it at the bundled `Demo_Data/` folder to click around safely.
+2. **Start an app** with ▶, wait for the green dot, then **↗ Open**. Work left to
+   right through the table above.
+3. **Stop** with ■ on a card, or `Ctrl-C` in the terminal to close the hub — which
+   closes every app with it.
 
-Then open **http://localhost:5000** in your browser. The hub lets you:
+You can pre-select a project folder: `./start_platform.sh /path/to/experiment`
+(or `.\start_platform.ps1 D:\data\Auto_Run`).
 
-1. **Pick your project folder** (the folder holding your experiment data — see layout below).
-2. **Start any app** with its ▶ button, then **Open** it.
+### Starting again later
 
-You can also pre-select a project folder: `./start_platform.sh /path/to/experiment`.
+You install once. After that, in a new terminal:
+
+| | |
+|---|---|
+| **macOS / Linux** | `cd <repo>` → `source venv/bin/activate` → `./start_platform.sh` |
+| **Windows PowerShell** | `cd <repo>` → `.\venv\Scripts\Activate.ps1` → `.\start_platform.ps1` |
+| **Anaconda Prompt** | `cd <repo>` → `conda activate swaxs` → `start_platform.bat` |
+
+Forgetting to activate the environment is the most common day-two problem — it
+shows up as `ModuleNotFoundError: No module named 'flask'`.
+
+**Something went wrong?** [QUICKSTART.md](QUICKSTART.md) has the same steps with
+more explanation plus a troubleshooting section ordered by how often each problem
+actually happens.
 
 ---
 
@@ -171,7 +312,14 @@ Its domain knowledge lives in `ai_knowledge/` and the per-app `knowledge.md` fil
 | Reduction error: `'i0' not found in metadata` | `metadata_format` in `config.yml` doesn't match your files (`pdi` vs `csv`), or the metadata lacks an `i0`/`bstop` field. |
 | Transmission > 1.0 warning | Check `i0_air`/`bstop_air` and the offset values in `config.yml`. |
 | Negative intensities after reduction | Check `i0_offset` / `bstop_offset` (should be ≤ the dark-current reading with the shutter closed). |
-| An app card shows "Starting…" forever | Open the app's terminal output, or start it directly for full logs: `uv run reduction/app.py`. |
+| An app card shows "Starting…" forever, then "Not responding" | Read `logs/<app>.log` (the previous run is kept as `logs/<app>.log.1`). Usually a bad path in `config.yml` or a missing `.poni`. |
+| An app card shows "⚠ CRASHED" | The card names the reason and the last log lines. Fix it, then press ▶ Start again. |
+| `ModuleNotFoundError: No module named 'flask'` | The virtual environment isn't activated — your prompt should show `(venv)` or `(swaxs)`. See [Starting again later](#starting-again-later). |
+| Red `Microsoft Visual C++ 14.0 or greater is required` on Windows | You used `requirements.txt`, or your Python is 3.9 or older. Use `requirements-core.txt` and Python 3.11/3.12. You do **not** need Visual Studio. |
+| `.\start_platform.ps1 ... running scripts is disabled` | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, or use `start_platform.bat`. |
+| Pipeline runs but no averaged files appear | Frames/batch is larger than the frames one acquisition delivers, so a batch can never complete. The viewer log says so — set frames/batch to match `spec.frames`. |
+
+More, with fuller explanations: **[QUICKSTART.md § Troubleshooting](QUICKSTART.md#troubleshooting)**.
 
 ---
 
@@ -182,6 +330,8 @@ Its domain knowledge lives in `ai_knowledge/` and the per-app `knowledge.md` fil
 - **Reactor / beamtime docs** — `docs/REACTOR_SETUP.md` (software install/run), `docs/REACTOR_HARDWARE_SETUP.md` (fluidics + temperature + beamline wiring), `docs/REACTOR_MAP.md` (code map / troubleshooting), `tools/BEAMLINE_TESTING.md` (bench-test runbook), and `docs/audits/PRE_BEAMTIME_READINESS.md` + `BEAMLINE_SAFETY_AUDIT.md`.
 - **`apps.yml`** — the app registry. Add an app here and the hub picks it up; no hub code changes needed.
 - **`check_imports.py`** — `python check_imports.py` audits which `src/` modules each app uses.
+- **Launchers** — `start_platform.sh` (macOS/Linux), `start_platform.ps1` (PowerShell), `start_platform.bat` (Anaconda Prompt / double-click). All three start `hub/app.py`; the Windows two also check the Python version and that the dependencies are installed.
+- **Dependencies** — `requirements-core.txt` runs the platform; `requirements-hardware.txt` and `requirements-ai.txt` are opt-in extras. `tests/test_install_requirements.py` fails if a new import is added without being declared, or if an exact pin creeps back in.
 
 **The one rule:** all science and data logic lives in `src/`. Each `app.py` is a thin Flask shell (routing only).
 

@@ -1,0 +1,21 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# requirements-ai.txt — the AI Assistant's optional extras.
+#
+#     pip install -r requirements-core.txt -r requirements-ai.txt
+#
+# WARNING: sentence-transformers pulls in torch (~2 GB download). Only install
+# it if you want the *searchable knowledge base*. The assistant's chat, plots
+# and manifest questions work with `anthropic` alone.
+#
+# Without any of this the assistant still starts and says:
+#   [KB] chromadb or sentence-transformers not installed — Run: pip install ...
+# ─────────────────────────────────────────────────────────────────────────────
+
+anthropic>=0.40            # chat, fit narration, loop advice  (needs a token —
+                           #   see SECURITY.md; SLAC gateway via ~/.claude/settings.json)
+
+# ── knowledge base (optional, heavy) ─────────────────────────────────────────
+chromadb>=0.5              # vector store for the document index
+sentence-transformers>=3.0 # embeddings — PULLS TORCH (~2 GB)
+pypdf>=4.3                 # read PDFs into the knowledge base
+pdfminer.six>=20231228     # fallback PDF text extraction

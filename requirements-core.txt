@@ -1,0 +1,65 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# requirements-core.txt — everything needed to RUN the platform, nothing else.
+#
+# Use this one. It installs on macOS, Windows and Linux from prebuilt wheels,
+# so no compiler, no Qt, no CUDA, no OpenCL SDK. Typical install: 1-3 minutes.
+#
+#     pip install -r requirements-core.txt
+#
+# Why this file exists
+# --------------------
+# `requirements.txt` is a `pip freeze` of the original developer's Mac. It
+# carries ~1 GB of packages the platform never imports — PyQt6, silx, pyopencl,
+# sentence-transformers (which pulls torch), jupyter, debugpy — and several of
+# them need a C compiler or an OpenCL SDK to build on Windows. That is what made
+# installing on a colleague's Windows laptop painful. It was also *missing* four
+# packages the code really does import.
+#
+# Version policy: minimum versions, not exact pins, so pip can pick the wheel
+# that exists for the user's Python. Pin exactly only if a release breaks us.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Web framework: the hub and all nine apps ─────────────────────────────────
+flask>=3.0
+flask-sock>=0.7            # WebSocket event bus (hub :5000/ws)
+simple-websocket>=1.0      # flask-sock's transport
+websocket-client>=1.8      # the apps' side of the bus
+
+# ── Science / data stack ─────────────────────────────────────────────────────
+numpy>=1.26,<3
+scipy>=1.11                # curve fitting (analysis, nanoparticle sizing)
+pandas>=2.0                # beamline CSV metadata
+matplotlib>=3.8            # server-side plots (Agg backend, no GUI needed)
+pyyaml>=6.0                # config.yml, apps.yml
+
+# ── Detector I/O and azimuthal integration ───────────────────────────────────
+fabio>=2024.9              # .raw / .edf / .cbf detector images
+pyfai>=2024.9              # calibration (.poni) + 2D→1D integration
+xraydb>=4.5                # X-ray absorption (transmission → sample thickness)
+
+# ── Platform plumbing ────────────────────────────────────────────────────────
+psutil>=5.9                # hub process lifecycle (start/stop/reclaim ports)
+paramiko>=3.4              # SFTP data copy in the calibration app
+requests>=2.31             # SPEC/bServer HTTP driver (real beamline)
+
+# ── Reporting ────────────────────────────────────────────────────────────────
+openpyxl>=3.1              # .xlsx export from the analysis app
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NOT here on purpose — install only if you need the feature:
+#
+#   Real reactor hardware (pumps + EPICS temperature):
+#       pip install -r requirements-hardware.txt
+#
+#   AI assistant with a searchable knowledge base:
+#       pip install -r requirements-ai.txt
+#
+#   Model fitting with sasmodels (the analysis app's model tab):
+#       pip install sasmodels
+#
+#   Running the test suite:
+#       pip install pytest
+#
+# Everything above degrades gracefully: the app says what is missing and keeps
+# working without it. Nothing crashes because an optional package is absent.
+# ─────────────────────────────────────────────────────────────────────────────
