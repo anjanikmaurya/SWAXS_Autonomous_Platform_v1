@@ -2,7 +2,7 @@
 
 A local, AI-assisted toolkit for processing **small- and wide-angle X-ray scattering (SAXS/WAXS)** data — from raw 2D detector images all the way to structural analysis. Built around the SSRL Beamline 1-5 workflow, but configurable for other setups.
 
-Everything runs on your own machine. Your data never leaves your computer; the only outbound calls are to the Claude API, and only if you enable the AI Assistant.
+Everything runs on your own machine — the apps are local web servers and your data stays in the folder you point them at. The platform does make outbound connections, all of them optional and off by default: the Claude API (AI Assistant and AI quality grading), SFTP to a beamline host (Calibration's data sync), HTTP to the SPEC bServer (real beamline control), and Slack webhooks or SMTP (run notifications).
 
 ### 🚀 New laptop? → [Quick start](#quick-start) · macOS · Windows (PowerShell **and** Anaconda Prompt) · Linux
 
@@ -14,13 +14,14 @@ The platform is organized as nine small web apps, launched from one central hub.
 
 | # | App | Port | What it's for |
 |---|-----|------|---------------|
+| 🎯 | **Calibration & Raw Prep** | 5009 | Convert calibrant `.raw` → CBF and generate the pyFAI `.poni` files everything downstream needs; optional SFTP pull from the beamline host |
 | ⚙️ | **Reduction & Correction** | 5001 | Convert raw 2D detector images → 1D I(q) curves (PyFAI integration, transmission/normalization corrections) |
-| 📊 | **Data Viewer** | 5002 | Visualize 2D & 1D data, average repeated scans, stitch SAXS+WAXS |
+| 📊 | **Data Viewer** | 5002 | Visualize 2D & 1D data, average repeated scans, view SAXS and WAXS together |
 | 🔬 | **Background Subtraction** | 5003 | Subtract buffer/background by keyword, scan-matching, or manual selection |
 | ✅ | **Quality Gate** | 5006 | AI good/bad grading of subtracted profiles — scoring, auto-sort into Good/NeedsReview, frame selection |
 | 📈 | **Data Analysis** | 5004 | Guinier, Porod, Kratky, pair-distance, peak fitting |
-| 🧪 | **Flow Synthesis (reactor)** | 5007 | 5-pump flow reactor **and** beamline control: sets temperature (SPEC `csettemp`) and triggers 2D collection (shutter + `loopscan`) through the SPEC bServer, plus auto-flush |
-| 🔁 | **Analyzer / Optimizer** | 5008 | Fits nanoparticle size / PDI / phase from subtracted SAXS and proposes the next synthesis conditions (Bayesian optimization) — the brain of the autonomous loop |
+| 🧪 | **Flow Synthesis (reactor)** | 5007 | 5-pump flow reactor **and** beamline control: sets temperature (SPEC `csettemp`) and triggers 2D collection (shutter + a configurable collect command, default `ct`) through the SPEC bServer, plus auto-flush |
+| 🔁 | **Nanoparticle Analyzer** | 5008 | Fits nanoparticle size / PDI / phase from subtracted SAXS and proposes the next synthesis conditions (Bayesian optimization) — the brain of the autonomous loop |
 | 🤖 | **AI Assistant** | 5005 | Ask questions about your data, generate plots, get proactive quality hints |
 
 A typical **data** session: **reduce → view & average → subtract background → quality-gate → analyze**, with the assistant available throughout.
@@ -200,7 +201,9 @@ works normally — only the AI features are disabled.
 ### First run
 
 1. **Pick your project folder** — top-right of the hub page (layout below). No
-   data yet? Point it at the bundled `Demo_Data/` folder to click around safely.
+   data yet? Any folder with the `2D/SAXS` layout below will do — the apps create
+   the `1D/` tree themselves. (`Demo_Data/` is git-ignored, so a fresh clone does
+   not have one.)
 2. **Start an app** with ▶, wait for the green dot, then **↗ Open**. Work left to
    right through the table above.
 3. **Stop** with ■ on a card, or `Ctrl-C` in the terminal to close the hub — which
@@ -277,7 +280,7 @@ npt_radial: 1000
 error_model: "poisson"
 ```
 
-See `CLAUDE.md` for the full config reference, including normalization terms, air-path transmission, dark/flat frames, and polarization.
+See [`CLAUDE.md`](CLAUDE.md) for the full config reference, including normalization terms, air-path transmission, dark/flat frames, and polarization.
 
 ---
 
@@ -308,7 +311,7 @@ Its domain knowledge lives in `ai_knowledge/` and the per-app `knowledge.md` fil
 | Symptom | Likely cause / fix |
 |---|---|
 | Assistant/Quality Gate say the AI token isn't set | Add your token to `~/.claude/settings.json` (`ANTHROPIC_AUTH_TOKEN`, endpoint, model — see `SECURITY.md`) and restart. Do **not** put it in `.env`. You must also be on the SLAC network/VPN. |
-| "Bus" badge in the hub stays grey | `flask-sock` not installed (`pip install flask-sock`), or the hub was started a different way. The apps still work; only live events are affected. |
+| "Bus" badge in the hub stays grey | `flask-sock` is missing — it is in `requirements-core.txt`, so this only happens after a partial install. The apps still work; only live events are affected. |
 | Reduction error: `'i0' not found in metadata` | `metadata_format` in `config.yml` doesn't match your files (`pdi` vs `csv`), or the metadata lacks an `i0`/`bstop` field. |
 | Transmission > 1.0 warning | Check `i0_air`/`bstop_air` and the offset values in `config.yml`. |
 | Negative intensities after reduction | Check `i0_offset` / `bstop_offset` (should be ≤ the dark-current reading with the shutter closed). |
@@ -330,7 +333,7 @@ More, with fuller explanations: **[QUICKSTART.md § Troubleshooting](QUICKSTART.
 - **Reactor / beamtime docs** — `docs/REACTOR_SETUP.md` (software install/run), `docs/REACTOR_HARDWARE_SETUP.md` (fluidics + temperature + beamline wiring), `docs/REACTOR_MAP.md` (code map / troubleshooting), `tools/BEAMLINE_TESTING.md` (bench-test runbook), and `docs/audits/PRE_BEAMTIME_READINESS.md` + `BEAMLINE_SAFETY_AUDIT.md`.
 - **`apps.yml`** — the app registry. Add an app here and the hub picks it up; no hub code changes needed.
 - **`check_imports.py`** — `python check_imports.py` audits which `src/` modules each app uses.
-- **Launchers** — `start_platform.sh` (macOS/Linux), `start_platform.ps1` (PowerShell), `start_platform.bat` (Anaconda Prompt / double-click). All three start `hub/app.py`; the Windows two also check the Python version and that the dependencies are installed.
+- **Launchers** — `start_platform.sh` (macOS/Linux), `start_platform.ps1` (PowerShell), `start_platform.bat` (Anaconda Prompt / double-click). All three resolve your venv/conda interpreter, refuse a Python older than 3.10, probe the dependencies, and then start `hub/app.py` with that interpreter — the same one the hub uses to launch every sub-app.
 - **Dependencies** — `requirements-core.txt` runs the platform; `requirements-hardware.txt` and `requirements-ai.txt` are opt-in extras. `tests/test_install_requirements.py` fails if a new import is added without being declared, or if an exact pin creeps back in.
 
 **The one rule:** all science and data logic lives in `src/`. Each `app.py` is a thin Flask shell (routing only).

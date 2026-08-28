@@ -1,4 +1,23 @@
-# Code Audit — hub + 9 apps + `src/`
+# Open defects — the platform's single register
+
+**This is the one place open defects are tracked.** Ten point-in-time audits
+(June–July 2026) were consolidated into this file; they remain in git history if
+you need the original narratives. `git log --diff-filter=D -- docs/audits/`.
+
+Numbering is historical and gaps mean **fixed** — an `N`, `O`, `C`, `U` or `D`
+number that is absent has been resolved, and older documents that cite it still
+resolve here. Prefixes: `N` = the July code audit, `O` = the platform audit,
+`C`/`U` = the subtraction audit, `D` = the June pipeline audit.
+
+Sections below: **fixed this session** (kept for the three rationale blocks that
+are recorded nowhere else — the temperature-interlock trade-off, the deliberate
+absence of mock time compression, and the frames-vs-batch deadlock), then the
+open register grouped by owner.
+
+---
+
+# Fixed — history, kept for the rationale
+
 
 Brief: *"audit the whole hub and apps for any redundancy, code brokenness, and
 any logical errors."*
@@ -294,11 +313,88 @@ single-session change. Ranked by what they cost during an unattended run.
 | N15 | **LOW** | `src/analysis/atsas.py:122` `mkdtemp()` per `run_datgnom` call, never removed. | One temp dir per file in an ATSAS batch. |
 | N16 | **MEDIUM** | Four stages poll independently at 10 s, in series, plus a 2-poll stability gate — 99 % of the 264 s frame-to-fit latency is waiting, 1 % is CPU (measured). Every app already publishes and receives bus events. | A frame takes ~4 min to reach the optimizer when the work costs ~2 s. Fix: have each stage act on the upstream `file.*` event and keep polling only as the fallback it was meant to be. |
 
-Also still open from the earlier audits: O3 (manifest write cost is O(N²)), O4
-(silent `flock` failure on network shares), O7 (first-batch-only optimizer
-training), O12–O16, O18.
 
 ---
+
+### Reactor & beamline — 8 residual risks
+
+From the July 28 reactor safety audit. All eight re-verified open, and none were
+in any register before this consolidation — the biggest gap the merge closed.
+
+| # | Sev | Finding | Consequence |
+|---|---|---|---|
+| R1 | **HIGH** | **E-stop latency.** `_end_run` runs the cooldown `set_temperature`, `_manifest` and `_feedback` inline (`src/reactor/controller.py:698`, `:723-726`, `:766-779`) while callers hold `self._lock` (`:408-412`, `:1087-1103`). | Measured E-stop latency with a blocking manifest write: **7.8 s**. Fix: do the bookkeeping outside the lock, or make E-stop lock-free. |
+| R2 | **HIGH** | **Serial retry latency.** `for _ in range(5)` retries at ~1 s each while holding the per-pump lock (`src/reactor/drivers/Py_P_Pump.py:168`). | One unresponsive pump stalls every other pump command for 5 s, E-stop included. |
+| R3 | **HIGH** | **Negative flows are accepted.** `set_run_settings` / `flush_now` never validate sign (`src/reactor/controller.py:298-325`). | `flush_rate: -500` reaches the pump; `arm_wait_s: -99` skips timed arming entirely, so a recipe runs before it reaches temperature. |
+| R4 | **HIGH** | **`run.end_on_measurement` is dead config.** Assigned at `src/reactor/controller.py:99` and referenced nowhere else in the repo. | The documented primary run-end condition is not wired to the flag that claims to control it. Either wire it or delete the key. |
+| R5 | **MED** | **`start_now()` bypasses the temperature gate** (`src/reactor/controller.py:205-212`). | A manual start can inject reagent into a cold reactor. |
+| R6 | **MED** | **Volume limits and flow faults are only checked while `running`** — `if self.state == "running":` at `src/reactor/controller.py:1248-1249`. | During `flushing` (the longest phase, 20 min shipped) neither check runs. |
+| R7 | **MED** | **`shutdown()` never joins the loop thread or closes the serial ports** (`src/reactor/controller.py:1324-1341`). | On Windows the COM ports stay locked, so the next start cannot find the pumps. |
+| R8 | **MED** | **Run records carry no `backend` flag.** `backend` appears only in the `reactor.run_start` event (`:696`) and `status()` (`:1289`), not in the record `_end_run` writes. | A campaign resuming from `manifest.json` cannot tell mock-derived observations from real ones, and will train the GP on both. |
+
+### Manifest & optimizer (`O`)
+
+From the July 29 platform audit; these are the only full descriptions of these
+numbers anywhere, which is why the file they came from could not simply be deleted.
+
+| # | Sev | Finding | Consequence & fix |
+|---|---|---|---|
+| O3 | **HIGH** | **Manifest write cost is O(N²).** Every entry embeds a full `config_snapshot` (`src/manifest.py:695-696`), nothing prunes, and reduction writes once per frame under `flock` with no timeout. Measured 3.5 ms at 100 entries → **609 ms at 20 000**. | By 03:00 the bookkeeping costs more than the science and blocks all six writers. Fix: store each distinct config once under a top-level `configs` key, keep only `config_hash`; batch reduction's writes per poll cycle as viewer/background already do. |
+| O4 | **HIGH** | **`flock` failure disables manifest writing silently** — the call is unguarded (`src/manifest.py:274-283`); on NFS/SMB it raises `ENOTSUP` and every caller swallows it into one log line. | Data reduces fine, `.dat` files appear, `manifest.json` is never created: **no provenance for the entire run**. Highest-variance item left. Fix: `except OSError` with a one-time ERROR and a portable `os.mkdir` lock fallback. |
+| O7 | **HIGH** | **Only the first rolling batch trains the optimizer.** The viewer emits `batch001, batch002…`; `_pending.pop(rid, None)` (`analyzer/app.py:296`) means first-arrival wins — and `batch001` is the *least* settled flow with the worst statistics. | The manifest and campaign history disagree about the same recipe with no marker saying which trained the model. Fix: accumulate per recipe and `tell()` once on the highest-confidence batch. |
+| O9 | **MED** | **Subtracted `.dat` drops the sample's metadata footer**, including the simulator's `simulated=1` flag — `background/app.py:215-241` writes only its own header. | Mock and real results are indistinguishable downstream: manifest, campaign history and Slack reports alike. |
+| O10 | **MED** | **Switching the project folder mid-session splits the writers.** Monitor loops keep the absolute paths captured at start; the manifest write in the same loop uses the live `_project_root`; reduction writes to `data_directory.parent` — a third manifest. | Data lands in the old folder, provenance in the new. Fix: stop the monitors on `set_project` with a clear log line. |
+| O12 | **MED** | **No `fsync` before `replace`** (`src/manifest.py:236`), and salvage handles only the "valid JSON + trailing bytes" case. | On salvage failure the manifest resets to empty and processing continues; 8 h of provenance survive only in a `manifest.corrupt-*` file nothing points the operator at. |
+| O14 | **MED** | **`_FAIL_LOSS` rows still enter the GP fit and still consume budget** (`src/optimizer/campaign.py:27,70`). Partially mitigated by the `_transform()` compression at `:107-115`. | One bad fit degrades every subsequent suggestion. Fix: exclude them from the fit; count them separately. |
+| O15 | **MED** *(half fixed)* | The `_MAX_RESULTS=600` bound and `_handled` pruning landed (`analyzer/app.py:76`, `:383-384`, `:527-528`). **Residual: the SSE stream still has no sequence-number filter.** | Re-sends summaries the client already has. Reduction's SSE is the model implementation. |
+| O16 | **MED** *(half fixed)* | `at_bounds` is now computed (`src/analysis/core.py:734-779`) and persisted (`src/analysis/io.py:82`). **Residual: confidence is still not scaled down when it is non-empty** (`src/analysis/nanoparticle.py:183`). | A railed boundary artefact is still reported to the optimizer at full confidence. |
+| O18 | **LOW** | On Windows the manifest lock is a silent no-op — `_HAVE_FCNTL` only, no `msvcrt` (`src/manifest.py`). | Clean, invisible lost updates with six concurrent writers. Windows is a supported platform. Fix: `msvcrt.locking` fallback, or the portable directory lock from O4. |
+
+**O13 is FIXED** (was listed open): the quality gate's LLM adjudication is now
+honoured (`quality/app.py:216-222`) and there is a graded-file cache (`:481`).
+
+### Subtraction UI (`C`/`U`) and pipeline (`D`)
+
+| # | Sev | Finding |
+|---|---|---|
+| C4 | LOW | No warning when the sample and background q-ranges barely overlap — the scale is fitted on a handful of points and reported with normal confidence. |
+| C5 | LOW | The detector tag is taken from the UI toggle, not inferred from the file path, so a mismatched toggle mislabels every output. |
+| U3 | LOW | No busy state during batch loops — the UI looks idle while a long batch runs. |
+| U5 | LOW | The metadata tab shows the sample only; the background's metadata is not viewable. |
+| U6 | LOW | A `keyword` subtraction mode exists in the backend (`background/app.py:859`) and is not surfaced in the UI. |
+| D1 | LOW | `check_imports.py:28-35` `SRC_MODULES` omits `src.analysis.core`, `src.events` and `src.ai.*`, so the import check passes over them. |
+| D3 | **MED** | **Background subtraction science still lives in `background/app.py`** (`_subtract`, `_interpolate_onto`, `_auto_scale`, `_qc_metrics`, `truncate_rebin`, `_write_dat`) with no `src/background/`. The one standing violation of the project's "all logic in `src/`" rule. `docs/design/AUTOPILOT_PIPELINE_DESIGN.md` §4 is the write-up. |
+| D4 | LOW | Scan averaging is unweighted (`src/plot_reduction.py:183`); inverse-variance or I0 weighting would be statistically optimal. `np.interp` also clamps to edge values outside a file's q-range. |
+
+(D2 — CLAUDE.md's stale import table — was fixed in this documentation pass.)
+
+### Ops, UI and docs
+
+| Sev | Finding |
+|---|---|
+| **MED** | `spec.data_dir` falls back to a hardcoded `/msd_data/.../Auto_Test` when the `hub_path_map` prefix is wrong, so SPEC writes where nothing is reduced. Pre-run check, see `PRE_BEAMTIME_READINESS.md`. |
+| **MED** | A stale `<project_root>/config.yml` silently relocates the 1D outputs, because reduction derives its root from `data_directory.parent`. |
+| LOW | `/api/set_project` is dropped on a not-yet-mounted path — background and analysis guard on `is_dir()`. Re-select the folder once a slow network drive appears. |
+| LOW | The reactor's **"■ Stop → flush" is mislabelled during the `flushing` state**, where it stops the flush and idles. |
+| LOW | No tooltips on the reactor's stop/safe control cluster, and the E-stop → Reset recovery path is not explicit in the UI. |
+| LOW | `/api/browse` returns `{"path": …}` in reduction but `{"current": …}` in viewer — two contracts for one job. |
+| LOW | `quality`, `reactor`, `analyzer` and `calibration` post-date the design audit and have **never been contrast-checked**. See `docs/DESIGN_SYSTEM.md` §6. |
+
+---
+
+## Recommended order
+
+1. **O4, then O3** — the silent `flock` failure is the highest-variance item left
+   (on an NFS/SMB project folder the run produces no provenance at all and nothing
+   says so); then the O(N²) write cost.
+2. **R1–R4** — the reactor HIGHs. R3 (unvalidated sign) and R4 (dead config) are
+   small, self-contained changes; R1 is a lock-scope refactor.
+3. **N1, N3** — the two restart-integrity bugs that re-process a whole night.
+4. **O7, O14, O16** — what the optimizer is actually trained on.
+5. **N16** — drive the stages off the event bus instead of four 10 s pollers in
+   series. Largest latency win (264 s → seconds) and the most invasive.
+6. **D3** — move the subtraction science into `src/`.
+
 
 ## What I checked and found sound
 

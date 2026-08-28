@@ -403,6 +403,42 @@ Check in order:
 2. **Subtraction** — the log names any sample waiting for its blank.
 3. **Folders** — each app must watch the previous stage's output folder.
 
+### numpy / chromadb dependency conflict (only if you used `requirements.txt`)
+
+**Symptom:**
+
+```
+ERROR: Cannot install -r requirements.txt (line 15) and numpy==2.2.6
+because these package versions have conflicting dependencies.
+    chromadb 0.5.3 depends on numpy<2.0.0 and >=1.22.5
+```
+
+**Cause:** old `chromadb` caps `numpy<2`, but `requirements.txt` pins
+`numpy==2.2.6`.
+
+**Fix:** `chromadb` is an *optional* AI-assistant dependency and is not in
+`requirements-core.txt` at all, so the conflict disappears. If you want the
+searchable knowledge base, add it afterwards — on its own, where a resolver
+failure cannot block the platform:
+
+```powershell
+pip install -r requirements-ai.txt
+```
+
+> If the AI Assistant later complains about its vector database, delete the
+> `ai_knowledge/vector_db/` folder and let it re-ingest — that folder is
+> disposable and rebuilt locally (it's git-ignored).
+
+### pyopencl fails to build/install
+
+`pyopencl` needs an OpenCL SDK present *at import time* and is the package most
+likely to fail on a fresh Windows machine.
+
+**Fix:** nothing imports it. It is not in `requirements-core.txt`. Don't install
+it — PyFAI integration runs fine on the CPU, and at this data rate (one frame per
+few seconds) the GPU path saves nothing worth the install pain.
+
+
 ### `git clone` fails with an authentication prompt
 The repository is private. Ask for access, then use a
 [personal access token](https://github.com/settings/tokens) as the password, or
@@ -434,7 +470,7 @@ python -m pip list
 | Document | For |
 |---|---|
 | `README.md` | what the platform is and how the apps fit together |
-| `RUNNING_ON_WINDOWS.md` | more Windows detail, and the cross-laptop git workflow |
+| `SYNC.md` | working across two laptops with git |
 | `docs/AUTONOMOUS_RUN_STEPS.md` | running a full autonomous campaign |
 | `docs/REACTOR_SETUP.md` | wiring the real reactor, pump calibration |
 | `docs/PARAMETER_SPACE_AND_CONVERGENCE.md` | how the optimiser searches and converges |

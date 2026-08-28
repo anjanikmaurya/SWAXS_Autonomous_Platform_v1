@@ -58,18 +58,42 @@ Error propagation:
 ### Manual
 User enters `c` directly (default 1.0 for matched background).
 
-### Automatic — High-q Matching (implemented)
+### Automatic — High-q Matching (`_auto_scale`, the manual/batch tabs)
 Choose `c` by a weighted least-squares match in a high-q window (default the top
-25% of the overlapping q-range), where macromolecular signal is negligible and
-only solvent/cell scattering remains:
+25% of the sample's q-range, `frac = 0.25`), where macromolecular signal is
+negligible and only solvent/cell scattering remains:
 
 ```
 c = Σ w·I_sample·I_bkg / Σ w·I_bkg²,    w = 1/σ_sample²
 ```
 
-The result is clamped to [0.1, 5]. The window can be overridden with q_min/q_max.
+The fit is then repeated ONCE after a robust **3σ MAD sigma-clip** on the
+residuals `r = I_sample − c·I_bkg` (`σ_MAD = 1.4826 · median|r − median(r)|`), so
+sharp WAXS Bragg peaks or single outliers inside the window cannot bias the scale.
+The clip is applied only if at least 3 points survive; the number of clipped
+points is reported as `n_clipped`.
+
+The result is clamped to **[0.1, 5]**. The window can be overridden with
+q_min/q_max. Fewer than 3 usable points in the window → `c = 1.0`.
 This automates the standard validity check (sample ≳ buffer at high q; correct
 scaling makes high-q overlay). Reference: SSRL/EMBL/BioXTAS subtraction guidance.
+
+### Automatic — the MONITOR uses a different estimator (`_auto_adjust_scale`)
+The automated-subtraction monitor does **not** use the plain weighted LS scale. In
+`scale_mode: "auto"` it:
+1. computes `s0` = the high-q weighted-LS scale above (with its sigma-clip);
+2. computes `s_zero = mean(I_sample) / mean(I_bkg)` over the same high-q window —
+   the scale at which the MEAN high-q residual is exactly zero;
+3. takes `c = s_zero` clamped to `[0.5·s0, 1.5·s0]`, then clamped again to the
+   global sane range `[0.1, 5]`.
+
+It reports `scale`, `ls_scale` (= s0), `zero_scale` (= s_zero) and a `clamped`
+flag saying whether step 3 had to pull `s_zero` back. `scale_mode: "fixed"` uses
+the supplied `fixed_scale` verbatim with `scale_method: "manual"`.
+
+So the same profile can get two slightly different scale factors depending on
+whether it was subtracted interactively or by the monitor; the footer and the
+manifest record which estimator ran.
 
 ### Quality-control metrics (computed per subtraction)
 - **% negative points** — over-subtraction indicator (negatives → sharp upturns
@@ -98,39 +122,97 @@ Use a water/background standard measured the same day to cross-normalize backgro
 from different sessions using their I₀ ratios.
 
 ## Output Format
-Background-subtracted files are saved alongside averaged files or in a
-`Subtracted/` subfolder (convention depends on project setup).
 
-Footer records (actual fields written):
+### Output path (deterministic)
+```
+<sample folder>/Subtracted/<sample stem>_sub.dat
+```
+Every writer follows this rule. If `output_folder` is supplied in the request it
+is used verbatim instead; otherwise the folder is a `Subtracted/` subfolder of the
+sample folder (for the `individual` mode: of the first selected sample's parent
+folder). The automated monitor defaults to a `Subtracted/` folder that is a
+SIBLING of the watched `Averaged/` folder — i.e. `1D/<DET>/Subtracted/`, not
+nested inside `Averaged/`.
+
+The Quality Gate then sorts these files into `Subtracted/Good/` and
+`Subtracted/NeedsReview/`.
+
+### Footer fields — they differ by mode
+There are FOUR modes: `keyword`, `scan_matched`, `individual`, `auto` (the
+monitor).
+
+`individual`:
 ```
 # Sample     : <sample_path>
 # Background : <background_path>
 # Scale      : 1.0
 # Method     : manual | auto_highq
 # Detector   : saxs | waxs
-# Mode       : individual | scan_matched
+# Mode       : individual
 ```
 
+`scan_matched` — the same six lines with `# Mode : scan_matched`, plus:
+```
+# scan_idx   : <index>
+```
+
+`keyword` — a REDUCED set; no `Method`, no `Detector`, and no scale-method detail:
+```
+# Sample     : <sample_path>
+# Background : <background_path>
+# Scale      : 1.0
+# Mode       : keyword
+```
+
+`auto` (monitor) — a DIFFERENT set, including a QC verdict line:
+```
+# Sample       : <sample_path>
+# Background   : <background_path>
+# Scale        : 0.9832  (auto, high-q→0; LS=0.9910, zero=0.9832)
+# Mode         : auto (auto scale)
+# QC           : PASS  (neg=1.2%, highq_ratio=0.031)
+```
+`QC` is `PASS` / `WARN` / `FAIL`, collapsed from the QC warning severities
+(any `error` → FAIL, any `warning` → WARN, else PASS).
+
 ## Manifest Registration
-After subtraction, `manifest.json` is updated under `background.<filename>`:
+After subtraction, `manifest.json` is updated under `background.<abs output path>`
+by `src.manifest.add_background_entry`. The keys are exactly:
 ```json
 {
-  "sample_file":      "/path/sample_avg.dat",
-  "background_file":  "/path/background_avg.dat",
-  "scale_factor": 1.0,
-  "scale_method": "manual",
-  "subtracted_at": "...",
-  "provenance": { ... }
+  "sample_path":      "/path/BSA_10mg_12files_Average.dat",
+  "bkg_path":         "/path/buffer_12files_Average.dat",
+  "scale":            1.0,
+  "scale_method":     "manual",
+  "scale_confidence": null,
+  "mode":             "individual",
+  "provenance":       { },
+  "created_at":       "2025-01-15T10:22:00+00:00"
 }
 ```
+- `scale_method` — `"auto"` | `"manual"` | `"concentration"`
+- `mode` — `"keyword"` | `"scan_matched"` | `"individual"` | `"auto"`
+- there is no `sample_file`, `background_file`, `scale_factor` or `subtracted_at`
+  key; querying those returns nothing.
+
+A `files.<abs output path>` entry with `stage: "subtracted"` is written at the same
+time, and a `file.subtracted` bus event is emitted with
+`file_path`, `keyword`, `scale`, `mode`.
 
 ## src/ Imports
 - `src.manifest` — load/save manifest entries
 - `src.utils.read_dat_metadata.read_dat_data_metadata` — load .dat files
 
-## Scale Factor Quality Checks
-A scale factor outside [0.5, 1.5] is flagged as suspicious.
-The AI assistant will warn the user and suggest investigating:
+## Scale Factor Quality Checks — done by the ASSISTANT, not this app
+This app itself does not flag scale factors: it clamps `c` to **[0.1, 5]** and has
+no notion of 0.5 or 1.5 as limits.
+
+The `[0.5, 1.5]` suspicion band belongs to the **AI Assistant's** HintChecker
+(`src/ai/hints.py`). When the assistant sees a recorded scale outside that band it
+warns the user and suggests investigating:
 1. Wrong background file selected
 2. Concentration error during sample preparation
 3. Instrument drift between sample and background measurements
+
+So a scale of 1.8 will be applied by the Background app without complaint and
+flagged separately by the assistant.

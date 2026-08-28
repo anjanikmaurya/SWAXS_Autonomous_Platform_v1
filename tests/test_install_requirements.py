@@ -271,8 +271,8 @@ def test_readme_details_blocks_are_balanced():
 
 
 def test_no_doc_anywhere_recommends_the_old_requirements_file():
-    """A colleague followed RUNNING_ON_WINDOWS.md, not the README, and hit the
-    MSVC compiler error. Every doc has to point at the same file."""
+    """A colleague followed a secondary doc, not the README, and hit the MSVC
+    compiler error. Every doc has to point at the same file."""
     offenders = []
     for md in sorted(ROOT.rglob("*.md")):
         if any(part in {"node_modules", ".git", "ai_knowledge"} for part in md.parts):
@@ -289,7 +289,13 @@ def test_no_doc_anywhere_recommends_the_old_requirements_file():
         "docs still tell users to install requirements.txt:\n  " + "\n  ".join(offenders))
 
 
-def test_windows_doc_points_at_the_windows_launchers():
-    txt = (ROOT / "RUNNING_ON_WINDOWS.md").read_text()
-    assert "start_platform.ps1" in txt and "start_platform.bat" in txt
-    assert "QUICKSTART.md" in txt, "the Windows doc should send beginners to QUICKSTART first"
+def test_quickstart_is_the_only_install_guide():
+    """RUNNING_ON_WINDOWS.md was a third, drifting copy of the install steps and
+    its own app table; it was merged into QUICKSTART and deleted. Nothing should
+    reintroduce a second guide."""
+    assert not (ROOT / "RUNNING_ON_WINDOWS.md").exists(), \
+        "a second Windows install guide is back - it drifted three times before"
+    qs = (ROOT / "QUICKSTART.md").read_text()
+    for needle in ("start_platform.ps1", "start_platform.bat",
+                   "Microsoft Visual C++", "chromadb", "pyopencl"):
+        assert needle in qs, f"QUICKSTART lost {needle!r} in the merge"

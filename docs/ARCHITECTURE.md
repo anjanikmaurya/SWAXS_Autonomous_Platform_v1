@@ -2,11 +2,11 @@
 
 > **Historical design record (original v2).** This document is the ORIGINAL v2
 > architecture design and is kept for reference. The platform has since grown
-> beyond it: the **Quality Gate**, the **Flow-Synthesis reactor** (with
-> SPEC/beamline control), and the **Analyzer/optimizer** apps have all shipped,
-> along with the autonomous closed loop (reduction → analysis → optimizer →
-> reactor). Read the sections below as the original plan, not the current app
-> inventory.
+> beyond it: the **Calibration**, **Quality Gate**, **Flow-Synthesis reactor**
+> (with SPEC/beamline control), and **Analyzer/optimizer** apps have all
+> shipped, along with the autonomous closed loop (reduction → analysis →
+> optimizer → reactor). Read the sections below as the original plan, not the
+> current app inventory; `apps.yml` is the live registry.
 
 ## Core Philosophy
 
@@ -18,9 +18,9 @@
 
 ---
 
-## Implementation Status (June 2026)
+## Implementation Status (August 2026)
 
-This document describes the full v2 design. Not all of it is built yet. Use this
+This document describes the full v2 design. Not all of it is built. Use this
 table to tell the difference between shipped code and planned work.
 
 | Component | Status | Notes |
@@ -29,15 +29,23 @@ table to tell the difference between shipped code and planned work.
 | Manifest v2 (provenance, events, ai_memory) + v1→v2 migration | **Built** | `src/manifest.py` |
 | Reduction pipeline (PyFAI, corrections, normalization) | **Built** | `src/reduction/core.py` |
 | Viewer averaging / loading | **Built** | `src/plot_reduction.py` |
-| AI subsystem (assistant, knowledge base, 3-layer memory, hints) | **Built** | `src/ai/` |
+| AI subsystem (assistant, knowledge base, layered memory, hints) | **Built** | `src/ai/` |
 | Analysis: Guinier, Porod, Kratky, peak fit, sasmodels | **Built** | consolidated in `src/analysis/core.py` |
-| Pair-distance p(r) / BIFT / GNOM | **Complete** | shipped in the analysis app |
-| SAXS+WAXS auto-stitching (`src/reduction/stitch.py`) | **Planned** | section 5 below is a design sketch |
-| Export module (`src/export/` — PDF, Word, annotated .dat) | **Complete** | shipped |
+| Pair-distance p(r) | **Built** | `pair_distance_ift` — Tikhonov-regularized IFT, `src/analysis/core.py:231`. **Not BIFT**; no Bayesian IFT was ever written |
+| GNOM p(r) | **Built** | ATSAS binary wrapper only (`run_datgnom`, `src/analysis/atsas.py:118`); returns a clean error when `datgnom` is not on `PATH` |
+| Export (PDF report, fit tables, annotated `.dat`) | **Built, not where this doc said** | `src/export/` does not exist. PDF via matplotlib `PdfPages` in `src/ai/assistant.py:1602-1628` with an HTML fallback (`:1633+`); CSV/XLSX fit tables at `:1577`; `.dat` footer annotation in `src/analysis/io.py` (`_ANNOTATE_MARKER`, `:45`) |
+| Word (`.docx`) export | **Never built** | No `python-docx`/`reportlab` dependency and no `.docx` writer anywhere in the tree |
+| SAXS+WAXS auto-stitching | **Never built** | No `src/reduction/stitch.py`, no `auto_stitch()`. The viewer's "Stitch SAXS+WAXS" is a display-only checkbox (`viewer/templates/index.html:1182`, `2338-2345`): it co-plots the two curves, computes no scale factor and writes no merged file |
 
-> Note: the section 6 module map lists analysis as separate files
-> (`guinier.py`, `kratky_porod.py`, …). In the current code these are all
-> functions inside `src/analysis/core.py`.
+Four apps shipped after this document was written and are not described
+anywhere below: **calibration** (:5009), **quality** (:5006), **reactor**
+(:5007), **analyzer** (:5008). See `apps.yml` for the live registry and
+`README.md` for what each one does.
+
+> Note: the section 5 module map has been regenerated from the tree. Earlier
+> revisions listed analysis as separate files (`guinier.py`,
+> `kratky_porod.py`, …); those are all functions inside
+> `src/analysis/core.py`.
 
 ---
 
@@ -53,23 +61,31 @@ table to tell the difference between shipped code and planned work.
                                           │
               ┌───────────────────────────┼───────────────────────────┐
               │         WebSocket Event Bus (pub/sub)                  │
-              └──┬──────────┬──────────┬──────────┬──────────┬────────┘
-                 │          │          │          │          │
-           :5001       :5002       :5003       :5004       :5005
-        Reduction    Viewer    Background   Analysis   AI Assistant
-                                                            │
-                                          ┌─────────────────┘
-                                          │  src/ai/
-                                          │  ├── assistant.py   Claude API client
-                                          │  ├── knowledge.py   ChromaDB vector store
-                                          │  ├── memory.py      3-layer memory
-                                          │  ├── hints.py       proactive hint gen
-                                          │  └── plots.py       inline plot gen
+              └───────────────────────────┬───────────────────────────┘
                                           │
-                                          │  ai_knowledge/
-                                          │  ├── literature/    SAXS/WAXS PDFs
-                                          │  ├── beamline/      facility YAML configs
-                                          │  └── vector_db/     ChromaDB persistent
+        ┌─────────────────────────────────┴─────────────────────────────────┐
+        │  :5009  Calibration      .raw → CBF, pyFAI .poni generation       │
+        │  :5001  Reduction        2D → 1D, corrections, normalization      │
+        │  :5002  Viewer           2D/1D display, scan averaging            │
+        │  :5003  Background       keyword / scan-matched / manual subtract  │
+        │  :5006  Quality Gate     good/bad grading, auto-sort              │
+        │  :5004  Analysis         Guinier, Porod, Kratky, p(r), models     │
+        │  :5008  Analyzer         auto-fit size/PDI + Bayesian optimizer   │
+        │  :5007  Reactor          5-pump flow synthesis + SPEC control     │
+        │  :5005  AI Assistant     interpretation, hints, inline plots      │
+        └─────────────────────────────────┬─────────────────────────────────┘
+                                          │
+              closed loop: reactor → SPEC collect → reduction → averaging
+                         → subtraction → analyzer → optimizer → next recipe
+
+  src/ai/                                 ai_knowledge/
+  ├── assistant.py   Claude API client    ├── literature/  SAXS/WAXS PDFs
+  ├── knowledge.py   ChromaDB store       ├── beamline/    facility YAML configs
+  ├── memory.py      layered memory       ├── group/       shared SOPs
+  ├── hints.py       proactive hints      └── vector_db/   ChromaDB persistent
+  ├── plots.py       inline plot gen
+  ├── code_exec.py   guarded sandbox
+  └── loop_advice.py loop narration
 ```
 
 ---
@@ -97,62 +113,67 @@ Apps connect to `ws://localhost:5000/ws` on startup. Each message is a JSON obje
 ```
 
 **Event types:**
-| Type | Published by |
-|---|---|
-| `file.reduced` | reduction |
-| `file.averaged` | viewer |
-| `file.stitched` | viewer |
-| `file.subtracted` | background |
-| `analysis.complete` | analysis |
-| `ai.hint` | assistant |
-| `watch.new_raw` | reduction (watch mode) |
-| `app.started` / `app.stopped` | hub |
+| Type | Published by | Consumed by |
+|---|---|---|
+| `file.reduced` | reduction | hub log |
+| `file.averaged` | viewer | reactor — ends the run on the first new SAXS average (`reactor/app.py:307`) |
+| `file.subtracted` | background | quality — grades immediately (`quality/app.py:466`) |
+| `file.classified` | quality (`quality/app.py:385`) | hub log |
+| `analysis.complete` | analyzer (`analyzer/app.py:479`) | reactor — posts the fit into the recipe's Slack thread (`reactor/app.py:309`) |
+| `ai.hint` | assistant | whichever app the user is in |
+| `watch.new_raw` | reduction (watch mode) | hub log |
+| `app.started` / `app.stopped` / `app.reclaimed` | hub | hub UI |
+| `app.connected` | any app on bus connect (`src/events.py:376`) | hub UI |
+| `project.set` | hub (`hub/app.py:723`) | hub UI |
+| `file.stitched` | **nobody** | — |
 
-The hub appends each event to `manifest["events"]` (rolling last 100). After any `file.*` or `analysis.*` event, the AI assistant is notified and may emit an `ai.hint` back.
+`file.stitched` has a publisher helper (`emit_file_stitched`,
+`src/events.py:255`) and zero callers, because auto-stitching was never built.
+The hub UI still colour-codes it (`hub/templates/index.html:368`); that chip can
+never appear. Conversely `file.classified` **is** published but is missing from
+the hub's `_TYPE_CLASS` map, so it renders unstyled.
+
+The hub appends each event to `manifest["events"]` (rolling last 100,
+`_EVENTS_MAX` in `src/manifest.py:119`). After any `file.*` or `analysis.*`
+event, the AI assistant is notified and may emit an `ai.hint` back.
 
 ---
 
 ### 2. Dynamic App Registry — `apps.yml`
 
-Replaces the hardcoded `APPS` list in `hub/app.py`.
+Replaces the hardcoded `APPS` list in `hub/app.py`. `apps.yml` is the live
+registry — read it rather than this excerpt. Per-entry fields:
 
-```yaml
-apps:
-  - id: reduction
-    name: "Reduction & Correction"
-    port: 5001
-    entry: "reduction/app.py"
-    knowledge: "reduction/knowledge.md"    # AI indexes this on registration
-    manifest_key: "files"                  # which manifest section this app owns
+| Field | Required | Purpose |
+|---|---|---|
+| `id` | yes | unique slug used internally |
+| `name` | yes | display name on the hub card |
+| `port` | yes | TCP port the app listens on |
+| `entry` | yes | path to `app.py` relative to the project root |
+| `description` | no | one-line blurb on the hub card |
+| `icon` | no | emoji on the hub card |
+| `icon_image` | no | image URL, overrides `icon` (only `assistant` uses it) |
+| `color` | no | hex accent for the hub card |
+| `knowledge` | no | path to a `knowledge.md` the AI indexes on registration |
+| `manifest_key` | no | top-level manifest section this app owns |
 
-  - id: viewer
-    name: "Data Viewer"
-    port: 5002
-    entry: "viewer/app.py"
-    knowledge: "viewer/knowledge.md"
-    manifest_key: "files"
+Shipped entries, in registry order:
 
-  - id: background
-    name: "Background Subtraction"
-    port: 5003
-    entry: "background/app.py"
-    knowledge: "background/knowledge.md"
-    manifest_key: "background"
+| id | port | entry | manifest_key | knowledge |
+|---|---|---|---|---|
+| calibration | 5009 | `calibration/app.py` | — | **none** |
+| reduction | 5001 | `reduction/app.py` | `files` | yes |
+| viewer | 5002 | `viewer/app.py` | `files` | yes |
+| background | 5003 | `background/app.py` | `background` | yes |
+| quality | 5006 | `quality/app.py` | `quality` | yes |
+| analysis | 5004 | `analysis/app.py` | `analyses` | yes |
+| reactor | 5007 | `reactor/app.py` | `reactor` | yes |
+| analyzer | 5008 | `analyzer/app.py` | `analyses` | **none** |
+| assistant | 5005 | `assistant/app.py` | `ai_memory` | yes |
 
-  - id: analysis
-    name: "Data Analysis"
-    port: 5004
-    entry: "analysis/app.py"
-    knowledge: "analysis/knowledge.md"
-    manifest_key: "analyses"
-
-  - id: assistant
-    name: "AI Assistant"
-    port: 5005
-    entry: "assistant/app.py"
-    knowledge: "assistant/knowledge.md"
-    manifest_key: "ai_memory"
-```
+calibration and analyzer carry no `knowledge:` key, so the assistant has no
+indexed description of either — questions about `.poni` generation or the
+nanoparticle fit fall back to the manifest and the system prompt.
 
 **Adding a new app:** add an entry to `apps.yml`. The hub discovers it on next start (no code changes). The AI automatically indexes `knowledge.md`.
 
@@ -179,7 +200,7 @@ Full backwards-compatible extension of v1. New keys marked with `# NEW`.
   "files": {
     "/abs/path/sample_0001_SAXS.dat": {
       "path": "...",
-      "stage": "reduced | averaged | subtracted | analysed",
+      "stage": "raw | reduced | averaged | subtracted | analysed",
       "detector": "saxs | waxs | combined",
       "keyword": "sample_A",
       "scan_idx": 1,
@@ -229,6 +250,28 @@ Full backwards-compatible extension of v1. New keys marked with `# NEW`.
     }
   },
 
+  "quality": {                              // added with the Quality Gate app
+    "/abs/path/subtracted.dat": {
+      "score": 0.87, "verdict": "good | bad",
+      "flags": [], "metrics": {}, "reasons": [],
+      "detector": "saxs", "sample": "sample_A",
+      "source": "ai | user", "llm_note": "...",
+      "overridden": false, "override_note": "",
+      "analysis_ready": true,
+      "provenance": {}, "created_at": "ISO-8601"
+    }
+  },
+
+  "reactor": {                              // added with the Flow Synthesis app
+    "runs": {
+      "<recipe_id>": {
+        // the controller's run record, verbatim: recipe_id, recipe, setpoints,
+        // started, ended, duration_s, reason, status
+        "logged_at": "ISO-8601"
+      }
+    }
+  },
+
   "ai_memory": {                            // NEW — entire section
     "corrections": [
       { "turn": 42, "original": "...", "corrected": "...", "ts": "..." }
@@ -259,6 +302,13 @@ Full backwards-compatible extension of v1. New keys marked with `# NEW`.
 }
 ```
 
+`_empty_manifest` (`src/manifest.py:709-746`) seeds `project_meta`, `files`,
+`analyses`, `background`, `ai_memory`, and `events`. `quality` and `reactor` are
+**not** seeded — they are created on first write via `setdefault`
+(`add_quality_record` at `:515`, `add_reactor_run` at `:561`), so a project that
+has never run the Quality Gate or the reactor simply has no such key. Readers
+must tolerate their absence.
+
 ---
 
 ### 4. AI Subsystem
@@ -271,26 +321,35 @@ Full backwards-compatible extension of v1. New keys marked with `# NEW`.
 | User sample PDFs | uploaded at runtime | chunked and added to ChromaDB session collection |
 | Per-app knowledge | `<app>/knowledge.md` | auto-indexed when app registered |
 | Beamline configs | `ai_knowledge/beamline/*.yml` | instrument quirks, detector artifacts, calibration notes |
-| User corrections | `~/.swaxs/memory/<user>/corrections.jsonl` | remembered overrides, higher retrieval weight |
+| User corrections | `~/.swaxs/memory/users/<user>/corrections.jsonl` | remembered overrides, higher retrieval weight (`src/ai/memory.py:83`) |
+| Group SOPs | `ai_knowledge/group/sops.json` | naming schemes, default models, buffer rules — always loaded (`src/ai/memory.py:95`) |
 | Experiment history | manifest.json RAG | past fits, keywords, decisions across sessions |
 
-#### 3-Layer Memory
+#### Layered Memory
+
+Layer numbering follows `src/ai/memory.py:6-16`: **Layer 1 = user**
+(cross-project), **Layer 2 = project**, **Layer 3 = facility**, plus an
+unnumbered group layer.
 
 ```
-~/.swaxs/memory/
+~/.swaxs/memory/                    ← Layer 1 (user, cross-project)
 └── users/
     └── albert/
         ├── corrections.jsonl       ← user's confirmed AI overrides
         ├── preferences.yml         ← UI prefs, default fit ranges
         └── session_summaries/      ← per-session digests
 
-<project_root>/.swaxs/
+<project_root>/.swaxs/              ← Layer 2 (project, travels with the data)
 └── memory/
     ├── experiment_history.jsonl    ← RAG over past processing decisions
-    └── quality_log.jsonl           ← AI flags per file, per project
+    ├── quality_log.jsonl           ← AI flags per file, per project
+    └── chat_history.jsonl          ← per-project chat continuity
 
-ai_knowledge/beamline/
-└── ssrl_1-5.yml                   ← facility-level shared config
+ai_knowledge/beamline/              ← Layer 3 (facility, shared)
+└── ssrl_1-5.yml                   ← instrument quirks, calibration notes
+
+ai_knowledge/group/                 ← group layer (cross-project, cross-user)
+└── sops.json                      ← created on first write
 ```
 
 #### Context Assembly (per API call)
@@ -300,23 +359,37 @@ def build_context(user_query, app_id, project_root, user_id):
     chunks   = knowledge.retrieve(user_query, top_k=8)       # ChromaDB
     manifest = summarise_manifest(project_root)               # current state
     events   = get_recent_events(project_root, n=10)          # event bus log
-    memory   = memory.load_layered(user_id, project_root)     # 3-layer
+    memory   = memory.load_layered(user_id, project_root)     # layered
     app_ctx  = f"User is currently in the {app_id} app."
     return system_prompt + chunks + manifest + events + memory + app_ctx
 ```
 
 #### Claude API Tool Definitions
 
-```python
-TOOLS = [
-    { "name": "generate_plot",    "description": "Generate a matplotlib plot and return as base64 PNG" },
-    { "name": "run_analysis",     "description": "Run a Guinier/Kratky/Porod/p(r) analysis on a file" },
-    { "name": "query_manifest",   "description": "Query the manifest for files matching given criteria" },
-    { "name": "add_note",         "description": "Attach a user note to a file in the manifest" },
-    { "name": "flag_quality",     "description": "Flag a quality issue on a file (aggregation, damage, etc.)" },
-    { "name": "ingest_pdf",       "description": "Chunk and index a new PDF into the knowledge base" },
-]
-```
+18 tools ship, defined in `src/ai/assistant.py:66-570`. The original design
+listed six; the rest were added across Phases 1–5 (see
+`docs/ASSISTANT_FUNCTIONAL_SPEC.md`).
+
+| Tool | Purpose |
+|---|---|
+| `generate_plot` | matplotlib plot → base64 PNG |
+| `plot_metadata` | I0 / bstop / transmission / thickness / CTEMP over time |
+| `overlay_curves` | profile comparison; the one tool that also emits an interactive Plotly figure |
+| `fit_model` | run a recommended sasmodels fit → params + reduced χ² + fit/residuals plot |
+| `list_saxs_models` | enumerate the sasmodels catalog |
+| `run_analysis` | Guinier / Kratky / Porod / p(r) on a file |
+| `compute_pr` | `pair_distance_ift` → Rg, Dmax, I0 + inline p(r) plot |
+| `assess_quality` | frame-outlier (I0 robust-MAD) + transmission/beam sanity |
+| `query_manifest` | query the manifest for files matching criteria |
+| `add_note` | attach a user note to a file in the manifest |
+| `flag_quality` | flag a quality issue on a file |
+| `export` | session report (HTML/PDF), fit table (CSV/XLSX), notes → `assistant_outputs/` |
+| `set_preferences` | audience, verbosity, default model, units, citation style → Layer 1 |
+| `group_sops` | list/add/remove shared group conventions |
+| `ingest_pdf` | chunk and index a PDF into the knowledge base |
+| `manage_knowledge` | list / add_pdf / add_note / ingest_folder / remove |
+| `web_search` | Crossref lookup; online-only, degrades with a clear message |
+| `run_python` | guarded sandbox (`src/ai/code_exec.py`) — AST allowlist, `python -I`, rlimits |
 
 #### Proactive Hints
 
@@ -332,91 +405,131 @@ Hints are emitted as `ai.hint` events and displayed inline in whichever app the 
 
 ---
 
-### 5. SAXS+WAXS Auto-Stitching (`src/reduction/stitch.py`)
+### 5. src/ Module Map
 
-```python
-def auto_stitch(saxs_dat, waxs_dat, overlap_fraction=0.3):
-    """
-    1. Find q overlap region between SAXS and WAXS curves.
-    2. Compute scale factor S to minimise chi-squared in overlap:
-           chi2 = sum((I_SAXS - S * I_WAXS)^2 / sigma^2) over overlap
-    3. Apply S to WAXS, concatenate and sort by q.
-    4. Return merged curve + scale_factor + overlap_q_range.
-    """
-```
-
-Both individual files (SAXS, WAXS) and the merged file are saved, all with v2 provenance.
-
----
-
-### 6. src/ Module Map
+Regenerated from the tree, not from the original design.
 
 ```
 src/
 ├── manifest.py              Manifest v2 read/write/provenance
 ├── events.py                Event bus WebSocket client (pub/sub)
 ├── plot_reduction.py        read_folder, average_and_save
+├── loop_naming.py           recipe_id ↔ filename conventions, match_recipe_id
+├── runstate.py              persisted run state for restart recovery
+├── proc_lifecycle.py        subprocess/pid/log-rotation helpers used by the hub
 │
 ├── ai/
-│   ├── assistant.py         Claude API — build_context, chat, tool dispatch
-│   ├── knowledge.py         ChromaDB — ingest_pdf, ingest_md, retrieve
-│   ├── memory.py            3-layer memory load/save
+│   ├── assistant.py         Claude API — build_context, chat, 18-tool dispatch, exports
+│   ├── knowledge.py         ChromaDB — ingest_pdf, ingest_text, retrieve, remove_source
+│   ├── memory.py            layered memory (user / project / facility / group)
 │   ├── hints.py             Proactive hint checker (per event type)
-│   └── plots.py             matplotlib → base64 for AI responses
+│   ├── plots.py             matplotlib → base64; overlay_plotly interactive figures
+│   ├── code_exec.py         guarded Python sandbox for the run_python tool
+│   └── loop_advice.py       narration/advice over the autonomous loop
 │
 ├── analysis/
-│   ├── guinier.py           fit_guinier(q, I, sigma, q_range) → {Rg, I0, chi2, quality}
-│   ├── kratky_porod.py      kratky_plot, porod_analysis, dimensionless_kratky
-│   ├── pair_distance.py     indirect_fourier_transform(q, I, sigma) → p(r)
-│   └── model_fitting.py     fit_sphere, fit_cylinder, fit_core_shell
+│   ├── core.py              guinier_fit, porod_fit, kratky_plot, pair_distance_ift,
+│   │                        dimensionless_kratky, classical_invariants, guinier_quality,
+│   │                        peak_fit, sasmodels_fit, sasmodels_params
+│   ├── io.py                Analysed/ paths, save bundle, .dat annotation, batch summary
+│   ├── atsas.py             wrappers for autorg / datgnom / datporod / datvc / datmw / dammif
+│   └── nanoparticle.py      size/PDI/phase/confidence fit — the optimizer's input
 │
-├── export/
-│   ├── pdf_report.py        generate_session_report(manifest, output_path)
-│   ├── docx_report.py       generate_word_report(manifest, output_path)
-│   └── dat_with_fits.py     write_dat_with_fits(path, q, I, sigma, fit_params)
+├── quality/
+│   └── core.py              grade_profile, score_metrics — good/bad grading
+│
+├── reactor/
+│   ├── config.py            load/validate reactor/config.yml
+│   ├── controller.py        arm → run → flush state machine, run records
+│   ├── hardware.py          pump abstraction, flow calibration, limits
+│   ├── recipe.py            Recipe model, param file read/write
+│   ├── intake.py            decide_intake — "skip"|"wait"|"go" on a growing file
+│   └── drivers/Py_P_Pump.py syringe-pump serial driver
+│
+├── beamline/
+│   └── driver.py            SPEC bServer HTTP driver (shutter, counters, 2D collect)
+│
+├── optimizer/
+│   ├── campaign.py          CampaignController — ask/tell, GP surrogate, stop rule
+│   ├── space.py             5-parameter recipe space, bounds, constraints, Sobol pool
+│   ├── gp.py                Gaussian-process surrogate
+│   ├── diagnostics.py       convergence / replicate / ablation statistics
+│   ├── io.py                Conditions/ file contract (to_param_file / parse_param_file)
+│   └── plots.py             parameter-space figures (analyzer panel + docs/figures)
+│
+├── simulator/
+│   ├── ground_truth.py      recipe → (R, PDI) hidden landscape
+│   ├── pattern.py           form factor, q map from .poni, mask/beamstop, Poisson
+│   ├── writer.py            .raw + CSV/PDI metadata, beamline filename convention
+│   └── collector.py         SimulatedCollector — orchestration behind MockBeamline
+│
+├── notify/
+│   ├── slack.py             SlackNotifier — threaded per-recipe run notifications
+│   ├── email_notify.py      EmailNotifier + smtp_probe
+│   └── multi.py             fan one notification out to every configured channel
+│
+├── preprocess/
+│   ├── calib.py             calibrant handling for the calibration app
+│   ├── raw_convert.py       .raw → CBF conversion
+│   └── sftp_sync.py         pull data from the beamline over SFTP
 │
 ├── reduction/
 │   ├── core.py              Experiment, run_pipeline, find_new_raw_files
 │   ├── process_metadata.py  CSV/PDI metadata extraction
-│   ├── read_raw_file.py     binary .raw reader
-│   └── stitch.py            auto_stitch(saxs_dat, waxs_dat)
+│   └── read_raw_file.py     binary .raw reader
 │
 └── utils/
     └── read_dat_metadata.py read_dat_data_metadata
 ```
 
----
-
-### 7. Build Roadmap
-
-| Phase | Deliverable | Key files |
-|---|---|---|
-| 0 | Foundation — manifest v2, event bus, apps.yml | `src/manifest.py`, `src/events.py`, `hub/app.py`, `apps.yml` |
-| 1 | AI core — knowledge base, memory, Claude client | `src/ai/`, `ai_knowledge/`, `assistant/app.py` |
-| 2 | Reduction — provenance, watch mode, stitch | `src/reduction/stitch.py`, `reduction/app.py` |
-| 3 | Viewer — 2D display, averaging, cross-project overlay | `viewer/app.py`, `viewer/templates/` |
-| 4 | Background — 3 modes, auto scale | `background/app.py` |
-| 5 | Analysis — Guinier, Kratky, Porod, p(r), models | `src/analysis/`, `analysis/app.py` |
-| 6 | Export — PDF, Word, annotated .dat | `src/export/` |
+Note what is **not** here, contrary to earlier revisions of this document:
+no `src/export/`, no `src/pipeline/`, no `src/background/`, no
+`src/reduction/stitch.py`, and no per-method files under `src/analysis/`.
+Subtraction math still lives in `background/app.py`, which is the one live
+violation of the "all logic in `src/`" rule
+(see `docs/design/AUTOPILOT_PIPELINE_DESIGN.md` §4).
 
 ---
 
-### 8. New Dependencies
+### 6. Build Roadmap
+
+| Phase | Deliverable | Key files | Status |
+|---|---|---|---|
+| 0 | Foundation — manifest v2, event bus, apps.yml | `src/manifest.py`, `src/events.py`, `hub/app.py`, `apps.yml` | shipped |
+| 1 | AI core — knowledge base, memory, Claude client | `src/ai/`, `ai_knowledge/`, `assistant/app.py` | shipped |
+| 2 | Reduction — provenance, watch mode | `reduction/app.py` | shipped |
+| 3 | Viewer — 2D display, averaging, cross-project overlay | `viewer/app.py`, `viewer/templates/` | shipped |
+| 4 | Background — 3 modes, auto scale | `background/app.py` | shipped |
+| 5 | Analysis — Guinier, Kratky, Porod, p(r), models | `src/analysis/`, `analysis/app.py` | shipped |
+| 6 | Export — PDF report, fit tables, annotated .dat | `src/ai/assistant.py`, `src/analysis/io.py` | shipped, minus Word |
+
+Everything beyond phase 6 — the Quality Gate, reactor, analyzer/optimizer,
+calibration, simulator, notifications — was designed after this document and is
+not on this roadmap.
+
+---
+
+### 7. Dependencies added for v2
+
+Live versions, from `requirements.txt` / `requirements-core.txt` /
+`requirements-ai.txt`:
 
 ```
-# requirements.txt additions
-chromadb==0.5.3               # vector database (embedded, no server)
-sentence-transformers==3.0.1  # local embeddings for ChromaDB
-flask-sock==0.7.0              # WebSocket support for event bus
-reportlab==4.2.0               # PDF generation
-python-docx==1.1.2            # Word document generation
-pyyaml==6.0.2                  # already present — apps.yml parsing
-anthropic==0.30.0              # Claude API client
+flask-sock>=0.7            # WebSocket event bus (hub :5000/ws)
+simple-websocket>=1.0      # flask-sock's transport
+pyyaml>=6.0                # config.yml, apps.yml
+anthropic>=0.40            # Claude API client
+chromadb>=0.5              # vector store (pinned 0.5.23 in requirements.txt)
+sentence-transformers>=3.0 # local embeddings — PULLS TORCH (~2 GB)
 ```
+
+`reportlab` and `python-docx` appear in no requirements file. PDF export uses
+matplotlib's `PdfPages`, which is already a dependency; Word export does not
+exist.
 
 ---
 
-### 9. Per-App `knowledge.md` Template
+### 8. Per-App `knowledge.md` Template
 
 Each app ships a `knowledge.md` that the AI indexes on registration. Example (`reduction/knowledge.md`):
 
@@ -446,15 +559,20 @@ Footer contains METADATA INFORMATION section with i0, T, thickness values.
 
 ## What Does Not Change
 
-- `uv run` for all Python execution
-- `src.*` import pattern in all app.py files  
+- `src.*` import pattern in all app.py files
 - `.dat` file format (q, I, sigma + METADATA INFORMATION footer)
 - Flask routing pattern in all apps
-- `start_platform.sh` as the single entry point
 - PyFAI / fabio for detector integration
 
----
+### What did change
 
-## Open Question (resolve before Phase 3)
-
-**Averaging strategy** — the best choice for SAXS/WAXS data (I0-weighted, sigma-clipping, pairwise similarity) depends on the specific beamline and detector noise model. A literature review of established practices (ATSAS, SasView, beamline-specific papers) should be completed before implementing `average_and_save` extensions.
+- **`uv run` is legacy.** The hub launches every app with `sys.executable`
+  (`hub/app.py:319-325`, which documents the migration): there is no
+  `pyproject.toml` and no `uv.lock`, and the virtualenv is `venv/` rather than
+  `.venv/`, so `uv run` spins up a *separate* environment without the
+  pip-installed dependencies and the app dies instantly with
+  `ModuleNotFoundError`. (`CLAUDE.md` still instructs `uv run`; that instruction
+  applies to whatever environment the developer has active, not to the hub.)
+- **Three launchers, not one.** `start_platform.sh`, `start_platform.ps1`,
+  `start_platform.bat`. All three load `.env` and resolve the AI token before
+  starting the hub; `python hub/app.py` does not.

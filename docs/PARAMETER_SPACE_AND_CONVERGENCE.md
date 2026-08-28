@@ -9,10 +9,17 @@ All figures in this document were produced by the platform's **own** optimizer
 (`src/simulator/ground_truth.py`). Nothing is illustrative. Reproduce with:
 
 ```bash
-uv run tools/campaign_plots.py --out docs/figures \
+python tools/campaign_plots.py --out docs/figures \
     --budget 60 --n-init 12 --tolerance 0.10 --pdi-cap 0.05 \
     --seed 3 --snapshots 12,20,30 --replicates 24 --ablation 24
 ```
+
+Every flag above is deliberately **non-default**: the script's own defaults are
+`--budget 40 --n-init 10 --tolerance 0.30 --pdi-cap 0.15 --replicates 12`
+(`tools/campaign_plots.py:229-236`). This document poses a harder problem than
+the defaults do — a 3× tighter size tolerance and a 3× tighter PDI cap, with a
+larger budget and more replicates to match. Run it bare and the numbers will not
+be these.
 
 The same renderer (`src/optimizer/plots.py`) backs the analyzer's live
 **Parameter space** panel, so what you watch during beamtime and what appears

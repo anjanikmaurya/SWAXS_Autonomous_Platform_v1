@@ -653,19 +653,6 @@ def api_stop(app_id: str):
     return jsonify({"ok": ok, "message": msg})
 
 
-@app.route("/api/restart/<app_id>", methods=["POST"])
-def api_restart(app_id: str):
-    """Stop then start, in one call. Not exposed as a button — the card keeps to
-    Start / Stop / Open — but useful from a script, and it is the same sequence
-    those two buttons perform: stop waits for the port to be released, start
-    reclaims it if anything is still holding it."""
-    ok, stop_msg = _stop_app(app_id)
-    if not ok:
-        return jsonify({"ok": False, "message": f"could not stop: {stop_msg}"})
-    ok, start_msg = _start_app(app_id)
-    return jsonify({"ok": ok, "message": f"{stop_msg} → {start_msg}"})
-
-
 @app.route("/api/stop_all", methods=["POST"])
 def api_stop_all():
     """Close every app and leave no process behind."""

@@ -153,15 +153,44 @@ def _default_user_id() -> str:
         return "default"
 
 
+def _knowledge_files() -> list[Path]:
+    """Every per-app knowledge.md to index, read from apps.yml.
+
+    This used to be a hardcoded list of six app names, which silently excluded
+    quality/, reactor/, analyzer/ and calibration/ — so the assistant would
+    confidently deny that the Quality Gate existed. apps.yml already carries a
+    `knowledge:` key per app; it was dead configuration until now. `hub` has no
+    apps.yml entry (it is the launcher, not an app), so it is added explicitly.
+    """
+    out: list[Path] = []
+    try:
+        import yaml
+        reg = yaml.safe_load((_ROOT / "apps.yml").read_text()) or {}
+        apps = reg.get("apps", reg)
+        for app in (apps if isinstance(apps, list) else apps.values()):
+            if not isinstance(app, dict):
+                continue
+            rel = app.get("knowledge") or f"{app.get('id', '')}/knowledge.md"
+            p = _ROOT / rel
+            if p.is_file() and p not in out:
+                out.append(p)
+    except Exception as exc:                       # malformed/missing apps.yml
+        logger.warning("apps.yml unreadable (%s) - falling back to a glob", exc)
+        out = sorted(p for p in _ROOT.glob("*/knowledge.md") if p.is_file())
+    hub_md = _ROOT / "hub" / "knowledge.md"
+    if hub_md.is_file() and hub_md not in out:
+        out.append(hub_md)
+    return out
+
+
 def _ingest_app_knowledge(assistant: SWAXSAssistant) -> None:
     """Index all per-app knowledge.md files into the 'apps' KB collection."""
     kb = assistant._get_knowledge_base()
     if kb is None:
         return
-    for app_name in ["reduction", "viewer", "background",
-                     "analysis", "assistant", "hub"]:
-        md_path = _ROOT / app_name / "knowledge.md"
-        if md_path.exists():
+    for md_path in _knowledge_files():
+        app_name = md_path.parent.name
+        if True:
             try:
                 n = kb.ingest_markdown(str(md_path), collection="apps")
                 if n:

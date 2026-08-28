@@ -219,16 +219,12 @@ def test_a_foreign_process_on_the_port_is_never_killed(hub, meta):
 
 
 @pytest.mark.slow
-def test_restart_endpoint_replaces_the_process(hub, meta):
+def test_there_is_no_restart_endpoint(hub, meta):
+    """The Restart button was removed at the operator's request — the card keeps
+    to Start / Stop / Open. The endpoint outlived it and was unreachable from
+    any UI, so it went too. Stop-then-Start is the supported sequence."""
     c = hub.app.test_client()
-    assert c.post(f"/api/start/{APP_ID}").get_json()["ok"]
-    assert _wait(lambda: pl.port_in_use(meta["port"]))
-    first = pl.read_children(hub._CHILDREN_FILE)[APP_ID]["pid"]
-    j = c.post(f"/api/restart/{APP_ID}").get_json()
-    assert j["ok"], j
-    assert _wait(lambda: pl.port_in_use(meta["port"]))
-    second = pl.read_children(hub._CHILDREN_FILE)[APP_ID]["pid"]
-    assert second != first, "restart reused the old process"
+    assert c.post(f"/api/restart/{APP_ID}").status_code == 404
 
 
 @pytest.mark.slow

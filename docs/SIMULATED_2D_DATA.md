@@ -20,9 +20,22 @@ In `reactor/config.yml`, under `spec:`:
 spec:
   backend: "mock"
   simulator:
-    enabled: true          # ← the only switch you need
+    enabled: true          # already the committed default (config.yml:195)
     speed_factor: 1.0      # 1.0 = real time; 10 = 10× faster; 0 = instant
 ```
+
+`enabled: true` ships as the default, so switching the backend to `mock` is
+enough to start generating frames.
+
+**One thing you must check:** `simulator.poni` is **not** blank in the committed
+config — it is a machine-specific absolute path
+(`/Users/akmaurya/Desktop/Data_local/Auto_Run/poni`, `reactor/config.yml:204`).
+On any other machine that path does not exist, so the documented "blank → fall
+back to the project `config.yml`" behaviour never fires. Set it to `""` or to
+your own path. This matters more than it looks: the simulated q-scale comes from
+this geometry and the reduction's comes from the project `.poni`. If they differ,
+the recovered particle size is **silently wrong** — no error, just a wrong
+number (`reactor/config.yml:200-202`).
 
 Then run the reactor normally. Every triggered acquisition writes:
 
@@ -63,7 +76,9 @@ Set `two_d_subdir: ""` to always treat the save folder itself as the 2D base, or
 to a literal name to force one.
 
 **Turn `enabled` off before beamtime.** It is ignored when `backend: "real"`, but
-don't rely on that alone.
+don't rely on that alone. Note that the committed default is `enabled: true`
+(`reactor/config.yml:195`), so this is a thing you have to *do*, not a thing you
+can assume.
 
 ---
 
@@ -126,27 +141,30 @@ recipe always yields the same particles, while different recipes differ.
 
 ## Configuration reference
 
-```yaml
-simulator:
-  enabled:      false     # master switch
-  detector:     "SAXS"    # SAXS only
-  shape:        [1043, 981]
-  poni:         ""        # blank → project config poni_directory + poni_files.saxs
-  mask:         ""        # blank → project config mask_files.saxs
-  metadata_format: ""     # blank → project config ("csv" or "pdi")
-  speed_factor: 1.0       # 1.0 = real time, 10 = 10×, 0 = instant
-  flux:         1.0e6     # counts/s at I(0)
-  scale:        800.0     # particle signal strength
-  solvent_bkg:  2.0       # flat solvent level
-  capillary:    5.0       # q⁻² upturn intensity quoted at q = 0.1 nm⁻¹
-  q_beamstop:   0.02      # nm⁻¹ — raise to stress low-q masking
-  transmission: 0.62      # sets bstop = i0 × T in the metadata
-  truth: { T_opt: 240.0, x_TOP_opt: 0.30, R_opt: 4.0, ... }
-```
+**`reactor/config.yml:195-262` is the reference.** Every knob is there with an
+inline comment, including the ones a duplicated block here kept losing —
+`porod`, `two_d_subdir`, `mock_data_dir`, and under `truth:` `noise_R_frac`,
+`sigma_T` / `sigma_x`, `pdi_curv_T` / `pdi_curv_x`, `R_min` / `R_max`,
+`pdi_floor` / `pdi_ceil`. Read it there; a copy in this file can only drift.
 
-`speed_factor: 1.0` honours `exposure × frames` — a 10 × 10 s acquisition really
-takes 100 s, so file watchers and the run-end logic are tested faithfully. Use
-`0` when iterating on the pipeline itself.
+A few `truth` knobs exist only as code defaults and are not in the YAML at all —
+`residence_gain` (0.15 nm per unit `ln(F_ref/F_tot)`), `noise_pdi` (0.01), and
+`seed` (`None` → derived from `recipe_id`). They come from
+`ground_truth.DEFAULTS` (`src/simulator/ground_truth.py:36-60`); add them to the
+YAML if you need to change them.
+
+Two knobs worth calling out because their behaviour is not obvious from the name:
+
+- `speed_factor: 1.0` honours `exposure × frames` — a 10 × 10 s acquisition
+  really takes 100 s, so file watchers and the run-end logic are tested
+  faithfully. Use `0` when iterating on the pipeline itself.
+- **Brightness.** `scale: 20000.0`, `solvent_bkg: 50.0`, `capillary: 120.0` are
+  counts *per second of exposure*, and they were raised deliberately. The
+  earlier values (`scale: 800`, `solvent_bkg: 2`, `capillary: 5`) gave a peak of
+  ~900 counts in a 1 s frame, which renders as a black image on any linear
+  display — the "the file is empty" symptom. The current values put a 1 s frame
+  in the 10⁴ range, like real detector data. If you see black frames, check
+  these first.
 
 ---
 
@@ -154,15 +172,19 @@ takes 100 s, so file watchers and the run-end logic are tested faithfully. Use
 
 `tests/test_simulator_closed_loop.py` collects through the real `MockBeamline`,
 reads back with the real reduction reader, subtracts, and fits with the real
-analyzer. Measured recovery:
+analyzer. It asserts, rather than reports:
 
-| Recipe | Injected R | Fitted R | Error | Injected PDI | Fitted PDI |
-|---|---|---|---|---|---|
-| 240 °C, x=0.30 | 4.09 nm | 4.09 nm | +0.0 % | 0.020 | 0.019 |
-| 250 °C, x=0.28 | 4.42 nm | 4.43 nm | +0.2 % | 0.086 | 0.088 |
-| 260 °C, x=0.30 | 4.45 nm | 4.45 nm | −0.0 % | 0.237 | 0.254 |
-| 230 °C, x=0.33 | 3.59 nm | 3.60 nm | +0.2 % | 0.099 | 0.100 |
-| 220 °C, x=0.35 | 3.24 nm | 3.23 nm | −0.3 % | 0.288 | 0.298 |
+| Test | Assertion |
+|---|---|
+| `test_injected_radius_is_recovered_by_the_real_analyzer` | recovered R within **10 %** of the injected R, parametrised over (240 °C, x=0.15), (250 °C, x=0.12), (230 °C, x=0.18) — three recipes straddling the optimum |
+| `test_recovered_pdi_tracks_the_injected_pdi` | at a deliberately off-optimum recipe (285 °C, x=0.05, high PDI), fitted PDI within **0.08** of injected |
+| `test_optimum_recipe_yields_the_target_size_and_lowest_pdi` | at (240 °C, x=0.15) R = 4.0 ± 0.3 nm — the campaign's `target_size` — and PDI lower than at (295 °C, x=0.15) or (240 °C, x=0.02) |
+
+Run the suite for the actual numbers; they depend on `truth` and on the `.poni`
+in use, so a table here goes stale the moment either changes. (An earlier
+revision of this document carried a table of five recipes at x = 0.30–0.35. Those
+figures came from when `x_TOP_opt` was 0.30; with the current 0.15 they are not
+reproducible.)
 
 ### Known caveats
 
@@ -192,25 +214,22 @@ Yes — verified by `tests/test_simulator_reduction_metadata.py`, which runs the
 | | transmission `bstop/i0` < 1 | `bstop = i0 × transmission` (0.62) | ✅ `T=0.6200`, no `T_sample > 1` warning |
 | **Averaging** | consistent naming across frames | `{prefix}_scan1_NNNN` | ✅ frames group correctly |
 | **Subtraction** | matched sample/background pair | flush writes `{recipe_id}_bkg`, sample writes `{recipe_id}_sample`; both share the background curve | ✅ subtraction positive across the Guinier band |
-| **Analyzer** | q in nm⁻¹, positive I | `unit: q_nm^-1` honoured | ✅ R recovered to **+0.0 %** |
+| **Analyzer** | q in nm⁻¹, positive I | `unit: q_nm^-1` honoured | ✅ injected R recovered |
 | **Optimizer** | map result → recipe | `recipe_id` embedded in the filename | ✅ `match_recipe_id()` resolves it |
 | **Back to reactor** | new recipe from the campaign | `CampaignController.ask()` | ✅ converges near the true optimum |
 
-Full-chain measurement through the real pipeline (`.poni` geometry, pyFAI
-integration, CSV metadata, background subtraction, analyzer fit):
+The test walks the full chain through the real pipeline — `.poni` geometry, pyFAI
+integration, CSV metadata, background subtraction, analyzer fit, optimizer ask —
+and prints per-stage output. Run it to see the current numbers:
 
-```
-STEP 1 reduction   -> 8 .dat files, T=0.6200, thickness=1.000 mm, CTEMP=240.0°C
-STEP 2 averaging   -> 4 sample + 4 background frames
-STEP 3 subtraction -> positive across the Guinier band
-STEP 4 analyzer    -> R=3.993 nm  (injected 3.992 nm, +0.0 %)  PDI=0.026  conf=0.906
-STEP 5 optimizer   -> best T=253.9 x_TOP=0.185 (true optimum 240 / 0.15)
+```bash
+python -m pytest tests/test_simulator_reduction_metadata.py -s
 ```
 
-**Analyzer confidence is 0.906** through the real reduction path — comfortably
-above the campaign's `confidence_min: 0.5` gate, so simulated results are not
-rejected. (A crude hand-rolled radial average gives a much lower confidence;
-that is an artefact of the harness, not of the data.)
+Analyzer confidence through the real reduction path sits well above the
+campaign's `confidence_min: 0.5`, so simulated results are not rejected. A crude
+hand-rolled radial average gives a much lower confidence; that is an artefact of
+the harness, not of the data.
 
 ### What is *not* simulated
 
