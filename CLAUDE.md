@@ -35,7 +35,7 @@ Known standing violation: the subtraction science still lives in
 
 ## Architecture Overview
 
-Hub-and-spoke: one central hub (port 5000) launches and monitors **nine**
+Hub-and-spoke: one central hub (port 5100) launches and monitors **nine**
 independent Flask apps as subprocesses. Every app follows the same pattern —
 `app.py` handles routing, `templates/index.html` is the UI, `knowledge.md` is
 indexed by the AI assistant, and all science/data logic lives in the shared
@@ -44,16 +44,16 @@ indexed by the AI assistant, and all science/data logic lives in the shared
 ```
 SWAXS_Autonomous_Platform_v1/
 │
-├── hub/                    # Central launcher (5000) — also knowledge.md, no app entry
-├── calibration/            # .raw → CBF, pyFAI .poni generation, SFTP pull (5009)
-├── reduction/              # 2D→1D reduction & correction (5001)
-├── average/                # Visualisation & Average — viewing + averaging (5002)
-├── background/             # Background subtraction (5003)
-├── quality/                # AI good/bad grading of subtracted profiles (5006)
-├── analysis/               # Guinier, Porod, Kratky, p(r), sasmodels, ATSAS, peaks (5004)
-├── analyzer/               # Nanoparticle fit + Bayesian optimizer (5008)
-├── reactor/                # Flow-synthesis reactor + SPEC/beamline control (5007)
-├── assistant/              # AI assistant (5005)
+├── hub/                    # Central launcher (5100) — also knowledge.md, no app entry
+├── calibration/            # .raw → CBF, pyFAI .poni generation, SFTP pull (5101)
+├── reduction/              # 2D→1D reduction & correction (5102)
+├── average/                # Visualisation & Average — viewing + averaging (5103)
+├── background/             # Background subtraction (5104)
+├── quality/                # AI good/bad grading of subtracted profiles (5105)
+├── analysis/               # Guinier, Porod, Kratky, p(r), sasmodels, ATSAS, peaks (5106)
+├── analyzer/               # Nanoparticle fit + Bayesian optimizer (5107)
+├── reactor/                # Flow-synthesis reactor + SPEC/beamline control (5108)
+├── assistant/              # AI assistant (5109)
 │       └── each of the above: app.py · templates/index.html · knowledge.md
 │
 ├── src/                    # Shared logic — all apps import from here
@@ -93,8 +93,14 @@ SWAXS_Autonomous_Platform_v1/
 └── CLAUDE.md               # This file
 ```
 
-Ports: hub 5000 · reduction 5001 · average 5002 · background 5003 · analysis 5004 ·
-assistant 5005 · quality 5006 · reactor 5007 · analyzer 5008 · calibration 5009.
+Ports, in pipeline order: hub 5100 · calibration 5101 · reduction 5102 ·
+average 5103 · background 5104 · quality 5105 · analysis 5106 · analyzer 5107 ·
+reactor 5108 · assistant 5109.
+
+The platform moved off the 5000–5009 block in September 2026: on macOS
+Monterey and later, AirPlay Receiver holds port 5000, so the hub could not
+bind its default port on a stock Mac. See QUICKSTART.md § "Port … already in
+use" for the Windows equivalent (Hyper-V/WSL2 reserves ~100-port blocks).
 
 ---
 
@@ -276,7 +282,7 @@ under `# METADATA INFORMATION (YML FORMAT)` and nothing else.
 | Package | Purpose |
 |---|---|
 | `flask` | Web framework for the hub and all nine apps |
-| `flask-sock`, `simple-websocket`, `websocket-client` | WebSocket event bus (hub `:5000/ws`) |
+| `flask-sock`, `simple-websocket`, `websocket-client` | WebSocket event bus (hub `:5100/ws`) |
 | `pyFAI` | Detector calibration and azimuthal integration |
 | `fabio` | Scientific image I/O (.raw, .edf, .cbf) |
 | `xraydb` | X-ray absorption coefficients |
@@ -318,7 +324,7 @@ the whole manifest to answer questions about the experiment.
 
 ## Event Bus
 
-The hub runs a WebSocket bus at `ws://localhost:5000/ws`. Envelope:
+The hub runs a WebSocket bus at `ws://localhost:5100/ws`. Envelope:
 
 ```json
 {"type": "file.reduced", "source_app": "reduction",

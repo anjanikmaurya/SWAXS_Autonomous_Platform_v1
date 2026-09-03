@@ -71,7 +71,7 @@ if not "%~1"=="" (
   echo   Project: pick it in the hub UI ^(top-right^)
 )
 
-if not defined SWAXS_HUB_PORT set SWAXS_HUB_PORT=5000
+if not defined SWAXS_HUB_PORT set SWAXS_HUB_PORT=5100
 
 echo.
 echo   +======================================================+
@@ -79,9 +79,9 @@ echo   ^|   SWAXS Platform Hub                                 ^|
 echo   ^|   -^> http://localhost:%SWAXS_HUB_PORT%                            ^|
 echo   ^|                                                      ^|
 echo   ^|   Apps are started from the hub web page:             ^|
-echo   ^|     5009 Calibration  5001 Reduction  5002 Vis & Avg ^|
-echo   ^|     5003 Background   5006 Quality    5004 Analysis  ^|
-echo   ^|     5008 Analyzer     5007 Reactor    5005 Tassone   ^|
+echo   ^|     5101 Calibration  5102 Reduction  5103 Vis & Avg ^|
+echo   ^|     5104 Background   5105 Quality    5106 Analysis  ^|
+echo   ^|     5107 Auto-Fit     5108 Reactor    5109 Tassone   ^|
 echo   ^|                                                      ^|
 echo   ^|   Press Ctrl-C to stop the hub AND its apps           ^|
 echo   +======================================================+

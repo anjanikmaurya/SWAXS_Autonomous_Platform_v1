@@ -1,5 +1,5 @@
 """
-analyzer/app.py — Nanoparticle Analyzer (port 5008)
+analyzer/app.py — Auto-Fit & Optimiser (port 5107)
 ===================================================
 Watches the SAXS Subtracted folder and, as each new profile appears, fits a
 polydisperse-sphere model to extract size, PDI, the (relative) Porod invariant,
@@ -8,7 +8,7 @@ and a 0-1 confidence — the measurement half of the closed synthesis loop.
 Thin Flask shell: all science is in src/analysis/nanoparticle.py. Routes, the
 folder watcher, SSE, and manifest writing live here.
 
-Run:  python analyzer/app.py    Open: http://localhost:5008
+Run:  python analyzer/app.py    Open: http://localhost:5107
       (from the activated venv — see CLAUDE.md)
 """
 
@@ -790,7 +790,7 @@ def api_stream():
 if __name__ == "__main__":
     _project_root = os.environ.get("SWAXS_PROJECT", _project_root)
     print("━" * 52)
-    print("  Nanoparticle Analyzer  →  http://localhost:5008")
+    print("  Auto-Fit & Optimiser  →  http://localhost:5107")
     print(f"  watching: {_resolve_sub()}")
     print("━" * 52)
-    app.run(host="127.0.0.1", port=5008, debug=False, threaded=True)
+    app.run(host="127.0.0.1", port=5107, debug=False, threaded=True)

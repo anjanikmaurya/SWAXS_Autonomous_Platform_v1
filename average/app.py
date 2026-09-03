@@ -1,8 +1,8 @@
 """
-average/app.py — Visualisation & Average Flask backend (port 5002)
+average/app.py — Visualisation & Average Flask backend (port 5103)
 ==================================================================
 Run:  python average/app.py           (from the activated venv — see CLAUDE.md)
-Open: http://localhost:5002
+Open: http://localhost:5103
 """
 
 from __future__ import annotations   # allow `X | None` type hints on Python 3.9
@@ -1060,6 +1060,6 @@ if __name__ == "__main__":
     _project_root = os.environ.get("SWAXS_PROJECT", "")
     print("━" * 42)
     print("  SAXS/WAXS Visualization App")
-    print("  → http://localhost:5002")
+    print("  → http://localhost:5103")
     print("━" * 42)
-    app.run(debug=False, port=5002, threaded=True)
+    app.run(debug=False, port=5103, threaded=True)

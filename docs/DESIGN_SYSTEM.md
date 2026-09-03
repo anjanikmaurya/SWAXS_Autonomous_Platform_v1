@@ -17,16 +17,16 @@ do not assume conformance.
 
 | App | Port | Type scale | Weights / line-heights / spacing | `--font` | `--radius` | Base size | Dark mode | `:focus-visible` |
 |---|---|---|---|---|---|---|---|---|
-| reduction | 5001 | all 8 `--fs-*` | yes | Inter | 8px | 16px | toggle + OS | yes |
-| average | 5002 | all 8 | yes | Inter | 8px | (inherits 16px) | toggle + OS | yes |
-| assistant | 5005 | all 8 | yes | Inter | 8px | **18px** | toggle + OS | yes |
-| hub | 5000 | all 8 | yes | Inter | 8px | 16px | dark only, no toggle | yes |
-| background | 5003 | 7 of 8 (`--fs-2xl` missing) | `--fw-*` partial; no `--lh-*`, no `--sp-*` | Inter | 8px | **18px** | toggle + OS | 1 rule |
-| analysis | 5004 | 5 of 8 | none | Inter | 8px | **18px** | toggle + OS | **none** |
-| quality | 5006 | 6 of 8 | none | **unset** (system-ui literal) | **9px** | 16px | toggle + OS | **none** |
-| reactor | 5007 | 4 tokens, **different values** | none | **unset** | **9px** | 1.02rem | toggle, defaults dark | **none** |
-| analyzer | 5008 | 4 tokens, **different values** | none | **unset** | **9px** | 1.02rem | toggle, defaults dark | **none** |
-| calibration | 5009 | **none** | none | Inter | 8px | 16px | light only, no toggle | **none** |
+| reduction | 5102 | all 8 `--fs-*` | yes | Inter | 8px | 16px | toggle + OS | yes |
+| average | 5103 | all 8 | yes | Inter | 8px | (inherits 16px) | toggle + OS | yes |
+| assistant | 5109 | all 8 | yes | Inter | 8px | **18px** | toggle + OS | yes |
+| hub | 5100 | all 8 | yes | Inter | 8px | 16px | dark only, no toggle | yes |
+| background | 5104 | 7 of 8 (`--fs-2xl` missing) | `--fw-*` partial; no `--lh-*`, no `--sp-*` | Inter | 8px | **18px** | toggle + OS | 1 rule |
+| analysis | 5106 | 5 of 8 | none | Inter | 8px | **18px** | toggle + OS | **none** |
+| quality | 5105 | 6 of 8 | none | **unset** (system-ui literal) | **9px** | 16px | toggle + OS | **none** |
+| reactor | 5108 | 4 tokens, **different values** | none | **unset** | **9px** | 1.02rem | toggle, defaults dark | **none** |
+| analyzer | 5107 | 4 tokens, **different values** | none | **unset** | **9px** | 1.02rem | toggle, defaults dark | **none** |
+| calibration | 5101 | **none** | none | Inter | 8px | 16px | light only, no toggle | **none** |
 
 Consequences worth knowing before you write CSS:
 

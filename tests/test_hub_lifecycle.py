@@ -11,7 +11,7 @@ The hub managed sub-apps with `Popen.terminate()` and a bare port check:
     project folder and writing files.
   * **Stop did not wait for the port**, so an immediate restart could race the
     socket teardown and fail to bind.
-  * **Start refused instead of recovering**: "Port 5003 is already in use — free
+  * **Start refused instead of recovering**: "Port 5104 is already in use — free
     that port and retry", with no way to free it from the UI.
   * **A hub SIGKILL stranded every child.** atexit cannot run, nothing was
     recorded on disk, so the next hub found nine taken ports and a UI that said
@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import importlib.util as u
 import os
+import re
 import signal
 import socket
 import subprocess
@@ -335,7 +336,7 @@ def test_closing_the_hub_closes_its_apps(tmp_path, meta):
 # ── the macOS AirPlay regression ─────────────────────────────────────────────
 # A port check based on the process table refused to start the hub because
 # `ControlCenter` (AirPlay Receiver) listens on port 5000 — even though Flask had
-# been binding 127.0.0.1:5000 alongside it perfectly happily for months. The rule
+# been binding 127.0.0.1:5100 alongside it perfectly happily for months. The rule
 # that came out of it: ask the kernel whether WE can bind, never infer from who
 # else is listening.
 def test_availability_is_decided_by_a_real_bind_not_by_the_process_table():
@@ -428,8 +429,12 @@ def test_the_hub_port_is_configurable():
     src = (ROOT / "hub" / "app.py").read_text()
     assert 'os.environ.get("SWAXS_HUB_PORT"' in src
     assert "app.run(debug=False, port=_HUB_PORT" in src
-    # and the failure path must name it
-    assert "SWAXS_HUB_PORT=5100" in src
+    # and the failure path must name it, with a port that is NOT the default —
+    # telling the operator to retry on the port that just failed is no escape.
+    m = re.search(r"SWAXS_HUB_PORT=(\d{4})", src)
+    assert m, "the error message never shows how to override the port"
+    assert m.group(1) != "5100", \
+        "the suggested fallback is the default port, which is the one that failed"
     if sys.platform == "darwin" or True:
         assert "AirPlay" in src, "the macOS cause is not explained anywhere"
 

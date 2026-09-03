@@ -696,7 +696,7 @@ async function _ctl(path, id, verb) {
     const r = await fetch(path, {method: 'POST'});
     const j = await r.json();
     // Always show the server's own message. It carries the part that matters —
-    // "reclaimed port 5003 from orphaned app process(es) 8141" — which used to be
+    // "reclaimed port 5104 from orphaned app process(es) 8141" — which used to be
     // swallowed by a hard-coded "stopped".
     log(`${id}: ${j.message || (j.ok ? 'ok' : 'failed')}`, j.ok ? 'ok' : 'err');
     if (!j.ok) await whoHasPort(id);

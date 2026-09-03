@@ -1,5 +1,5 @@
 """
-background/app.py — SWAXS Background Subtraction App (port 5003)
+background/app.py — SWAXS Background Subtraction App (port 5104)
 =================================================================
 Two modes:
   • Keyword mode  : subtract an averaged background from averaged sample curves
@@ -7,7 +7,7 @@ Two modes:
                     by matching scan_idx
 
 Run:  python background/app.py       (from the activated venv — see CLAUDE.md)
-Open: http://localhost:5003
+Open: http://localhost:5104
 """
 
 from __future__ import annotations
@@ -1540,6 +1540,6 @@ if __name__ == "__main__":
     _project_root = os.environ.get("SWAXS_PROJECT", "")
     print("━" * 48)
     print("  SWAXS Background Subtraction App")
-    print("  → http://localhost:5003")
+    print("  → http://localhost:5104")
     print("━" * 48)
-    app.run(debug=False, port=5003, threaded=True)
+    app.run(debug=False, port=5104, threaded=True)

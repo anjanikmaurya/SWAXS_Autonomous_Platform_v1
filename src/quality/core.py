@@ -1,7 +1,7 @@
 """
 src/quality/core.py — Quality grading for subtracted scattering profiles
 =========================================================================
-Shared by the Quality Gate app (port 5006).  Pure, deterministic scoring of a
+Shared by the Quality Gate app (port 5105).  Pure, deterministic scoring of a
 single background-subtracted 1-D profile, plus series-level consensus.
 
 A profile is scored 0–100 (100 = pristine).  The score starts at 100 and each

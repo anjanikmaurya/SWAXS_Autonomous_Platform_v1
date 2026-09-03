@@ -1,7 +1,7 @@
 # AI Assistant App — Knowledge Base
 
 ## Purpose
-The Assistant app (port 5005) provides a conversational AI interface powered by
+The Assistant app (port 5109) provides a conversational AI interface powered by
 Claude (Anthropic). It has access to the full experiment manifest, all processed
 data files, the living knowledge base (ChromaDB), and the layered memory system.
 
@@ -214,8 +214,8 @@ Retrieval pulls the top 6 hits (`_KB_TOP_K = 6`) into the system prompt.
   for gateway/proxy deployments)
 - `SWAXS_USER_ID` — optional; overrides the OS username for the memory layer
 - `SWAXS_BEAMLINE` — facility id for the Layer-3 memory file (default `ssrl_1-5`)
-- `SWAXS_HUB_URL` — hub WebSocket URL (default `ws://localhost:5000/ws`)
-- `SWAXS_HUB_API` — hub HTTP base URL (default `http://localhost:5000`)
+- `SWAXS_HUB_URL` — hub WebSocket URL (default `ws://localhost:5100/ws`)
+- `SWAXS_HUB_API` — hub HTTP base URL (default `http://localhost:5100`)
 
 ## Session Management
 Each browser tab gets a unique `session_id` (UUID). Conversation history is kept

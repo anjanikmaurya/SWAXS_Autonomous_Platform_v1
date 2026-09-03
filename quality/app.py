@@ -1,9 +1,9 @@
 """
-quality/app.py — SWAXS Quality Gate (port 5006)
+quality/app.py — SWAXS Quality Gate (port 5105)
 ================================================
 AI-assisted quality grading of background-subtracted scattering profiles.
 
-Sits between Background Subtraction (5003) and Analysis (5004).  Watches the
+Sits between Background Subtraction (5104) and Analysis (5106).  Watches the
 Subtracted/ folder(s), scores each profile 0–100 (rule-based, with optional LLM
 adjudication of borderline cases), assigns a good/bad verdict, sorts profiles
 into Good/ and NeedsReview/ subfolders, and records everything in the manifest
@@ -13,7 +13,7 @@ All science/scoring logic lives in src/quality/.  This file is a thin Flask
 shell: routing, the monitor thread, file-sorting, manifest/event wiring.
 
 Run:  python quality/app.py          (from the activated venv — see CLAUDE.md)
-Open: http://localhost:5006
+Open: http://localhost:5105
 """
 
 from __future__ import annotations
@@ -950,6 +950,6 @@ threading.Thread(target=_boot_resume_monitor, daemon=True).start()
 if __name__ == "__main__":
     _project_root = os.environ.get("SWAXS_PROJECT", "")
     print("━" * 52)
-    print("  SWAXS Quality Gate  ·  http://localhost:5006")
+    print("  SWAXS Quality Gate  ·  http://localhost:5105")
     print("━" * 52)
-    app.run(host="127.0.0.1", port=5006, debug=False, threaded=True)
+    app.run(host="127.0.0.1", port=5105, debug=False, threaded=True)

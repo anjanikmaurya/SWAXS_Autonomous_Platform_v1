@@ -60,7 +60,7 @@ Configure the token once here and the SWAXS app uses it too.
    ```
 4. Run `./start_platform.sh` on the SLAC network/VPN. The banner shows
    `AI auth: ~/.claude/settings.json (SLAC gateway)`, and
-   `GET http://localhost:5005/api/health` reports `credentials: gateway-token`.
+   `GET http://localhost:5109/api/health` reports `credentials: gateway-token`.
 
 **Alternative / override:** export `ANTHROPIC_AUTH_TOKEN` yourself before running
 (e.g. from macOS Keychain: `export ANTHROPIC_AUTH_TOKEN="$(security

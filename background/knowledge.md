@@ -1,7 +1,7 @@
 # Background Subtraction App — Knowledge Base
 
 ## Purpose
-The Background app (port 5003) subtracts a background or solvent scattering from
+The Background app (port 5104) subtracts a background or solvent scattering from
 sample scattering curves.  Input is averaged/reduced `.dat` files.
 Output is background-subtracted curves ready for analysis.
 

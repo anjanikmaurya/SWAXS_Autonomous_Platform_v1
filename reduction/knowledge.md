@@ -1,7 +1,7 @@
 # Reduction App — Knowledge Base
 
 ## Purpose
-The Reduction app (port 5001) converts raw 2D detector images (.raw files) into
+The Reduction app (port 5102) converts raw 2D detector images (.raw files) into
 calibrated, corrected 1D scattering curves (.dat files).  It covers SAXS, WAXS,
 and simultaneous SWAXS modes.
 

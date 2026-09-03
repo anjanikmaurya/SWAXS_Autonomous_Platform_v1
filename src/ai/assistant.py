@@ -1679,7 +1679,7 @@ Experiment data was not modified.</p></body></html>"""
             # 2. Ask the Analysis app, if it's up
             try:
                 import urllib.request
-                base = os.environ.get("SWAXS_ANALYSIS_API", "http://localhost:5004")
+                base = os.environ.get("SWAXS_ANALYSIS_API", "http://localhost:5106")
                 url = base.rstrip("/") + "/api/sasmodels/list"
                 with urllib.request.urlopen(url, timeout=1) as r:
                     models = json.loads(r.read()).get("models", [])

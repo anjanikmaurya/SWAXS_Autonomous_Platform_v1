@@ -1,7 +1,7 @@
 # Quality Gate — knowledge
 
-The Quality Gate app (port 5006) sits between Background Subtraction (5003) and
-Analysis (5004). It grades background-subtracted 1-D scattering profiles and
+The Quality Gate app (port 5105) sits between Background Subtraction (5104) and
+Analysis (5106). It grades background-subtracted 1-D scattering profiles and
 decides which are good enough for downstream analysis.
 
 ## What it does

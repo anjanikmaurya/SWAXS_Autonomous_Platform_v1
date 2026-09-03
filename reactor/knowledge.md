@@ -1,11 +1,11 @@
 # Flow Synthesis — knowledge
 
-The Flow Synthesis app (port 5007) is the **execution layer** for the 5-pump
+The Flow Synthesis app (port 5108) is the **execution layer** for the 5-pump
 continuous-flow nanoparticle reactor (Fong et al., J. Chem. Phys. 154, 224201,
 2021 — Dolomite Mitos P-pumps + LG16 flow sensors). It receives an
 already-predicted recipe and drives the pumps. It does **not** run the Bayesian
 optimization / SAXS analysis — those push recipes to it (the Analyzer app on
-port 5008 owns the optimizer).
+port 5107 owns the optimizer).
 
 ## Pumps & setpoints
 

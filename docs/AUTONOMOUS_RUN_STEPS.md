@@ -22,14 +22,14 @@ optimizer campaign do not. If any one is off, the loop stalls at that stage.
 
 1. Start the hub with a launcher — `./start_platform.sh` (macOS/Linux),
    `start_platform.ps1` or `start_platform.bat` (Windows) → open
-   **http://localhost:5000**. The launchers source `.env` and resolve the AI
+   **http://localhost:5100**. The launchers source `.env` and resolve the AI
    token; `python hub/app.py` starts the hub but leaves `.env` unread, so the
    assistant and Slack/email notifications come up unconfigured.
 2. **Pick the project folder** in the hub (the experiment root that holds `2D/`,
    `poni/`, `config.yml`). This pushes the folder to every app.
 3. Start each app from the hub: **Calibration, Reduction, Visualisation & Average, Background,
    Quality, Analyzer, Flow Synthesis (reactor)** (Assistant optional).
-   Calibration (:5009) is what generates the `.poni` files step 2 checks for —
+   Calibration (:5101) is what generates the `.poni` files step 2 checks for —
    start it first if the calibration has not been done yet.
 4. Open each app and confirm it shows the right folder. The hub injects
    `SWAXS_PROJECT` into every subprocess at launch (`hub/app.py:292`) and each
@@ -48,7 +48,7 @@ optimizer campaign do not. If any one is off, the loop stalls at that stage.
    from the other apps.
 2. `poni/` has the calibration `.poni` + mask files; `config.yml` names them.
 
-## 3. Reactor / beamline setup (Flow Synthesis app, :5007)
+## 3. Reactor / beamline setup (Flow Synthesis app, :5108)
 
 1. Backend pill → **Real** (covers pumps + beamline).
 2. Confirm the log shows `📁 SPEC data_dir → /msd_data/…` matching where SPEC saves
@@ -100,7 +100,7 @@ QC plot attached when the fit is suspect.
      as needed (default 0.03–0.6, 549 pts).
 4. (Optional) **Quality app** for review — not required by the loop.
 
-## 6. Start the optimizer campaign (Analyzer app, :5008)
+## 6. Start the optimizer campaign (Analyzer app, :5107)
 
 1. Set the **target size** (nm) and **tolerance**, and confirm the parameter
    **bounds** match your chemistry.

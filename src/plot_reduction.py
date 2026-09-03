@@ -1,7 +1,7 @@
 """
 src/plot_reduction.py — Data loading and averaging utilities
 =============================================================
-Shared by the average app (port 5002) and any future apps that need
+Shared by the average app (port 5103) and any future apps that need
 to load or average 1-D SAXS/WAXS .dat files.
 
 Public API (see __all__):

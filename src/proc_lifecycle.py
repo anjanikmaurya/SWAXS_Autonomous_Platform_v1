@@ -11,7 +11,7 @@ which left three ways to end up stuck:
 2. **Stop did not wait for the port.** It returned success the moment
    `wait()` came back, so an immediate restart could race the socket teardown.
 3. **Start refused instead of recovering.** A held port produced
-   "Port 5003 is already in use — free that port and retry", with no way to
+   "Port 5104 is already in use — free that port and retry", with no way to
    free it from the UI. Close-then-start-fresh was impossible without a
    terminal.
 
@@ -58,7 +58,7 @@ def can_bind(port: int, host: str = "127.0.0.1") -> bool:
     This is deliberately a real bind attempt rather than an inference from the
     process table, because the two disagree in practice. On macOS, AirPlay
     Receiver (`ControlCenter`) listens on port 5000 — but a Flask app can still
-    bind 127.0.0.1:5000 alongside it. A process-table check sees "port 5000 is
+    bind 127.0.0.1:5100 alongside it. A process-table check sees "port 5100 is
     taken by ControlCenter" and refuses to start something that would have worked
     perfectly well. Asking the kernel removes the guesswork.
     """
@@ -110,7 +110,7 @@ def listeners(port: int) -> list:
     (see :func:`can_bind`). Restricted to loopback/wildcard because a service
     bound to a specific external interface does not collide with us, and
     restricted to LISTEN because an outbound connection whose ephemeral local port
-    happens to equal 5003 is not holding anything.
+    happens to equal 5104 is not holding anything.
     """
     if psutil is None:
         return []

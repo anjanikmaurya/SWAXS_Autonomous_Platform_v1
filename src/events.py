@@ -2,7 +2,7 @@
 src/events.py — Event Bus Client
 =================================
 Lightweight WebSocket client that connects to the Hub's event broker
-at ws://localhost:5000/ws.  All SWAXS platform apps use this module to
+at ws://localhost:5100/ws.  All SWAXS platform apps use this module to
 publish events and subscribe to events from other apps.
 
 Quick start (in any app.py)
@@ -56,7 +56,7 @@ from typing import Callable
 
 logger = logging.getLogger("swaxs_platform")
 
-_HUB_WS_URL  = "ws://localhost:5000/ws"
+_HUB_WS_URL  = "ws://localhost:5100/ws"
 _RETRY_DELAY  = 5    # seconds between reconnect attempts
 _PING_INTERVAL = 30  # seconds between WebSocket keepalive pings
 _PING_TIMEOUT  = 10  # seconds to wait for ping response

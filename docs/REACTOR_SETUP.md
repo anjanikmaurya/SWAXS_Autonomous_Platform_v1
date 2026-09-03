@@ -1,6 +1,6 @@
 # Reactor app — software setup
 
-How to install, configure, and run the Flow-Synthesis reactor app (port **5007**).
+How to install, configure, and run the Flow-Synthesis reactor app (port **5108**).
 For the physical rig (pumps, temperature, beamline components + wiring) see
 `docs/REACTOR_HARDWARE_SETUP.md`; for "where is what" while troubleshooting,
 `docs/REACTOR_MAP.md`; for the beamline bench tests, `tools/BEAMLINE_TESTING.md`.
@@ -111,14 +111,14 @@ Everything rig-specific lives here; no code changes needed. Key sections:
 
 **Via the hub (recommended):**
 ```bash
-python hub/app.py          # http://localhost:5000 — launch "Flow Synthesis" from the hub
+python hub/app.py          # http://localhost:5100 — launch "Flow Synthesis" from the hub
 ```
 The hub passes the selected project folder to the reactor and manages its process
 (and frees the port on hub exit).
 
 **Standalone (development):**
 ```bash
-python reactor/app.py      # http://localhost:5007
+python reactor/app.py      # http://localhost:5108
 # real hardware:
 SWAXS_REACTOR_BACKEND=real python reactor/app.py
 ```
@@ -128,7 +128,7 @@ environment — use `python` here too.
 ## 7. First-run checklist
 
 1. `pip install -r requirements-core.txt` succeeds; add `requirements-hardware.txt` for real.
-2. App opens at `http://localhost:5007`, backend pill shows the expected mode.
+2. App opens at `http://localhost:5108`, backend pill shows the expected mode.
 3. **Mock:** submit a recipe, Start — with the shipped `background_when: "before"`
    the sequence is **flush → background shot → arm → run → sample shot → flush**.
    The first thing you see is a flush (20 min at the shipped `flush.duration`), not
@@ -141,9 +141,9 @@ environment — use `python` here too.
 
 ## 8. Ports
 
-hub 5000 · reduction 5001 · average 5002 · background 5003 · analysis 5004 ·
-assistant 5005 · quality 5006 · **reactor 5007** · analyzer 5008 ·
-calibration 5009.
+hub 5100 · reduction 5102 · average 5103 · background 5104 · analysis 5106 ·
+assistant 5109 · quality 5105 · **reactor 5108** · analyzer 5107 ·
+calibration 5101.
 Closing an app frees its port; closing the hub stops all its sub-apps.
 
 ## 9. Safety notes (real mode)

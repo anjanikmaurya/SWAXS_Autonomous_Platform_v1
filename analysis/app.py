@@ -1,5 +1,5 @@
 """
-analysis/app.py — SWAXS Data Analysis App (port 5004)
+analysis/app.py — SWAXS Data Analysis App (port 5106)
 ======================================================
 Tabs:
   • Guinier   — Rg, I₀ from ln(I) vs q² fit (q·Rg ≤ 1.3)
@@ -9,7 +9,7 @@ Tabs:
   • Model     — sasmodels library model fitting
 
 Run:  python analysis/app.py         (from the activated venv — see CLAUDE.md)
-Open: http://localhost:5004
+Open: http://localhost:5106
 """
 
 from __future__ import annotations
@@ -857,6 +857,6 @@ if __name__ == "__main__":
     _project_root = os.environ.get("SWAXS_PROJECT", "")
     print("━" * 48)
     print("  SWAXS Data Analysis App")
-    print("  → http://localhost:5004")
+    print("  → http://localhost:5106")
     print("━" * 48)
-    app.run(debug=False, port=5004, threaded=True)
+    app.run(debug=False, port=5106, threaded=True)

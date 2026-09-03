@@ -1,8 +1,8 @@
 # Calibration & Raw Prep — knowledge
 
 ## Purpose and position in the pipeline
-The Calibration & Raw Prep app (port 5009) is a **pre-reduction utility** — the
-step BEFORE the Reduction app (5001). Its job is to produce the `.poni` PyFAI
+The Calibration & Raw Prep app (port 5101) is a **pre-reduction utility** — the
+step BEFORE the Reduction app (5102). Its job is to produce the `.poni` PyFAI
 calibration files that reduction consumes, and to pull raw data across from the
 beamline machine.
 

@@ -1,21 +1,21 @@
 # Hub App — Knowledge Base
 
 ## Purpose
-The Hub (port 5000) is the central launcher and monitor for the SWAXS platform.
+The Hub (port 5100) is the central launcher and monitor for the SWAXS platform.
 It starts every sub-app as an independent subprocess, monitors their health,
 provides the project-folder selector, and serves the WebSocket event bus at `/ws`.
 The hub port is overridable with the `SWAXS_HUB_PORT` environment variable
-(default 5000; on macOS 5000 is also used by AirPlay Receiver).
+(default 5100 — chosen because macOS AirPlay Receiver holds 5000).
 
 ## Architecture
 
 ```
-Browser → hub:5000
+Browser → hub:5100
   │
   ├── Launches one subprocess per apps.yml entry (currently 9):
-  │     calibration :5009    reduction :5001    average  :5002
-  │     background  :5003    analysis  :5004    assistant:5005
-  │     quality     :5006    reactor   :5007    analyzer :5008
+  │     calibration :5101    reduction :5102    average  :5103
+  │     background  :5104    analysis  :5106    assistant:5109
+  │     quality     :5105    reactor   :5108    analyzer :5107
   │
   ├── WebSocket broker (/ws):
   │     any sub-app publishes → hub → all other connected apps
@@ -51,7 +51,7 @@ The hub reads `apps.yml` from the project root at startup. Each entry:
 ```yaml
 - id: reduction
   name: "Reduction & Correction"
-  port: 5001
+  port: 5102
   entry: "reduction/app.py"
   knowledge: "reduction/knowledge.md"
   manifest_key: "files"
@@ -170,7 +170,7 @@ Each app is probed once per status tick with a single `GET /api/health` request
     "reduction": {
       "running": true,
       "healthy": true,
-      "port": 5001,
+      "port": 5102,
       "pid": 12345,
       "summary": null,
       "crashed": null

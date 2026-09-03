@@ -1,7 +1,7 @@
 # Analysis App — Knowledge Base
 
 ## Purpose
-The Analysis app (port 5004) provides structural analysis for
+The Analysis app (port 5106) provides structural analysis for
 background-subtracted 1D scattering curves. It covers the classical SAXS
 analyses (Guinier, Kratky, dimensionless Kratky, power-law "Porod", p(r),
 classical invariants), WAXS peak fitting, `sasmodels`/SasView model fitting, and

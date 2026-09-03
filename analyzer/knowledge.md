@@ -1,7 +1,10 @@
-# Nanoparticle Analyzer — knowledge
+# Auto-Fit & Optimiser — knowledge
+
+Displayed in the hub as **Auto-Fit & Optimiser** (was "Nanoparticle Analyzer" until
+September 2026). Folder, app id and log name stay `analyzer`.
 
 ## Purpose and place in the closed loop
-The Nanoparticle Analyzer (port 5008) is the **measurement half of the closed
+Auto-Fit & Optimiser (port 5107) is the **measurement half of the closed
 synthesis loop**. It watches the SAXS `Subtracted` folder and, as each new
 profile appears, auto-fits a polydisperse-sphere model to extract size,
 polydispersity, the (relative) Porod invariant, an ordered-phase classification
@@ -12,9 +15,9 @@ watches.
 The full loop:
 
 ```
-reactor (5007)  →  reduction (5001)  →  average (5002)  →  background (5003)
+reactor (5108)  →  reduction (5102)  →  average (5103)  →  background (5104)
        ↑                                                        ↓
-       └──── optimizer ←── analyzer (5008) ←──── quality (5006) ─┘
+       └──── optimizer ←── analyzer (5107) ←──── quality (5105) ─┘
              (writes 1D/SAXS/Conditions)
 ```
 

@@ -15,15 +15,15 @@ The platform is organized as nine small web apps, launched from one central hub.
 
 | # | App | Port | What it's for |
 |---|-----|------|---------------|
-| 🎯 | **Calibration & Raw Prep** | 5009 | Convert calibrant `.raw` → CBF and generate the pyFAI `.poni` files everything downstream needs; optional SFTP pull from the beamline host |
-| ⚙️ | **Reduction & Correction** | 5001 | Convert raw 2D detector images → 1D I(q) curves (PyFAI integration, transmission/normalization corrections) |
-| 📊 | **Visualisation & Average** | 5002 | Visualise 2D & 1D data, average repeated scans, view SAXS and WAXS together |
-| 🔬 | **Background Subtraction** | 5003 | Subtract buffer/background by keyword, scan-matching, or manual selection |
-| ✅ | **Quality Gate** | 5006 | AI good/bad grading of subtracted profiles — scoring, auto-sort into Good/NeedsReview, frame selection |
-| 📈 | **Data Analysis** | 5004 | Guinier, Porod, Kratky, pair-distance, peak fitting |
-| 🧪 | **Flow Synthesis (reactor)** | 5007 | 5-pump flow reactor **and** beamline control: sets temperature (SPEC `csettemp`) and triggers 2D collection (shutter + a configurable collect command, default `ct`) through the SPEC bServer, plus auto-flush |
-| 🔁 | **Nanoparticle Analyzer** | 5008 | Fits nanoparticle size / PDI / phase from subtracted SAXS and proposes the next synthesis conditions (Bayesian optimization) — the brain of the autonomous loop |
-| 🤖 | **AI Assistant** | 5005 | Ask questions about your data, generate plots, get proactive quality hints |
+| 🎯 | **Calibration & Raw Prep** | 5101 | Convert calibrant `.raw` → CBF and generate the pyFAI `.poni` files everything downstream needs; optional SFTP pull from the beamline host |
+| ⚙️ | **Reduction & Correction** | 5102 | Convert raw 2D detector images → 1D I(q) curves (PyFAI integration, transmission/normalization corrections) |
+| 📊 | **Visualisation & Average** | 5103 | Visualise 2D & 1D data, average repeated scans, view SAXS and WAXS together |
+| 🔬 | **Background Subtraction** | 5104 | Subtract buffer/background by keyword, scan-matching, or manual selection |
+| ✅ | **Quality Gate** | 5105 | AI good/bad grading of subtracted profiles — scoring, auto-sort into Good/NeedsReview, frame selection |
+| 📈 | **Data Analysis** | 5106 | Guinier, Porod, Kratky, pair-distance, peak fitting |
+| 🔁 | **Auto-Fit & Optimiser** | 5107 | Fits nanoparticle size / PDI / phase from subtracted SAXS and proposes the next synthesis conditions (Bayesian optimization) — the brain of the autonomous loop |
+| 🧪 | **Flow Synthesis (reactor)** | 5108 | 5-pump flow reactor **and** beamline control: sets temperature (SPEC `csettemp`) and triggers 2D collection (shutter + a configurable collect command, default `ct`) through the SPEC bServer, plus auto-flush |
+| 🤖 | **Tassone Group** (AI assistant) | 5109 | Ask questions about your data, generate plots, get proactive quality hints |
 
 A typical **data** session: **reduce → view & average → subtract background → quality-gate → analyze**, with the assistant available throughout.
 
@@ -145,7 +145,7 @@ In the same terminal, still with the environment active:
 | **Windows PowerShell** | `.\start_platform.ps1` | |
 | **Anaconda Prompt** | `start_platform.bat` | also works by **double-clicking** it in File Explorer |
 
-Then open **http://localhost:5000** in your browser. That's the hub.
+Then open **http://localhost:5100** in your browser. That's the hub.
 
 The launcher tells you what it found — interpreter, Python version, whether the
 dependencies are installed — and stops with a clear message instead of a stack
@@ -154,11 +154,12 @@ trace if something is missing.
 <details open>
 <summary>Two things that occasionally get in the way</summary>
 
-- **Port 5000 is busy on macOS.** AirPlay Receiver uses it. Either run
-  `SWAXS_HUB_PORT=5100 ./start_platform.sh`, or switch AirPlay Receiver off in
+- **Port 5100 is busy.** The hub uses 5100 (apps 5101-5109) precisely to dodge
+  macOS AirPlay Receiver, which owns 5000. If 5100 itself is taken, run
+  `SWAXS_HUB_PORT=5200 ./start_platform.sh`, or switch AirPlay Receiver off in
   System Settings → General → AirDrop & Handoff.
 - **Headless Linux server.** Plots render server-side, so no display is needed —
-  forward the port: `ssh -L 5000:localhost:5000 you@server`.
+  forward the port: `ssh -L 5100:localhost:5100 you@server`.
 
 </details>
 

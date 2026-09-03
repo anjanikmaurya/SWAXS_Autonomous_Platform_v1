@@ -133,7 +133,7 @@ if ($ProjectFolder) {
     Write-Step "Project: pick it in the hub UI (top-right)"
 }
 
-$hubPort = if ($env:SWAXS_HUB_PORT) { $env:SWAXS_HUB_PORT } else { "5000" }
+$hubPort = if ($env:SWAXS_HUB_PORT) { $env:SWAXS_HUB_PORT } else { "5100" }
 
 Write-Host ""
 Write-Host "  +======================================================+"
@@ -141,15 +141,15 @@ Write-Host "  |   SWAXS Platform Hub                                 |"
 Write-Host "  |   -> http://localhost:$hubPort                            |"
 Write-Host "  |                                                      |"
 Write-Host "  |   Apps (started from the hub UI):                     |"
-Write-Host "  |     5009 Calibration & Raw Prep                       |"
-Write-Host "  |     5001 Reduction & Correction                       |"
-Write-Host "  |     5002 Visualisation & Average                      |"
-Write-Host "  |     5003 Background Subtraction                       |"
-Write-Host "  |     5006 Quality Gate                                 |"
-Write-Host "  |     5004 Data Analysis                                |"
-Write-Host "  |     5008 Nanoparticle Analyzer                        |"
-Write-Host "  |     5007 Flow Synthesis (reactor)                     |"
-Write-Host "  |     5005 Tassone Group                                |"
+Write-Host "  |     5101 Calibration & Raw Prep                       |"
+Write-Host "  |     5102 Reduction & Correction                       |"
+Write-Host "  |     5103 Visualisation & Average                      |"
+Write-Host "  |     5104 Background Subtraction                       |"
+Write-Host "  |     5105 Quality Gate                                 |"
+Write-Host "  |     5106 Data Analysis                                |"
+Write-Host "  |     5107 Auto-Fit & Optimiser                         |"
+Write-Host "  |     5108 Flow Synthesis (reactor)                     |"
+Write-Host "  |     5109 Tassone Group                                |"
 Write-Host "  |                                                      |"
 Write-Host "  |   Press  Ctrl-C  to stop the hub AND its apps          |"
 Write-Host "  +======================================================+"

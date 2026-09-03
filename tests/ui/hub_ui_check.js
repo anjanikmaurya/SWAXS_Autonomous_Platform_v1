@@ -28,7 +28,7 @@ const APPS = ['calibration','reduction','average','background','quality',
 function frame(over) {
   const apps = {};
   for (const id of APPS)
-    apps[id] = {running:false, healthy:false, port:5000, pid:null,
+    apps[id] = {running:false, healthy:false, port:5100, pid:null,
                 summary:null, crashed:null};
   Object.assign(apps, over || {});
   return {apps, project_root:'/data/Auto_Run', ws_clients:0,
@@ -49,7 +49,7 @@ function stub(w) {
 }
 
 const dom = new JSDOM(html, {runScripts:'dangerously', pretendToBeVisual:true,
-                             virtualConsole:vc, url:'http://localhost:5000/',
+                             virtualConsole:vc, url:'http://localhost:5100/',
                              beforeParse:stub});
 const w = dom.window;
 
@@ -70,13 +70,13 @@ const w = dom.window;
   ok(!box('reduction'), 'no crash box on a stopped card');
 
   // 2. running and healthy
-  ES.last.emit(frame({reduction:{running:true, healthy:true, port:5001, pid:42,
+  ES.last.emit(frame({reduction:{running:true, healthy:true, port:5102, pid:42,
                                  summary:null, crashed:null}}));
   await new Promise(r => setTimeout(r, 60));
   ok(/running/i.test(lbl('reduction')), `healthy card, got "${lbl('reduction')}"`);
 
   // 3. THE REGRESSION: a crash with no exit code must never render "null"
-  ES.last.emit(frame({reduction:{running:false, healthy:false, port:5001, pid:null,
+  ES.last.emit(frame({reduction:{running:false, healthy:false, port:5102, pid:null,
       summary:null, crashed:{exit_code:null, reason:'reason unknown', at:1, tail:[]}}}));
   await new Promise(r => setTimeout(r, 60));
   ok(/CRASHED/.test(lbl('reduction')), 'crash is announced');
@@ -85,7 +85,7 @@ const w = dom.window;
   ok(/reason unknown/.test(lbl('reduction')), 'the reason is shown');
 
   // 4. a real crash shows the reason and the log tail inline
-  ES.last.emit(frame({reduction:{running:false, healthy:false, port:5001, pid:null,
+  ES.last.emit(frame({reduction:{running:false, healthy:false, port:5102, pid:null,
       summary:null, crashed:{exit_code:1, reason:'exit 1', at:1,
       tail:['Traceback (most recent call last):',
             "  File \"reduction/app.py\", line 12",
@@ -98,14 +98,14 @@ const w = dom.window;
      'the tail names the log file');
 
   // 5. signal deaths read as a signal, not a negative number
-  ES.last.emit(frame({quality:{running:false, healthy:false, port:5006, pid:null,
+  ES.last.emit(frame({quality:{running:false, healthy:false, port:5105, pid:null,
       summary:null, crashed:{exit_code:-9, reason:'killed by SIGKILL', at:1, tail:[]}}}));
   await new Promise(r => setTimeout(r, 60));
   ok(/killed by SIGKILL/.test(lbl('quality')), `got "${lbl('quality')}"`);
   ok(!/-9/.test(lbl('quality')), 'a raw negative exit code was shown');
 
   // 6. recovery clears both the badge and the box
-  ES.last.emit(frame({reduction:{running:true, healthy:true, port:5001, pid:99,
+  ES.last.emit(frame({reduction:{running:true, healthy:true, port:5102, pid:99,
                                  summary:null, crashed:null}}));
   await new Promise(r => setTimeout(r, 60));
   ok(!/CRASHED/.test(lbl('reduction')), 'crash badge cleared after a restart');

@@ -1,5 +1,5 @@
 """
-reactor/app.py — Flow Synthesis (port 5007)
+reactor/app.py — Flow Synthesis (port 5108)
 ============================================
 Pump-control / execution layer for the 5-pump continuous-flow nanoparticle
 reactor (Fong et al., J. Chem. Phys. 154, 224201, 2021).  Receives an
@@ -9,7 +9,7 @@ BO/SAXS optimization itself lives elsewhere.
 All hardware + run logic is in src/reactor/.  This file is a thin Flask shell:
 routes, SSE, the recipes-folder watcher, and the hub event-bus wiring.
 
-Run:  python reactor/app.py    Open: http://localhost:5007
+Run:  python reactor/app.py    Open: http://localhost:5108
       (from the activated venv — see CLAUDE.md)
 """
 
@@ -755,7 +755,7 @@ def api_stream():
 if __name__ == "__main__":
     _project_root = os.environ.get("SWAXS_PROJECT", "")
     print("━" * 52)
-    print("  Flow Synthesis (reactor)  ·  http://localhost:5007")
+    print("  Flow Synthesis (reactor)  ·  http://localhost:5108")
     print(f"  backend = {_BACKEND}   (set SWAXS_REACTOR_BACKEND=real for hardware)")
     print("━" * 52)
-    app.run(host="127.0.0.1", port=5007, debug=False, threaded=True)
+    app.run(host="127.0.0.1", port=5108, debug=False, threaded=True)

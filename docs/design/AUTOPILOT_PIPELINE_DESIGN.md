@@ -11,7 +11,7 @@
 > `_qc_metrics` (`:319`) and `_process_one` (`:1169`) — exactly the functions
 > §4 says must move.
 >
-> **Port 5009 is taken.** §5 proposes 5009 for the autopilot UI shell; the
+> **Port 5101 is taken.** §5 proposes 5101 for the autopilot UI shell; the
 > calibration app has since claimed it (`apps.yml`). Whoever builds this must
 > pick another port.
 >
@@ -117,7 +117,7 @@ autopilot/            # optional thin UI shell: Start/Stop, unified log,
   templates/index.html
 ```
 
-Port 5009 was originally proposed for `autopilot/app.py`. **It is now the
+Port 5101 was originally proposed for `autopilot/app.py`. **It is now the
 calibration app's** — pick a free one (5010+) and register it in `apps.yml`.
 
 The reactor gains a lightweight hook to announce completed collections (see §6).
@@ -247,7 +247,7 @@ None of these have been done.
 5. **Event trigger:** reactor `collection_cb` → orchestrator; deprecate the 3 manual
    monitors for the autonomous path (keep them for manual use).
 6. Thin `autopilot/app.py` UI (Start/Stop, pre-flight, dry-run, status table) + hub
-   registration, on a port other than 5009.
+   registration, on a port other than 5101.
 
 Each phase is shippable and testable on its own; the interactive apps keep working
 throughout.

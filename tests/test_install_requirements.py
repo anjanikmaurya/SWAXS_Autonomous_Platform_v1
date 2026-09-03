@@ -242,7 +242,7 @@ def test_readme_has_the_install_inline_for_every_platform():
         ("conda activate swaxs", "conda route is incomplete"),
         ("start_platform.ps1", "PowerShell launcher not mentioned"),
         ("start_platform.bat", "batch launcher not mentioned"),
-        ("localhost:5000", "never tells the user where to open the UI"),
+        ("localhost:5100", "never tells the user where to open the UI"),
     ]:
         assert needle in qs, f"README Quick start: {why}"
 

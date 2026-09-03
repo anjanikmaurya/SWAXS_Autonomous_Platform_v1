@@ -103,12 +103,19 @@ def test_no_doc_claims_a_wrong_number_of_apps(apps):
     assert not wrong, "stale app counts:\n  " + "\n  ".join(wrong)
 
 
+#: A doc may name a port the platform does NOT serve when it is explaining why
+#: we avoid it (macOS AirPlay owns 5000) or recording that we left it (the
+#: 5000-5009 block, used until September 2026). Both are the doc doing its job.
+_PORT_CONTEXT_OK = ("AirPlay", "moved off", "no longer", "used to", "until",
+                    "historical", "was on", "before September 2026", "instead of")
+
+
 def test_every_port_a_doc_mentions_is_a_real_port(apps):
-    real = {5000} | {a["port"] for a in apps}
+    real = {5100} | {a["port"] for a in apps}
     bad = []
     for md in _docs():
         for i, line in enumerate(md.read_text(errors="ignore").splitlines(), 1):
-            if _disclaims(line):
+            if _disclaims(line) or any(w in line for w in _PORT_CONTEXT_OK):
                 continue
             for port in re.findall(r"\b(50[0-9][0-9])\b", line):
                 if int(port) not in real:
@@ -117,14 +124,14 @@ def test_every_port_a_doc_mentions_is_a_real_port(apps):
 
 
 def test_the_calibration_app_is_documented(apps):
-    """It shipped on 5009 and was missing from the README table, CLAUDE.md, the
+    """It shipped on 5101 and was missing from the README table, CLAUDE.md, the
     .sh banner and the operator runbook - the whole first stage of the pipeline
     was invisible."""
     assert any(a["id"] == "calibration" for a in apps)
     for doc in ("README.md", "CLAUDE.md", "QUICKSTART.md",
                 "docs/AUTONOMOUS_RUN_STEPS.md"):
         txt = (ROOT / doc).read_text()
-        assert "5009" in txt, f"{doc} never mentions port 5009"
+        assert "5101" in txt, f"{doc} never mentions port 5101"
         assert "alibration" in txt, f"{doc} never mentions the calibration app"
 
 
@@ -191,7 +198,7 @@ def test_the_shell_launcher_starts_the_hub_with_a_real_interpreter():
 
 
 def test_all_three_launcher_banners_list_every_app(apps):
-    """Three banners drifted independently; 5009 was missing from the .sh one."""
+    """Three banners drifted independently; 5101 was missing from the .sh one."""
     for name in ("start_platform.sh", "start_platform.ps1", "start_platform.bat"):
         txt = (ROOT / name).read_text()
         missing = [str(a["port"]) for a in apps if str(a["port"]) not in txt]

@@ -12,7 +12,7 @@
 
 **AI-first.** The data contract, event system, and memory layers are designed before individual app UIs. Every app inherits AI awareness automatically on registration — no retrofitting.
 
-**Hub-and-spoke + event bus.** The hub (port 5000) is both a process manager and a WebSocket event broker. Apps never call each other directly; they publish events and subscribe to others through the hub.
+**Hub-and-spoke + event bus.** The hub (port 5100) is both a process manager and a WebSocket event broker. Apps never call each other directly; they publish events and subscribe to others through the hub.
 
 **All logic in `src/`.** Apps remain thin Flask shells. New apps that follow the pattern get AI integration and provenance tracking for free.
 
@@ -38,8 +38,8 @@ table to tell the difference between shipped code and planned work.
 | SAXS+WAXS auto-stitching | **Never built** | No `src/reduction/stitch.py`, no `auto_stitch()`. The average app's "Stitch SAXS+WAXS" is a display-only checkbox (`average/templates/index.html:1182`, `2338-2345`): it co-plots the two curves, computes no scale factor and writes no merged file |
 
 Four apps shipped after this document was written and are not described
-anywhere below: **calibration** (:5009), **quality** (:5006), **reactor**
-(:5007), **analyzer** (:5008). See `apps.yml` for the live registry and
+anywhere below: **calibration** (:5101), **quality** (:5105), **reactor**
+(:5108), **analyzer** (:5107). See `apps.yml` for the live registry and
 `README.md` for what each one does.
 
 > Note: the section 5 module map has been regenerated from the tree. Earlier
@@ -53,7 +53,7 @@ anywhere below: **calibration** (:5009), **quality** (:5006), **reactor**
 
 ```
                           ┌─────────────────────────────────┐
-                          │  Hub  :5000                      │
+                          │  Hub  :5100                      │
                           │  • Dynamic app registry (apps.yml)│
                           │  • Subprocess manager            │
                           │  • WebSocket event broker /ws    │
@@ -64,15 +64,15 @@ anywhere below: **calibration** (:5009), **quality** (:5006), **reactor**
               └───────────────────────────┬───────────────────────────┘
                                           │
         ┌─────────────────────────────────┴─────────────────────────────────┐
-        │  :5009  Calibration      .raw → CBF, pyFAI .poni generation       │
-        │  :5001  Reduction        2D → 1D, corrections, normalization      │
-        │  :5002  Average          2D/1D display, scan averaging            │
-        │  :5003  Background       keyword / scan-matched / manual subtract  │
-        │  :5006  Quality Gate     good/bad grading, auto-sort              │
-        │  :5004  Analysis         Guinier, Porod, Kratky, p(r), models     │
-        │  :5008  Analyzer         auto-fit size/PDI + Bayesian optimizer   │
-        │  :5007  Reactor          5-pump flow synthesis + SPEC control     │
-        │  :5005  AI Assistant     interpretation, hints, inline plots      │
+        │  :5101  Calibration      .raw → CBF, pyFAI .poni generation       │
+        │  :5102  Reduction        2D → 1D, corrections, normalization      │
+        │  :5103  Average          2D/1D display, scan averaging            │
+        │  :5104  Background       keyword / scan-matched / manual subtract  │
+        │  :5105  Quality Gate     good/bad grading, auto-sort              │
+        │  :5106  Analysis         Guinier, Porod, Kratky, p(r), models     │
+        │  :5107  Analyzer         auto-fit size/PDI + Bayesian optimizer   │
+        │  :5108  Reactor          5-pump flow synthesis + SPEC control     │
+        │  :5109  AI Assistant     interpretation, hints, inline plots      │
         └─────────────────────────────────┬─────────────────────────────────┘
                                           │
               closed loop: reactor → SPEC collect → reduction → averaging
@@ -96,7 +96,7 @@ anywhere below: **calibration** (:5009), **quality** (:5006), **reactor**
 
 **Pattern:** Hub-mediated WebSocket pub/sub using `flask-sock`.
 
-Apps connect to `ws://localhost:5000/ws` on startup. Each message is a JSON object:
+Apps connect to `ws://localhost:5100/ws` on startup. Each message is a JSON object:
 
 ```json
 {
@@ -161,15 +161,15 @@ Shipped entries, in registry order:
 
 | id | port | entry | manifest_key | knowledge |
 |---|---|---|---|---|
-| calibration | 5009 | `calibration/app.py` | — | **none** |
-| reduction | 5001 | `reduction/app.py` | `files` | yes |
-| average | 5002 | `average/app.py` | `files` | yes |
-| background | 5003 | `background/app.py` | `background` | yes |
-| quality | 5006 | `quality/app.py` | `quality` | yes |
-| analysis | 5004 | `analysis/app.py` | `analyses` | yes |
-| reactor | 5007 | `reactor/app.py` | `reactor` | yes |
-| analyzer | 5008 | `analyzer/app.py` | `analyses` | **none** |
-| assistant | 5005 | `assistant/app.py` | `ai_memory` | yes |
+| calibration | 5101 | `calibration/app.py` | — | **none** |
+| reduction | 5102 | `reduction/app.py` | `files` | yes |
+| average | 5103 | `average/app.py` | `files` | yes |
+| background | 5104 | `background/app.py` | `background` | yes |
+| quality | 5105 | `quality/app.py` | `quality` | yes |
+| analysis | 5106 | `analysis/app.py` | `analyses` | yes |
+| reactor | 5108 | `reactor/app.py` | `reactor` | yes |
+| analyzer | 5107 | `analyzer/app.py` | `analyses` | **none** |
+| assistant | 5109 | `assistant/app.py` | `ai_memory` | yes |
 
 calibration and analyzer carry no `knowledge:` key, so the assistant has no
 indexed description of either — questions about `.poni` generation or the
@@ -515,7 +515,7 @@ Live versions, from `requirements.txt` / `requirements-core.txt` /
 `requirements-ai.txt`:
 
 ```
-flask-sock>=0.7            # WebSocket event bus (hub :5000/ws)
+flask-sock>=0.7            # WebSocket event bus (hub :5100/ws)
 simple-websocket>=1.0      # flask-sock's transport
 pyyaml>=6.0                # config.yml, apps.yml
 anthropic>=0.40            # Claude API client

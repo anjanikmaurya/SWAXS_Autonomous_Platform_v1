@@ -1,5 +1,5 @@
 """
-hub/app.py — SWAXS Platform Hub (port 5000)
+hub/app.py — SWAXS Platform Hub (port 5100)
 ============================================
 Central launcher: reads apps.yml to discover sub-apps, starts/stops them as
 independent subprocesses, streams live status via SSE, lets the user pick
@@ -7,11 +7,11 @@ the project folder, and serves the WebSocket event bus at /ws.
 
 Run:  python hub/app.py              (from the activated venv — see CLAUDE.md;
                                      or use ./start_platform.sh)
-Open: http://localhost:5000
+Open: http://localhost:5100
 
 Event bus
 ---------
-All sub-apps connect to ws://localhost:5000/ws on startup.
+All sub-apps connect to ws://localhost:5100/ws on startup.
 The hub broadcasts every incoming message to all other connected apps and
 appends it to manifest["events"] (rolling last 100) if a project is active.
 """
@@ -83,13 +83,15 @@ except ImportError:
 
 # ── App registry ──────────────────────────────────────────────────────────────
 
-#: The hub's own port. Overridable because 5000 collides with AirPlay Receiver on
-#: macOS and with assorted dev servers elsewhere; an operator needs an escape
-#: hatch that does not involve editing code.
+#: The hub's own port. 5100, not 5000: on macOS Monterey+ AirPlay Receiver
+#: holds 5000, so the old default could not bind on a stock Mac. Still
+#: overridable — Hyper-V/WSL2 on Windows reserves random ~100-port blocks and
+#: has been seen to swallow 5100-5109, and an operator needs an escape hatch
+#: that does not involve editing code.
 try:
-    _HUB_PORT = int(os.environ.get("SWAXS_HUB_PORT", "5000") or 5000)
+    _HUB_PORT = int(os.environ.get("SWAXS_HUB_PORT", "5100") or 5100)
 except ValueError:
-    _HUB_PORT = 5000
+    _HUB_PORT = 5100
 
 _APPS_YML = _ROOT / "apps.yml"
 
@@ -817,21 +819,21 @@ def _hub_port_error(reason: str) -> None:
     """Explain an unusable hub port and give the operator a way out.
 
     A bare `OSError: [Errno 48] Address already in use` is a poor answer to
-    "start the platform", especially on macOS where port 5000 belongs to AirPlay
-    Receiver by default.
+    "start the platform", especially on macOS, where AirPlay Receiver owns
+    port 5000 (which is why the hub no longer defaults to it).
     """
     print()
     print(f"  ✗ {reason}")
     for h in pl.listeners(_HUB_PORT):
         d = pl.describe(h)
         print(f"    held by PID {d['pid']} ({d['name']}): {d['cmdline'][:110]}")
-    if _HUB_PORT == 5000 and sys.platform == "darwin":
-        print("    On macOS, port 5000 is also used by AirPlay Receiver.")
+    if _HUB_PORT in (5000, 7000) and sys.platform == "darwin":
+        print(f"    On macOS, port {_HUB_PORT} is used by AirPlay Receiver.")
         print("    Turn it off in System Settings → General → AirDrop & Handoff,")
         print("    or run the hub on a different port:")
     else:
         print("    Free that port, or run the hub on a different one:")
-    print("        SWAXS_HUB_PORT=5100 ./start_platform.sh")
+    print("        SWAXS_HUB_PORT=5200 ./start_platform.sh")
     print()
 
 
@@ -843,10 +845,10 @@ if __name__ == "__main__":
     # The hub's OWN port. If a previous hub is still bound to it, take it back;
     # otherwise say nothing and let Flask bind.
     #
-    # This must NEVER refuse to start on the basis of the process table. On macOS,
-    # AirPlay Receiver (ControlCenter) listens on port 5000 and a Flask app binds
-    # 127.0.0.1:5000 alongside it perfectly happily — so "port 5000 is held by
-    # ControlCenter" is not a reason to give up. `can_bind` asks the kernel the
+    # This must NEVER refuse to start on the basis of the process table. The
+    # original case: on macOS, AirPlay Receiver (ControlCenter) listens on port
+    # 5000 and a Flask app binds 127.0.0.1:5000 alongside it perfectly happily —
+    # so "the port is held by ControlCenter" is not a reason to give up. `can_bind` asks the kernel the
     # only question that matters, and if the answer is still no, Flask's own
     # error is more trustworthy than anything we could infer.
     if not pl.can_bind(_HUB_PORT):

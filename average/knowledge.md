@@ -6,7 +6,7 @@ called `viewer` before September 2026, so older logs and `.swaxs_state` files
 may still use that name.
 
 ## Purpose
-The Visualisation & Average app (port 5002) displays, selects, and averages 1D scattering curves
+The Visualisation & Average app (port 5103) displays, selects, and averages 1D scattering curves
 produced by the Reduction app. It groups frames by keyword, lets users pick which
 frames to include, and writes averaged curves as `.dat` files. It also previews
 raw 2D detector images and runs an auto-averaging monitor for unattended runs.

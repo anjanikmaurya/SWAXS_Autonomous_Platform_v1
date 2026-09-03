@@ -80,12 +80,13 @@ yellow are normal; red `ERROR:` lines are not — see
 ./start_platform.sh
 ```
 
-Then open **http://localhost:5000** in your browser.
+Then open **http://localhost:5100** in your browser.
 
-> **If port 5000 is taken:** macOS uses it for AirPlay Receiver. The hub usually
-> shares it fine. If it genuinely can't bind, either turn AirPlay Receiver off in
-> System Settings → General → AirDrop & Handoff, or run
-> `SWAXS_HUB_PORT=5100 ./start_platform.sh` and use `localhost:5100`.
+> **If port 5100 is taken:** the hub uses 5100 (and the apps 5101–5109) to stay
+> clear of macOS AirPlay Receiver, which owns 5000. If 5100 itself is busy, run
+> `SWAXS_HUB_PORT=5200 ./start_platform.sh` and use `localhost:5200`. On Windows
+> a port can be blocked with nothing running on it — see the troubleshooting
+> section at the end.
 
 ---
 
@@ -155,7 +156,7 @@ python -m pip install -r requirements-core.txt
 .\start_platform.ps1
 ```
 
-Then open **http://localhost:5000**.
+Then open **http://localhost:5100**.
 
 The script checks your Python version and that the packages are present, and
 tells you exactly what to run if something is missing.
@@ -209,7 +210,7 @@ what's missing (flask, pyFAI, fabio, xraydb, …).
 start_platform.bat
 ```
 
-Then open **http://localhost:5000**.
+Then open **http://localhost:5100**.
 
 > `start_platform.bat` also works by **double-clicking it** in File Explorer,
 > and needs no execution-policy change.
@@ -250,17 +251,17 @@ pip install -r requirements-core.txt
 ./start_platform.sh
 ```
 
-Then open **http://localhost:5000**.
+Then open **http://localhost:5100**.
 
 > Headless server? The plots are rendered server-side (matplotlib Agg), so no
 > display is needed. To reach the UI from your laptop, forward the port:
-> `ssh -L 5000:localhost:5000 you@server`.
+> `ssh -L 5100:localhost:5100 you@server`.
 
 ---
 
 ## First run (all platforms)
 
-You should see a banner in the terminal and, at **http://localhost:5000**, nine
+You should see a banner in the terminal and, at **http://localhost:5100**, nine
 app cards.
 
 **1. Choose your project folder.** Top-right of the hub page. This is the folder
@@ -283,15 +284,15 @@ green, then **↗ Open**. Work left to right:
 
 | # | App | Port | Does |
 |---|-----|------|------|
-| 1 | Calibration & Raw Prep | 5009 | copy data off the beamline, check calibration |
-| 2 | Reduction & Correction | 5001 | 2D images → 1D curves |
-| 3 | Visualisation & Average | 5002 | average the curves |
-| 4 | Background Subtraction | 5003 | subtract the blank |
-| 5 | Quality Gate | 5006 | sort good vs needs-review |
-| 6 | Data Analysis | 5004 | Guinier, Porod, Kratky, model fits |
-| 7 | Nanoparticle Analyzer | 5008 | automatic size + PDI, closed-loop optimiser |
-| 8 | Flow Synthesis | 5007 | the 5-pump reactor (mock by default) |
-| 9 | AI Assistant | 5005 | answers questions about the experiment |
+| 1 | Calibration & Raw Prep | 5101 | copy data off the beamline, check calibration |
+| 2 | Reduction & Correction | 5102 | 2D images → 1D curves |
+| 3 | Visualisation & Average | 5103 | average the curves |
+| 4 | Background Subtraction | 5104 | subtract the blank |
+| 5 | Quality Gate | 5105 | sort good vs needs-review |
+| 6 | Data Analysis | 5106 | Guinier, Porod, Kratky, model fits |
+| 7 | Auto-Fit & Optimiser | 5107 | automatic size + PDI, closed-loop optimiser |
+| 8 | Flow Synthesis | 5108 | the 5-pump reactor (mock by default) |
+| 9 | Tassone Group | 5109 | the AI assistant — answers questions about the experiment |
 
 **3. Stop.** Press **■ Stop** on a card, or `Ctrl-C` in the terminal to close the
 hub — which closes every app with it.
@@ -341,6 +342,32 @@ them — the app says what's missing and keeps working.
 
 ---
 
+## Upgrading from a version before September 2026
+
+If you used the platform earlier, three things moved. Nothing about your **data**
+changed — project folders, `config.yml` and `manifest.json` are all unaffected.
+
+| Was | Now | Why |
+|---|---|---|
+| Hub on **5000**, apps 5001–5009 | Hub on **5100**, apps **5101–5109** | macOS AirPlay Receiver owns 5000, so the hub could not bind on a stock Mac |
+| **Data Viewer** (`viewer/`) | **Visualisation & Average** (`average/`) | the folder name said "viewer" while the app's main job is averaging |
+| **Nanoparticle Analyzer** | **Auto-Fit & Optimiser** | the old name hid the Bayesian optimizer half, and read like a sibling of Data Analysis |
+| **Tassone Group Assistant** | **Tassone Group** | shorter |
+
+What to do:
+
+- **Update your bookmarks** — the hub used to be on `localhost:5000`; it is now
+  `localhost:5100`.
+- **`git pull`, then just start it.** No reinstall, no config edit.
+- Old `logs/viewer.log` and `.swaxs_state/viewer_monitor.json` are dead files;
+  the app writes `average.log` and `average_monitor.json` now. Deleting the old
+  ones is safe but not required.
+- Manifests written before the rename record `"app": "viewer"` in their
+  provenance. That is deliberate — those files really were produced under the
+  old name — and nothing in the code compares against it.
+
+---
+
 ## Troubleshooting
 
 Ordered by how often it actually happens.
@@ -376,13 +403,28 @@ ticked, or try `py` instead of `python`. In Anaconda Prompt, make sure you ran
 chmod +x start_platform.sh
 ```
 
-### “Port 5000 is already in use” / the page won't load
-- **macOS:** AirPlay Receiver also uses 5000. Turn it off in System Settings →
-  General → AirDrop & Handoff, or use another port:
-  `SWAXS_HUB_PORT=5100 ./start_platform.sh`.
-- **Windows/Linux:** something else is on that port. Use
-  `$env:SWAXS_HUB_PORT="5100"` (PowerShell) or
-  `set SWAXS_HUB_PORT=5100` (Anaconda Prompt) before starting.
+### “Port 5100 is already in use” / the page won't load
+The platform uses **5100 (hub) and 5101–5109 (apps)**. It moved off 5000–5009 in
+September 2026 because macOS AirPlay takes port 5000 for itself (below).
+
+- **macOS:** AirPlay Receiver listens on 5000 and 7000 on Monterey and later, so
+  the old hub port could not bind on a stock Mac. 5100 avoids it. If you still
+  hit a clash, check with `lsof -i :5100`, or pick another port:
+  `SWAXS_HUB_PORT=5200 ./start_platform.sh`.
+- **Windows:** Hyper-V and WSL2 reserve *random* blocks of ~100 ports, and ranges
+  overlapping 5100–5109 have been seen in the wild. This is the one case where
+  the port is blocked even though nothing is running on it. Check with:
+  ```powershell
+  netsh int ipv4 show excludedportrange protocol=tcp
+  ```
+  If our range appears there, either start the platform on a free range
+  (`$env:SWAXS_HUB_PORT="5200"`) or reserve ours back, as Administrator:
+  ```powershell
+  netsh int ipv4 add excludedportrange protocol=tcp startport=5100 numberofports=10
+  ```
+  (run before Hyper-V claims it — i.e. right after a reboot).
+- **Linux:** something else is genuinely on that port; `ss -ltnp | grep 510`
+  names it. Use `SWAXS_HUB_PORT=5200 ./start_platform.sh`.
 - **A previous hub is still running:** the new hub detects it and takes the port
   back automatically. If it reports a foreign process, the message names it.
 

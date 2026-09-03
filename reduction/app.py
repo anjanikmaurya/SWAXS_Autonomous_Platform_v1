@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-reduction/app.py — Reduction & Correction Flask backend (port 5001)
+reduction/app.py — Reduction & Correction Flask backend (port 5102)
 ====================================================================
 Launch (from the activated venv — see CLAUDE.md; `uv run` is NOT supported here):
     python reduction/app.py
 
-Then open  http://localhost:5001  in any browser.
+Then open  http://localhost:5102  in any browser.
 
 For multi-day continuous operation use gunicorn instead of the dev server:
-    gunicorn -w 1 --threads 8 -b 127.0.0.1:5001 "reduction.app:app"
+    gunicorn -w 1 --threads 8 -b 127.0.0.1:5102 "reduction.app:app"
 
 Routes
 ------
@@ -913,13 +913,13 @@ if __name__ == "__main__":
     print()
     print("  ┌─────────────────────────────────────────────────────────────┐")
     print("  │   SWAXS Reduction & Correction App                          │")
-    print("  │   Open  http://localhost:5001  in a browser                 │")
+    print("  │   Open  http://localhost:5102  in a browser                 │")
     print("  │                                                             │")
     print("  │   For multi-day runs, use gunicorn instead:                 │")
-    print("  │   gunicorn -w 1 --threads 8 -b 127.0.0.1:5001 \\            │")
+    print("  │   gunicorn -w 1 --threads 8 -b 127.0.0.1:5102 \\            │")
     print("  │       'reduction.app:app'                                   │")
     print("  │                                                             │")
     print("  │   Press  Ctrl-C  to stop                                    │")
     print("  └─────────────────────────────────────────────────────────────┘")
     print()
-    app.run(host="127.0.0.1", port=5001, debug=False, threaded=True)
+    app.run(host="127.0.0.1", port=5102, debug=False, threaded=True)

@@ -8,7 +8,7 @@
 #   ./start_platform.sh
 #   ./start_platform.sh /path/to/experiment   # pre-set project folder
 #
-# Open:  http://localhost:5000
+# Open:  http://localhost:5100
 # ──────────────────────────────────────────────────────────────────────────────
 
 cd "$(dirname "$0")"
@@ -46,18 +46,18 @@ fi
 echo ""
 echo "  ╔══════════════════════════════════════════════════════╗"
 echo "  ║   SWAXS Platform Hub                                 ║"
-echo "  ║   → http://localhost:${SWAXS_HUB_PORT:-5000}                            ║"
+echo "  ║   → http://localhost:${SWAXS_HUB_PORT:-5100}                            ║"
 echo "  ║                                                      ║"
 echo "  ║   Apps (started from the hub UI):                    ║"
-echo "  ║     5009 Calibration & Raw Prep                      ║"
-echo "  ║     5001 Reduction & Correction                      ║"
-echo "  ║     5002 Visualisation & Average                     ║"
-echo "  ║     5003 Background Subtraction                      ║"
-echo "  ║     5006 Quality Gate (AI good/bad grading)          ║"
-echo "  ║     5007 Flow Synthesis (5-pump reactor control)     ║"
-echo "  ║     5004 Data Analysis                               ║"
-echo "  ║     5008 Nanoparticle Analyzer (auto SAXS fit)       ║"
-echo "  ║     5005 Tassone Group                               ║"
+echo "  ║     5101 Calibration & Raw Prep                      ║"
+echo "  ║     5102 Reduction & Correction                      ║"
+echo "  ║     5103 Visualisation & Average                     ║"
+echo "  ║     5104 Background Subtraction                      ║"
+echo "  ║     5105 Quality Gate (AI good/bad grading)          ║"
+echo "  ║     5106 Data Analysis                               ║"
+echo "  ║     5107 Auto-Fit & Optimiser (auto SAXS fit)        ║"
+echo "  ║     5108 Flow Synthesis (5-pump reactor control)     ║"
+echo "  ║     5109 Tassone Group                               ║"
 echo "  ║                                                      ║"
 echo "  ║   Press  Ctrl-C  to stop the hub AND its apps         ║"
 echo "  ╚══════════════════════════════════════════════════════╝"

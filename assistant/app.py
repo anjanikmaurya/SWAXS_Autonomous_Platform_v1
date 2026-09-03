@@ -1,5 +1,5 @@
 """
-assistant/app.py — SWAXS AI Assistant  (port 5005)
+assistant/app.py — SWAXS AI Assistant  (port 5109)
 ====================================================
 Flask API for the AI assistant chat interface.
 Powered by src.ai.assistant.SWAXSAssistant — full Claude API client with
@@ -18,7 +18,7 @@ Endpoints
   GET  /api/health               — health check
 
 Run:  python assistant/app.py        (from the activated venv — see CLAUDE.md)
-Open: http://localhost:5005
+Open: http://localhost:5109
 """
 
 from __future__ import annotations
@@ -109,9 +109,9 @@ logging.basicConfig(
 logger = logging.getLogger("swaxs_assistant")
 
 # ── Config ────────────────────────────────────────────────────────────────────
-PORT          = 5005
-HUB_URL       = os.environ.get("SWAXS_HUB_URL",  "ws://localhost:5000/ws")
-HUB_API       = os.environ.get("SWAXS_HUB_API",  "http://localhost:5000")
+PORT          = 5109
+HUB_URL       = os.environ.get("SWAXS_HUB_URL",  "ws://localhost:5100/ws")
+HUB_API       = os.environ.get("SWAXS_HUB_API",  "http://localhost:5100")
 BEAMLINE_ID   = os.environ.get("SWAXS_BEAMLINE",  "ssrl_1-5")
 SESSION_TTL_S = 7200   # 2-hour session expiry
 
