@@ -33,7 +33,7 @@ keeping the interactive apps for inspection.
 The loop's fragility is almost entirely **operational orchestration**, not
 science:
 
-- 3 monitors (reduction, viewer-average, background) + the analyzer campaign each
+- 3 monitors (reduction, average, background) + the analyzer campaign each
   start **manually** in separate processes; forgetting any one stalls the loop.
 - Stages hand off through **shared folders** with polling watchers → races, and
   **project-root drift** between processes (each app resolves the root itself).
@@ -63,7 +63,7 @@ class of problems.
 - A single-shot **dry-run** that exercises the whole chain and reports per-stage.
 
 **Non-goals**
-- Do **not** remove or merge the interactive apps. Viewer / Background / Quality /
+- Do **not** remove or merge the interactive apps. Visualisation & Average / Background / Quality /
   Analysis stay as the human "microscope" for inspection and manual re-processing.
 - Do not change the reduction/averaging/subtraction **science**; reuse it verbatim.
 
@@ -140,7 +140,7 @@ the exact path it wrote.
 
 > **Already shipped, as three processes.** The folder-poll mode described as the
 > fallback exists three times over: `reduction/app.py:501`,
-> `viewer/app.py:719`, `background/app.py:1378` each expose
+> `average/app.py:719`, `background/app.py:1378` each expose
 > `/api/monitor/start`. §13's "simplest first step" is therefore done — just not
 > in one process, which is the whole point of the design. `decide_intake` is
 > also already wired into the background monitor (`background/app.py:35`,

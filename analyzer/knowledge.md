@@ -12,14 +12,14 @@ watches.
 The full loop:
 
 ```
-reactor (5007)  →  reduction (5001)  →  viewer (5002)  →  background (5003)
+reactor (5007)  →  reduction (5001)  →  average (5002)  →  background (5003)
        ↑                                                        ↓
        └──── optimizer ←── analyzer (5008) ←──── quality (5006) ─┘
              (writes 1D/SAXS/Conditions)
 ```
 
 The reactor synthesises a condition, the beamline writes 2D frames, reduction
-makes 1D profiles, the viewer averages them, the background app subtracts, the
+makes 1D profiles, the average app averages them, the background app subtracts, the
 Quality Gate sorts them into `Good/`, the analyzer fits the accepted profiles, the
 optimizer turns the fit into a loss and proposes the next condition, and the
 reactor picks it up.

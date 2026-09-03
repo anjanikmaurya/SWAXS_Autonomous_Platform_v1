@@ -7,11 +7,11 @@ via the bServer, using the SAME driver the reactor uses. Sends NO control
 commands — completely safe to run anytime, including on the live beamline.
 
 Run the real thing (default):
-    uv run tools/beamline_read_test.py                 # poll ~1/s, Ctrl-C to stop
-    uv run tools/beamline_read_test.py --all           # dump every counter each poll
-    uv run tools/beamline_read_test.py --count 1       # single read then exit
+    python tools/beamline_read_test.py                 # poll ~1/s, Ctrl-C to stop
+    python tools/beamline_read_test.py --all           # dump every counter each poll
+    python tools/beamline_read_test.py --count 1       # single read then exit
 Dry-run with the simulator (no hardware):
-    uv run tools/beamline_read_test.py --mock
+    python tools/beamline_read_test.py --mock
 
 Counter names / bServer URL come from reactor/config.yml (spec:). Override the
 temperature counter on the fly with --temp-counter if you're still discovering it.

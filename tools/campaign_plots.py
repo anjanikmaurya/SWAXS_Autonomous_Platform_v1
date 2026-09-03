@@ -14,9 +14,9 @@ does make the form-factor fit less certain.
 
 Usage
 -----
-    uv run tools/campaign_plots.py --out docs/figures --budget 40 --seed 3
-    uv run tools/campaign_plots.py --snapshots 8,16,40      # slice at each stage
-    uv run tools/campaign_plots.py --replicates 12          # convergence stats
+    python tools/campaign_plots.py --out docs/figures --budget 40 --seed 3
+    python tools/campaign_plots.py --snapshots 8,16,40      # slice at each stage
+    python tools/campaign_plots.py --replicates 12          # convergence stats
 
 Outputs PNGs plus a campaign.json so the numbers quoted in the report can be
 re-derived without re-running.

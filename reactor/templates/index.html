@@ -641,7 +641,7 @@ function renderSlack(s){
       '<code>SWAXS_SLACK_WEBHOOK</code>) <b>or</b> email '+
       '(<code>SWAXS_SMTP_HOST</code> + <code>SWAXS_NOTIFY_EMAIL</code> — needs no '+
       'workspace approval), then restart. Check with '+
-      '<code>uv run tools/notify_test.py --check</code>.';
+      '<code>python tools/notify_test.py --check</code>.';
     return;
   }
   btn.disabled=false; tb.disabled=false;

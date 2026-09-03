@@ -49,6 +49,66 @@ __all__ = [
 ]
 
 
+def _weighted_linregress(
+    x: np.ndarray, y: np.ndarray, sigma_y: np.ndarray | None = None,
+) -> tuple[float, float, float]:
+    """
+    Weighted least-squares fit of ``y = intercept + slope*x``, weighted by
+    ``1/sigma_y**2`` (inverse-variance weighting — the standard treatment for
+    combining measurements of different precision; see e.g. Sedlak, Bruetzel &
+    Lipfert, *J. Appl. Cryst.* **50**, 621-630 (2017) and
+    ``docs/ERROR_PROPAGATION.md``). Without this, every point in a Guinier or
+    Porod fit counts equally regardless of how precisely it was measured, so a
+    noisy high-q point can pull the fit as hard as a clean low-q one.
+
+    Falls back to an ordinary (unweighted) fit — identical to
+    ``scipy.stats.linregress`` — when ``sigma_y`` is ``None`` or every supplied
+    value is non-positive/non-finite, so existing callers that do not have a
+    meaningful sigma see no change in behaviour.
+
+    Returns ``(slope, intercept, R2)`` where R2 is the weighted coefficient of
+    determination.
+    """
+    x = np.asarray(x, float)
+    y = np.asarray(y, float)
+
+    if sigma_y is not None:
+        sigma_y = np.asarray(sigma_y, float)
+        valid = np.isfinite(sigma_y) & (sigma_y > 0)
+        if valid.any():
+            # A handful of unusable sigma values (a masked point, a dropout)
+            # must not be treated as infinitely precise (weight -> inf) or
+            # dropped outright (which would shrink the fit range) — replace
+            # them with the typical sigma of the points that ARE usable.
+            fallback = np.median(sigma_y[valid])
+            sigma_y = np.where(valid, sigma_y, fallback)
+            w = 1.0 / sigma_y ** 2
+        else:
+            w = np.ones_like(x)
+    else:
+        w = np.ones_like(x)
+
+    W, Wx, Wy = w.sum(), (w * x).sum(), (w * y).sum()
+    Wxx, Wxy = (w * x * x).sum(), (w * x * y).sum()
+    denom = W * Wxx - Wx ** 2
+
+    if denom == 0 or not np.isfinite(denom):
+        # Degenerate (e.g. all x identical) — fall back to unweighted OLS.
+        slope, intercept, r, _, _ = linregress(x, y)
+        return float(slope), float(intercept), float(r ** 2)
+
+    slope     = (W * Wxy - Wx * Wy) / denom
+    intercept = (Wxx * Wy - Wx * Wxy) / denom
+
+    y_pred   = intercept + slope * x
+    y_mean_w = Wy / W
+    ss_res   = (w * (y - y_pred) ** 2).sum()
+    ss_tot   = (w * (y - y_mean_w) ** 2).sum()
+    r2       = 1.0 - ss_res / ss_tot if ss_tot > 0 else 1.0
+
+    return float(slope), float(intercept), float(r2)
+
+
 # ── Guinier ───────────────────────────────────────────────────────────────────
 
 def guinier_fit(
@@ -61,6 +121,11 @@ def guinier_fit(
 ) -> dict:
     """
     Fit ln(I) = ln(I0) − Rg²/3 · q²  in the Guinier region.
+
+    Weighted by 1/sigma(ln I)² when ``sigma`` is finite and positive, so a
+    precise point counts more than a noisy one (see
+    ``docs/ERROR_PROPAGATION.md``). Falls back to an unweighted fit — the
+    prior behaviour — if ``sigma`` is unusable.
 
     Parameters
     ----------
@@ -93,7 +158,14 @@ def guinier_fit(
     q2  = q_r**2
     lnI = np.log(I_r)
 
-    slope, intercept, r, _, _ = linregress(q2, lnI)
+    # sigma(ln I) ≈ sigma(I)/I — first-order propagation of the measured
+    # uncertainty through the log, so the fit trusts a precise low-q point
+    # more than a noisy high-q one (docs/ERROR_PROPAGATION.md).
+    sigma_arr = np.asarray(sigma, float) if sigma is not None else None
+    sigma_r   = sigma_arr[mask] if (sigma_arr is not None and sigma_arr.shape == mask.shape) else None
+    sigma_lnI = (sigma_r / I_r) if sigma_r is not None else None
+
+    slope, intercept, r2 = _weighted_linregress(q2, lnI, sigma_lnI)
 
     if slope >= 0:
         return {"error": "Positive slope in Guinier plot — not a valid Guinier region"}
@@ -107,11 +179,13 @@ def guinier_fit(
         mask2 = mask & (q <= q_max_ok)
         if mask2.sum() >= 5:
             q_r2, I_r2 = q[mask2], I[mask2]
-            sl2, ic2, r2, _, _ = linregress(q_r2**2, np.log(I_r2))
+            sigma_r2   = sigma_arr[mask2] if (sigma_arr is not None and sigma_arr.shape == mask2.shape) else None
+            sigma_lnI2 = (sigma_r2 / I_r2) if sigma_r2 is not None else None
+            sl2, ic2, r2b = _weighted_linregress(q_r2**2, np.log(I_r2), sigma_lnI2)
             if sl2 < 0:
                 Rg              = float(np.sqrt(-3 * sl2))
                 I0              = float(np.exp(ic2))
-                slope, intercept, r = sl2, ic2, r2
+                slope, intercept, r2 = sl2, ic2, r2b
                 q2, lnI         = q_r2**2, np.log(I_r2)
                 q_r             = q_r2
 
@@ -123,7 +197,7 @@ def guinier_fit(
         "I0":        float(f"{I0:.4g}"),
         "slope":     float(f"{slope:.4g}"),
         "intercept": float(f"{intercept:.4g}"),
-        "R2":        round(r**2, 5),
+        "R2":        round(r2, 5),
         "q_range":   [float(q_r.min()), float(q_r.max())],
         "qRg_max":   round(float(q_r.max()) * Rg, 3),
         "plot": {
@@ -146,6 +220,9 @@ def porod_fit(
 ) -> dict:
     """
     Power-law fit in log-log space: ln(I) = a + n·ln(q).
+
+    Weighted by 1/sigma(ln I)² when ``sigma`` is finite and positive (see
+    ``docs/ERROR_PROPAGATION.md``); falls back to an unweighted fit otherwise.
 
     Typical exponents:
       n ≈ −4  → smooth surface (Porod)
@@ -170,7 +247,13 @@ def porod_fit(
 
     lnq = np.log(q_r)
     lnI = np.log(I_r)
-    slope, intercept, r, _, _ = linregress(lnq, lnI)
+
+    # Same weighting as guinier_fit: sigma(ln I) ≈ sigma(I)/I.
+    sigma_arr = np.asarray(sigma, float) if sigma is not None else None
+    sigma_r   = sigma_arr[mask] if (sigma_arr is not None and sigma_arr.shape == mask.shape) else None
+    sigma_lnI = (sigma_r / I_r) if sigma_r is not None else None
+
+    slope, intercept, r2 = _weighted_linregress(lnq, lnI, sigma_lnI)
     K = float(np.exp(intercept))
 
     lnq_fit = np.linspace(lnq.min(), lnq.max(), 100)
@@ -186,7 +269,7 @@ def porod_fit(
     return {
         "n":              round(float(slope), 4),
         "K":              float(f"{K:.4g}"),
-        "R2":             round(r**2, 5),
+        "R2":             round(r2, 5),
         "interpretation": interp,
         "q_range":        [float(q_r.min()), float(q_r.max())],
         "plot": {

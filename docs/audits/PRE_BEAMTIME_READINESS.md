@@ -97,9 +97,9 @@ Test suite: `python -m pytest -q` — run it and expect zero failures.
 - **A not-yet-mounted project folder.** Background and analysis guard on
   `is_dir()` and drop `/api/set_project` if the path is not there yet. If `X:` is
   slow to mount, re-select the folder once it appears.
-- **`spec.frames` vs the viewer's frames/batch.** If `spec.frames` (10 shipped) is
+- **`spec.frames` vs the average app's frames/batch.** If `spec.frames` (10 shipped) is
   smaller than `frames_per_average` (30 shipped), **no average is ever written and
-  the loop stops silently.** The viewer now reports this at monitor start — read
+  the loop stops silently.** The average app now reports this at monitor start — read
   that line.
 
 ## Open items (not code — rig/ops)

@@ -47,7 +47,7 @@ SWAXS_Autonomous_Platform_v1/
 ├── hub/                    # Central launcher (5000) — also knowledge.md, no app entry
 ├── calibration/            # .raw → CBF, pyFAI .poni generation, SFTP pull (5009)
 ├── reduction/              # 2D→1D reduction & correction (5001)
-├── viewer/                 # Data viewer & averaging (5002)
+├── average/                # Visualisation & Average — viewing + averaging (5002)
 ├── background/             # Background subtraction (5003)
 ├── quality/                # AI good/bad grading of subtracted profiles (5006)
 ├── analysis/               # Guinier, Porod, Kratky, p(r), sasmodels, ATSAS, peaks (5004)
@@ -93,7 +93,7 @@ SWAXS_Autonomous_Platform_v1/
 └── CLAUDE.md               # This file
 ```
 
-Ports: hub 5000 · reduction 5001 · viewer 5002 · background 5003 · analysis 5004 ·
+Ports: hub 5000 · reduction 5001 · average 5002 · background 5003 · analysis 5004 ·
 assistant 5005 · quality 5006 · reactor 5007 · analyzer 5008 · calibration 5009.
 
 ---
@@ -107,7 +107,7 @@ Every app also imports `src.events` (bus) and, if it runs a monitor loop,
 |---|---|
 | `calibration` | `src.preprocess` (calib, raw_convert, sftp_sync) |
 | `reduction` | `src.reduction.core` (Experiment, run_pipeline, find_new_raw_files), `src.manifest` |
-| `viewer` | `src.plot_reduction` (read_folder, average_and_save, average_batch), `src.utils.read_dat_metadata`, `src.loop_naming`, `src.manifest`, `src.reactor.load_config` |
+| `average` | `src.plot_reduction` (read_folder, average_and_save, average_batch), `src.utils.read_dat_metadata`, `src.loop_naming`, `src.manifest`, `src.reactor.load_config` |
 | `background` | `src.manifest`, `src.utils.read_dat_metadata`, `src.reactor.intake` (decide_intake), `src.loop_naming` |
 | `quality` | `src.quality` (grade_profile, score_metrics), `src.manifest`, `src.utils.read_dat_metadata` |
 | `analysis` | `src.analysis.core`, `src.analysis.io`, `src.analysis.atsas`, `src.manifest`, `src.utils.read_dat_metadata` |
@@ -130,7 +130,7 @@ start_platform.bat                  # Windows Anaconda Prompt
 python hub/app.py
 
 # Start a single app directly (for development)
-python reduction/app.py             # or viewer / background / quality / analysis
+python reduction/app.py             # or average / background / quality / analysis
                                     #  / analyzer / reactor / assistant / calibration
 ```
 
@@ -152,7 +152,7 @@ Apps read and write data from a user-selected project folder:
 ├── 1D/
 │   ├── SAXS/
 │   │   ├── Reduction/              # reduction app output (*.dat)
-│   │   ├── Averaged/               # viewer app averaging
+│   │   ├── Averaged/               # average app output
 │   │   ├── Subtracted/             # background app
 │   │   │   ├── Good/               # Quality Gate: accepted
 │   │   │   └── NeedsReview/        # Quality Gate: flagged
@@ -201,7 +201,7 @@ bstop_air: 0.0
 # Integration — npt_radial and error_model are REQUIRED (KeyError if absent)
 npt_radial: 1000
 error_model: "poisson"
-unit: "q_nm^-1"                    # DEFAULT nm⁻¹ (matches viewer/analysis)
+unit: "q_nm^-1"                    # DEFAULT nm⁻¹ (matches average/analysis)
 
 # Optional integration controls
 correct_solid_angle: true
@@ -304,7 +304,7 @@ must never overwrite another app's keys.
 
 | App | Section |
 |---|---|
-| reduction, viewer | `files` |
+| reduction, average | `files` |
 | background | `background` |
 | quality | `quality` |
 | analysis, analyzer | `analyses` |
@@ -349,3 +349,4 @@ Encoding failures drop the single event, not the connection.
 | `docs/NOTIFICATIONS.md` | Slack + email run notifications |
 | `docs/DESIGN_SYSTEM.md` | Shared UI tokens and per-app conformance |
 | `docs/PARAMETER_SPACE_AND_CONVERGENCE.md` | Optimizer parameter space and convergence |
+| `docs/ERROR_PROPAGATION.md` | How σ(q) is estimated and propagated through reduction, averaging, subtraction and fitting, checked against the SAXS literature |

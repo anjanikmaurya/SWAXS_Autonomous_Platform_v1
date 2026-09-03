@@ -5,11 +5,11 @@ tools/notify_test.py — verify the notifications without a beamtime run.
 Covers BOTH channels: Slack (needs a workspace-app credential) and email (needs
 no permission at all, and can deliver into Slack via a channel-email address).
 
-    uv run tools/slack_test.py --check              # config/env only, sends NOTHING
-    uv run tools/slack_test.py --demo --dry-run     # print the messages, no network
-    uv run tools/slack_test.py --ping               # send ONE test message
-    uv run tools/slack_test.py --demo               # send a full simulated campaign
-    uv run tools/slack_test.py --fault              # send only the alert-tier messages
+    python tools/notify_test.py --check              # config/env only, sends NOTHING
+    python tools/notify_test.py --demo --dry-run     # print the messages, no network
+    python tools/notify_test.py --ping               # send ONE test message
+    python tools/notify_test.py --demo               # send a full simulated campaign
+    python tools/notify_test.py --fault              # send only the alert-tier messages
 
 --demo posts what a real two-condition campaign looks like, including a threaded
 fit result and a low-confidence fit with a QC plot attached, so you can judge the

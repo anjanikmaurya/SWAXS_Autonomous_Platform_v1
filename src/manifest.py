@@ -262,7 +262,7 @@ def manifest_lock(project_root: str | Path):
     """
     Hold an exclusive, cross-process lock for a project's manifest.
 
-    All apps (hub, reduction, viewer, background, analysis, assistant) that
+    All apps (hub, reduction, average, background, analysis, assistant) that
     mutate ``manifest.json`` should do so inside this lock (use
     :func:`update_manifest`). On platforms without ``fcntl`` the lock degrades
     to a no-op (single-process safety only).

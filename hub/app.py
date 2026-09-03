@@ -5,7 +5,8 @@ Central launcher: reads apps.yml to discover sub-apps, starts/stops them as
 independent subprocesses, streams live status via SSE, lets the user pick
 the project folder, and serves the WebSocket event bus at /ws.
 
-Run:  uv run hub/app.py
+Run:  python hub/app.py              (from the activated venv — see CLAUDE.md;
+                                     or use ./start_platform.sh)
 Open: http://localhost:5000
 
 Event bus
@@ -43,7 +44,7 @@ from src import proc_lifecycle as pl        # noqa: E402  (needs sys.path above)
 
 # ── Load .env into os.environ before anything else reads it ──────────────────
 # This makes the hub self-sufficient regardless of how it was launched
-# (./start_platform.sh, uv run hub/app.py, IDE, etc.).
+# (./start_platform.sh, python hub/app.py, IDE, etc.).
 def _load_dotenv(dotenv_path: Path) -> None:
     """Minimal .env loader — no external dependencies required."""
     if not dotenv_path.is_file():
@@ -316,7 +317,7 @@ def _start_app(app_id: str) -> tuple[bool, str]:
         )
 
     # Launch with the SAME interpreter that runs the hub. This guarantees the
-    # app uses the identical environment (venv or uv) with all dependencies
+    # app uses the identical environment (the venv) with all dependencies
     # available. Previously the hub tried `uv run <entry>` first, which spins
     # up a SEPARATE environment without the pip-installed deps when there is no
     # pyproject.toml — so the app died instantly with ModuleNotFoundError and

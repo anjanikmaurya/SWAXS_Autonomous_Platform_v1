@@ -31,34 +31,34 @@
       "ingested_at": "2026-06-15T07:52:04.373349+00:00"
     },
     "/Users/akmaurya/Desktop/Claude_Projects/SWAXS_Autonomous_Platform_v1/reduction/knowledge.md": {
-      "hash": "469418acca4025ca2c905e66c6597e8f98c3870173980ad99805c224e3bcf6be",
-      "chunks": 119,
-      "ingested_at": "2026-06-24T20:23:07.961455+00:00"
+      "hash": "827e3a667bf6b23c6a9d218578c208a3984e3084054d97ebe31928e7b026ddb3",
+      "chunks": 123,
+      "ingested_at": "2026-08-28T18:56:56.373238+00:00"
     },
     "/Users/akmaurya/Desktop/Claude_Projects/SWAXS_Autonomous_Platform_v1/viewer/knowledge.md": {
-      "hash": "93a692f44f0f58e4de2eb0348d10b5d3336c09554b5b063e30c0eacd6d232bd3",
-      "chunks": 13,
-      "ingested_at": "2026-06-24T20:23:08.055755+00:00"
+      "hash": "abcf76ed77a0f9e7afa967eca4d8600d4bbe48f27b00d378b2e6be58f5588d5c",
+      "chunks": 17,
+      "ingested_at": "2026-08-28T18:56:56.523322+00:00"
     },
     "/Users/akmaurya/Desktop/Claude_Projects/SWAXS_Autonomous_Platform_v1/background/knowledge.md": {
-      "hash": "6a9797024377d7b986e9ea629a142f2c023cb6fe1114035d4478e1eaf20656ae",
-      "chunks": 13,
-      "ingested_at": "2026-06-24T20:23:08.254466+00:00"
+      "hash": "de953ffe149ca7a8a579b93fe45e5aa50d7af08dc859fb6229fe6a84391d3d04",
+      "chunks": 19,
+      "ingested_at": "2026-08-28T18:56:56.676102+00:00"
     },
     "/Users/akmaurya/Desktop/Claude_Projects/SWAXS_Autonomous_Platform_v1/analysis/knowledge.md": {
-      "hash": "29a7ebde3b75202de9881c13f3f963f0a2614dcf62b1fe5b4f673bd00f5de7a1",
-      "chunks": 15,
-      "ingested_at": "2026-06-24T20:23:08.478881+00:00"
+      "hash": "9a43d3f088ee6dcf9809517cbc240a79dff7c12c353a4dd08a4599b6197ffaa4",
+      "chunks": 22,
+      "ingested_at": "2026-08-28T18:56:56.907491+00:00"
     },
     "/Users/akmaurya/Desktop/Claude_Projects/SWAXS_Autonomous_Platform_v1/assistant/knowledge.md": {
-      "hash": "44395973ccb41f089bd86912d89ebca21093bf3ff019a2966bb25f07c3ff9fdf",
-      "chunks": 16,
-      "ingested_at": "2026-06-24T20:23:08.649327+00:00"
+      "hash": "85423cce0b915fb28e093274390bf17368cdbf6d2e9b6cf6a3b79b9af88b795b",
+      "chunks": 121,
+      "ingested_at": "2026-08-28T18:56:57.603076+00:00"
     },
     "/Users/akmaurya/Desktop/Claude_Projects/SWAXS_Autonomous_Platform_v1/hub/knowledge.md": {
-      "hash": "ffe16ca114a1bb2606a8334d0a63daa9597ac01f23c5f27e8f11da7b6b6b2b18",
-      "chunks": 10,
-      "ingested_at": "2026-06-24T20:23:08.800783+00:00"
+      "hash": "a5a19656e5c9de0b8e068b11abe392946f95c451200c14472fc2d6a0e7cd2f2f",
+      "chunks": 13,
+      "ingested_at": "2026-08-28T18:56:57.717467+00:00"
     },
     "/sessions/stoic-epic-bell/mnt/SWAXS_Autonomous_Platform_v1/reduction/knowledge.md": {
       "hash": "469418acca4025ca2c905e66c6597e8f98c3870173980ad99805c224e3bcf6be",
@@ -89,41 +89,51 @@
       "hash": "ffe16ca114a1bb2606a8334d0a63daa9597ac01f23c5f27e8f11da7b6b6b2b18",
       "chunks": 0,
       "ingested_at": "2026-07-30T02:22:53.867656+00:00"
+    },
+    "/Users/akmaurya/Desktop/Claude_Projects/SWAXS_Autonomous_Platform_v1/calibration/knowledge.md": {
+      "hash": "6218267ee6241537cbb65cfb50332a4e5b65b50fe8581ca79dcea26a26ba19d8",
+      "chunks": 16,
+      "ingested_at": "2026-08-28T18:56:55.983666+00:00"
+    },
+    "/Users/akmaurya/Desktop/Claude_Projects/SWAXS_Autonomous_Platform_v1/quality/knowledge.md": {
+      "hash": "d86ae252270884bcb9bac660336baa7c12d45059c1c23482dec9c80f7e216686",
+      "chunks": 6,
+      "ingested_at": "2026-08-28T18:56:56.736157+00:00"
+    },
+    "/Users/akmaurya/Desktop/Claude_Projects/SWAXS_Autonomous_Platform_v1/reactor/knowledge.md": {
+      "hash": "c76a5d39957549f6cb5c06c9423f99ebd77a01b85e0ca4b4a916b1bed68243f9",
+      "chunks": 14,
+      "ingested_at": "2026-08-28T18:56:57.040047+00:00"
+    },
+    "/Users/akmaurya/Desktop/Claude_Projects/SWAXS_Autonomous_Platform_v1/analyzer/knowledge.md": {
+      "hash": "b80660c65cd74a33676036ce71380d70ac1580a7a796145c64479549a6e8d5ce",
+      "chunks": 18,
+      "ingested_at": "2026-08-28T18:56:57.213717+00:00"
     }
   },
   "beamline": {
-    "/Users/akmaurya/Desktop/Claude_Projects/SWAXS_Platform_v1/ai_knowledge/beamline/ssrl_1-5.yml": {
-      "hash": "af9a65e2603e0eff2f49965acba63fb7349103ac887dbd61097670c0c63fe163",
-      "chunks": 374,
-      "ingested_at": "2026-06-15T07:52:05.315688+00:00"
-    },
     "/Users/akmaurya/Desktop/Claude_Projects/SWAXS_Autonomous_Platform_v1/ai_knowledge/beamline/ssrl_1-5.yml": {
       "hash": "af9a65e2603e0eff2f49965acba63fb7349103ac887dbd61097670c0c63fe163",
       "chunks": 374,
-      "ingested_at": "2026-06-24T20:23:10.000857+00:00"
-    },
-    "/sessions/stoic-epic-bell/mnt/SWAXS_Autonomous_Platform_v1/ai_knowledge/beamline/ssrl_1-5.yml": {
-      "hash": "af9a65e2603e0eff2f49965acba63fb7349103ac887dbd61097670c0c63fe163",
-      "chunks": 0,
-      "ingested_at": "2026-07-30T02:22:53.875248+00:00"
+      "ingested_at": "2026-08-31T20:11:17.778502+00:00"
     }
   },
   "user_papers": {},
   "literature": {
-    "/Users/akmaurya/Desktop/Claude_Projects/SWAXS_Platform_v1/ai_knowledge/literature/The modular small-angle X-ray scattering data correction sequence.pdf": {
+    "/Users/akmaurya/Desktop/Claude_Projects/SWAXS_Autonomous_Platform_v1/ai_knowledge/literature/The modular small-angle X-ray scattering data correction sequence.pdf": {
       "hash": "53746245fe3bed459e6fc91f0804486be9f565c4b7d17e92d77efa31e48ef468",
       "chunks": 1423,
-      "ingested_at": "2026-06-21T07:34:16.536764+00:00"
+      "ingested_at": "2026-08-31T18:31:00.166054+00:00"
     },
-    "/Users/akmaurya/Desktop/Claude_Projects/SWAXS_Platform_v1/ai_knowledge/literature/Everything SAXS_small-angle scattering pattern collection and correction.pdf": {
-      "hash": "7d1e2ac34bf4144c082cceda81158292dccacb9030a3561d8f93d2b9e96f8967",
-      "chunks": 2963,
-      "ingested_at": "2026-06-21T07:34:55.578927+00:00"
-    },
-    "/Users/akmaurya/Desktop/Claude_Projects/SWAXS_Platform_v1/ai_knowledge/literature/A correction procedure for secondary scattering contributions from windows in small-angle X-ray scattering and ultra-small-angle X-ray scattering.pdf": {
+    "/Users/akmaurya/Desktop/Claude_Projects/SWAXS_Autonomous_Platform_v1/ai_knowledge/literature/A correction procedure for secondary scattering contributions from windows in small-angle X-ray scattering and ultra-small-angle X-ray scattering.pdf": {
       "hash": "b8256cf42e7273b6893c1d01a72c06f64579367c8f535f7a52c2bf13ea482dcb",
       "chunks": 638,
-      "ingested_at": "2026-06-21T07:35:18.464748+00:00"
+      "ingested_at": "2026-08-31T18:31:01.788995+00:00"
+    },
+    "/Users/akmaurya/Desktop/Claude_Projects/SWAXS_Autonomous_Platform_v1/ai_knowledge/literature/data-reduction-processing-kikhney.pdf": {
+      "hash": "6cef361079c4259e811db823ef4ec97a33b70776d964829400b4070bfccd28db",
+      "chunks": 110,
+      "ingested_at": "2026-08-31T18:31:15.314331+00:00"
     }
   }
 }

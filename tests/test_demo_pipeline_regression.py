@@ -49,13 +49,13 @@ Two checks
    runs (if the golden files don't exist yet). To deliberately accept a new
    result after an intentional algorithm change, regenerate it:
 
-       SWAXS_UPDATE_GOLDEN=1 uv run pytest tests/test_demo_pipeline_regression.py -s
+       SWAXS_UPDATE_GOLDEN=1 python -m pytest tests/test_demo_pipeline_regression.py -s
 
    Then inspect the diff of tests/fixtures/demo_pipeline/golden/ in git
    before committing it.
 
 Run:
-    uv run pytest tests/test_demo_pipeline_regression.py -v
+    python -m pytest tests/test_demo_pipeline_regression.py -v
 """
 
 from __future__ import annotations

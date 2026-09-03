@@ -7,7 +7,7 @@ scientific code (producing a figure) while rejecting blocked code.
 
 Run:
     python tests/test_code_exec.py
-    uv run pytest tests/test_code_exec.py
+    python -m pytest tests/test_code_exec.py
 """
 from __future__ import annotations
 

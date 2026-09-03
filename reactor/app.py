@@ -9,7 +9,8 @@ BO/SAXS optimization itself lives elsewhere.
 All hardware + run logic is in src/reactor/.  This file is a thin Flask shell:
 routes, SSE, the recipes-folder watcher, and the hub event-bus wiring.
 
-Run:  uv run reactor/app.py    Open: http://localhost:5007
+Run:  python reactor/app.py    Open: http://localhost:5007
+      (from the activated venv — see CLAUDE.md)
 """
 
 from __future__ import annotations

@@ -617,6 +617,13 @@ class Experiment:
 
             output_path = self._make_output_path(raw_file_path, "SAXS", self.saxs_prefix)
 
+            # ERROR PROPAGATION: `error_model` (config.yml) sets how pyFAI
+            # computes `error` here — "poisson" gives sigma_i^2 = max(1, signal_i)
+            # per pixel, propagated through normalization/dark/flat inside this
+            # same call. See docs/ERROR_PROPAGATION.md §2 for what ships vs. what
+            # the literature recommends, and Pauw 2013 (10.1088/0953-8984/25/38/383201)
+            # / Sedlak, Bruetzel & Lipfert 2017 (10.1107/S1600576717003077) for the
+            # underlying theory.
             q, intensity, error = self.ai_saxs.integrate1d(
                 detector_data, self.npt_radial,
                 unit=self.unit,
@@ -663,6 +670,10 @@ class Experiment:
 
             output_path = self._make_output_path(raw_file_path, "WAXS", self.waxs_prefix)
 
+            # ERROR PROPAGATION: same Poisson error model as SAXS above — see
+            # docs/ERROR_PROPAGATION.md §2. Note the WAXS mask is currently
+            # null (config.yml), so unmasked dead pixels feed straight into
+            # both intensity and this error estimate; the doc flags this.
             q, intensity, error = self.ai_waxs.integrate1d(
                 detector_data, self.npt_radial,
                 unit=self.unit,

@@ -12,7 +12,7 @@ so the Analysis app and Assistant can consume it.
 All science/scoring logic lives in src/quality/.  This file is a thin Flask
 shell: routing, the monitor thread, file-sorting, manifest/event wiring.
 
-Run:  uv run quality/app.py
+Run:  python quality/app.py          (from the activated venv — see CLAUDE.md)
 Open: http://localhost:5006
 """
 

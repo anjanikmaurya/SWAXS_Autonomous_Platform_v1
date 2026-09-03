@@ -69,7 +69,7 @@ Saved per analysis:
 
 Batch: per-file results **plus** one combined **summary table** (CSV/XLSX).
 
-All analyses are **registered in `manifest.json`** (so the viewer and the AI
+All analyses are **registered in `manifest.json`** (so the average app and the AI
 assistant can see them).
 
 ---
@@ -78,7 +78,7 @@ assistant can see them).
 
 - **Left nav:** Classical · SASView · ATSAS · WAXS peaks.
 - **Top tabs:** Setup · SAXS results · WAXS results · Batch — mirroring the
-  viewer and subtraction apps (consistent design system).
+  average and subtraction apps (consistent design system).
 - Interactive Plotly result panels with draggable/adjustable fit range.
 
 ---

@@ -115,7 +115,7 @@ notify:
   #   SWAXS_SMTP_FROM=you@stanford.edu     # optional; defaults to the user
   #   SWAXS_NOTIFY_EMAIL=you@stanford.edu,+15551234567@txt.example.net
   #
-  # Run `uv run tools/notify_test.py --check` — it PROBES which SMTP options
+  # Run `python tools/notify_test.py --check` — it PROBES which SMTP options
   # actually work from this machine instead of making you guess.
   email:
     enabled: false            # startup default; the app's button arms it

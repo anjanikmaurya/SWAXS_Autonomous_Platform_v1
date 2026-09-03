@@ -28,14 +28,14 @@ table to tell the difference between shipped code and planned work.
 | Hub, `apps.yml` registry, WebSocket event bus | **Built** | `hub/app.py`, `src/events.py` |
 | Manifest v2 (provenance, events, ai_memory) + v1→v2 migration | **Built** | `src/manifest.py` |
 | Reduction pipeline (PyFAI, corrections, normalization) | **Built** | `src/reduction/core.py` |
-| Viewer averaging / loading | **Built** | `src/plot_reduction.py` |
+| Average-app averaging / loading | **Built** | `src/plot_reduction.py` |
 | AI subsystem (assistant, knowledge base, layered memory, hints) | **Built** | `src/ai/` |
 | Analysis: Guinier, Porod, Kratky, peak fit, sasmodels | **Built** | consolidated in `src/analysis/core.py` |
 | Pair-distance p(r) | **Built** | `pair_distance_ift` — Tikhonov-regularized IFT, `src/analysis/core.py:231`. **Not BIFT**; no Bayesian IFT was ever written |
 | GNOM p(r) | **Built** | ATSAS binary wrapper only (`run_datgnom`, `src/analysis/atsas.py:118`); returns a clean error when `datgnom` is not on `PATH` |
 | Export (PDF report, fit tables, annotated `.dat`) | **Built, not where this doc said** | `src/export/` does not exist. PDF via matplotlib `PdfPages` in `src/ai/assistant.py:1602-1628` with an HTML fallback (`:1633+`); CSV/XLSX fit tables at `:1577`; `.dat` footer annotation in `src/analysis/io.py` (`_ANNOTATE_MARKER`, `:45`) |
 | Word (`.docx`) export | **Never built** | No `python-docx`/`reportlab` dependency and no `.docx` writer anywhere in the tree |
-| SAXS+WAXS auto-stitching | **Never built** | No `src/reduction/stitch.py`, no `auto_stitch()`. The viewer's "Stitch SAXS+WAXS" is a display-only checkbox (`viewer/templates/index.html:1182`, `2338-2345`): it co-plots the two curves, computes no scale factor and writes no merged file |
+| SAXS+WAXS auto-stitching | **Never built** | No `src/reduction/stitch.py`, no `auto_stitch()`. The average app's "Stitch SAXS+WAXS" is a display-only checkbox (`average/templates/index.html:1182`, `2338-2345`): it co-plots the two curves, computes no scale factor and writes no merged file |
 
 Four apps shipped after this document was written and are not described
 anywhere below: **calibration** (:5009), **quality** (:5006), **reactor**
@@ -66,7 +66,7 @@ anywhere below: **calibration** (:5009), **quality** (:5006), **reactor**
         ┌─────────────────────────────────┴─────────────────────────────────┐
         │  :5009  Calibration      .raw → CBF, pyFAI .poni generation       │
         │  :5001  Reduction        2D → 1D, corrections, normalization      │
-        │  :5002  Viewer           2D/1D display, scan averaging            │
+        │  :5002  Average          2D/1D display, scan averaging            │
         │  :5003  Background       keyword / scan-matched / manual subtract  │
         │  :5006  Quality Gate     good/bad grading, auto-sort              │
         │  :5004  Analysis         Guinier, Porod, Kratky, p(r), models     │
@@ -116,7 +116,7 @@ Apps connect to `ws://localhost:5000/ws` on startup. Each message is a JSON obje
 | Type | Published by | Consumed by |
 |---|---|---|
 | `file.reduced` | reduction | hub log |
-| `file.averaged` | viewer | reactor — ends the run on the first new SAXS average (`reactor/app.py:307`) |
+| `file.averaged` | average | reactor — ends the run on the first new SAXS average (`reactor/app.py:307`) |
 | `file.subtracted` | background | quality — grades immediately (`quality/app.py:466`) |
 | `file.classified` | quality (`quality/app.py:385`) | hub log |
 | `analysis.complete` | analyzer (`analyzer/app.py:479`) | reactor — posts the fit into the recipe's Slack thread (`reactor/app.py:309`) |
@@ -163,7 +163,7 @@ Shipped entries, in registry order:
 |---|---|---|---|---|
 | calibration | 5009 | `calibration/app.py` | — | **none** |
 | reduction | 5001 | `reduction/app.py` | `files` | yes |
-| viewer | 5002 | `viewer/app.py` | `files` | yes |
+| average | 5002 | `average/app.py` | `files` | yes |
 | background | 5003 | `background/app.py` | `background` | yes |
 | quality | 5006 | `quality/app.py` | `quality` | yes |
 | analysis | 5004 | `analysis/app.py` | `analyses` | yes |
@@ -498,7 +498,7 @@ violation of the "all logic in `src/`" rule
 | 0 | Foundation — manifest v2, event bus, apps.yml | `src/manifest.py`, `src/events.py`, `hub/app.py`, `apps.yml` | shipped |
 | 1 | AI core — knowledge base, memory, Claude client | `src/ai/`, `ai_knowledge/`, `assistant/app.py` | shipped |
 | 2 | Reduction — provenance, watch mode | `reduction/app.py` | shipped |
-| 3 | Viewer — 2D display, averaging, cross-project overlay | `viewer/app.py`, `viewer/templates/` | shipped |
+| 3 | Visualisation & Average — 2D display, averaging, cross-project overlay | `average/app.py`, `average/templates/` | shipped |
 | 4 | Background — 3 modes, auto scale | `background/app.py` | shipped |
 | 5 | Analysis — Guinier, Kratky, Porod, p(r), models | `src/analysis/`, `analysis/app.py` | shipped |
 | 6 | Export — PDF report, fit tables, annotated .dat | `src/ai/assistant.py`, `src/analysis/io.py` | shipped, minus Word |
@@ -571,8 +571,8 @@ Footer contains METADATA INFORMATION section with i0, T, thickness values.
   `pyproject.toml` and no `uv.lock`, and the virtualenv is `venv/` rather than
   `.venv/`, so `uv run` spins up a *separate* environment without the
   pip-installed dependencies and the app dies instantly with
-  `ModuleNotFoundError`. (`CLAUDE.md` still instructs `uv run`; that instruction
-  applies to whatever environment the developer has active, not to the hub.)
+  `ModuleNotFoundError`. `CLAUDE.md` and every app docstring now say plain
+  `python` from the activated `venv/`; there is no supported `uv` path here.
 - **Three launchers, not one.** `start_platform.sh`, `start_platform.ps1`,
   `start_platform.bat`. All three load `.env` and resolve the AI token before
   starting the hub; `python hub/app.py` does not.

@@ -8,7 +8,7 @@ capability for user-supplied literature.
 
 Run:
     python tests/test_knowledge_mgmt.py
-    uv run pytest tests/test_knowledge_mgmt.py
+    python -m pytest tests/test_knowledge_mgmt.py
 """
 from __future__ import annotations
 

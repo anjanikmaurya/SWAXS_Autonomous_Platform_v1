@@ -216,3 +216,27 @@ warns the user and suggests investigating:
 
 So a scale of 1.8 will be applied by the Background app without complaint and
 flagged separately by the assistant.
+
+## Uncertainty σ(q) — how subtraction propagates it
+
+**One line:** `σ_sub = √(σ_sample² + (c·σ_bkg)²)` (`_subtract`, `background/app.py`),
+the textbook form for `σ²(A − c·B) = σ²(A) + c²σ²(B)` and exactly Sedlak et al.
+(2017) eq. (6). **This is correct as written.**
+
+Two caveats, both currently unaddressed:
+
+1. **The fitted scale factor's own uncertainty is not propagated.** `_auto_scale`
+   fits `c` by weighted least squares, and that fit has an uncertainty; the
+   rigorous form would add `I_bkg² · σ²(c)`. Usually second-order next to the
+   frame σ's, but it is an omission rather than a deliberate simplification.
+2. **Sample and background are log-space interpolated onto a common grid**
+   (`_interpolate_onto`) whenever their native q-grids differ, which correlates
+   neighbouring q-points. This disappears when both were reduced with the same
+   `npt_radial`/`radial_range`/`unit` — the usual case here, since one
+   `config.yml` governs both — and only matters if they were reduced under
+   different settings.
+
+Full stage-by-stage treatment: **`docs/ERROR_PROPAGATION.md` §4**.
+Further reading: Sedlak, Bruetzel & Lipfert 2017, *J. Appl. Cryst.* **50**,
+621–630, eq. (6) (<https://doi.org/10.1107/S1600576717003077>); Gardner,
+*J. Res. NIST* **108**(1), 69–78, 2003 (<https://doi.org/10.6028/jres.108.008>).

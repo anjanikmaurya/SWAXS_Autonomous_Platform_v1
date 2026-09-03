@@ -18,7 +18,7 @@ do not assume conformance.
 | App | Port | Type scale | Weights / line-heights / spacing | `--font` | `--radius` | Base size | Dark mode | `:focus-visible` |
 |---|---|---|---|---|---|---|---|---|
 | reduction | 5001 | all 8 `--fs-*` | yes | Inter | 8px | 16px | toggle + OS | yes |
-| viewer | 5002 | all 8 | yes | Inter | 8px | (inherits 16px) | toggle + OS | yes |
+| average | 5002 | all 8 | yes | Inter | 8px | (inherits 16px) | toggle + OS | yes |
 | assistant | 5005 | all 8 | yes | Inter | 8px | **18px** | toggle + OS | yes |
 | hub | 5000 | all 8 | yes | Inter | 8px | 16px | dark only, no toggle | yes |
 | background | 5003 | 7 of 8 (`--fs-2xl` missing) | `--fw-*` partial; no `--lh-*`, no `--sp-*` | Inter | 8px | **18px** | toggle + OS | 1 rule |
@@ -31,14 +31,14 @@ do not assume conformance.
 Consequences worth knowing before you write CSS:
 
 - `var(--sp-4)`, `var(--lh-snug)`, `var(--fw-bold)`, `var(--ls-label)` resolve in
-  four apps only (reduction, viewer, assistant, hub). Elsewhere they are unset
+  four apps only (reduction, average, assistant, hub). Elsewhere they are unset
   and the declaration is dropped.
 - reactor and analyzer define `--fs-lg:1.45rem`, `--fs-md:1.05rem`,
   `--fs-sm:.94rem`, `--fs-xs:.82rem` — the same *names* as section 1 with
   different *values*. A component moved between apps changes size silently.
   This is worse than the tokens being absent.
 - Text-token names have forked: `--txt` / `--txt-strong` in calibration,
-  reduction, viewer; `--text` / `--text-strong` in analysis, assistant,
+  reduction, average; `--text` / `--text-strong` in analysis, assistant,
   background; `--text` with no strong variant in analyzer, quality, reactor,
   hub. There is no name that works everywhere.
 
@@ -70,7 +70,7 @@ Consequences worth knowing before you write CSS:
 | `--lh-snug` | 1.4 | Tables / dense rows |
 | `--lh-normal` | 1.5 | Body copy |
 
-- **Base size is not uniform.** 16px in reduction, viewer, hub, quality,
+- **Base size is not uniform.** 16px in reduction, average, hub, quality,
   calibration; **18px** in analysis, background, assistant; `1.02rem` in
   reactor and analyzer. Because `--fs-*` are `rem`-based, the 18px apps render
   the whole scale ~12% larger than the table above.
@@ -97,7 +97,7 @@ data-dense displays.
 | `--sp-1` … `--sp-6` | 4 / 8 / 12 / 16 / 24 / 32 px |
 | `--radius` | 8px in seven apps; **9px** in quality, reactor, analyzer |
 
-`--sp-*` is defined in reduction, viewer, assistant, and hub only.
+`--sp-*` is defined in reduction, average, assistant, and hub only.
 
 ---
 
@@ -131,7 +131,7 @@ values, not carried over from an older revision.
 
 | `--accent` | Ratio on white | Apps |
 |---|---|---|
-| `#B1040E` | 7.3:1 | analysis, assistant, background, calibration, reduction, viewer |
+| `#B1040E` | 7.3:1 | analysis, assistant, background, calibration, reduction, average |
 | `#B83A4B` | 5.6:1 | analyzer, quality, reactor |
 | `#C5202C` | 5.8:1 | hub |
 
@@ -148,7 +148,7 @@ described:
 
 | Token | Value | Apps |
 |---|---|---|
-| `--sidebar` | `#eef1f5` | analysis, background, calibration, reduction, viewer |
+| `--sidebar` | `#eef1f5` | analysis, background, calibration, reduction, average |
 | `--sidebar` | `#27272d` | assistant |
 | `--sidebar` | `#23262d` | quality |
 | `--sidebar-h` | `#e3e7ed` (light) / `#34343c` (assistant) | hover row |
@@ -189,7 +189,7 @@ user from app to app on the same `localhost` origin.
 
 | Apps | Initial theme when `localStorage` is empty |
 |---|---|
-| reduction, viewer, analysis, background, quality, assistant | `matchMedia('(prefers-color-scheme:dark)')` — follows the OS |
+| reduction, average, analysis, background, quality, assistant | `matchMedia('(prefers-color-scheme:dark)')` — follows the OS |
 | reactor, analyzer | **dark**, unconditionally (`<html data-theme="dark">`) |
 | hub | dark only; no toggle, no light palette |
 | calibration | light only; no toggle, no dark palette |
@@ -282,7 +282,7 @@ Known, unresolved failures:
 
 | Issue | Detail |
 |---|---|
-| `--border-strong` fails SC 1.4.11 (non-text contrast, 3:1) | Ships as `#c3c9d1` (~1.7:1 on white) in analysis, assistant, background, calibration, reduction, viewer; `#b9c0ca` (~1.8:1) in analyzer, quality, reactor; `#4c515c` (~2.0:1) in the shared dark palette. Only the hub's `#6b7280` passes. Every form-control outline on the platform is therefore below the threshold. |
+| `--border-strong` fails SC 1.4.11 (non-text contrast, 3:1) | Ships as `#c3c9d1` (~1.7:1 on white) in analysis, assistant, background, calibration, reduction, average; `#b9c0ca` (~1.8:1) in analyzer, quality, reactor; `#4c515c` (~2.0:1) in the shared dark palette. Only the hub's `#6b7280` passes. Every form-control outline on the platform is therefore below the threshold. |
 | No keyboard focus indicator (SC 2.4.7) | analysis, analyzer, calibration, quality, reactor have zero `:focus-visible` rules. |
 | `--faint` in dark mode | `#7d848f` is ~4.3:1 on `--surface` — under 4.5:1 for body-size text. |
 | Never contrast-checked | quality, reactor, analyzer, and calibration were all added *after* the 2026-06-15 accessibility audit that produced these tokens, and have never been contrast-checked at all. The ratios quoted in sections 3 and 4 are computed from hex values, not measured against rendered screenshots. |

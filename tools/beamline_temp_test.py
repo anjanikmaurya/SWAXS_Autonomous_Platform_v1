@@ -6,10 +6,10 @@ Sends ONE temperature setpoint to SPEC (csettemp, via the driver) after asking
 you to confirm, then monitors the readback until it reaches the target or a
 timeout. Touches ONLY the temperature — no pumps, no shutter, no detector.
 
-    uv run tools/beamline_temp_test.py 60            # ramp to 60 C, monitor
-    uv run tools/beamline_temp_test.py 60 --mock     # dry-run (simulator)
-    uv run tools/beamline_temp_test.py --read-only   # just read current temp
-    uv run tools/beamline_temp_test.py 60 --yes      # skip the confirm prompt
+    python tools/beamline_temp_test.py 60            # ramp to 60 C, monitor
+    python tools/beamline_temp_test.py 60 --mock     # dry-run (simulator)
+    python tools/beamline_temp_test.py --read-only   # just read current temp
+    python tools/beamline_temp_test.py 60 --yes      # skip the confirm prompt
 
 Counter names / bServer URL / the csettemp command come from reactor/config.yml
 (spec:). Start with beamline_read_test.py to confirm reads work first.

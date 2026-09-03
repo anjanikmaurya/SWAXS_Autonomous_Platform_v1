@@ -17,7 +17,7 @@ Endpoints
   GET  /api/knowledge/stats      — KB collection document counts
   GET  /api/health               — health check
 
-Run:  uv run assistant/app.py
+Run:  python assistant/app.py        (from the activated venv — see CLAUDE.md)
 Open: http://localhost:5005
 """
 
@@ -48,7 +48,8 @@ if str(_ROOT) not in sys.path:
 
 # ── Load .env immediately — before any import reads os.environ ────────────────
 # Runs regardless of how the assistant is started (hub subprocess, direct
-# uv run, IDE, etc.).  Does NOT override variables already set in the shell.
+# python invocation, IDE, etc.).  Does NOT override variables already set in
+# the shell.
 def _load_dotenv(path: Path) -> None:
     if not path.is_file():
         return

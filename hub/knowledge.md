@@ -13,7 +13,7 @@ The hub port is overridable with the `SWAXS_HUB_PORT` environment variable
 Browser → hub:5000
   │
   ├── Launches one subprocess per apps.yml entry (currently 9):
-  │     calibration :5009    reduction :5001    viewer   :5002
+  │     calibration :5009    reduction :5001    average  :5002
   │     background  :5003    analysis  :5004    assistant:5005
   │     quality     :5006    reactor   :5007    analyzer :5008
   │
@@ -100,7 +100,7 @@ must use `event["type"]` and `event["timestamp"]`.
 | Event type | Emitter | `data` fields |
 |---|---|---|
 | `file.reduced` | reduction | `file_path`, `keyword`, `scan_idx`, `detector` |
-| `file.averaged` | viewer | `file_path`, `keyword`, `n_files`, `detector` |
+| `file.averaged` | average | `file_path`, `keyword`, `n_files`, `detector` |
 | `file.subtracted` | background | `file_path`, `keyword`, `scale`, `mode` |
 | `file.classified` | quality | `file_path`, `score`, `verdict`, `detector`, `flags` |
 | `analysis.complete` | analysis, analyzer | `analysis_type`, `file_path`, `results` |

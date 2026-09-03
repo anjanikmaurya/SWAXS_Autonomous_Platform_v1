@@ -8,7 +8,8 @@ and a 0-1 confidence — the measurement half of the closed synthesis loop.
 Thin Flask shell: all science is in src/analysis/nanoparticle.py. Routes, the
 folder watcher, SSE, and manifest writing live here.
 
-Run:  uv run analyzer/app.py    Open: http://localhost:5008
+Run:  python analyzer/app.py    Open: http://localhost:5008
+      (from the activated venv — see CLAUDE.md)
 """
 
 from __future__ import annotations

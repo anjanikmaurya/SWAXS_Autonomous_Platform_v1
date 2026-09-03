@@ -285,7 +285,7 @@ green, then **↗ Open**. Work left to right:
 |---|-----|------|------|
 | 1 | Calibration & Raw Prep | 5009 | copy data off the beamline, check calibration |
 | 2 | Reduction & Correction | 5001 | 2D images → 1D curves |
-| 3 | Data Viewer | 5002 | average the curves |
+| 3 | Visualisation & Average | 5002 | average the curves |
 | 4 | Background Subtraction | 5003 | subtract the blank |
 | 5 | Quality Gate | 5006 | sort good vs needs-review |
 | 6 | Data Analysis | 5004 | Guinier, Porod, Kratky, model fits |

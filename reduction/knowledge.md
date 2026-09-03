@@ -258,6 +258,36 @@ a different thing from the scalar `i0_offset`/`bstop_offset` diode corrections.
 The **operator/user** is captured automatically (UI Operator field →
 `SWAXS_USER_ID` → OS login) and recorded in provenance — no config field needed.
 
+## Uncertainty σ(q) — how it is determined here
+
+**One line:** σ comes from Poisson counting statistics — pyFAI computes
+`σᵢ² = max(1, signalᵢ)` per pixel and propagates it through dark, flat, mask and
+the scalar normalization *inside* the same `integrate1d` call
+(`src/reduction/core.py`, `error_model: "poisson"` in `config.yml`).
+
+Poisson is the right model for a photon-counting detector, and because
+`normalization_factor` is passed as pyFAI's own argument rather than applied
+afterwards, σ is divided by the same scalar as I automatically.
+
+Four things this app does **not** do, worth knowing before quoting error bars:
+
+1. It never verifies that `.raw` really holds undecorated photon counts. If the
+   detector firmware applies gain/flat/dead-time correction first, `"poisson"`
+   silently produces a wrong σ with no warning.
+2. WAXS ships with `mask_files.waxs: null`, so dead pixels on that detector feed
+   into both I and σ.
+3. `dummy`/`delta_dummy` default to unset — a firmware sentinel value for
+   untrusted pixels would enter the integration as real signal.
+4. No `error_model: "azimuthal"` cross-check and no blank-frame χ² self-check are
+   run, so detector artefacts and flow-induced anisotropy go undetected.
+
+Full stage-by-stage treatment: **`docs/ERROR_PROPAGATION.md` §2**.
+Further reading: Sedlak, Bruetzel & Lipfert 2017, *J. Appl. Cryst.* **50**,
+621–630 (<https://doi.org/10.1107/S1600576717003077>); Pauw, "Everything SAXS",
+2013 (<https://doi.org/10.1088/0953-8984/25/38/383201>); Kieffer et al. 2025,
+*J. Appl. Cryst.* **58**, 138–153 — pyFAI's own error-model citation
+(<https://doi.org/10.1107/S1600576724011038>).
+
 ## Dependencies
 - `pyFAI` — azimuthal integration
 - `fabio` — `.raw` and `.edf` file I/O

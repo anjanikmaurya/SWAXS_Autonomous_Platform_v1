@@ -12,7 +12,7 @@ are replaced with lightweight stubs so the suite runs anywhere — no detector
 libraries or calibration files required.
 
 Run:
-    uv run pytest tests/test_reduction_corrections.py        # in the project venv
+    python -m pytest tests/test_reduction_corrections.py        # in the project venv
     python tests/test_reduction_corrections.py               # standalone (numpy only)
 """
 

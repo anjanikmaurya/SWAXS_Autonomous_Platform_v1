@@ -129,7 +129,7 @@ def test_status_distinguishes_a_dead_supervisor_from_a_healthy_one():
 def _fake_bus():
     from src import events as ev
     c = ev.EventBusClient.__new__(ev.EventBusClient)
-    c._app_id = "viewer"
+    c._app_id = "average"
     c._connected = True
     sent = []
 
@@ -166,11 +166,11 @@ def test_an_unencodable_payload_drops_the_event_but_keeps_the_connection():
     assert c.publish("x", {"n": 1}) is True
 
 
-def test_the_viewer_reports_the_real_frame_count():
+def test_the_average_app_reports_the_real_frame_count():
     """`mask.sum()` was also the WRONG number — positive q-points, not frames."""
-    v = (ROOT / "viewer" / "app.py").read_text()
+    v = (ROOT / "average" / "app.py").read_text()
     assert "n_files  = mask.sum()" not in v and "n_files=mask.sum()" not in v
-    m = _load("viewer_frames", "viewer/app.py")
+    m = _load("average_frames", "average/app.py")
     assert m._frames_from_name("sample_A_batch003_30files_Average.dat") == 30
     assert m._frames_from_name("sample_A_12files_Average.dat") == 12
     assert m._frames_from_name("no_count_here.dat") == 0
@@ -179,7 +179,7 @@ def test_the_viewer_reports_the_real_frame_count():
 def test_a_blank_detector_folder_is_skipped_not_globbed_from_the_cwd():
     """`Path("")` is the CWD, which exists — so the "not found" guard was dead and
     a SAXS-only run averaged whatever .dat files sat in the launch directory."""
-    v = (ROOT / "viewer" / "app.py").read_text()
+    v = (ROOT / "average" / "app.py").read_text()
     seg = _code_only(v[v.index('for det, raw in [("saxs", body.get("saxs_folder"'):][:900])
     assert 'Path("")' not in seg, "Path('') is back — blank means the CWD again"
     assert 'if not (raw or "").strip():' in seg
@@ -327,7 +327,7 @@ def test_no_shipped_module_references_an_undefined_name():
 # the night.
 MONITOR_APPS = [
     ("reduction/app.py", "_monitoring", "_monitor_thread"),
-    ("viewer/app.py", "_avg_monitoring", "_avg_monitor_thread"),
+    ("average/app.py", "_avg_monitoring", "_avg_monitor_thread"),
     ("background/app.py", "_sub_monitoring", "_sub_monitor_thread"),
     ("quality/app.py", "_grading", "_grader_thread"),
 ]
@@ -360,7 +360,7 @@ def test_every_monitor_guard_and_status_use_thread_liveness(rel, flag, thread):
 
 
 @pytest.mark.parametrize("tag,rel,thread,body,dirs", [
-    ("v_live", "viewer/app.py", "_avg_monitor_thread",
+    ("v_live", "average/app.py", "_avg_monitor_thread",
      {"interval": 1, "frames_per_average": 2,
       "saxs_folder": "1D/SAXS/Reduction", "waxs_folder": ""},
      ["1D/SAXS/Reduction"]),

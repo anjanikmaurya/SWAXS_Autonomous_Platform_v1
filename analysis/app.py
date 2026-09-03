@@ -8,7 +8,7 @@ Tabs:
   • Peak      — Gaussian + linear background; d-spacing, Scherrer width
   • Model     — sasmodels library model fitting
 
-Run:  uv run analysis/app.py
+Run:  python analysis/app.py         (from the activated venv — see CLAUDE.md)
 Open: http://localhost:5004
 """
 

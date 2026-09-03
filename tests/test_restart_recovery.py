@@ -53,26 +53,26 @@ def test_missing_or_unreadable_state_returns_none(tmp_path):
 def test_stale_state_is_not_resumed(tmp_path):
     """Resuming a monitor from a state file written days ago — a different sample
     series — is worse than not resuming at all."""
-    save_monitor(tmp_path, "viewer", True, {"interval": 5})
-    f = tmp_path / ".swaxs_state" / "viewer_monitor.json"
+    save_monitor(tmp_path, "average", True, {"interval": 5})
+    f = tmp_path / ".swaxs_state" / "average_monitor.json"
     d = json.loads(f.read_text()); d["_saved_at"] = time.time() - 100 * 3600
     f.write_text(json.dumps(d))
-    assert load_monitor(tmp_path, "viewer", max_age_h=48) is None
-    assert load_monitor(tmp_path, "viewer", max_age_h=200) == {"interval": 5}
+    assert load_monitor(tmp_path, "average", max_age_h=48) is None
+    assert load_monitor(tmp_path, "average", max_age_h=200) == {"interval": 5}
 
 
 def test_no_resume_env_var_disables_everything(tmp_path, monkeypatch):
-    save_monitor(tmp_path, "viewer", True, {"interval": 5})
+    save_monitor(tmp_path, "average", True, {"interval": 5})
     monkeypatch.setenv(ENV_NO_RESUME, "1")
     assert resume_disabled() is True
-    assert load_monitor(tmp_path, "viewer") is None
-    assert load_state(tmp_path, "viewer_monitor") is None
+    assert load_monitor(tmp_path, "average") is None
+    assert load_state(tmp_path, "average_monitor") is None
 
 
 def test_a_stopped_monitor_is_not_resumed(tmp_path):
-    save_monitor(tmp_path, "viewer", True, {"interval": 5})
-    save_monitor(tmp_path, "viewer", False)
-    assert load_monitor(tmp_path, "viewer") is None
+    save_monitor(tmp_path, "average", True, {"interval": 5})
+    save_monitor(tmp_path, "average", False)
+    assert load_monitor(tmp_path, "average") is None
 
 
 def test_no_project_root_is_a_safe_noop():

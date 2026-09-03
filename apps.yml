@@ -37,12 +37,12 @@ apps:
     icon:         "⚙️"
     color:        "#1565C0"
 
-  - id:           viewer
-    name:         "Data Viewer"
+  - id:           average
+    name:         "Visualisation & Average"
     description:  "Visualise 2D & 1D SAXS/WAXS data, average scans, stitch SAXS+WAXS"
     port:         5002
-    entry:        "viewer/app.py"
-    knowledge:    "viewer/knowledge.md"
+    entry:        "average/app.py"
+    knowledge:    "average/knowledge.md"
     manifest_key: "files"
     icon:         "📊"
     color:        "#2E7D32"
@@ -98,7 +98,7 @@ apps:
     knowledge:    "analyzer/knowledge.md"
 
   - id:           assistant
-    name:         "Tassone Group Assistant"
+    name:         "Tassone Group"
     description:  "LLM-powered data interpretation, proactive hints, inline plots"
     port:         5005
     entry:        "assistant/app.py"

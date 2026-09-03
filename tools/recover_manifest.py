@@ -10,8 +10,8 @@ newest corrupt backup and writes it back to ``manifest.json``.
 
 Usage
 -----
-    uv run tools/recover_manifest.py /path/to/project_root
-    uv run tools/recover_manifest.py /path/to/project_root --dry-run
+    python tools/recover_manifest.py /path/to/project_root
+    python tools/recover_manifest.py /path/to/project_root --dry-run
 
 If no path is given it uses the current working directory.
 """

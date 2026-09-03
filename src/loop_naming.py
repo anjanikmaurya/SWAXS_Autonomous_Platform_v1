@@ -6,7 +6,7 @@ The reactor names its two per-condition acquisitions:
     {recipe_id}_bkg_<scan tokens>_NNNN      (during flush)
 
 This module is the single source of truth for splitting those names, so the
-automated averaging (viewer) groups sample vs background into separate averages,
+automated averaging (the average app) groups sample vs background into separate averages,
 and the background subtraction pairs them by the shared recipe_id.
 """
 

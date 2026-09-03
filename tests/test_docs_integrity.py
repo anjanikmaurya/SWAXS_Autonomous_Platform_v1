@@ -129,18 +129,57 @@ def test_the_calibration_app_is_documented(apps):
 
 
 # ── the launcher story has to be consistent ──────────────────────────────────
-def test_uv_run_is_gone_from_docs_and_launchers():
+def _uv_run_scan_targets() -> list[Path]:
+    """Docs, launchers AND source: the original version of this test scanned
+    only *.md plus the three launchers, so `uv run` survived in the docstring
+    of every single app.py, in nine tools/ scripts, in seven tests/, in
+    reactor/config.yml and in a reactor UI string - the exact instruction a
+    user copy-pastes first. This file is excluded because it necessarily
+    quotes the string it forbids; logs/ and venv/ are runtime artifacts.
+    """
+    skip_dirs = {"venv", ".venv", "node_modules", ".git", "logs", "ai_knowledge"}
+    out = list(_docs())
+    for pattern in ("*.py", "*.yml", "*.yaml", "*.html",
+                    "start_platform.sh", "start_platform.ps1", "start_platform.bat"):
+        out += [p for p in ROOT.rglob(pattern)
+                if not any(part in skip_dirs for part in p.parts)
+                and p.resolve() != Path(__file__).resolve()]
+    return sorted(set(out))
+
+
+#: Words that mark a `uv run` mention as history or as documenting the ban
+#: itself, rather than telling a reader to run it. Explaining why uv is
+#: unsupported is the opposite of the defect this test guards against.
+_UV_PROSE = ("legacy", "Previously", "previously", "broke", "died", "is gone",
+             "NOT supported", "not supported", "Do **not**", "do not use",
+             "no supported", "forbids")
+
+
+def test_uv_run_is_gone_from_docs_launchers_and_code():
     """The hub launches sub-apps with sys.executable and there is no
     pyproject.toml or uv.lock, so `uv run` resolves a different (empty)
-    environment - or fails outright with 'uv: command not found'."""
+    environment - or fails outright with 'uv: command not found'.
+
+    The previous version of this test was effectively a no-op: it flagged a
+    line only when `uv run` appeared BEFORE a '#', so every plain
+    'uv run app.py' instruction (no '#' on the line at all) passed straight
+    through. That is how `uv run` stayed in all ten app.py docstrings.
+    """
     assert not (ROOT / "pyproject.toml").exists(), \
         "a pyproject.toml appeared - revisit whether uv is now supported"
     offenders = []
-    for f in _docs() + [ROOT / "start_platform.sh", ROOT / "start_platform.ps1",
-                        ROOT / "start_platform.bat"]:
-        for i, line in enumerate(f.read_text(errors="ignore").splitlines(), 1):
-            if "uv run" in line and "uv run" not in line.split("#")[-1]:
-                offenders.append(f"{f.relative_to(ROOT)}:{i}: {line.strip()}")
+    for f in _uv_run_scan_targets():
+        lines = f.read_text(errors="ignore").splitlines()
+        for i, line in enumerate(lines, 1):
+            if "uv run" not in line:
+                continue
+            # A mention is allowed if it, or the four lines above it (the
+            # enclosing paragraph or comment block), frames uv as history or
+            # as explicitly unsupported.
+            window = "\n".join(lines[max(0, i - 5):i])
+            if any(w in window for w in _UV_PROSE):
+                continue
+            offenders.append(f"{f.relative_to(ROOT)}:{i}: {line.strip()}")
     assert not offenders, "`uv run` is back:\n  " + "\n  ".join(offenders)
 
 
@@ -171,14 +210,14 @@ def test_every_app_has_a_knowledge_file_and_it_is_wired(apps):
     assert (ROOT / "hub" / "knowledge.md").is_file()
 
     src = (ROOT / "assistant" / "app.py").read_text()
-    assert '"reduction", "viewer", "background"' not in src, \
+    assert '"reduction", "average", "background"' not in src, \
         "the hardcoded knowledge ingest list is back"
     assert "_knowledge_files" in src
 
 
 # ── things that were documented but never built ──────────────────────────────
 def test_no_doc_advertises_saxs_waxs_auto_stitching():
-    """The viewer's Stitch checkbox is a display toggle: one shared axis vs
+    """The Visualisation & Average app's Stitch checkbox is a display toggle: one shared axis vs
     side-by-side panels. There is no overlap fit, no scale factor, no merged
     file, and `emit_file_stitched` has zero callers."""
     assert not (ROOT / "src" / "reduction" / "stitch.py").exists()

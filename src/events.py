@@ -36,7 +36,7 @@ Event types
 Publishers              Event type
 ──────────────────────  ──────────────────────
 reduction               file.reduced
-viewer                  file.averaged, file.stitched
+average                 file.averaged, file.stitched
 background              file.subtracted
 analysis                analysis.complete
 reduction (watch mode)  watch.new_raw
@@ -244,7 +244,7 @@ class EventBusClient:
         n_files:   int,
         detector:  str = "saxs",
     ) -> bool:
-        """Emit ``file.averaged`` after the viewer app averages scans."""
+        """Emit ``file.averaged`` after the average app averages scans."""
         return self.publish("file.averaged", {
             "file_path": str(file_path),
             "keyword":   keyword,

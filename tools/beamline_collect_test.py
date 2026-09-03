@@ -9,13 +9,13 @@ acquisition (shutter opens, X-rays) ONLY with --fire and a confirmation.
 
 Recommended order:
     # 1) dry-run: see the filled macro + save path, send nothing
-    uv run tools/beamline_collect_test.py --id test1 --frames 2 --exposure 30
+    python tools/beamline_collect_test.py --id test1 --frames 2 --exposure 30
 
     # 2) simulate end-to-end (no hardware)
-    uv run tools/beamline_collect_test.py --id test1 --mock --fire --yes
+    python tools/beamline_collect_test.py --id test1 --mock --fire --yes
 
     # 3) on the rig, actually collect (asks y/N; opens shutter):
-    uv run tools/beamline_collect_test.py --id test1 --fire
+    python tools/beamline_collect_test.py --id test1 --fire
 
 Config (bServer URL, macro_file, data_dir, tags, exposure/frames defaults) comes
 from reactor/config.yml (spec:). --macro-file / --data-dir override for testing.

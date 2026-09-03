@@ -1,7 +1,7 @@
 """
-viewer/app.py — Data Viewer Flask backend (port 5002)
-======================================================
-Run:  uv run viewer/app.py
+average/app.py — Visualisation & Average Flask backend (port 5002)
+==================================================================
+Run:  python average/app.py           (from the activated venv — see CLAUDE.md)
 Open: http://localhost:5002
 """
 
@@ -47,7 +47,7 @@ from src.runstate import save_monitor, load_monitor, monitor_alive        # noqa
 # ── Event bus (graceful degradation) ─────────────────────────────────────────
 try:
     from src.events import EventBusClient as _EventBusClient
-    _bus = _EventBusClient("viewer").connect(retry=True)
+    _bus = _EventBusClient("average").connect(retry=True)
 except Exception:
     _bus = None
 
@@ -206,7 +206,7 @@ def _render_image(file_path: str, rows: int, cols: int,
 
 @app.route("/api/health")
 def health():
-    return jsonify({"status": "ok", "app": "viewer"})
+    return jsonify({"status": "ok", "app": "average"})
 
 
 @app.route("/api/set_project", methods=["POST"])
@@ -526,7 +526,7 @@ def api_average():
                 if _project_root:
                     try:
                         prov = make_provenance(
-                            "viewer",
+                            "average",
                             input_files = [folder],
                             config      = {"keyword": kw, "detector": det,
                                            "i0_filter_pct": i0_filter_pct},
@@ -671,7 +671,7 @@ def _avg_monitor_loop(dets, n_per_batch, interval, i0_filter_pct,
                     if _project_root:
                         try:
                             prov = make_provenance(
-                                "viewer",
+                                "average",
                                 input_files=[fp],
                                 config={"keyword": kw, "detector": det,
                                         "auto_average": True,
@@ -1007,7 +1007,7 @@ def api_save_average():
 #
 # The saved body is replayed through the SAME endpoint, so there is no second
 # copy of the argument parsing to drift out of sync.
-_MON_APP = "viewer"
+_MON_APP = "average"
 
 
 def _state_root() -> str:

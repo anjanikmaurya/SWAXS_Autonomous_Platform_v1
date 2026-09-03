@@ -39,7 +39,7 @@ Commands (`execute_command`), all identical to the group's existing scripts:
   itself writes the `.raw` frames into your own `data_dir` (AutoSynth folder). The
   alternative `qdo` mode (off by default) would write one filled macro file, and
   only into a path you configure.
-- **Pipeline apps never touch the beamline** — reduction / viewer / background /
+- **Pipeline apps never touch the beamline** — reduction / average / background /
   analysis / quality / assistant / hub only read & write files inside the selected
   project folder. `make_beamline` is imported only by the reactor and the test tools.
 

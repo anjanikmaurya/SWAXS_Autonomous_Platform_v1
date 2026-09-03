@@ -23,7 +23,7 @@ vc.on('jsdomError', e => errs.push('jsdomError: ' + (e.stack || e.message)));
 vc.on('error', (...a) => errs.push('console.error: ' + a.join(' ')));
 vc.on('warn', () => {}); vc.on('log', () => {});
 
-const APPS = ['calibration','reduction','viewer','background','quality',
+const APPS = ['calibration','reduction','average','background','quality',
               'analysis','reactor','analyzer','assistant'];
 function frame(over) {
   const apps = {};

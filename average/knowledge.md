@@ -1,7 +1,12 @@
-# Viewer App — Knowledge Base
+# Visualisation & Average App — Knowledge Base
+
+Displayed in the hub as **Visualisation & Average**. Folder, app id and log name
+are all `average` (`average/app.py`, `apps.yml` id `average`). This app was
+called `viewer` before September 2026, so older logs and `.swaxs_state` files
+may still use that name.
 
 ## Purpose
-The Viewer app (port 5002) displays, selects, and averages 1D scattering curves
+The Visualisation & Average app (port 5002) displays, selects, and averages 1D scattering curves
 produced by the Reduction app. It groups frames by keyword, lets users pick which
 frames to include, and writes averaged curves as `.dat` files. It also previews
 raw 2D detector images and runs an auto-averaging monitor for unattended runs.
@@ -30,7 +35,7 @@ raw 2D detector images and runs an auto-averaging monitor for unattended runs.
 ### 3. Frame Selection
 Users select which frames to average by clicking individual frames to toggle
 include/exclude. There are no `a` / `n` (select all / select none) keyboard
-shortcuts — the only keydown handlers in the viewer UI are Enter in the
+shortcuts — the only keydown handlers in this app's UI are Enter in the
 keyword-entry box and Escape to close a popup.
 
 ### 4. Averaging
@@ -162,6 +167,37 @@ the median I₀ of the batch, not any one frame's reading.
 
 `read_dat_data_metadata` in `src/utils/read_dat_metadata.py` parses both the
 numeric columns and the metadata block of either format.
+
+## Uncertainty σ(q) — how averaging propagates it
+
+**One line:** the averaged σ is the unweighted-mean rule
+`σ_out = √(Σσᵢ²) / n` (`src/plot_reduction.py::_average_group`), which for equal
+σ correctly collapses to `σ/√n`.
+
+Two details this gets right and that are easy to get wrong: `n` counts only the
+frames that actually contributed — frames dropped by the I₀-outlier filter or for
+having <3 valid points are excluded from both the sum and the denominator, so a
+skipped frame cannot bias I low and σ artificially small — and a single-frame
+group passes σ straight through with no spurious `/√1`.
+
+Three approximations to know about:
+
+1. **The average is unweighted.** Frames with different σ (different exposure,
+   different I₀, partial radiation damage) all count equally, where
+   inverse-variance weighting `I = Σ(Iᵢ/σᵢ²) / Σ(1/σᵢ²)` would be optimal.
+   Tracked as **D4** in `docs/audits/OPEN_DEFECTS.md`.
+2. **σ is interpolated in log-space** onto the common q grid, an approximation to
+   the exact rule `σ_new² = (1−t)²σ₁² + t²σ₂²` — closer to correct than the two
+   usual shortcuts, but an approximation.
+3. **Interpolation correlates neighbouring q-points** and nothing downstream
+   accounts for it, so fitted uncertainties on Rg, size and the invariants are
+   probably tighter than they should be.
+
+Full stage-by-stage treatment: **`docs/ERROR_PROPAGATION.md` §3**.
+Further reading: Gardner, *J. Res. NIST* **108**(1), 69–78, 2003 — σ through
+interpolation and the induced correlation (<https://doi.org/10.6028/jres.108.008>);
+Pauw, "Everything SAXS", 2013, § rebinning
+(<https://doi.org/10.1088/0953-8984/25/38/383201>).
 
 ## src/ Imports
 - `src.plot_reduction.read_folder(folder, keywords=None) -> list[dict]` — a FLAT

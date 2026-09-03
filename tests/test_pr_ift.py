@@ -10,7 +10,7 @@ numpy-only) so the suite runs without the heavy stack.
 
 Run:
     python tests/test_pr_ift.py
-    uv run pytest tests/test_pr_ift.py
+    python -m pytest tests/test_pr_ift.py
 """
 from __future__ import annotations
 

@@ -2,14 +2,13 @@
 """
 reduction/app.py — Reduction & Correction Flask backend (port 5001)
 ====================================================================
-Launch:
-    uv run reduction/app.py          (recommended)
+Launch (from the activated venv — see CLAUDE.md; `uv run` is NOT supported here):
     python reduction/app.py
 
 Then open  http://localhost:5001  in any browser.
 
 For multi-day continuous operation use gunicorn instead of the dev server:
-    uv run gunicorn -w 1 --threads 8 -b 127.0.0.1:5001 "reduction.app:app"
+    gunicorn -w 1 --threads 8 -b 127.0.0.1:5001 "reduction.app:app"
 
 Routes
 ------
@@ -863,7 +862,7 @@ def _state_root() -> str:
     """Where run-state lives. Several apps leave `_project_root` empty until the
     hub POSTs it, so fall back to the env var the hub also sets — otherwise the
     state silently has nowhere to go."""
-    # `_project_root` does not exist in THIS app (unlike viewer/background) —
+    # `_project_root` does not exist in THIS app (unlike average/background) —
     # referencing it raised NameError, which both callers swallowed, so the
     # monitor state was never saved and never resumed. Reduction alone did not
     # come back after a restart while every other app did. Read the env var the
@@ -917,7 +916,7 @@ if __name__ == "__main__":
     print("  │   Open  http://localhost:5001  in a browser                 │")
     print("  │                                                             │")
     print("  │   For multi-day runs, use gunicorn instead:                 │")
-    print("  │   uv run gunicorn -w 1 --threads 8 -b 127.0.0.1:5001 \\     │")
+    print("  │   gunicorn -w 1 --threads 8 -b 127.0.0.1:5001 \\            │")
     print("  │       'reduction.app:app'                                   │")
     print("  │                                                             │")
     print("  │   Press  Ctrl-C  to stop                                    │")

@@ -79,9 +79,9 @@ echo   ^|   SWAXS Platform Hub                                 ^|
 echo   ^|   -^> http://localhost:%SWAXS_HUB_PORT%                            ^|
 echo   ^|                                                      ^|
 echo   ^|   Apps are started from the hub web page:             ^|
-echo   ^|     5009 Calibration  5001 Reduction  5002 Viewer    ^|
+echo   ^|     5009 Calibration  5001 Reduction  5002 Vis & Avg ^|
 echo   ^|     5003 Background   5006 Quality    5004 Analysis  ^|
-echo   ^|     5008 Analyzer     5007 Reactor    5005 Assistant ^|
+echo   ^|     5008 Analyzer     5007 Reactor    5005 Tassone   ^|
 echo   ^|                                                      ^|
 echo   ^|   Press Ctrl-C to stop the hub AND its apps           ^|
 echo   +======================================================+

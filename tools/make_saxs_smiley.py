@@ -3,7 +3,7 @@
 make_saxs_smiley.py — generate a synthetic SAXS-style 2D detector image whose
 bright scattering features form a smiley face. Used as the AI Assistant icon.
 
-    uv run tools/make_saxs_smiley.py [output.png]
+    python tools/make_saxs_smiley.py [output.png]
 
 Look & feel: dark detector background, faint Debye-Scherrer rings, photon
 speckle, a small central beamstop, and high-intensity Gaussian "features"

@@ -1,7 +1,7 @@
 """
 src/plot_reduction.py — Data loading and averaging utilities
 =============================================================
-Shared by the viewer app (port 5002) and any future apps that need
+Shared by the average app (port 5002) and any future apps that need
 to load or average 1-D SAXS/WAXS .dat files.
 
 Public API (see __all__):
@@ -175,6 +175,14 @@ def _average_group(
 
     # Average ONLY the scans that contributed (skipped scans must not inflate
     # the denominator, which would bias I low and σ small).
+    #
+    # ERROR PROPAGATION: unweighted-mean rule sigma_out = sqrt(sum(sigma_i^2)) / n
+    # (correct for combining independent measurements of EQUAL weight; frames
+    # with different sigma are not down-weighted — see docs/ERROR_PROPAGATION.md
+    # §3, tracked as D4 in docs/audits/OPEN_DEFECTS.md). sigma itself was
+    # log-space interpolated onto q_grid above, an approximation to the exact
+    # interpolation rule in Gardner 2003 (10.6028/jres.108.008); see the same
+    # doc section for the induced-correlation caveat this creates downstream.
     I_stack   = np.vstack(I_rows)
     sig_stack = np.vstack(sig_rows)
     n         = I_stack.shape[0]
@@ -407,7 +415,7 @@ def average_batch(
 
     Unlike :func:`average_and_save` — which groups an entire folder by keyword —
     this averages exactly the frames passed in.  It is the building block for
-    the viewer's auto-averaging monitor, which feeds it rolling batches of *N*
+    the average app's auto-averaging monitor, which feeds it rolling batches of *N*
     consecutive frames for one sample.
 
     Parameters

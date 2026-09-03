@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Tassone Group Assistant</title>
+<title>Tassone Group</title>
 <link rel="icon" type="image/png" href="/static/saxs_smiley.png">
 <!-- Rich rendering: Markdown (marked) + sanitiser (DOMPurify) + math (KaTeX).
      Vendored locally under /static/vendor/ so the assistant works fully OFFLINE
@@ -315,7 +315,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
   <header class="topbar">
     <img src="/static/saxs_smiley.png" alt="SAXS assistant icon"
          style="width:30px;height:30px;border-radius:7px;margin-right:10px;object-fit:cover;box-shadow:0 1px 3px rgba(0,0,0,.25)">
-    <h1>Tassone Group <span>Assistant</span></h1>
+    <h1>Tassone <span>Group</span></h1>
     <div id="apiBadge" class="badge warn">Connecting…</div>
     <div class="spacer"></div>
     <button class="btn" onclick="clearChat()">🗑 Clear</button>
@@ -404,9 +404,9 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
     <div class="chat-wrap">
       <div class="messages" id="messages">
         <div class="msg assistant">
-          <div class="msg-label"><img src="/static/saxs_smiley.png" alt="" style="width:16px;height:16px;border-radius:4px;vertical-align:-3px;margin-right:5px">Tassone Group Assistant</div>
+          <div class="msg-label"><img src="/static/saxs_smiley.png" alt="" style="width:16px;height:16px;border-radius:4px;vertical-align:-3px;margin-right:5px">Tassone Group</div>
           <div class="bubble">
-            Hello! I'm the Tassone Group Assistant — your SAXS/WAXS research assistant.<br><br>
+            Hello! I'm Tassone Group — your SAXS/WAXS research assistant.<br><br>
             I can help you with:<br>
             • Guinier analysis (Rg, I₀, qRg validity)<br>
             • Kratky and Porod plots<br>
@@ -666,7 +666,7 @@ function appendUser(text) {
 function appendTyping() {
   const d = document.createElement('div');
   d.className = 'msg assistant'; d.id = '__typing';
-  d.innerHTML = `<div class="msg-label"><img src="/static/saxs_smiley.png" alt="" style="width:16px;height:16px;border-radius:4px;vertical-align:-3px;margin-right:5px">Tassone Group Assistant</div>
+  d.innerHTML = `<div class="msg-label"><img src="/static/saxs_smiley.png" alt="" style="width:16px;height:16px;border-radius:4px;vertical-align:-3px;margin-right:5px">Tassone Group</div>
     <div class="det-row"><div class="det-load"><div class="field"></div><div class="bs"></div><div class="arm"></div></div><span>collecting…</span></div>`;
   document.getElementById('messages').appendChild(d);
   scrollEnd();
@@ -677,7 +677,7 @@ function appendAssistant(text, toolCalls, plot, inlineHints, plotFig) {
   const d = document.createElement('div');
   d.className = 'msg assistant';
 
-  let html = `<div class="msg-label"><img src="/static/saxs_smiley.png" alt="" style="width:16px;height:16px;border-radius:4px;vertical-align:-3px;margin-right:5px">Tassone Group Assistant</div><div class="bubble">${renderRich(text)}</div>`;
+  let html = `<div class="msg-label"><img src="/static/saxs_smiley.png" alt="" style="width:16px;height:16px;border-radius:4px;vertical-align:-3px;margin-right:5px">Tassone Group</div><div class="bubble">${renderRich(text)}</div>`;
 
   // Inline plot — prefer interactive Plotly, fall back to the static PNG.
   const useInteractive = plotFig && window.Plotly;
@@ -883,7 +883,7 @@ async function sendMsg() {
 function appendSteps() {
   const d = document.createElement('div');
   d.className = 'msg assistant';
-  d.innerHTML = `<div class="msg-label"><img src="/static/saxs_smiley.png" alt="" style="width:16px;height:16px;border-radius:4px;vertical-align:-3px;margin-right:5px">Tassone Group Assistant</div>
+  d.innerHTML = `<div class="msg-label"><img src="/static/saxs_smiley.png" alt="" style="width:16px;height:16px;border-radius:4px;vertical-align:-3px;margin-right:5px">Tassone Group</div>
     <div class="steps"><div class="det-row">
       <div class="det-load"><div class="field"></div><div class="bs"></div><div class="arm"></div></div>
       <span>collecting…</span>

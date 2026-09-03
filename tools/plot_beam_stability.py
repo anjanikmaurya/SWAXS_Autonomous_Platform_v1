@@ -7,7 +7,7 @@ frames (same detector + sample/x-position, excluding the dark set), order them b
 acquisition timestamp, and plot the incident (I0) and transmitted (bstop) beam
 monitors vs elapsed time. Useful for spotting beam drift / dosing trends.
 
-    uv run tools/plot_beam_stability.py /path/to/project [out.png]
+    python tools/plot_beam_stability.py /path/to/project [out.png]
 """
 from __future__ import annotations
 

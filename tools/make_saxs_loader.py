@@ -4,7 +4,7 @@ make_saxs_loader.py — realistic SAXS detector frame for the "collecting live"
 loader (dark beamstop at center, Debye-Scherrer rings + photon speckle, intensity
 decaying outward). No face features — this is meant to read as real data.
 
-    uv run tools/make_saxs_loader.py
+    python tools/make_saxs_loader.py
 """
 from __future__ import annotations
 

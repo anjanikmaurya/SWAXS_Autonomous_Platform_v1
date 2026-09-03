@@ -72,7 +72,7 @@ itself not-supervising on the way out. `status()` gained `supervising`
 
 `src/events.py` `publish()` wrapped `json.dumps` and `ws.send` in one `try`, and
 treated any failure as a transport failure — dropping the socket.
-`viewer/app.py:488` passed `n_files = mask.sum()`, which is `np.int64`, not `int`.
+`average/app.py:488` passed `n_files = mask.sum()`, which is `np.int64`, not `int`.
 
 Reproduced: first publish → `TypeError`, `_connected = False`, `_ws = None`. The
 socket was **still open**, so `run_forever` never returned and the reconnect loop
@@ -86,7 +86,7 @@ show for it.
 **Fixed** — encoding is no longer confused with transport: a bad payload drops the
 *event* and keeps the connection, and `default=_json_safe` coerces numpy scalars
 and arrays so this cannot recur. Separately, `mask.sum()` was also the **wrong
-number** (positive q-points, not frames); the viewer now reports the real count.
+number** (positive q-points, not frames); the average app now reports the real count.
 
 ### 3. Reduction alone never resumed after a restart
 
@@ -99,7 +99,7 @@ swallowed it:
 * `_boot_resume_monitor` → the resume attempt died before it began.
 
 The restart-recovery work was therefore inert for reduction while working in every
-other app. Observable state after a 03:00 restart: viewer averaging, background
+other app. Observable state after a 03:00 restart: average-app averaging, background
 subtracting, **reduction dead**, no new `.dat` files, all hub cards green.
 
 **Fixed** — read the env var the hub sets, plus whatever `set_project()` recorded.
@@ -118,7 +118,7 @@ was processed for the rest of the night. The same green-card-doing-nothing failu
 the restart-resume work exists to prevent, reached by a different route.
 
 **Fixed** — one shared `src/runstate.monitor_alive(flag, thread)` used by both the
-status route and the already-running guard in reduction, viewer, background and
+status route and the already-running guard in reduction, average, background and
 quality, so the two can never disagree. Taking over from a dead worker is
 announced rather than done silently.
 
@@ -248,7 +248,7 @@ what was restored.
 
 **(b) Averaging was not slow — it was deadlocked, silently, forever.** Loop frames
 group per `{recipe_id}_{role}`, so frames from different recipes never combine. The
-reactor ships `spec.frames: 10`; the viewer UI ships `frames_per_average: 30`. The
+reactor ships `spec.frames: 10`; the Visualisation & Average UI ships `frames_per_average: 30`. The
 loop condition is `while (len(grp) - consumed) >= n_per_batch`, and 10 >= 30 is
 never true — **no average is ever written, for any recipe.** No averaged file means
 no subtracted profile, no fit and no next recipe: the entire autonomous loop stops.
@@ -264,11 +264,46 @@ the bug.
 end for one acquisition: 264 s from the last frame to a fitted result, of which
 **99 % is waiting** — 200 s for a full batch, 50 s of poll intervals and the
 2-poll stability gate — and **1 % is CPU**. Per-item costs: reduction ~0.15 s per
-frame, the viewer's folder re-read ~1 ms per file, one analyzer fit 246 ms. Nothing
+frame, the average app's folder re-read ~1 ms per file, one analyzer fit 246 ms. Nothing
 there is slow; the chain is dominated by four independent 10 s pollers in series
 plus the batch wait. Reducing that means driving the stages off the event bus
 instead of polling — recorded as **N16** below rather than changed here, because it
 alters the timing of every stage at once.
+
+### 13. Guinier, Porod and the nanoparticle fit computed sigma and then ignored it
+
+Every stage before fitting — reduction, averaging, background subtraction —
+propagates a real error bar (see `docs/ERROR_PROPAGATION.md`). Three fits
+downstream never looked at it: `guinier_fit` and `porod_fit`
+(`src/analysis/core.py`) accepted a `sigma` argument and had zero references
+to it in the body (plain `scipy.stats.linregress`); the nanoparticle
+form-factor fit (`src/analysis/nanoparticle.py`) didn't accept `sigma` at
+all. Every point counted equally regardless of how precisely it was
+measured — including in the fit that feeds the autonomous optimizer's
+confidence score.
+
+Also found while wiring this up: `analyze_profile` passed `sigma` to
+`guinier_estimate` **unmasked and unsorted** relative to the `q`/`I` arrays
+it had already cleaned and sorted — harmless only because `guinier_estimate`
+ignored `sigma` too. Fixing the weighting without fixing the alignment would
+have applied each point's error bar to the wrong point.
+
+**Fixed** — both fits now weight by `1/sigma(ln I)²` (`1/sigma(log10 I)²`
+for the nanoparticle fit), the standard inverse-variance treatment (Sedlak,
+Bruetzel & Lipfert 2017; see `docs/ERROR_PROPAGATION.md` §1). `sigma=None`
+or an all-invalid `sigma` falls back to exactly the prior unweighted
+behaviour — verified bit-identical against the old code path. The alignment
+bug is fixed alongside it. Verified on synthetic heteroscedastic data against
+known ground truth: the weighted Guinier fit recovered a true Rg with 0.02 nm
+error vs 0.55 nm unweighted; the weighted nanoparticle fit recovered a true
+8.0 nm radius to within 0.0015 nm vs 0.018 nm unweighted. The demo-pipeline
+golden reference was regenerated (`tests/fixtures/demo_pipeline/golden/`) —
+its Guinier numbers changed because the auto-range refinement now correctly
+narrows a too-broad initial q-range once weighting is applied; this was
+inspected and is the fit behaving more correctly, not a regression.
+
+Still open, not addressed by this fix: `peak_fit` (`core.py`) reads `sigma`
+only once; `pair_distance_ift` and `sasmodels_fit` already used it fully.
 
 ---
 
@@ -282,7 +317,7 @@ were real:
 |---|---|---|
 | a | `monitor_status` / the already-running guard existed in 4 apps and had **drifted** — none checked thread liveness | consolidated into `src/runstate.monitor_alive` (finding 4) |
 | b | `_state_root` in 4 apps, 2 distinct implementations; reduction's was the broken one | reduction's fixed to match (finding 3) |
-| c | `/api/browse` returns `{"path": …}` in reduction but `{"current": …}` in viewer, with different filtering — two contracts for one job | **left open**: cosmetic, UI-only, and unifying it means touching two templates |
+| c | `/api/browse` returns `{"path": …}` in reduction but `{"current": …}` in the average app, with different filtering — two contracts for one job | **left open**: cosmetic, UI-only, and unifying it means touching two templates |
 
 `_persist_monitor_state` is byte-identical in all four apps — genuine duplication,
 but harmless and self-documenting where it sits.
@@ -298,18 +333,18 @@ single-session change. Ranked by what they cost during an unattended run.
 |---|---|---|---|
 | N1 | **HIGH** | `reduction/app.py` `_processed_files` is memory-only, and `find_new_raw_files` filters on nothing else. After a restart it re-reduces the **entire** experiment, oldest first. | Every `.dat` rewritten, thousands of manifest writes under the cross-process lock, and live frames starved until the backlog clears — worse now that the monitor auto-resumes. Fix: persist the set, or skip files whose `.dat` is newer than the `.raw`. |
 | N2 | **HIGH** | No mutual exclusion between `/api/run` and the reduction monitor. Both take the same file list and share one `AzimuthalIntegrator` (whose contract says single-threaded), and both write then `replace()` the same `.part`. | An interleaved, truncated `.dat` published atomically — it looks complete to every downstream size/mtime check. Fix: one lock, or reject `/api/run` while monitoring. |
-| N3 | **HIGH** | `viewer` `_avg_batch_state` is zeroed on every `monitor_start`, including the boot resume. | After a restart the whole night is re-averaged: every batch file overwritten and one `file.averaged` per batch — which is what the reactor treats as measurement-complete. Fix: persist the batch state alongside the monitor state. |
-| N4 | **HIGH** | `viewer` batch state is a **count**, not a set of identities, and `read_folder` silently skips unreadable files. One transient read failure shifts every subsequent batch boundary. | A frame is silently reused in the next batch and one is dropped; if the count ever exceeds the group length, that keyword stops averaging entirely. Fix: track consumed filenames. |
-| N5 | **MEDIUM** | `viewer` stop→start within one interval can leave two loops racing the same counter, or the old thread can switch the **new** monitor off after `start` returned OK. | Double-written or skipped batches; or a monitor that reports running and is not. Fix: per-run `threading.Event` instead of a shared bool; join the old thread. |
+| N3 | **HIGH** | `average` `_avg_batch_state` is zeroed on every `monitor_start`, including the boot resume. | After a restart the whole night is re-averaged: every batch file overwritten and one `file.averaged` per batch — which is what the reactor treats as measurement-complete. Fix: persist the batch state alongside the monitor state. |
+| N4 | **HIGH** | `average` batch state is a **count**, not a set of identities, and `read_folder` silently skips unreadable files. One transient read failure shifts every subsequent batch boundary. | A frame is silently reused in the next batch and one is dropped; if the count ever exceeds the group length, that keyword stops averaging entirely. Fix: track consumed filenames. |
+| N5 | **MEDIUM** | `average` stop→start within one interval can leave two loops racing the same counter, or the old thread can switch the **new** monitor off after `start` returned OK. | Double-written or skipped batches; or a monitor that reports running and is not. Fix: per-run `threading.Event` instead of a shared bool; join the old thread. |
 | N6 | **MEDIUM** | `quality` `_results` / `_overrides` are mutated by the grader thread, the bus thread and request threads while other requests iterate them. | `RuntimeError: dictionary changed size during iteration` — tolerable in `/api/results`, but `_recolor()` and `_rescore_all()` have side effects, so a mid-loop failure leaves half the profiles re-verdicted and re-copied, permanently, with nothing logged. Fix: snapshot under `_lock`. |
-| N7 | **MEDIUM** | `viewer` re-reads and re-parses **every** `.dat` in the Reduction folder on every poll (default 10 s), with no mtime filter. | At 10 000 files the loop falls progressively behind the acquisition it is tracking. Fix: cache by `(path, mtime, size)`. |
+| N7 | **MEDIUM** | `average` re-reads and re-parses **every** `.dat` in the Reduction folder on every poll (default 10 s), with no mtime filter. | At 10 000 files the loop falls progressively behind the acquisition it is tracking. Fix: cache by `(path, mtime, size)`. |
 | N8 | **MEDIUM** | `calibration` Stop does not stop the SFTP copy — the executor drains its queue and the handle is dropped anyway. | Status says "Stopped" while an orphan thread keeps writing; a second Start can run two syncs into the same `.part` paths. Fix: `shutdown(cancel_futures=True)`; keep the handle until the thread is dead. |
 | N9 | **MEDIUM** | `calibration` never persists/resumes its transfer — the O1 fix skipped the first stage of the pipeline. | A restart silently stops data ingest; every downstream app then honestly reports "no new files" and stays green. Note: only key-based auth can be resumed, since the password is deliberately never persisted. |
 | N10 | **MEDIUM** | `quality` "Re-grade with AI" is stored in `_overrides`, so it is recorded as `source="user", overridden=True` and pins the verdict forever. | Provenance claims a scientist labelled the profile; later threshold changes can never reclassify it. Fix: a separate `_ai_verdicts` store. |
 | N11 | **MEDIUM** | A single override shifts the **global** adaptive threshold, persists it, and does not re-sort. Repeat overrides of one file are counted repeatedly. | The persisted threshold stops matching the already-sorted files. Fix: `_recolor()` after `_adapt_threshold()`; key `_adapt` by path. |
 | N12 | **LOW** | Five legacy `analysis` routes duplicate the current ones and have drifted numerically (`/api/peak` forces `n_peaks ≥ 1`; `/api/waxs_peaks` auto-detects). Only the new ones produce `Analysed/` files and QC. | Two "peak fits" of the same curve disagree with no explanation. Fix: delete them (the template calls neither) or make them wrappers. |
 | N13 | **LOW** | `analysis` Guinier overlay is drawn over the whole q-range, ignoring `res["q_range"]`. | The saved `*_fit.dat` shows an extrapolated curve that reads as a much worse fit than it is. |
-| N14 | **LOW** | Both reduction and viewer drive `pyplot` from a 2-worker pool; the global figure manager is not thread-safe. | Two simultaneous render requests can garble a figure. UI-only. |
+| N14 | **LOW** | Both reduction and the average app drive `pyplot` from a 2-worker pool; the global figure manager is not thread-safe. | Two simultaneous render requests can garble a figure. UI-only. |
 | N15 | **LOW** | `src/analysis/atsas.py:122` `mkdtemp()` per `run_datgnom` call, never removed. | One temp dir per file in an ATSAS batch. |
 | N16 | **MEDIUM** | Four stages poll independently at 10 s, in series, plus a 2-poll stability gate — 99 % of the 264 s frame-to-fit latency is waiting, 1 % is CPU (measured). Every app already publishes and receives bus events. | A frame takes ~4 min to reach the optimizer when the work costs ~2 s. Fix: have each stage act on the upstream `file.*` event and keep polling only as the fallback it was meant to be. |
 
@@ -339,9 +374,9 @@ numbers anywhere, which is why the file they came from could not simply be delet
 
 | # | Sev | Finding | Consequence & fix |
 |---|---|---|---|
-| O3 | **HIGH** | **Manifest write cost is O(N²).** Every entry embeds a full `config_snapshot` (`src/manifest.py:695-696`), nothing prunes, and reduction writes once per frame under `flock` with no timeout. Measured 3.5 ms at 100 entries → **609 ms at 20 000**. | By 03:00 the bookkeeping costs more than the science and blocks all six writers. Fix: store each distinct config once under a top-level `configs` key, keep only `config_hash`; batch reduction's writes per poll cycle as viewer/background already do. |
+| O3 | **HIGH** | **Manifest write cost is O(N²).** Every entry embeds a full `config_snapshot` (`src/manifest.py:695-696`), nothing prunes, and reduction writes once per frame under `flock` with no timeout. Measured 3.5 ms at 100 entries → **609 ms at 20 000**. | By 03:00 the bookkeeping costs more than the science and blocks all six writers. Fix: store each distinct config once under a top-level `configs` key, keep only `config_hash`; batch reduction's writes per poll cycle as average/background already do. |
 | O4 | **HIGH** | **`flock` failure disables manifest writing silently** — the call is unguarded (`src/manifest.py:274-283`); on NFS/SMB it raises `ENOTSUP` and every caller swallows it into one log line. | Data reduces fine, `.dat` files appear, `manifest.json` is never created: **no provenance for the entire run**. Highest-variance item left. Fix: `except OSError` with a one-time ERROR and a portable `os.mkdir` lock fallback. |
-| O7 | **HIGH** | **Only the first rolling batch trains the optimizer.** The viewer emits `batch001, batch002…`; `_pending.pop(rid, None)` (`analyzer/app.py:296`) means first-arrival wins — and `batch001` is the *least* settled flow with the worst statistics. | The manifest and campaign history disagree about the same recipe with no marker saying which trained the model. Fix: accumulate per recipe and `tell()` once on the highest-confidence batch. |
+| O7 | **HIGH** | **Only the first rolling batch trains the optimizer.** The average app emits `batch001, batch002…`; `_pending.pop(rid, None)` (`analyzer/app.py:296`) means first-arrival wins — and `batch001` is the *least* settled flow with the worst statistics. | The manifest and campaign history disagree about the same recipe with no marker saying which trained the model. Fix: accumulate per recipe and `tell()` once on the highest-confidence batch. |
 | O9 | **MED** | **Subtracted `.dat` drops the sample's metadata footer**, including the simulator's `simulated=1` flag — `background/app.py:215-241` writes only its own header. | Mock and real results are indistinguishable downstream: manifest, campaign history and Slack reports alike. |
 | O10 | **MED** | **Switching the project folder mid-session splits the writers.** Monitor loops keep the absolute paths captured at start; the manifest write in the same loop uses the live `_project_root`; reduction writes to `data_directory.parent` — a third manifest. | Data lands in the old folder, provenance in the new. Fix: stop the monitors on `set_project` with a clear log line. |
 | O12 | **MED** | **No `fsync` before `replace`** (`src/manifest.py:236`), and salvage handles only the "valid JSON + trailing bytes" case. | On salvage failure the manifest resets to empty and processing continues; 8 h of provenance survive only in a `manifest.corrupt-*` file nothing points the operator at. |
@@ -377,7 +412,7 @@ honoured (`quality/app.py:216-222`) and there is a graded-file cache (`:481`).
 | LOW | `/api/set_project` is dropped on a not-yet-mounted path — background and analysis guard on `is_dir()`. Re-select the folder once a slow network drive appears. |
 | LOW | The reactor's **"■ Stop → flush" is mislabelled during the `flushing` state**, where it stops the flush and idles. |
 | LOW | No tooltips on the reactor's stop/safe control cluster, and the E-stop → Reset recovery path is not explicit in the UI. |
-| LOW | `/api/browse` returns `{"path": …}` in reduction but `{"current": …}` in viewer — two contracts for one job. |
+| LOW | `/api/browse` returns `{"path": …}` in reduction but `{"current": …}` in the average app — two contracts for one job. |
 | LOW | `quality`, `reactor`, `analyzer` and `calibration` post-date the design audit and have **never been contrast-checked**. See `docs/DESIGN_SYSTEM.md` §6. |
 
 ---

@@ -1,4 +1,4 @@
-# Tassone Group Assistant — Functional Specification
+# Tassone Group (AI assistant app) — Functional Specification
 
 Derived from a 24-question requirements interview (2026-06-18). This captures the
 intended full functionality, the design decisions, conflicts to resolve, and a

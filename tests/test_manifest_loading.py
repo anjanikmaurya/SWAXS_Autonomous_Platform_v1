@@ -18,7 +18,7 @@ Covered here:
     project_root
 
 Run:
-    uv run pytest tests/test_manifest_loading.py
+    python -m pytest tests/test_manifest_loading.py
     python tests/test_manifest_loading.py        # standalone (stdlib only)
 """
 

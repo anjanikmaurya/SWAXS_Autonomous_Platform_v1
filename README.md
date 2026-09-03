@@ -4,7 +4,8 @@ A local, AI-assisted toolkit for processing **small- and wide-angle X-ray scatte
 
 Everything runs on your own machine — the apps are local web servers and your data stays in the folder you point them at. The platform does make outbound connections, all of them optional and off by default: the Claude API (AI Assistant and AI quality grading), SFTP to a beamline host (Calibration's data sync), HTTP to the SPEC bServer (real beamline control), and Slack webhooks or SMTP (run notifications).
 
-### 🚀 New laptop? → [Quick start](#quick-start) · macOS · Windows (PowerShell **and** Anaconda Prompt) · Linux
+### 🚀 New laptop? → **[Quick start](#quick-start)** — three steps, ~10 minutes, no coding.
+Works on macOS, Windows (PowerShell **or** Anaconda Prompt) and Linux.
 
 ---
 
@@ -16,7 +17,7 @@ The platform is organized as nine small web apps, launched from one central hub.
 |---|-----|------|---------------|
 | 🎯 | **Calibration & Raw Prep** | 5009 | Convert calibrant `.raw` → CBF and generate the pyFAI `.poni` files everything downstream needs; optional SFTP pull from the beamline host |
 | ⚙️ | **Reduction & Correction** | 5001 | Convert raw 2D detector images → 1D I(q) curves (PyFAI integration, transmission/normalization corrections) |
-| 📊 | **Data Viewer** | 5002 | Visualize 2D & 1D data, average repeated scans, view SAXS and WAXS together |
+| 📊 | **Visualisation & Average** | 5002 | Visualise 2D & 1D data, average repeated scans, view SAXS and WAXS together |
 | 🔬 | **Background Subtraction** | 5003 | Subtract buffer/background by keyword, scan-matching, or manual selection |
 | ✅ | **Quality Gate** | 5006 | AI good/bad grading of subtracted profiles — scoring, auto-sort into Good/NeedsReview, frame selection |
 | 📈 | **Data Analysis** | 5004 | Guinier, Porod, Kratky, pair-distance, peak fitting |
@@ -36,90 +37,86 @@ For self-driving nanoparticle synthesis at the beamline, the reactor and analyze
 
 ## Quick start
 
-About **10 minutes**, ~500 MB of downloads. Needs **Python 3.10 or newer** and
-**git**. Pick your platform — each block is self-contained.
+You install once, in about **10 minutes**. It is the same three steps on every
+platform:
 
-> ### ⚠ Install from `requirements-core.txt`, not `requirements.txt`
->
-> `requirements.txt` is an old `pip freeze` of one developer's Mac. It carries
-> ~1 GB the platform never imports (PyQt6, silx, pyopencl, torch) and pins exact
-> versions with **no Windows build for Python 3.9** — pip then tries to compile
-> numpy from source and the install dies with *"Microsoft Visual C++ 14.0 or
-> greater is required"*. `requirements-core.txt` is 16 packages, verified to
-> install from prebuilt wheels on Windows, macOS and Linux with no compiler.
+**① get Python and git → ② download the code and install → ③ start the hub.**
+
+No coding needed. If a command fails, the exact error is almost certainly in
+[QUICKSTART.md](QUICKSTART.md#troubleshooting).
+
+> **⚠ One thing that matters more than anything else on this page:**
+> install from **`requirements-core.txt`**, never `requirements.txt`.
+> `requirements.txt` is an old snapshot of one developer's Mac — it drags in ~1 GB
+> the platform never uses and pins versions with no Windows build, so pip tries to
+> *compile* numpy and dies with *"Microsoft Visual C++ 14.0 or greater is
+> required"*. `requirements-core.txt` is 16 packages that install from prebuilt
+> wheels everywhere, with no compiler. This is what broke the first Windows
+> install, and it is the one line people get wrong.
+
+### ① Get Python and git
+
+You need **Python 3.10 or newer** (3.11 or 3.12 recommended) and **git**.
+Check with `python --version` — on macOS and Linux, `python3 --version`.
+
+| Your machine | How to get them |
+|---|---|
+| **macOS** | Python from [python.org](https://www.python.org/downloads/macos/). git comes with Xcode command-line tools — running `git --version` offers to install it. |
+| **Windows** | Python from [python.org](https://www.python.org/downloads/windows/) — **tick "Add python.exe to PATH"** on the installer's first screen. It is easy to miss and nothing works without it. Then [Git for Windows](https://git-scm.com/download/win). |
+| **Windows + Anaconda** | You already have both. Use the **Anaconda Prompt** from the Start menu, not PowerShell. If git is missing: `conda install -y git`. |
+| **Linux** | `sudo apt install -y python3 python3-venv python3-pip git` (Debian/Ubuntu) · `sudo dnf install -y python3 python3-pip git` (Fedora/RHEL) |
+
+### ② Download the code and install
+
+Copy the whole block for your setup and paste it into one terminal window. The
+`(venv)` or `(swaxs)` that appears in your prompt is how you know it worked.
 
 <details open>
-<summary><b>🍎 macOS</b></summary>
-
-Open **Terminal** (⌘-Space → `Terminal`):
+<summary><b>🍎 macOS &nbsp;·&nbsp; 🐧 Linux</b> — Terminal</summary>
 
 ```bash
-python3 --version          # need 3.10+; get it from python.org if missing
-
-cd ~/Desktop
+cd ~/Desktop                                   # or wherever you keep projects
 git clone https://github.com/anjanikmaurya/SWAXS_Autonomous_Platform_v1.git
 cd SWAXS_Autonomous_Platform_v1
 
 python3 -m venv venv
-source venv/bin/activate               # prompt should now show (venv)
+source venv/bin/activate                       # prompt now shows (venv)
 
 pip install --upgrade pip
-pip install -r requirements-core.txt   # 1-3 minutes
-
-./start_platform.sh
+pip install -r requirements-core.txt           # 1-3 minutes
 ```
-
-Open **http://localhost:5000**.
-
-*Port 5000 busy?* macOS AirPlay Receiver uses it too. Usually harmless; if the
-hub can't bind, run `SWAXS_HUB_PORT=5100 ./start_platform.sh` or turn AirPlay
-Receiver off in System Settings → General → AirDrop & Handoff.
 
 </details>
 
 <details open>
-<summary><b>🪟 Windows — PowerShell</b></summary>
-
-First install [Python 3.11/3.12](https://www.python.org/downloads/windows/) —
-**tick "Add python.exe to PATH"** on the installer's first screen, it is easy to
-miss and nothing works without it — and [Git for Windows](https://git-scm.com/download/win).
-
-Then in **PowerShell**:
+<summary><b>🪟 Windows</b> — PowerShell</summary>
 
 ```powershell
-python --version           # must be 3.10+. 3.9 has no science wheels on Windows.
-
 cd $HOME\Documents
 git clone https://github.com/anjanikmaurya/SWAXS_Autonomous_Platform_v1.git
 cd SWAXS_Autonomous_Platform_v1
 
 python -m venv venv
-.\venv\Scripts\Activate.ps1           # prompt should now show (venv)
+.\venv\Scripts\Activate.ps1                    # prompt now shows (venv)
 
 python -m pip install --upgrade pip
 python -m pip install -r requirements-core.txt
-
-.\start_platform.ps1
 ```
 
-Open **http://localhost:5000**.
-
-*"running scripts is disabled on this system"?* Allow scripts for your own
-account, once — then repeat the activate:
+Blocked with *"running scripts is disabled on this system"*? Allow scripts for
+your own account once, then re-run the activate line:
 
 ```powershell
 Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 ```
 
-Or skip the policy entirely and use `start_platform.bat`.
-
 </details>
 
 <details open>
-<summary><b>🐍 Windows — Anaconda Prompt</b></summary>
+<summary><b>🐍 Windows + Anaconda</b> — Anaconda Prompt</summary>
 
-Open **Anaconda Prompt** from the Start menu (not PowerShell). Conda gives you
-the science stack as prebuilt binaries — the most reliable route on Windows.
+The most reliable route on Windows: conda ships the science stack as prebuilt
+binaries, and it needs no execution-policy change.
 
 ```bat
 cd %USERPROFILE%\Documents
@@ -127,94 +124,47 @@ git clone https://github.com/anjanikmaurya/SWAXS_Autonomous_Platform_v1.git
 cd SWAXS_Autonomous_Platform_v1
 
 conda create -y -n swaxs python=3.12
-conda activate swaxs                   REM prompt should now show (swaxs)
+conda activate swaxs                           REM prompt now shows (swaxs)
 
 conda install -y -c conda-forge numpy scipy pandas matplotlib pyyaml h5py
 python -m pip install -r requirements-core.txt
-
-start_platform.bat
 ```
 
-Open **http://localhost:5000**.
-
-`start_platform.bat` also works by **double-clicking it** in File Explorer, and
-needs no execution-policy change. Don't install into conda `base` — a broken
-`base` breaks every other conda project you have.
+Create the `swaxs` environment as shown — don't install into conda `base`, where
+a breakage would affect every other conda project on the machine.
 
 </details>
+
+### ③ Start the hub
+
+In the same terminal, still with the environment active:
+
+| | Run | Notes |
+|---|---|---|
+| **macOS / Linux** | `./start_platform.sh` | |
+| **Windows PowerShell** | `.\start_platform.ps1` | |
+| **Anaconda Prompt** | `start_platform.bat` | also works by **double-clicking** it in File Explorer |
+
+Then open **http://localhost:5000** in your browser. That's the hub.
+
+The launcher tells you what it found — interpreter, Python version, whether the
+dependencies are installed — and stops with a clear message instead of a stack
+trace if something is missing.
 
 <details open>
-<summary><b>🐧 Linux</b></summary>
+<summary>Two things that occasionally get in the way</summary>
 
-```bash
-sudo apt install -y python3 python3-venv python3-pip git   # Debian/Ubuntu
-
-cd ~
-git clone https://github.com/anjanikmaurya/SWAXS_Autonomous_Platform_v1.git
-cd SWAXS_Autonomous_Platform_v1
-
-python3 -m venv venv
-source venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements-core.txt
-
-./start_platform.sh
-```
-
-Open **http://localhost:5000**. On a headless server the plots render
-server-side, so no display is needed — forward the port with
-`ssh -L 5000:localhost:5000 you@server`.
+- **Port 5000 is busy on macOS.** AirPlay Receiver uses it. Either run
+  `SWAXS_HUB_PORT=5100 ./start_platform.sh`, or switch AirPlay Receiver off in
+  System Settings → General → AirDrop & Handoff.
+- **Headless Linux server.** Plots render server-side, so no display is needed —
+  forward the port: `ssh -L 5000:localhost:5000 you@server`.
 
 </details>
 
-### Optional extras
+### Starting it again tomorrow
 
-Install only what you need. Everything degrades gracefully without them: the app
-says what is missing and keeps working.
-
-| You want | Run |
-|---|---|
-| The real reactor (pumps + EPICS temperature) | `pip install -r requirements-hardware.txt` |
-| AI Assistant chat | `pip install anthropic` + a token (see below) |
-| AI searchable knowledge base | `pip install -r requirements-ai.txt` — **pulls torch, ~2 GB** |
-| Model fitting in the analysis app | `pip install sasmodels` |
-| The test suite | `pip install pytest` then `pytest -q` |
-
-### Enabling the AI Assistant (optional)
-
-The assistant authenticates to **SLAC-managed AI services** via the enterprise
-gateway. Request a token (ServiceNow, SLAC IT KB0015379) and put it in
-**`~/.claude/settings.json`** — the SLAC-sanctioned location, shared with the
-Claude Code CLI. The platform reads the token, endpoint and model from that one
-file. **Never commit it, and never put it in `.env`.** Full steps in
-`SECURITY.md`; in short:
-
-```bash
-mkdir -p ~/.claude && chmod 700 ~/.claude
-nano ~/.claude/settings.json      # paste the KB0015379 JSON, insert your token
-chmod og-rwx ~/.claude/settings.json
-```
-
-You must be on the SLAC network or VPN. Without a token every data-processing app
-works normally — only the AI features are disabled.
-
-### First run
-
-1. **Pick your project folder** — top-right of the hub page (layout below). No
-   data yet? Any folder with the `2D/SAXS` layout below will do — the apps create
-   the `1D/` tree themselves. (`Demo_Data/` is git-ignored, so a fresh clone does
-   not have one.)
-2. **Start an app** with ▶, wait for the green dot, then **↗ Open**. Work left to
-   right through the table above.
-3. **Stop** with ■ on a card, or `Ctrl-C` in the terminal to close the hub — which
-   closes every app with it.
-
-You can pre-select a project folder: `./start_platform.sh /path/to/experiment`
-(or `.\start_platform.ps1 D:\data\Auto_Run`).
-
-### Starting again later
-
-You install once. After that, in a new terminal:
+Installing was a one-off. From then on it is two lines in a new terminal:
 
 | | |
 |---|---|
@@ -222,12 +172,41 @@ You install once. After that, in a new terminal:
 | **Windows PowerShell** | `cd <repo>` → `.\venv\Scripts\Activate.ps1` → `.\start_platform.ps1` |
 | **Anaconda Prompt** | `cd <repo>` → `conda activate swaxs` → `start_platform.bat` |
 
-Forgetting to activate the environment is the most common day-two problem — it
-shows up as `ModuleNotFoundError: No module named 'flask'`.
+Forgetting to activate the environment is the most common day-two problem. It
+looks like `ModuleNotFoundError: No module named 'flask'` — activate, then retry.
 
-**Something went wrong?** [QUICKSTART.md](QUICKSTART.md) has the same steps with
-more explanation plus a troubleshooting section ordered by how often each problem
-actually happens.
+### Your first session
+
+1. **Pick your project folder** — top-right of the hub page. Any folder with the
+   `2D/SAXS` layout [shown below](#organizing-your-experiment-data) works; the
+   apps create the `1D/` tree themselves.
+2. **Start an app** with ▶, wait for the green dot, then **↗ Open**. Work left to
+   right through the app table above.
+3. **Stop** one app with ■, or press `Ctrl-C` in the terminal to close the hub —
+   which closes every app with it.
+
+To skip step 1 next time, pass the folder to the launcher:
+`./start_platform.sh /path/to/experiment` or `.\start_platform.ps1 D:\data\Auto_Run`.
+
+### Optional add-ons
+
+Nothing here is needed to process data. Each one degrades gracefully — the app
+says what is missing and keeps working.
+
+| You want | Run |
+|---|---|
+| The real reactor (pumps + EPICS temperature) | `pip install -r requirements-hardware.txt` |
+| AI Assistant chat | `pip install anthropic` + a token (below) |
+| AI searchable knowledge base | `pip install -r requirements-ai.txt` — **pulls torch, ~2 GB** |
+| Model fitting in the analysis app | `pip install sasmodels` |
+| The test suite | `pip install pytest` then `pytest -q` |
+
+**AI Assistant token.** The assistant reaches SLAC-managed AI services through the
+enterprise gateway, so it needs a token (request via ServiceNow, SLAC IT
+KB0015379) and the SLAC network or VPN. Put it in **`~/.claude/settings.json`** —
+the sanctioned location, shared with the Claude Code CLI — and **never in `.env`
+or anywhere inside the repo**. Steps: [SECURITY.md](SECURITY.md). Without a token
+every data-processing app works normally; only the AI features are off.
 
 ---
 
@@ -320,7 +299,7 @@ Its domain knowledge lives in `ai_knowledge/` and the per-app `knowledge.md` fil
 | `ModuleNotFoundError: No module named 'flask'` | The virtual environment isn't activated — your prompt should show `(venv)` or `(swaxs)`. See [Starting again later](#starting-again-later). |
 | Red `Microsoft Visual C++ 14.0 or greater is required` on Windows | You used `requirements.txt`, or your Python is 3.9 or older. Use `requirements-core.txt` and Python 3.11/3.12. You do **not** need Visual Studio. |
 | `.\start_platform.ps1 ... running scripts is disabled` | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, or use `start_platform.bat`. |
-| Pipeline runs but no averaged files appear | Frames/batch is larger than the frames one acquisition delivers, so a batch can never complete. The viewer log says so — set frames/batch to match `spec.frames`. |
+| Pipeline runs but no averaged files appear | Frames/batch is larger than the frames one acquisition delivers, so a batch can never complete. The Visualisation & Average log says so — set frames/batch to match `spec.frames`. |
 
 More, with fuller explanations: **[QUICKSTART.md § Troubleshooting](QUICKSTART.md#troubleshooting)**.
 

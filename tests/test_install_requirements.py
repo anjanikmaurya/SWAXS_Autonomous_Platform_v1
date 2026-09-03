@@ -74,7 +74,7 @@ def _requirements(name: str) -> set[str]:
 
 def _third_party_imports() -> dict[str, set[str]]:
     """Top-level third-party modules imported anywhere in the shipped code."""
-    local = {"src", "hub", "reduction", "viewer", "background", "quality",
+    local = {"src", "hub", "reduction", "average", "background", "quality",
              "analysis", "reactor", "analyzer", "assistant", "calibration",
              "tools", "tests"}
     std = set(sys.stdlib_module_names)

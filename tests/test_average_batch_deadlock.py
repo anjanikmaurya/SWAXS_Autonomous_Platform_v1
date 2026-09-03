@@ -1,11 +1,11 @@
 """
-tests/test_viewer_batch_deadlock.py — "averaging seems very slow".
+tests/test_average_batch_deadlock.py — "averaging seems very slow".
 
 It was not slow. It was deadlocked, silently, forever.
 
 Loop frames are grouped per ``{recipe_id}_{role}`` so frames from different
 recipes never combine. The reactor ships ``spec.frames: 10`` — ten frames per
-acquisition — and the viewer UI ships ``frames_per_average: 30``. The averaging
+acquisition — and the Visualisation & Average UI ships ``frames_per_average: 30``. The averaging
 loop is
 
     while (len(grp) - consumed) >= n_per_batch:
@@ -43,10 +43,10 @@ def _dat(path: Path):
         f.write("\n# METADATA INFORMATION\n# detector: saxs\n# i0: 1000\n")
 
 
-def _viewer(tag, tmp_path, monkeypatch):
+def _average_app(tag, tmp_path, monkeypatch):
     monkeypatch.setenv("SWAXS_PROJECT", str(tmp_path))
     monkeypatch.setenv("SWAXS_NO_RESUME", "1")
-    spec = u.spec_from_file_location(tag, str(ROOT / "viewer" / "app.py"))
+    spec = u.spec_from_file_location(tag, str(ROOT / "average" / "app.py"))
     m = u.module_from_spec(spec)
     sys.modules[tag] = m
     spec.loader.exec_module(m)
@@ -70,7 +70,7 @@ def test_a_batch_larger_than_one_acquisition_is_refused_up_front(tmp_path, monke
     red = tmp_path / "1D" / "SAXS" / "Reduction"
     for i in range(10):                       # one acquisition, spec.frames = 10
         _dat(red / f"auto_1_a_sample_scan1_{i:04d}.dat")
-    m = _viewer("vdead", tmp_path, monkeypatch)
+    m = _average_app("vdead", tmp_path, monkeypatch)
     monkeypatch.setattr(m, "_frames_per_acquisition", lambda: 10)
     try:
         m.app.test_client().post("/api/monitor/start",
@@ -91,7 +91,7 @@ def test_progress_is_visible_while_waiting_for_frames(tmp_path, monkeypatch):
     red = tmp_path / "1D" / "SAXS" / "Reduction"
     for i in range(4):
         _dat(red / f"auto_1_a_sample_scan1_{i:04d}.dat")
-    m = _viewer("vprog", tmp_path, monkeypatch)
+    m = _average_app("vprog", tmp_path, monkeypatch)
     monkeypatch.setattr(m, "_frames_per_acquisition", lambda: 0)   # unknown
     try:
         m.app.test_client().post("/api/monitor/start",
@@ -113,7 +113,7 @@ def test_a_matching_batch_size_actually_averages(tmp_path, monkeypatch):
     red = tmp_path / "1D" / "SAXS" / "Reduction"
     for i in range(10):
         _dat(red / f"auto_1_a_sample_scan1_{i:04d}.dat")
-    m = _viewer("vok", tmp_path, monkeypatch)
+    m = _average_app("vok", tmp_path, monkeypatch)
     monkeypatch.setattr(m, "_frames_per_acquisition", lambda: 10)
     try:
         m.app.test_client().post("/api/monitor/start",
@@ -132,7 +132,7 @@ def test_the_frames_per_acquisition_probe_reads_the_reactor_config():
     consequential, so the check reads the reactor's own config."""
     m = sys.modules.get("vok")
     if m is None:
-        pytest.skip("viewer module not loaded")
+        pytest.skip("average module not loaded")
     n = m._frames_per_acquisition.__wrapped__() if hasattr(
         m._frames_per_acquisition, "__wrapped__") else None
     from src.reactor import load_config

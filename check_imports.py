@@ -2,8 +2,8 @@
 """
 check_imports.py — SWAXS Platform import audit tool
 =====================================================
-Run from the project root:
-    uv run check_imports.py
+Run from the project root (activated venv — see CLAUDE.md):
+    python check_imports.py
 
 Prints:
   1. Which src module each app imports from
@@ -22,7 +22,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 
 # ── App folders to inspect ────────────────────────────────────────────────────
-APPS = ["hub", "reduction", "viewer", "background", "analysis", "assistant"]
+APPS = ["hub", "reduction", "average", "background", "analysis", "assistant"]
 
 # ── src modules and their public API ─────────────────────────────────────────
 SRC_MODULES = {

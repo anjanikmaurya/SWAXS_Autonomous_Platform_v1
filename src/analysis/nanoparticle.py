@@ -77,21 +77,45 @@ def model_intensity(q, Rbar, pdi, scale, bkg, dist="schulz"):
 # ── Guinier (model-free fallback + validity) ───────────────────────────────────
 def guinier_estimate(q, I, sigma=None):
     """Rg, I0 from ln I vs q² over the lowest-q window (qRg ≲ 1.3). Returns a dict
-    with Rg, I0, R_from_Rg (= √(5/3)·Rg for a sphere) and a validity flag."""
+    with Rg, I0, R_from_Rg (= √(5/3)·Rg for a sphere) and a validity flag.
+
+    Weighted by 1/sigma(ln I)² when ``sigma`` is supplied and usable, so a
+    precise point pulls the fit harder than a noisy one — see
+    ``docs/ERROR_PROPAGATION.md``. ``sigma`` must be the same length as the
+    ORIGINAL ``q``/``I`` (before this function's own finite/positive mask);
+    it is masked and sorted here exactly like ``q`` and ``I`` so weights stay
+    aligned with the points they describe."""
     q = np.asarray(q, float); I = np.asarray(I, float)
     m = np.isfinite(q) & np.isfinite(I) & (I > 0) & (q > 0)
     q, I = q[m], I[m]
+    if sigma is not None:
+        sigma = np.asarray(sigma, float)
+        sigma = sigma[m] if sigma.shape == m.shape else None
     if q.size < 8:
         return {"Rg": None, "I0": None, "R_from_Rg": None, "valid": False}
     order = np.argsort(q); q, I = q[order], I[order]
+    if sigma is not None:
+        sigma = sigma[order]
     # iterate the window so that q_max·Rg ≈ 1.3
     n = max(8, q.size // 10)
     Rg = None
     for _ in range(6):
         x = q[:n] ** 2
         y = np.log(I[:n])
-        A = np.vstack([x, np.ones_like(x)]).T
-        slope, intercept = np.linalg.lstsq(A, y, rcond=None)[0]
+        if sigma is not None:
+            with np.errstate(divide="ignore", invalid="ignore"):
+                sig_lnI = sigma[:n] / I[:n]
+            valid = np.isfinite(sig_lnI) & (sig_lnI > 0)
+            if valid.any():
+                sig_lnI = np.where(valid, sig_lnI, np.median(sig_lnI[valid]))
+                w = 1.0 / sig_lnI ** 2
+            else:
+                w = np.ones_like(x)
+        else:
+            w = np.ones_like(x)
+        A  = np.vstack([x, np.ones_like(x)]).T
+        sw = np.sqrt(w)
+        slope, intercept = np.linalg.lstsq(A * sw[:, None], y * sw, rcond=None)[0]
         if slope >= 0:
             break
         Rg = np.sqrt(-3.0 * slope)
@@ -151,8 +175,17 @@ def index_phase(peak_q) -> dict:
 
 
 # ── the fit ─────────────────────────────────────────────────────────────────────
-def _fit_one(q, I, dist, Rbar0, pdi0=0.15):
-    """Fit the polydisperse-sphere model in log space. Returns (params, perr, rms)."""
+def _fit_one(q, I, dist, Rbar0, pdi0=0.15, sigma=None):
+    """Fit the polydisperse-sphere model in log space. Returns (params, perr, rms).
+
+    When ``sigma`` is supplied and usable, the fit is weighted by
+    1/sigma(log10 I)² — inverse-variance weighting, the standard treatment for
+    combining measurements of different precision (see
+    ``docs/ERROR_PROPAGATION.md``) — so the search trusts a precise point more
+    than a noisy one, instead of every point counting equally regardless of its
+    measured error bar. ``sigma`` must already be aligned with ``q``/``I``
+    (same length, same order); see the masking in :func:`analyze_profile`.
+    """
     logI = np.log10(I)
     bkg0 = max(np.percentile(I, 5), 1e-12)
     # scale so the model roughly matches I at the lowest q
@@ -162,14 +195,38 @@ def _fit_one(q, I, dist, Rbar0, pdi0=0.15):
     lo = [1e-3, 0.01, np.log10(scale0) - 6, 0.0]
     hi = [Rbar0 * 20, 0.6, np.log10(scale0) + 6, max(I) ]
 
+    # sigma(log10 I) ≈ sigma(I) / (I·ln 10) — first-order propagation of the
+    # measured sigma through log10. A handful of unusable values (zero/NaN,
+    # e.g. a masked point) are replaced by the group's median rather than
+    # given infinite or zero weight.
+    w = np.ones_like(I)
+    if sigma is not None:
+        sigma = np.asarray(sigma, float)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            sig_logI = sigma / (I * np.log(10.0))
+        valid = np.isfinite(sig_logI) & (sig_logI > 0)
+        if valid.any():
+            sig_logI = np.where(valid, sig_logI, np.median(sig_logI[valid]))
+            w = 1.0 / sig_logI
+
     def resid(p):
         Rbar, pdi, logs, bkg = p
         model = model_intensity(q, Rbar, pdi, 10 ** logs, bkg, dist)
-        return np.log10(np.clip(model, 1e-30, None)) - logI
+        return w * (np.log10(np.clip(model, 1e-30, None)) - logI)
 
     sol = least_squares(resid, p0, bounds=(lo, hi), method="trf", max_nfev=4000)
-    rms = float(np.sqrt(np.mean(sol.fun ** 2)))
-    # parameter covariance from the Jacobian (Gauss-Newton approximation)
+
+    # Report the UNWEIGHTED log10 residual RMS: it is a physical quantity (how
+    # far the fit is from the data, in log10 units) and _confidence() below is
+    # calibrated against it (~0.05 = good). Weighting only steers the search;
+    # with sigma=None, w is all-ones and this is identical to sol.fun's RMS as
+    # before.
+    Rbar_f, pdi_f, logs_f, bkg_f = sol.x
+    final_model = model_intensity(q, Rbar_f, pdi_f, 10 ** logs_f, bkg_f, dist)
+    unweighted_resid = np.log10(np.clip(final_model, 1e-30, None)) - logI
+    rms = float(np.sqrt(np.mean(unweighted_resid ** 2)))
+
+    # parameter covariance from the (weighted) Jacobian (Gauss-Newton approximation)
     perr = [np.nan, np.nan, np.nan, np.nan]
     try:
         dof = max(1, len(sol.fun) - len(p0))
@@ -194,8 +251,19 @@ def analyze_profile(q, I, sigma=None, dist="auto") -> dict:
     result. ``dist``: 'schulz' | 'lognormal' | 'auto' (fit both, keep the better)."""
     q = np.asarray(q, float); I = np.asarray(I, float)
     m = np.isfinite(q) & np.isfinite(I) & (q > 0) & (I > 0)
+    # sigma must be masked and sorted in lock-step with q/I, or a weighted fit
+    # would apply each point's error bar to the WRONG point. Previously sigma
+    # was passed straight through unmasked/unsorted — harmless only because
+    # nothing downstream used it yet.
+    sigma_arr = np.asarray(sigma, float) if sigma is not None else None
+    if sigma_arr is not None and sigma_arr.shape != m.shape:
+        sigma_arr = None
     q, I = q[m], I[m]
+    if sigma_arr is not None:
+        sigma_arr = sigma_arr[m]
     order = np.argsort(q); q, I = q[order], I[order]
+    if sigma_arr is not None:
+        sigma_arr = sigma_arr[order]
     result = {"n_points": int(q.size), "distribution": None, "size": None, "pdi": None,
               "guinier": None, "invariant": None, "phase": None, "fit": None,
               "uncertainty": None, "confidence": 0.0, "diagnostics": {}}
@@ -203,7 +271,7 @@ def analyze_profile(q, I, sigma=None, dist="auto") -> dict:
         result["diagnostics"]["error"] = "too few points"
         return result
 
-    g = guinier_estimate(q, I, sigma)
+    g = guinier_estimate(q, I, sigma_arr)
     result["guinier"] = g
     result["invariant"] = {"Q_rel": float(_trapezoid(q ** 2 * I, q)), "absolute": False}
     try:
@@ -216,7 +284,7 @@ def analyze_profile(q, I, sigma=None, dist="auto") -> dict:
     best = None
     for d in dists:
         try:
-            p, perr, rms = _fit_one(q, I, d, Rbar0)
+            p, perr, rms = _fit_one(q, I, d, Rbar0, sigma=sigma_arr)
             if best is None or rms < best[3]:
                 best = (d, p, perr, rms)
         except Exception:

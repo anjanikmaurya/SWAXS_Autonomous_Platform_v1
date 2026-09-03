@@ -6,7 +6,7 @@ Two modes:
   • Scan-matched  : pair individual sample scans with individual background scans
                     by matching scan_idx
 
-Run:  uv run background/app.py
+Run:  python background/app.py       (from the activated venv — see CLAUDE.md)
 Open: http://localhost:5003
 """
 
@@ -106,6 +106,13 @@ def _interpolate_onto(q_target: np.ndarray,
     Log-space interpolation of (I_src, sig_src) onto q_target grid.
     Only finite, positive source points are used (so non-positive background
     points can't corrupt the log interpolation). (Audit C2)
+
+    ERROR PROPAGATION caveat: interpolating sigma this way is an approximation
+    to the exact rule sigma_new^2 = (1-t)^2*sigma_1^2 + t^2*sigma_2^2, and it
+    correlates neighbouring q-points in a way nothing downstream accounts for
+    (Gardner 2003, 10.6028/jres.108.008). Avoided entirely when sample and
+    background were reduced onto the same q-grid — the usual case here, since
+    one config.yml governs both. See docs/ERROR_PROPAGATION.md §4.
     """
     q_src = np.asarray(q_src, float); I_src = np.asarray(I_src, float); sig_src = np.asarray(sig_src, float)
     m = np.isfinite(q_src) & np.isfinite(I_src) & (q_src > 0) & (I_src > 0)
@@ -126,6 +133,13 @@ def _subtract(q_sam: np.ndarray, I_sam: np.ndarray, sig_sam: np.ndarray,
     """
     Subtract background with scale factor, propagating errors.
     Interpolates bkg onto sample q-grid; returns (q, I_sub, sigma_sub).
+
+    ERROR PROPAGATION: sigma_sub = sqrt(sigma_sam^2 + (scale*sigma_bkg)^2), the
+    textbook form for sigma^2(A - c*B) = sigma^2(A) + c^2*sigma^2(B) and exactly
+    Sedlak, Bruetzel & Lipfert 2017 eq. (6) (10.1107/S1600576717003077).
+    Known omission: the fitted `scale` carries its own uncertainty from
+    `_auto_scale`, and the rigorous form would add I_bkg^2 * sigma^2(scale).
+    See docs/ERROR_PROPAGATION.md §4.
     """
     _, I_b, sig_b = _interpolate_onto(q_sam, q_bkg, I_bkg, sig_bkg)
     I_sub   = I_sam - scale * I_b
@@ -417,7 +431,7 @@ def _seq_index(path: Path) -> int:
     """
     Sequence index used to pair samples with backgrounds by acquisition order.
 
-    Prefers the rolling-batch number written by the viewer's auto-averager
+    Prefers the rolling-batch number written by the average app's auto-averager
     (``..._batch007_30files_Average.dat`` → 7); otherwise falls back to a
     trailing ``_NNNN`` scan index; otherwise 0.
     """

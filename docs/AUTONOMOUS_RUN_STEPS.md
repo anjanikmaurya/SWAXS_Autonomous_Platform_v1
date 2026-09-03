@@ -6,7 +6,7 @@ analyzer/optimizer → next recipe. Several stages are **manual to start** — t
 what most of these steps are.
 
 Every hop is driven by **polling monitors/watchers**. The reactor and analyzer
-watchers auto-start; the reduction, viewer, and background monitors and the
+watchers auto-start; the reduction, average, and background monitors and the
 optimizer campaign do not. If any one is off, the loop stalls at that stage.
 
 ---
@@ -27,7 +27,7 @@ optimizer campaign do not. If any one is off, the loop stalls at that stage.
    assistant and Slack/email notifications come up unconfigured.
 2. **Pick the project folder** in the hub (the experiment root that holds `2D/`,
    `poni/`, `config.yml`). This pushes the folder to every app.
-3. Start each app from the hub: **Calibration, Reduction, Viewer, Background,
+3. Start each app from the hub: **Calibration, Reduction, Visualisation & Average, Background,
    Quality, Analyzer, Flow Synthesis (reactor)** (Assistant optional).
    Calibration (:5009) is what generates the `.poni` files step 2 checks for —
    start it first if the calibration has not been done yet.
@@ -94,7 +94,7 @@ QC plot attached when the fit is suspect.
 
 1. **Reduction app** → *Run & Monitor* tab → the **Watch for new files** toggle
    (watches `2D` for new `.raw`; the interval box next to it defaults to 10 s).
-2. **Viewer app** → *▶ Start auto-averaging* (Reduction → Averaged).
+2. **Visualisation & Average app** → *▶ Start auto-averaging* (Reduction → Averaged).
 3. **Background app** → *▶ Start auto-subtraction* (Averaged → Subtracted).
    - Confirm sample/background keywords + scale method; ML truncate/rebin panel
      as needed (default 0.03–0.6, 549 pts).
@@ -169,7 +169,7 @@ every beamtime, in this order.
 4. One **📷 Collect now** → the `.raw` lands in `2D/SAXS` and reduction
    auto-processes it → averaged → subtracted → analyzer produces a fit. This is
    the full single-shot dry pass (§4).
-5. Start the three monitors: reduction, viewer, background. Start the analyzer
+5. Start the three monitors: reduction, average, background. Start the analyzer
    campaign with the target size and tolerance set.
 6. Confirm the first subtracted file's size looks physical, not 10× off. The
    analyzer detects the header q-unit and converts Å⁻¹ → nm⁻¹ itself, but
@@ -179,7 +179,7 @@ every beamtime, in this order.
 
 ### Known alignment points — no action needed
 
-- `recipe_id` survives reactor → reduction (`{stem}_SAXS.dat`) → viewer
+- `recipe_id` survives reactor → reduction (`{stem}_SAXS.dat`) → average
   averaging (grouped by `{recipe_id}_{role}`) → background pairing (by
   `recipe_id`, nearest-index fallback) → analyzer → optimizer match.
 - The optimizer→reactor file contract matches, and the folders align: the
@@ -194,7 +194,7 @@ every beamtime, in this order.
 ### Quick "won't-start" checklist
 - Nothing reducing? → reduction monitor not started, or `data_directory` ≠ `<root>/2D`,
   or SPEC writing to a different `2D/SAXS` than reduction scans.
-- Nothing subtracting? → viewer/background monitors not started, or keywords wrong.
+- Nothing subtracting? → average/background monitors not started, or keywords wrong.
 - Optimizer not advancing? → campaign not started, or analyzer/reactor on different
   project roots (re-select the hub folder), or bad subtractions feeding it.
 - Sizes look 10× off? → q-unit; the analyzer auto-converts Å⁻¹, but confirm on the

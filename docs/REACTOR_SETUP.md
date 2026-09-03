@@ -141,7 +141,7 @@ environment — use `python` here too.
 
 ## 8. Ports
 
-hub 5000 · reduction 5001 · viewer 5002 · background 5003 · analysis 5004 ·
+hub 5000 · reduction 5001 · average 5002 · background 5003 · analysis 5004 ·
 assistant 5005 · quality 5006 · **reactor 5007** · analyzer 5008 ·
 calibration 5009.
 Closing an app frees its port; closing the hub stops all its sub-apps.

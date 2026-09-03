@@ -9,7 +9,7 @@ itself is numpy/stdlib only).
 
 Run:
     python tests/test_analysis_io.py
-    uv run pytest tests/test_analysis_io.py
+    python -m pytest tests/test_analysis_io.py
 """
 from __future__ import annotations
 
