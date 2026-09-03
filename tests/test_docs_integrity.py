@@ -147,7 +147,7 @@ def _uv_run_scan_targets() -> list[Path]:
     skip_dirs = {"venv", ".venv", "node_modules", ".git", "logs", "ai_knowledge"}
     out = list(_docs())
     for pattern in ("*.py", "*.yml", "*.yaml", "*.html",
-                    "start_platform.sh", "start_platform.ps1", "start_platform.bat"):
+                    "start_platform.sh", "start_platform.bat"):
         out += [p for p in ROOT.rglob(pattern)
                 if not any(part in skip_dirs for part in p.parts)
                 and p.resolve() != Path(__file__).resolve()]
@@ -198,8 +198,8 @@ def test_the_shell_launcher_starts_the_hub_with_a_real_interpreter():
 
 
 def test_all_three_launcher_banners_list_every_app(apps):
-    """Three banners drifted independently; 5101 was missing from the .sh one."""
-    for name in ("start_platform.sh", "start_platform.ps1", "start_platform.bat"):
+    """The banners drifted independently; 5101 was missing from the .sh one."""
+    for name in ("start_platform.sh", "start_platform.bat"):
         txt = (ROOT / name).read_text()
         missing = [str(a["port"]) for a in apps if str(a["port"]) not in txt]
         assert not missing, f"{name} banner omits ports {missing}"

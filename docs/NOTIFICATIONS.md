@@ -115,7 +115,7 @@ notify:
 ```
 
 `.env` is the primary home for credentials because it survives opening a new
-terminal, and `start_platform.sh:17-22` sources it (so does `start_platform.ps1`;
+terminal, and `start_platform.sh:17-22` sources it (so does `start_platform.bat`;
 `start_platform.bat` does **not** — on that path export the variables yourself).
 A plain `export SWAXS_SLACK_BOT_TOKEN=…` in the shell also works, for a one-off.
 

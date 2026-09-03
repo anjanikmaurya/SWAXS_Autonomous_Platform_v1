@@ -21,7 +21,7 @@ optimizer campaign do not. If any one is off, the loop stalls at that stage.
 ## 1. Launch the platform
 
 1. Start the hub with a launcher — `./start_platform.sh` (macOS/Linux),
-   `start_platform.ps1` or `start_platform.bat` (Windows) → open
+   `start_platform.bat` (Windows) → open
    **http://localhost:5100**. The launchers source `.env` and resolve the AI
    token; `python hub/app.py` starts the hub but leaves `.env` unread, so the
    assistant and Slack/email notifications come up unconfigured.

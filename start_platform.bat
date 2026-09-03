@@ -2,10 +2,10 @@
 REM ===========================================================================
 REM  start_platform.bat - start the SWAXS Platform Hub on Windows.
 REM
-REM  Use this from the Anaconda Prompt / Command Prompt, or just double-click it
-REM  in File Explorer. PowerShell users can use start_platform.ps1 instead
-REM  (nicer output), but this file works everywhere and needs no execution
-REM  policy change.
+REM  The ONE Windows launcher: works from PowerShell (.\start_platform.bat),
+REM  the Anaconda Prompt, the Command Prompt, or a double-click in File
+REM  Explorer. It needs no execution-policy change, which is why the separate
+REM  start_platform.ps1 was dropped in September 2026.
 REM
 REM      start_platform.bat
 REM      start_platform.bat D:\data\Auto_Run     (pre-select a project folder)

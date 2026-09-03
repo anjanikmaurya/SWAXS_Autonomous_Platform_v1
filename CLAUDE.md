@@ -82,8 +82,9 @@ SWAXS_Autonomous_Platform_v1/
 │
 ├── apps.yml                # THE app registry — ports, entries, knowledge, manifest keys
 ├── start_platform.sh       # macOS / Linux launcher
-├── start_platform.ps1      # Windows PowerShell launcher
-├── start_platform.bat      # Windows Anaconda Prompt / double-click launcher
+├── start_platform.bat      # Windows launcher (PowerShell, Anaconda Prompt,
+│                           #   cmd, or double-click) — the only one; the
+│                           #   separate .ps1 was dropped September 2026
 ├── requirements-core.txt   # What you install (16 packages, all prebuilt wheels)
 ├── requirements-hardware.txt   # pyserial, pyepics — real rig only
 ├── requirements-ai.txt     # anthropic, chromadb, … — AI assistant extras
@@ -129,8 +130,8 @@ Every app also imports `src.events` (bus) and, if it runs a monitor loop,
 ```bash
 # Start everything (recommended — resolves the interpreter, checks deps)
 ./start_platform.sh                 # macOS / Linux
-.\start_platform.ps1                # Windows PowerShell
-start_platform.bat                  # Windows Anaconda Prompt
+start_platform.bat                  # Windows — PowerShell (.\start_platform.bat),
+                                    #   Anaconda Prompt, cmd, or double-click
 
 # Or start the hub manually (venv activated)
 python hub/app.py

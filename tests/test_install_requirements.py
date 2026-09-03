@@ -156,24 +156,29 @@ def test_optional_extras_files_exist_and_are_referenced():
 
 
 # ── every platform gets a launcher ───────────────────────────────────────────
-def test_all_three_platforms_have_a_launcher():
+def test_every_platform_has_a_launcher():
     """Windows users had none — only start_platform.sh, which PowerShell cannot
-    run. That alone made the first install a research project."""
-    for f in ("start_platform.sh", "start_platform.ps1", "start_platform.bat"):
+    run. That alone made the first install a research project. Two launchers
+    now, not three: the PowerShell .ps1 was dropped in September 2026 because a
+    .bat runs from PowerShell too AND needs no execution-policy change, so the
+    extra file was one more thing to keep in sync for no user-visible gain."""
+    for f in ("start_platform.sh", "start_platform.bat"):
         assert (ROOT / f).is_file(), f"{f} is missing"
+    assert not (ROOT / "start_platform.ps1").exists(), \
+        "the .ps1 launcher is back — see QUICKSTART; .bat covers PowerShell"
 
 
 def test_the_windows_launchers_are_pure_ascii():
-    """A BOM-less .ps1/.bat is read in the ANSI codepage by older PowerShell and
-    by cmd.exe, which mangles any non-ASCII character."""
-    for f in ("start_platform.ps1", "start_platform.bat"):
+    """A BOM-less .bat is read in the ANSI codepage by cmd.exe, which mangles
+    any non-ASCII character."""
+    for f in ("start_platform.bat",):
         txt = (ROOT / f).read_text()
         bad = sorted({c for c in txt if ord(c) > 127})
         assert not bad, f"{f} contains non-ASCII: {bad}"
 
 
 def test_the_windows_launchers_set_utf8_and_guard_the_python_version():
-    for f in ("start_platform.ps1", "start_platform.bat"):
+    for f in ("start_platform.bat",):
         txt = (ROOT / f).read_text()
         assert "PYTHONUTF8" in txt, f"{f} does not force UTF-8 (log emoji crash the console)"
         assert "3,10" in txt or "3.10" in txt or "-lt 10" in txt, \
@@ -185,7 +190,7 @@ def test_the_windows_launchers_set_utf8_and_guard_the_python_version():
 
 def test_launchers_find_a_conda_env_as_well_as_a_venv():
     """Half the Windows users on this project have Anaconda, not a bare venv."""
-    for f in ("start_platform.ps1", "start_platform.bat"):
+    for f in ("start_platform.bat",):
         txt = (ROOT / f).read_text()
         assert "CONDA_PREFIX" in txt, f"{f} ignores an activated conda env"
         assert "VIRTUAL_ENV" in txt, f"{f} ignores an activated venv"
@@ -240,7 +245,6 @@ def test_readme_has_the_install_inline_for_every_platform():
         ("Linux", "no Linux block"),
         ("Activate.ps1", "Windows activation command is wrong or missing"),
         ("conda activate swaxs", "conda route is incomplete"),
-        ("start_platform.ps1", "PowerShell launcher not mentioned"),
         ("start_platform.bat", "batch launcher not mentioned"),
         ("localhost:5100", "never tells the user where to open the UI"),
     ]:
@@ -296,6 +300,6 @@ def test_quickstart_is_the_only_install_guide():
     assert not (ROOT / "RUNNING_ON_WINDOWS.md").exists(), \
         "a second Windows install guide is back - it drifted three times before"
     qs = (ROOT / "QUICKSTART.md").read_text()
-    for needle in ("start_platform.ps1", "start_platform.bat",
+    for needle in ("start_platform.bat",
                    "Microsoft Visual C++", "chromadb", "pyopencl"):
         assert needle in qs, f"QUICKSTART lost {needle!r} in the merge"

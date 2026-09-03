@@ -153,13 +153,15 @@ python -m pip install -r requirements-core.txt
 ### 5. Start
 
 ```powershell
-.\start_platform.ps1
+.\start_platform.bat
 ```
 
 Then open **http://localhost:5100**.
 
-The script checks your Python version and that the packages are present, and
-tells you exactly what to run if something is missing.
+Yes, a `.bat` from PowerShell — that is deliberate. It is the single Windows
+launcher and it needs no execution-policy change. The script checks your Python
+version and that the packages are present, and tells you exactly what to run if
+something is missing.
 
 ---
 
@@ -288,7 +290,7 @@ green, then **↗ Open**. Work left to right:
 | 2 | Reduction & Correction | 5102 | 2D images → 1D curves |
 | 3 | Visualisation & Average | 5103 | average the curves |
 | 4 | Background Subtraction | 5104 | subtract the blank |
-| 5 | Quality Gate | 5105 | sort good vs needs-review |
+| 5 | Quality Gate | 5105 | sort good vs needs-review (optional) |
 | 6 | Data Analysis | 5106 | Guinier, Porod, Kratky, model fits |
 | 7 | Auto-Fit & Optimiser | 5107 | automatic size + PDI, closed-loop optimiser |
 | 8 | Flow Synthesis | 5108 | the 5-pump reactor (mock by default) |
@@ -312,7 +314,7 @@ source venv/bin/activate
 ```powershell
 cd $HOME\Documents\SWAXS_Autonomous_Platform_v1
 .\venv\Scripts\Activate.ps1
-.\start_platform.ps1
+.\start_platform.bat
 ```
 
 **Windows Anaconda Prompt**
@@ -387,7 +389,7 @@ Python. Two causes:
 
 You do **not** need to install Visual Studio.
 
-### `.\start_platform.ps1 : File ... cannot be loaded because running scripts is disabled`
+### `File ... cannot be loaded because running scripts is disabled`
 ```powershell
 Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 ```

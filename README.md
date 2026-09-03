@@ -5,7 +5,7 @@ A local, AI-assisted toolkit for processing **small- and wide-angle X-ray scatte
 Everything runs on your own machine — the apps are local web servers and your data stays in the folder you point them at. The platform does make outbound connections, all of them optional and off by default: the Claude API (AI Assistant and AI quality grading), SFTP to a beamline host (Calibration's data sync), HTTP to the SPEC bServer (real beamline control), and Slack webhooks or SMTP (run notifications).
 
 ### 🚀 New laptop? → **[Quick start](#quick-start)** — three steps, ~10 minutes, no coding.
-Works on macOS, Windows (PowerShell **or** Anaconda Prompt) and Linux.
+Works on macOS, Windows (PowerShell, Anaconda Prompt or cmd) and Linux.
 
 ---
 
@@ -25,7 +25,7 @@ The platform is organized as nine small web apps, launched from one central hub.
 | 🧪 | **Flow Synthesis (reactor)** | 5108 | 5-pump flow reactor **and** beamline control: sets temperature (SPEC `csettemp`) and triggers 2D collection (shutter + a configurable collect command, default `ct`) through the SPEC bServer, plus auto-flush |
 | 🤖 | **Tassone Group** (AI assistant) | 5109 | Ask questions about your data, generate plots, get proactive quality hints |
 
-A typical **data** session: **reduce → view & average → subtract background → quality-gate → analyze**, with the assistant available throughout.
+A typical **data** session: **reduce → view & average → subtract background → quality-gate (optional) → analyze**, with the assistant available throughout.
 
 ### Autonomous closed loop (optional)
 
@@ -142,8 +142,8 @@ In the same terminal, still with the environment active:
 | | Run | Notes |
 |---|---|---|
 | **macOS / Linux** | `./start_platform.sh` | |
-| **Windows PowerShell** | `.\start_platform.ps1` | |
-| **Anaconda Prompt** | `start_platform.bat` | also works by **double-clicking** it in File Explorer |
+| **Windows PowerShell** | `.\start_platform.bat` | a `.bat` runs fine from PowerShell, and needs no execution-policy change |
+| **Anaconda Prompt / cmd** | `start_platform.bat` | also works by **double-clicking** it in File Explorer |
 
 Then open **http://localhost:5100** in your browser. That's the hub.
 
@@ -170,7 +170,7 @@ Installing was a one-off. From then on it is two lines in a new terminal:
 | | |
 |---|---|
 | **macOS / Linux** | `cd <repo>` → `source venv/bin/activate` → `./start_platform.sh` |
-| **Windows PowerShell** | `cd <repo>` → `.\venv\Scripts\Activate.ps1` → `.\start_platform.ps1` |
+| **Windows PowerShell** | `cd <repo>` → `.\venv\Scripts\Activate.ps1` → `.\start_platform.bat` |
 | **Anaconda Prompt** | `cd <repo>` → `conda activate swaxs` → `start_platform.bat` |
 
 Forgetting to activate the environment is the most common day-two problem. It
@@ -187,7 +187,7 @@ looks like `ModuleNotFoundError: No module named 'flask'` — activate, then ret
    which closes every app with it.
 
 To skip step 1 next time, pass the folder to the launcher:
-`./start_platform.sh /path/to/experiment` or `.\start_platform.ps1 D:\data\Auto_Run`.
+`./start_platform.sh /path/to/experiment` or `start_platform.bat D:\data\Auto_Run`.
 
 ### Optional add-ons
 
@@ -299,7 +299,7 @@ Its domain knowledge lives in `ai_knowledge/` and the per-app `knowledge.md` fil
 | An app card shows "⚠ CRASHED" | The card names the reason and the last log lines. Fix it, then press ▶ Start again. |
 | `ModuleNotFoundError: No module named 'flask'` | The virtual environment isn't activated — your prompt should show `(venv)` or `(swaxs)`. See [Starting again later](#starting-again-later). |
 | Red `Microsoft Visual C++ 14.0 or greater is required` on Windows | You used `requirements.txt`, or your Python is 3.9 or older. Use `requirements-core.txt` and Python 3.11/3.12. You do **not** need Visual Studio. |
-| `.\start_platform.ps1 ... running scripts is disabled` | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, or use `start_platform.bat`. |
+| `... running scripts is disabled` (activating the venv) | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`. The launcher itself is a `.bat` and never needs this. |
 | Pipeline runs but no averaged files appear | Frames/batch is larger than the frames one acquisition delivers, so a batch can never complete. The Visualisation & Average log says so — set frames/batch to match `spec.frames`. |
 
 More, with fuller explanations: **[QUICKSTART.md § Troubleshooting](QUICKSTART.md#troubleshooting)**.
@@ -313,7 +313,7 @@ More, with fuller explanations: **[QUICKSTART.md § Troubleshooting](QUICKSTART.
 - **Reactor / beamtime docs** — `docs/REACTOR_SETUP.md` (software install/run), `docs/REACTOR_HARDWARE_SETUP.md` (fluidics + temperature + beamline wiring), `docs/REACTOR_MAP.md` (code map / troubleshooting), `tools/BEAMLINE_TESTING.md` (bench-test runbook), and `docs/audits/PRE_BEAMTIME_READINESS.md` + `BEAMLINE_SAFETY_AUDIT.md`.
 - **`apps.yml`** — the app registry. Add an app here and the hub picks it up; no hub code changes needed.
 - **`check_imports.py`** — `python check_imports.py` audits which `src/` modules each app uses.
-- **Launchers** — `start_platform.sh` (macOS/Linux), `start_platform.ps1` (PowerShell), `start_platform.bat` (Anaconda Prompt / double-click). All three resolve your venv/conda interpreter, refuse a Python older than 3.10, probe the dependencies, and then start `hub/app.py` with that interpreter — the same one the hub uses to launch every sub-app.
+- **Launchers** — `start_platform.sh` (macOS/Linux) and `start_platform.bat` (every Windows shell, including PowerShell, plus double-click). Both resolve your venv/conda interpreter, refuse a Python older than 3.10, probe the dependencies, and then start `hub/app.py` with that interpreter — the same one the hub uses to launch every sub-app.
 - **Dependencies** — `requirements-core.txt` runs the platform; `requirements-hardware.txt` and `requirements-ai.txt` are opt-in extras. `tests/test_install_requirements.py` fails if a new import is added without being declared, or if an exact pin creeps back in.
 
 **The one rule:** all science and data logic lives in `src/`. Each `app.py` is a thin Flask shell (routing only).

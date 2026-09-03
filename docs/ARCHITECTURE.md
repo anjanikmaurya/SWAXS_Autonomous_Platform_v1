@@ -573,6 +573,8 @@ Footer contains METADATA INFORMATION section with i0, T, thickness values.
   pip-installed dependencies and the app dies instantly with
   `ModuleNotFoundError`. `CLAUDE.md` and every app docstring now say plain
   `python` from the activated `venv/`; there is no supported `uv` path here.
-- **Three launchers, not one.** `start_platform.sh`, `start_platform.ps1`,
-  `start_platform.bat`. All three load `.env` and resolve the AI token before
+- **Two launchers, not one.** `start_platform.sh` (macOS/Linux) and
+  `start_platform.bat` (all Windows shells; the separate PowerShell `.ps1` was
+  dropped in September 2026 — a `.bat` runs from PowerShell and needs no
+  execution-policy change). Both load `.env` and resolve the AI token before
   starting the hub; `python hub/app.py` does not.
