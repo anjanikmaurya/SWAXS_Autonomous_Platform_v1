@@ -101,6 +101,20 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
 }
 .section-hint b{color:var(--text);font-weight:600}
 .section-hint .arrow{color:#484f58;margin:0 2px}
+.section-hint code{
+  background:#21262d;border:1px solid var(--border);border-radius:4px;
+  padding:1px 5px;font-size:12.5px;
+}
+.flow-row{margin-bottom:10px}
+.flow-row:last-child{margin-bottom:0}
+.flow-row.flow-auto{padding-top:10px;border-top:1px dashed var(--border)}
+.flow-badge{
+  display:inline-block;padding:2px 9px;border-radius:999px;
+  font-size:11px;font-weight:700;letter-spacing:.05em;margin-right:8px;
+  vertical-align:2px;
+}
+.flow-badge.flow-standard{background:#0d2b0d;color:#3fb950}
+.flow-badge.flow-autonomous{background:#1a1434;color:#a78bfa}
 .log-empty{color:#484f58;font-size:13px;padding:14px 4px;font-style:italic}
 
 /* ── App grid ────────────────────────────────────────────────────────────── */
@@ -278,9 +292,24 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,
       </span>
     </div>
     <div class="section-hint">
-      New here? First pick your project folder (top-right), then work through in order:
-      <b>⚙️ Reduction</b><span class="arrow">→</span><b>📊 Visualisation &amp; Average</b><span class="arrow">→</span><b>🔬 Background</b><span class="arrow">→</span><b>📈 Analysis</b>.
-      The <b>🤖 Assistant</b> can help at any step. Click <b>▶ Start</b> on a card, then <b>↗ Open</b>.
+      <div class="flow-row">
+        <span class="flow-badge flow-standard">STANDARD</span>
+        New here? 👋 Pick your project folder (top-right), then work through the
+        apps in order:
+        <b>🎯 Calibration</b><span class="arrow">→</span><b>🌀 Reduction</b><span class="arrow">→</span><b>📊 Visualisation &amp; Average</b><span class="arrow">→</span><b>➖ Background</b><span class="arrow">→</span><b>📈 Analysis</b>.
+        <b>🤖 Tassone Group</b> can help at any step — click <b>▶ Start</b> on a
+        card, then <b>↗ Open</b>.
+      </div>
+      <div class="flow-row flow-auto">
+        <span class="flow-badge flow-autonomous">AUTONOMOUS</span>
+        Running unattended, e.g. overnight? 🌙 The reactor and optimiser close
+        the loop for you, on top of the same pipeline above:
+        <b>🔁 Autonomous Synthesis</b> collects a sample<span class="arrow">→</span>the
+        pipeline reduces it automatically<span class="arrow">→</span><b>🧭 Auto-Fit &amp; Optimiser</b>
+        fits the result and proposes what to try next<span class="arrow">→</span>back
+        to <b>🔁 Autonomous Synthesis</b>. Full setup in
+        <code>docs/AUTONOMOUS_RUN_STEPS.md</code>.
+      </div>
     </div>
 
     <div class="app-grid" id="appGrid">
