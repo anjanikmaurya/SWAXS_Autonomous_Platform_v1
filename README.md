@@ -308,6 +308,31 @@ More, with fuller explanations: **[QUICKSTART.md § Troubleshooting](QUICKSTART.
 
 ## For developers
 
+### Plugging your own program into the pipeline
+
+You are not limited to the nine built-in apps. Every stage hands off through a
+**folder of files** plus `manifest.json`, so a program of your own — in any
+language — can read one stage's output and write the next stage's input,
+without touching this codebase and with no plugin API to learn.
+
+The common case is **your own ML model in place of Auto-Fit & Optimiser**: it
+watches `1D/SAXS/Subtracted/Good/` for newly subtracted profiles, predicts the
+structure, and drops the next conditions into `1D/SAXS/Conditions/`, which the
+Flow Synthesis app already polls. Leave app 5107 stopped and the loop closes
+through your model instead. Three folder paths and one small file format.
+
+Other ways in: subscribe to the WebSocket event bus for push notifications
+instead of polling, import `src/` directly as a Python library, write your
+results into `manifest.json` for provenance, or register your program in
+`apps.yml` so it gets its own hub card with start/stop.
+
+**→ [docs/INTEGRATING_YOUR_OWN_CODE.md](docs/INTEGRATING_YOUR_OWN_CODE.md)** —
+exact paths, the condition-file format and its required fields and bounds, a
+working ~30-line skeleton, every integration surface ranked by how stable it
+is, and the safety notes for anything that can drive the reactor.
+
+### Reference
+
 - **`CLAUDE.md`** — developer guide and full `config.yml` reference.
 - **`docs/`** — extended documentation: `ARCHITECTURE.md` (system design), `DESIGN_SYSTEM.md`, app specs, and `docs/audits/` (point-in-time correctness/safety audits).
 - **Reactor / beamtime docs** — `docs/REACTOR_SETUP.md` (software install/run), `docs/REACTOR_HARDWARE_SETUP.md` (fluidics + temperature + beamline wiring), `docs/REACTOR_MAP.md` (code map / troubleshooting), `tools/BEAMLINE_TESTING.md` (bench-test runbook), and `docs/audits/PRE_BEAMTIME_READINESS.md` + `BEAMLINE_SAFETY_AUDIT.md`.

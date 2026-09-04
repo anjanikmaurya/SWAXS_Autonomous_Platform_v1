@@ -347,6 +347,7 @@ Encoding failures drop the single event, not the connection.
 | [SECURITY.md](SECURITY.md) | AI token handling |
 | [SYNC.md](SYNC.md) | Working across two laptops |
 | `docs/ARCHITECTURE.md` | System design, event bus, manifest v2 |
+| `docs/INTEGRATING_YOUR_OWN_CODE.md` | Plugging an external program (e.g. your own ML) into the pipeline: watched folders, the condition-file contract, event bus, every surface ranked by stability |
 | `docs/AUTONOMOUS_RUN_STEPS.md` | Operator runbook for a closed-loop run |
 | `docs/audits/OPEN_DEFECTS.md` | **The register of known open defects** |
 | `docs/audits/PRE_BEAMTIME_READINESS.md` | Go/no-go checklist |

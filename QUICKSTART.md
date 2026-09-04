@@ -344,9 +344,35 @@ them — the app says what's missing and keeps working.
 
 ---
 
+## Optional: plugging your own program into the pipeline
+
+You do not have to use the built-in apps for every stage. Because each stage
+hands off through a **folder of files** plus `manifest.json`, a program of your
+own — in any language — can read one stage's output and write the next stage's
+input, with no change to this codebase and no plugin API to learn.
+
+The common case: **your own ML model instead of Auto-Fit & Optimiser.** It
+watches `1D/SAXS/Subtracted/Good/` for newly subtracted profiles, predicts the
+structure, and drops the next set of conditions into `1D/SAXS/Conditions/`,
+which the Flow Synthesis app already polls. You leave app 5107 stopped and the
+loop closes through your model instead. That is the entire integration — three
+folder paths and one small file format.
+
+Other ways in: subscribe to the WebSocket event bus for push notifications
+instead of polling, import `src/` directly as a Python library, record your
+results in `manifest.json` for provenance, or register your program in
+`apps.yml` so it gets its own hub card with start/stop.
+
+**→ [docs/INTEGRATING_YOUR_OWN_CODE.md](docs/INTEGRATING_YOUR_OWN_CODE.md)** —
+exact folder paths, the condition-file format and its required fields, a
+working ~30-line Python skeleton, every integration surface ranked by how
+stable it is, and the safety notes for anything that can drive the reactor.
+
+---
+
 ## Upgrading from a version before September 2026
 
-If you used the platform earlier, three things moved. Nothing about your **data**
+If you used the platform earlier, a few things moved. Nothing about your **data**
 changed — project folders, `config.yml` and `manifest.json` are all unaffected.
 
 | Was | Now | Why |
@@ -355,18 +381,32 @@ changed — project folders, `config.yml` and `manifest.json` are all unaffected
 | **Data Viewer** (`viewer/`) | **Visualisation & Average** (`average/`) | the folder name said "viewer" while the app's main job is averaging |
 | **Nanoparticle Analyzer** | **Auto-Fit & Optimiser** | the old name hid the Bayesian optimizer half, and read like a sibling of Data Analysis |
 | **Tassone Group Assistant** | **Tassone Group** | shorter |
+| `start_platform.ps1` **and** `.bat` | **`start_platform.bat` only** | a `.bat` runs from PowerShell too and needs no execution-policy change, so the second launcher was upkeep for no gain |
+
+The app order also now follows the pipeline everywhere — hub cards, launcher
+banner and docs all read calibration → reduction → average → background →
+quality → analysis → auto-fit → flow synthesis → assistant.
 
 What to do:
 
 - **Update your bookmarks** — the hub used to be on `localhost:5000`; it is now
   `localhost:5100`.
 - **`git pull`, then just start it.** No reinstall, no config edit.
+- **Windows:** run `.\start_platform.bat` even in PowerShell. If you had a
+  shortcut to `start_platform.ps1`, repoint it — that file is gone.
 - Old `logs/viewer.log` and `.swaxs_state/viewer_monitor.json` are dead files;
   the app writes `average.log` and `average_monitor.json` now. Deleting the old
   ones is safe but not required.
 - Manifests written before the rename record `"app": "viewer"` in their
   provenance. That is deliberate — those files really were produced under the
   old name — and nothing in the code compares against it.
+
+> **If a Windows launcher ever behaves strangely after a `git pull`**, check its
+> line endings. `.bat` files must be CRLF — `cmd.exe` mishandles LF-only batch
+> files, and the symptom is a script that fails for reasons you cannot see by
+> reading it. `.gitattributes` now pins `*.bat` to CRLF, so a fresh clone is
+> correct; an old working copy may need `git rm --cached start_platform.bat`
+> then `git checkout -- start_platform.bat` to pick the new setting up.
 
 ---
 

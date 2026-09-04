@@ -216,8 +216,21 @@ def test_quickstart_ports_match_apps_yml():
 
 
 def test_quickstart_references_only_files_that_exist():
+    """Telling a user to run a file that is not there is the defect. Naming a
+    file in the upgrade note to say it is GONE is the opposite, so that section
+    is scanned only for the files it still tells you to run."""
     qs = (ROOT / "QUICKSTART.md").read_text()
-    refs = set(re.findall(r"`([A-Za-z0-9_/-]+\.(?:md|txt|sh|ps1|bat|py))`", qs))
+    marker = "## Upgrading from a version before"
+    body, _, upgrade = qs.partition(marker)
+    pat = r"`([A-Za-z0-9_/-]+\.(?:md|txt|sh|ps1|bat|py))`"
+    refs = set(re.findall(pat, body))
+    # In the upgrade note, a filename is fair game only if the line frames it
+    # as removed/renamed; anything else there is still an instruction.
+    for line in upgrade.splitlines():
+        if any(w in line for w in ("gone", "removed", "dead file", "was dropped",
+                                   "no longer", "only**", "gitattributes")):
+            continue
+        refs |= set(re.findall(pat, line))
     # config.yml lives in the user's PROJECT folder, not the repo
     missing = [r for r in sorted(refs) if not (ROOT / r).exists()]
     assert not missing, f"QUICKSTART points at files that do not exist: {missing}"
