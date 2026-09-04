@@ -22,7 +22,27 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 
 # ── App folders to inspect ────────────────────────────────────────────────────
-APPS = ["hub", "reduction", "average", "background", "analysis", "assistant"]
+# Read from apps.yml, the live registry, rather than a hand-kept list. The
+# hardcoded six ("hub, reduction, average, background, analysis, assistant")
+# silently skipped calibration, quality, reactor and analyzer for as long as
+# those apps have existed — an import audit that ignores four of the nine apps
+# is worse than no audit, because it reads as a clean bill of health.
+def _apps_from_registry() -> list[str]:
+    ids = []
+    try:
+        import yaml                                   # noqa: PLC0415
+        reg = yaml.safe_load((ROOT / "apps.yml").read_text()) or {}
+        ids = [str(a["id"]) for a in reg.get("apps", []) if a.get("id")]
+    except Exception as exc:                          # keep working without pyyaml
+        print(f"  ! could not read apps.yml ({exc}) — falling back to a scan")
+    if not ids:
+        ids = sorted(p.parent.name for p in ROOT.glob("*/app.py"))
+    # the hub has no apps.yml entry (it launches the others) but does import src
+    return (["hub"] if (ROOT / "hub" / "app.py").is_file() else []) + \
+           [i for i in ids if i != "hub"]
+
+
+APPS = _apps_from_registry()
 
 # ── src modules and their public API ─────────────────────────────────────────
 SRC_MODULES = {

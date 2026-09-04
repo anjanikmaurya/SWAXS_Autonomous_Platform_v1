@@ -275,3 +275,103 @@ def test_run_settings_are_restored_before_auto_run_can_start(tmp_path, monkeypat
     assert "_restore_run_settings()" in boot, \
         "the run settings are not restored before auto-run may start a recipe"
     assert boot.index("_restore_run_settings()") < boot.index("_restore_auto_run()")
+
+
+# ── the optimisation target must outlive the run ─────────────────────────────
+def test_the_campaign_target_is_recorded_durably(tmp_path, monkeypatch):
+    """The target used to live only in _campaign_cfg — overwritten by the next
+    campaign — and in one log line. Months later nothing said what a run had
+    been aiming for. It must reach the manifest and a record file."""
+    pytest.importorskip("scipy")
+    (tmp_path / "1D" / "SAXS" / "Conditions").mkdir(parents=True)
+    (tmp_path / "1D" / "SAXS" / "Subtracted").mkdir(parents=True)
+    monkeypatch.setenv("SWAXS_PROJECT", str(tmp_path))
+
+    a = _load("az_target", "analyzer/app.py")
+    a.app.test_client().post("/api/campaign/start", json={
+        "target_size": 7.25, "tolerance": 0.4, "pdi_cap": 0.12,
+        "budget": 25, "n_init": 6})
+
+    # 1. the per-campaign record file, next to the conditions it produced
+    recs = list((tmp_path / "1D" / "SAXS" / "Conditions").glob("campaign_*.json"))
+    assert len(recs) == 1, f"expected one campaign record, got {recs}"
+    body = json.loads(recs[0].read_text())
+    assert body["target_size"] == 7.25 and body["tolerance"] == 0.4
+    assert body["pdi_cap"] == 0.12
+    assert body.get("started_at") and body.get("campaign_id")
+
+    # 2. the permanent cross-app record
+    mf = json.loads((tmp_path / "manifest.json").read_text())
+    camp = mf["project_meta"]["campaign"]
+    assert camp["target_size"] == 7.25 and camp["tolerance"] == 0.4
+
+    # 3. a restart must keep the SAME record, not orphan it and start another
+    a2 = _load("az_target2", "analyzer/app.py")
+    a2._restore_campaign()
+    assert a2._campaign_id == body["campaign_id"], "resumed run lost its record"
+    assert a2._campaign is not None, "restore broke"
+    assert len(list((tmp_path / "1D" / "SAXS" / "Conditions")
+                    .glob("campaign_*.json"))) == 1
+
+
+def test_campaign_results_are_saved_when_it_ends(tmp_path, monkeypatch):
+    """A finished campaign's figures used to exist only as an on-demand render
+    for the browser: restart the app, or start the next campaign, and the only
+    view of the run was gone. Ending a campaign must leave a folder behind."""
+    pytest.importorskip("scipy")
+    pytest.importorskip("matplotlib")
+    (tmp_path / "1D" / "SAXS" / "Conditions").mkdir(parents=True)
+    (tmp_path / "1D" / "SAXS" / "Subtracted").mkdir(parents=True)
+    monkeypatch.setenv("SWAXS_PROJECT", str(tmp_path))
+
+    a = _load("az_results", "analyzer/app.py")
+    a.app.test_client().post("/api/campaign/start", json={
+        "target_size": 6.0, "tolerance": 0.3, "pdi_cap": 0.15,
+        "budget": 25, "n_init": 4})
+    for i in range(3):                       # some history to plot
+        rid = list(a._pending)[0]
+        a._feed_campaign(f"{rid}_sample_SAXS_subtracted.dat",
+                         {"size": {"radius": 9.0 + i}, "pdi": 0.3, "confidence": 0.9})
+    cid = a._campaign_id
+    a.app.test_client().post("/api/campaign/abort")
+
+    d = tmp_path / "1D" / "SAXS" / "Results" / f"campaign_{cid}"
+    assert d.is_dir(), "no results folder for the finished campaign"
+
+    body = json.loads((d / "campaign.json").read_text())
+    assert body["target_size"] == 6.0, "the target is not in the saved results"
+    assert body["outcome"] == "aborted" and body.get("ended_at")
+    assert len(body["history"]) == 3, "history not saved with the results"
+
+    rows = (d / "history.csv").read_text().strip().splitlines()
+    assert len(rows) == 4, "history.csv should be a header plus one row per run"
+    assert "loss" in rows[0] and "T_reac" in rows[0]
+
+    for png in ("convergence.png", "trajectory.png", "slice.png"):
+        assert (d / png).is_file(), f"{png} missing"
+        assert (d / png).read_bytes()[:4] == b"\x89PNG", f"{png} is not a PNG"
+
+    # Results are a SIBLING of Conditions, not nested inside it
+    assert d.parent.parent == tmp_path / "1D" / "SAXS"
+
+
+def test_boot_resume_never_clobbers_a_live_campaign(tmp_path, monkeypatch):
+    """_boot_resume fires on a ~1 s timer after import. A campaign started inside
+    that window used to be REPLACED by the rebuilt one from disk — history lost,
+    status reset to running, even after it had converged. Found because saving
+    the results figures made a test slow enough to cross the window."""
+    pytest.importorskip("scipy")
+    (tmp_path / "1D" / "SAXS" / "Conditions").mkdir(parents=True)
+    monkeypatch.setenv("SWAXS_PROJECT", str(tmp_path))
+    a = _load("az_clobber", "analyzer/app.py")
+    a.app.test_client().post("/api/campaign/start", json={
+        "target_size": 4.0, "tolerance": 0.3, "pdi_cap": 0.15,
+        "budget": 25, "n_init": 6})
+    rid = list(a._pending)[0]
+    a._feed_campaign(f"{rid}_sample_SAXS_subtracted.dat",
+                     {"size": {"radius": 4.05}, "pdi": 0.02, "confidence": 0.9})
+    assert a._campaign.status_str == "converged"
+
+    a._restore_campaign()          # what the boot timer would do
+    assert a._campaign.status_str == "converged", "a live campaign was clobbered"
+    assert len(a._campaign.history) == 1, "history was lost to the resume"

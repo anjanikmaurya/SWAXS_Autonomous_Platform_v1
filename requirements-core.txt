@@ -21,7 +21,7 @@
 
 # ── Web framework: the hub and all nine apps ─────────────────────────────────
 flask>=3.0
-flask-sock>=0.7            # WebSocket event bus (hub :5000/ws)
+flask-sock>=0.7            # WebSocket event bus (hub :5100/ws)
 simple-websocket>=1.0      # flask-sock's transport
 websocket-client>=1.8      # the apps' side of the bus
 

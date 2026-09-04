@@ -250,6 +250,56 @@ admission.)
   **`slice`** (takes `x`, `y`, `anchor`), **`convergence`**, **`trajectory`**.
   An unknown view returns a placeholder image rather than an error.
 
+## Where the optimisation target is recorded
+
+The target (`target_size`, `tolerance`, `pdi_cap`, plus `budget`/`n_init`) is
+written to **three durable places** the moment a campaign starts, so a finished
+run can always be asked what it was aiming for:
+
+| Where | What it answers |
+|---|---|
+| `manifest.json` → `project_meta.campaign` | "what is/was this experiment targeting?" — permanent, cross-app, and the AI assistant reads it |
+| every `analyses` entry's `params` (`target_size`, `tolerance`, `pdi_cap`, `campaign_id`) | "what was **this fit** judged against?" — stays correct even if the operator aborts and restarts with a different target mid-experiment |
+| `1D/SAXS/Conditions/campaign_<id>.json` | a human-readable record per campaign, written on start and rewritten on finish with the outcome (`converged` + the converged condition, `exhausted` + best, or `aborted`) |
+
+`.swaxs_state/campaign.json` also holds the target, but that file is **resume
+state, not a record**: it is overwritten by the next campaign and expires after
+7 days. Do not read it to find out what an old run targeted.
+
+A resumed campaign keeps its original `campaign_id`, so a restart continues
+writing to the existing record rather than orphaning it and starting another.
+
+## Where a finished campaign's figures go
+
+When a campaign **ends** — converged, budget exhausted, or aborted — everything
+worth keeping is written to a folder named for that campaign, a sibling of
+`Conditions/`:
+
+```
+1D/SAXS/Results/campaign_<id>/
+    campaign.json     target, outcome and the full history
+    history.csv       one row per evaluation (for a spreadsheet or a paper)
+    convergence.png   loss/size vs evaluation
+    trajectory.png    the path the optimiser took through the space
+    slice.png         the model surface through the best point
+```
+
+A new folder every time a target is set, so campaigns never overwrite each
+other. The figures come from the same renderer the live UI uses
+(`src/optimizer/plots.py`), which previously drew only on demand and saved
+nothing — a finished run left no plot behind at all.
+
+Not to be confused with `docs/figures/*.png`: those are **not** from a real
+run. `tools/campaign_plots.py` generates them in silico, driving the real
+optimizer against the simulator's ground truth, to document how the optimizer
+behaves.
+
+Note for maintainers: `_campaign_cfg` holds **exactly** the
+`CampaignController` constructor kwargs and is splatted as `**cfg` on resume —
+any descriptive key added there is a `TypeError` that silently kills the
+restore. Descriptive metadata (objective string, `started_at`, `operator`)
+lives in `_campaign_meta` instead.
+
 ## Manifest and event bus
 Each fitted profile is written to `manifest.json` via `add_analysis_entry` with
 `analysis_type = "nanoparticle"`,

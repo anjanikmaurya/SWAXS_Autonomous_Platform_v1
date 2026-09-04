@@ -1,3 +1,18 @@
+# ╔══════════════════════════════════════════════════════════════════════════╗
+# ║  DO NOT INSTALL THIS FILE.  Use:  pip install -r requirements-core.txt   ║
+# ╚══════════════════════════════════════════════════════════════════════════╝
+#
+# This is a `pip freeze` of one developer's Mac, kept only as a record of that
+# machine. It pulls in ~1 GB the platform never uses (PyQt6, silx, pyopencl,
+# torch) and pins exact versions with no Windows build for older Pythons, so pip
+# tries to COMPILE numpy and fails with "Microsoft Visual C++ 14.0 or greater is
+# required". This is the single most common way a fresh install goes wrong.
+#
+# What you actually want:
+#   requirements-core.txt      the 16 packages that run the platform
+#   requirements-hardware.txt  pyserial, pyepics — real rig only
+#   requirements-ai.txt        anthropic, chromadb, … — AI assistant extras
+#
 # ── Web framework ─────────────────────────────────────────────────────────────
 blinker==1.8.2
 click==8.1.7

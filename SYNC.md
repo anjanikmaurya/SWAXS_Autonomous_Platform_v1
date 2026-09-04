@@ -20,9 +20,14 @@ between, you will never hit a merge conflict.
 
 ## First-time setup (already done once, keep for reference)
 
-Line endings are normalized by `.gitattributes` (LF in the repo, native per OS).
-This prevents the "every file looks modified" problem when switching between
-macOS (LF) and Windows (CRLF). No action needed day to day.
+Line endings are normalized by `.gitattributes`: everything is stored as LF in
+the repo, and **Windows scripts (`.bat`, `.ps1`, `.cmd`) are checked out as
+CRLF** because `cmd.exe` mishandles LF-only batch files. This prevents both the
+"every file looks modified" problem when switching between macOS and Windows,
+and a launcher that fails for reasons invisible in the file. No action needed
+day to day — but if you have an old clone from before September 2026, run
+`git rm --cached start_platform.bat && git checkout -- start_platform.bat` once
+to pick the new setting up.
 
 ## If you forgot to push and edited both laptops
 

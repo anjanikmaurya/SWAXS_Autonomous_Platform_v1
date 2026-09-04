@@ -35,7 +35,8 @@ if str(_ROOT) not in sys.path:
 from src.analysis.nanoparticle import analyze_profile, model_intensity   # noqa: E402
 from src.utils.read_dat_metadata import read_dat_data_metadata           # noqa: E402
 from src.reactor.intake import decide_intake                             # noqa: E402
-from src.manifest import update_manifest, add_analysis_entry             # noqa: E402
+from src.manifest import (update_manifest, add_analysis_entry,          # noqa: E402
+                          set_project_meta)
 from src.ai.loop_advice import narrate_fit                               # noqa: E402
 from src.reactor import load_config                                      # noqa: E402
 from src.optimizer import ParameterSpace, CampaignController             # noqa: E402
@@ -58,6 +59,14 @@ app = Flask(__name__)
 _project_root: str = os.environ.get("SWAXS_PROJECT", "")
 _sub_folder: str = "1D/SAXS/Subtracted"     # relative to project (or absolute)
 _cond_folder: str = "1D/SAXS/Conditions"    # where proposed conditions are written (reactor watches this)
+#: Sibling of Conditions/. One subfolder per campaign, written when the
+#: campaign ENDS: the figures, the record and the history. Until this
+#: existed, a real run's convergence/trajectory plots were rendered on
+#: demand for the browser and never persisted — once the app restarted or
+#: the next campaign started, the only view of the finished run was gone.
+#: (docs/figures/*.png are NOT from a real run: tools/campaign_plots.py
+#: generates those in silico against the simulator, for documentation.)
+_results_folder: str = "1D/SAXS/Results"
 
 # ── closed-loop campaign state ─────────────────────────────────────────────────
 _campaign: CampaignController | None = None
@@ -141,6 +150,13 @@ def _resolve_cond() -> Path:
     return p
 
 
+def _resolve_results() -> Path:
+    p = Path(_results_folder)
+    if not p.is_absolute():
+        p = (Path(_project_root) if _project_root else Path.cwd()) / _results_folder
+    return p
+
+
 def _new_rid() -> str:
     return "auto_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:4]
 
@@ -169,11 +185,19 @@ def _advance_campaign() -> None:
         cc = _campaign.converged_condition or {}
         _emit(f"🎯 campaign CONVERGED — size {cc.get('size')} at "
               f"{ {k: round(v,1) for k,v in (cc.get('params') or {}).items()} }", "ok")
+        _oc = {"outcome": "converged", "converged_condition": cc,
+               "n_evaluations": _campaign.status().get("n_evaluations")}
+        _write_campaign_record(_oc); _write_campaign_results(_oc)
     elif st == "exhausted":
         _emit(f"⏹ campaign budget exhausted ({_campaign.status()['n_evaluations']} runs) — "
               f"best size {(_campaign.best or {}).get('size')}", "warn")
+        _oc = {"outcome": "exhausted", "best": _campaign.best,
+               "n_evaluations": _campaign.status().get("n_evaluations")}
+        _write_campaign_record(_oc); _write_campaign_results(_oc)
     elif st == "aborted":
         _emit("⏹ campaign aborted", "warn")
+        _oc = {"outcome": "aborted", "best": _campaign.best}
+        _write_campaign_record(_oc); _write_campaign_results(_oc)
 
 
 def _last_loss_for(recipe_id: str):
@@ -202,6 +226,125 @@ def _last_loss_for(recipe_id: str):
 # the controller and keep going.
 _CAMPAIGN_STATE = "campaign"
 _campaign_cfg: dict = {}        # the hyperparameters the campaign was created with
+#: Identifies THIS campaign in the durable records below. The optimisation
+#: target used to exist only in _campaign_cfg (overwritten by the next
+#: campaign) and in one log line, so months later nothing said what a run had
+#: been aiming for. It is now written to three durable places on start:
+#: manifest project_meta.campaign, every analyses entry, and a record file.
+_campaign_id: str = ""
+#: Descriptive campaign metadata for the records. Kept SEPARATE from
+#: _campaign_cfg because that dict is splatted into CampaignController(**cfg) on
+#: resume — any extra key there is a TypeError that silently kills the restore.
+_campaign_meta: dict = {}
+
+
+def _campaign_record() -> dict:
+    """Everything needed to answer "what was this run aiming for?" later."""
+    rec = {"campaign_id": _campaign_id, **(_campaign_cfg or {}), **(_campaign_meta or {})}
+    if _campaign is not None:
+        rec["status"] = _campaign.status_str
+    return rec
+
+
+def _write_campaign_record(outcome: dict | None = None) -> None:
+    """One JSON per campaign, next to the conditions it produced.
+
+    Deliberately NOT .swaxs_state/: that file is resume state, is overwritten by
+    the next campaign and expires after 7 days, so it can never answer what an
+    old run targeted. This one is written on start and rewritten on finish.
+    Never raises — a record-keeping failure must not stop a campaign.
+    """
+    if not _campaign_id:
+        return
+    try:
+        d = _resolve_cond(); d.mkdir(parents=True, exist_ok=True)
+        path = d / f"campaign_{_campaign_id}.json"
+        body = _campaign_record()
+        if path.is_file():                      # keep started_at from the first write
+            try:
+                body = {**json.loads(path.read_text(encoding="utf-8")), **body}
+            except Exception:
+                pass
+        if outcome:
+            body.update(outcome)
+            body["ended_at"] = datetime.datetime.now().isoformat(timespec="seconds")
+        tmp = path.with_suffix(".json.part")    # atomic: a torn record is useless
+        tmp.write_text(json.dumps(body, indent=2, default=str), encoding="utf-8")
+        tmp.replace(path)
+    except Exception as exc:
+        _emit(f"⚠ could not write the campaign record: {exc}", "warn")
+
+
+def _write_campaign_results(outcome: dict) -> str:
+    """On campaign end, persist everything worth keeping into one folder.
+
+    `1D/SAXS/Results/campaign_<id>/` — a sibling of Conditions/, one folder per
+    campaign (a new one every time a target is set):
+
+        campaign.json     the target, the outcome, the full history
+        history.csv       one row per evaluation, for a spreadsheet or a paper
+        convergence.png   loss/size vs evaluation
+        trajectory.png    the path the optimiser took through the space
+        slice.png         the model's surface through the best point
+
+    The figures are the SAME renderer the live UI uses (src/optimizer/plots.py),
+    which previously drew only on demand and saved nothing — so a finished run
+    left no plot behind at all.
+
+    Returns the folder path, or "" on failure. Never raises: losing the figures
+    must not stop a campaign from ending cleanly.
+    """
+    if _campaign is None or not _campaign_id:
+        return ""
+    try:
+        d = _resolve_results() / f"campaign_{_campaign_id}"
+        d.mkdir(parents=True, exist_ok=True)
+
+        body = {**_campaign_record(), **outcome,
+                "ended_at": datetime.datetime.now().isoformat(timespec="seconds"),
+                "history": _campaign.history}
+        (d / "campaign.json").write_text(
+            json.dumps(body, indent=2, default=str), encoding="utf-8")
+
+        hist = _campaign.history or []
+        if hist:
+            keys = ["recipe_id", "size", "pdi", "confidence", "loss"]
+            pkeys = sorted({k for h in hist for k in (h.get("params") or {})})
+            lines = [",".join(keys + pkeys)]
+            for h in hist:
+                pr = h.get("params") or {}
+                lines.append(",".join(
+                    [str(h.get(k, "")) for k in keys] +
+                    [str(pr.get(k, "")) for k in pkeys]))
+            (d / "history.csv").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+        from src.optimizer import plots as opl                # noqa: PLC0415
+        truth = _truth_for_plots()
+        for view, name in (("convergence", "convergence.png"),
+                           ("trajectory",  "trajectory.png"),
+                           ("slice",       "slice.png")):
+            try:
+                (d / name).write_bytes(opl.figure(view, _campaign, truth=truth))
+            except Exception as exc:
+                _emit(f"⚠ could not save {name}: {exc}", "warn")
+
+        _emit(f"💾 campaign results saved to {d}", "ok")
+        return str(d)
+    except Exception as exc:
+        _emit(f"⚠ could not save the campaign results: {exc}", "warn")
+        return ""
+
+
+def _record_campaign_in_manifest() -> None:
+    """Put the target in the permanent cross-app record, so the assistant and
+    anyone reading the experiment afterwards can see it. Best-effort."""
+    if not _project_root or not _campaign_id:
+        return
+    try:
+        update_manifest(_project_root,
+                        lambda mf: set_project_meta(mf, campaign=_campaign_record()))
+    except Exception as exc:
+        _emit(f"⚠ could not record the campaign in the manifest: {exc}", "warn")
 
 
 def _save_campaign() -> None:
@@ -211,7 +354,9 @@ def _save_campaign() -> None:
         if _campaign is None or not _project_root:
             return
         save_state(_project_root, _CAMPAIGN_STATE, {
+            "campaign_id": _campaign_id,
             "cfg": _campaign_cfg,
+            "meta": _campaign_meta,
             "status": _campaign.status_str,
             "history": _campaign.history,
             "pending": _pending,
@@ -229,7 +374,14 @@ def _restore_campaign() -> None:
     step is skipped while replaying — the pending set is restored verbatim
     instead.
     """
-    global _campaign, _campaign_cfg
+    global _campaign, _campaign_cfg, _campaign_id, _campaign_meta
+    # NEVER clobber a live campaign. _boot_resume runs on a timer ~1 s after
+    # import, so an operator (or a test) who starts a campaign inside that window
+    # would have their running campaign silently replaced by the rebuilt one from
+    # disk — losing its history and resetting its status to "running", including
+    # after it had already converged.
+    if _campaign is not None:
+        return
     st = load_state(_project_root, _CAMPAIGN_STATE, max_age_s=7 * 24 * 3600)
     if not st or not st.get("cfg"):
         return
@@ -237,6 +389,10 @@ def _restore_campaign() -> None:
         _emit(f"ℹ previous campaign ended ({st.get('status')}) — not resuming", "info")
         return
     cfg = dict(st["cfg"])
+    # Keep the SAME campaign id across a restart, so the resumed run keeps
+    # writing to its existing record instead of orphaning it.
+    _campaign_id = str(st.get("campaign_id") or "")
+    _campaign_meta = dict(st.get("meta") or {})
     hist = st.get("history") or []
     try:
         space = ParameterSpace.from_config(load_config())
@@ -463,9 +619,21 @@ def _analyze_file(path: Path) -> None:
     # record in the manifest (best-effort)
     if _project_root:
         try:
+            # The TARGET goes in per entry, not just once per campaign: an
+            # operator can abort and restart with a different target mid-run, and
+            # only a per-fit copy stays true about what this fit was judged against.
+            _params = {"model": "polydisperse_sphere",
+                       "distribution": summary["distribution"]}
+            if _campaign_cfg:
+                _params.update({
+                    "campaign_id":  _campaign_id,
+                    "target_size":  _campaign_cfg.get("target_size"),
+                    "tolerance":    _campaign_cfg.get("tolerance"),
+                    "pdi_cap":      _campaign_cfg.get("pdi_cap"),
+                })
             update_manifest(_project_root, lambda mf: add_analysis_entry(
                 mf, analysis_type="nanoparticle", file_path=path,
-                params={"model": "polydisperse_sphere", "distribution": summary["distribution"]},
+                params=_params,
                 results=summary, quality_score=conf))
         except Exception as exc:
             _emit(f"⚠ manifest write failed: {exc}", "warn")
@@ -633,7 +801,7 @@ def api_campaign():
 
 @app.route("/api/campaign/start", methods=["POST"])
 def api_campaign_start():
-    global _campaign, _campaign_cfg
+    global _campaign, _campaign_cfg, _campaign_id, _campaign_meta
     b = request.get_json(silent=True) or {}
     try:
         space = ParameterSpace.from_config(load_config())
@@ -646,6 +814,8 @@ def api_campaign_start():
                 pdi_cap=float(b.get("pdi_cap", 0.15)),
                 budget=int(b.get("budget", 25)),
                 n_init=int(b.get("n_init", 10)))
+            _campaign_id = (datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                            + "_" + uuid.uuid4().hex[:4])
             _campaign_cfg = {
                 "target_size": _campaign.target_size,
                 "tolerance": _campaign.tolerance,
@@ -653,11 +823,19 @@ def api_campaign_start():
                 "budget": _campaign.budget,
                 "n_init": int(b.get("n_init", 10)),
             }
+            _campaign_meta = {
+                "objective": "min ((size - target_size)/tolerance)^2 + w*(PDI/pdi_cap)",
+                "started_at": datetime.datetime.now().isoformat(timespec="seconds"),
+                "operator": os.environ.get("SWAXS_USER_ID", "") or "",
+            }
             _campaign.start()
             _emit(f"🚀 campaign started — target R={_campaign.target_size}±{_campaign.tolerance} nm, "
                   f"PDI<{_campaign.pdi_cap}, budget {_campaign.budget}", "ok")
             _advance_campaign()             # emit the first condition
         _save_campaign()
+        # Durable record of the TARGET, in the two places that outlive the run.
+        _record_campaign_in_manifest()
+        _write_campaign_record()
         return jsonify({"ok": True, "campaign": _campaign_status()})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
@@ -669,6 +847,11 @@ def api_campaign_abort():
         if _campaign is not None:
             _campaign.abort()
             _emit("⏹ campaign aborted by operator", "warn")
+            # An operator abort does NOT pass through _advance_campaign, so save
+            # the results here too — an aborted run is still a run worth keeping.
+            _oc = {"outcome": "aborted", "best": _campaign.best}
+            _write_campaign_record(_oc)
+            _write_campaign_results(_oc)
     return jsonify({"ok": True})
 
 
