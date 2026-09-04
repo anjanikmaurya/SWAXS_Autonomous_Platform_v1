@@ -4,7 +4,7 @@ A local, AI-assisted toolkit for processing **small- and wide-angle X-ray scatte
 
 Everything runs on your own machine — the apps are local web servers and your data stays in the folder you point them at. The platform does make outbound connections, all of them optional and off by default: the Claude API (AI Assistant and AI quality grading), SFTP to a beamline host (Calibration's data sync), HTTP to the SPEC bServer (real beamline control), and Slack webhooks or SMTP (run notifications).
 
-### 🚀 New laptop? → **[Quick start](#quick-start)** — three steps, ~10 minutes, no coding.
+### 🚀 New machine? → **[Quick start](#quick-start)** — three steps, ~10 minutes.
 Works on macOS, Windows (PowerShell, Anaconda Prompt or cmd) and Linux.
 
 ---
@@ -42,7 +42,7 @@ platform:
 
 **① get Python and git → ② download the code and install → ③ start the hub.**
 
-No coding needed. If a command fails, the exact error is almost certainly in
+If a command fails, the exact error is almost certainly in
 [QUICKSTART.md](QUICKSTART.md#troubleshooting).
 
 > **⚠ One thing that matters more than anything else on this page:**

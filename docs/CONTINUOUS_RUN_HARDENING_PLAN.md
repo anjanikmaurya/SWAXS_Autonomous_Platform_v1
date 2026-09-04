@@ -41,11 +41,11 @@ implementation order — each phase is independently shippable and testable.
 
 | Phase | Defect | The 3am symptom |
 |---|---|---|
-| 1 | **N3** | A restart re-averages the whole night, emitting one `file.averaged` per batch — which the reactor reads as *measurement complete*. It advances the campaign on stale data. |
-| 1 | **N4** | One unreadable frame shifts every later batch boundary. A frame is silently reused, another dropped; if the count outruns the group, that keyword stops averaging **forever**, silently. |
-| 1 | **N1** | A restart re-reduces the entire experiment, oldest first. Thousands of manifest writes under the cross-process lock; live frames starve until the backlog clears. |
-| 2 | **N2** | An operator clicks *Run* while the monitor is running. Both drive the same `AzimuthalIntegrator` (documented single-threaded) and both `replace()` the same `.part` → a **truncated `.dat` published atomically**, indistinguishable from a good one downstream. |
-| 2 | **N5** | Stop→start inside one poll interval: the old thread wakes, exits, and sets `_avg_monitoring = False` — switching off the monitor that just reported OK. |
+| 1 | **N3** ✅ FIXED | A restart re-averages the whole night, emitting one `file.averaged` per batch — which the reactor reads as *measurement complete*. It advances the campaign on stale data. |
+| 1 | **N4** ✅ FIXED | One unreadable frame shifts every later batch boundary. A frame is silently reused, another dropped; if the count outruns the group, that keyword stops averaging **forever**, silently. |
+| 1 | **N1** ✅ FIXED | A restart re-reduces the entire experiment, oldest first. Thousands of manifest writes under the cross-process lock; live frames starve until the backlog clears. |
+| 2 | **N2** ✅ FIXED | An operator clicks *Run* while the monitor is running. Both drive the same `AzimuthalIntegrator` (documented single-threaded) and both `replace()` the same `.part` → a **truncated `.dat` published atomically**, indistinguishable from a good one downstream. |
+| 2 | **N5** — open | Stop→start inside one poll interval: the old thread wakes, exits, and sets `_avg_monitoring = False` — switching off the monitor that just reported OK. |
 | 3 | **N6** | `RuntimeError: dict changed size during iteration` inside `_recolor()`, which moves files as it goes. Half the profiles end up re-verdicted and physically re-sorted into the wrong folder. Nothing is logged. |
 | 3 | **N7** | Every poll re-parses every `.dat`. At ~10 000 files the loop falls behind the acquisition it is tracking. |
 | 4 | **N16 / O3** | ~264 s frame-to-fit latency, 99% of it waiting; manifest writes grow superlinearly. Slow, not broken. |

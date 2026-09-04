@@ -1,18 +1,21 @@
 # Quick Start
 
-Getting the SWAXS platform running on a fresh laptop. **No prior Python
-experience assumed** — every command is written out, and every step says what
-you should see if it worked.
+Getting the SWAXS platform running on a fresh machine — laptop, desktop, or
+beamline control PC. Every command is written out in full, and every step
+says what you should see if it worked.
 
 Pick your section:
 
 - [macOS](#macos) · [Windows — PowerShell](#windows--powershell) ·
   [Windows — Anaconda Prompt](#windows--anaconda-prompt) · [Linux](#linux)
 - Then: [First run](#first-run-all-platforms) →
+  [Recommended compute spec](#recommended-compute-spec) →
   [Troubleshooting](#troubleshooting)
 
 **Time:** about 10 minutes, most of it waiting for the download.
-**Disk:** ~500 MB. **Internet:** needed for the install, not to run.
+**Disk:** ~500 MB to install; see [below](#recommended-compute-spec) for how
+much you need for a multi-day run. **Internet:** needed for the install, not
+to run.
 
 > **One rule before you start.** Install from `requirements-core.txt`, **not**
 > `requirements.txt`. The latter is an old snapshot of the original developer's
@@ -326,6 +329,42 @@ start_platform.bat
 
 Forgetting to activate the environment is the most common day-two problem: you
 get `ModuleNotFoundError: No module named 'flask'`.
+
+---
+
+## Recommended compute spec
+
+The platform runs on almost anything — it's nine small Flask apps plus
+CPU-only pyFAI integration, no GPU anywhere. "Fresh laptop" above is really
+"fresh machine": several groups run it on a beamline control PC or a lab
+desktop instead. What matters is how long and how unattended the run is.
+
+| | Minimum (install, short test runs) | Recommended (multi-day autonomous run) |
+|---|---|---|
+| CPU | 4 cores | 8+ cores — up to 9 apps run as separate processes at once |
+| RAM | 8 GB | 16 GB — headroom for the AI assistant extras (`requirements-ai.txt` pulls torch/chromadb) and for matplotlib figure rendering in Analysis/Analyzer |
+| Disk | 10 GB free, any drive | 50–100 GB free, **SSD** — raw frames plus every derived stage (`Reduction/`, `Averaged/`, `Subtracted/`, `Analysed/`, `Results/`) accumulate for as long as the campaign runs |
+| OS | macOS 12+, Windows 10/11, Ubuntu 20.04+ | same |
+| Network | none required to run | only for the *optional* outbound calls — Claude API, SFTP, SPEC bServer, Slack/SMTP |
+
+Why SSD matters more than CPU here: several apps poll a folder every ~2-3
+seconds (see `docs/CONTINUOUS_RUN_HARDENING_PLAN.md`), and that cost compounds
+over a multi-day run on a slow disk far more than it does on a fast CPU.
+
+**Check your machine against these numbers, plus a quick throughput and
+stability sanity check, in about 15 seconds:**
+
+```bash
+python tools/check_system_spec.py
+```
+
+It reports CPU/RAM/disk against the table above, flags any of ports
+5100–5109 already in use (the AirPlay/Hyper-V conflicts described in
+[Troubleshooting](#troubleshooting)), and runs a short repeated numpy
+workload shaped like a SAXS detector frame to estimate frames/sec and check
+memory doesn't grow across iterations (a leak would show up as **RSS**
+climbing run over run). It's a sanity check, not a certification — the real
+proof is running your own data for a few hours before a beamtime.
 
 ---
 
