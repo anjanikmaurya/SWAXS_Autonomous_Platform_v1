@@ -329,6 +329,14 @@ but harmless and self-documenting where it sits.
 These were reproduced or confirmed by reading, but are larger than a safe
 single-session change. Ranked by what they cost during an unattended run.
 
+> **Planned work.** The subset that threatens a multi-day autonomous run —
+> N1–N7, N16 and O3 — has a phased remediation plan with a fix, the gotchas
+> and a regression test for each: **[../CONTINUOUS_RUN_HARDENING_PLAN.md](../CONTINUOUS_RUN_HARDENING_PLAN.md)**.
+> Not yet implemented. Two findings from writing it that change this table:
+> **O3's stated cause below is wrong** (see the note on O3), and **N16 must be
+> done after N3/N4/N5** — extracting the average monitor loop before its state
+> is fixed means doing the work twice.
+
 | # | Sev | Finding | Consequence |
 |---|---|---|---|
 | N1 | **HIGH** | `reduction/app.py` `_processed_files` is memory-only, and `find_new_raw_files` filters on nothing else. After a restart it re-reduces the **entire** experiment, oldest first. | Every `.dat` rewritten, thousands of manifest writes under the cross-process lock, and live frames starved until the backlog clears — worse now that the monitor auto-resumes. Fix: persist the set, or skip files whose `.dat` is newer than the `.raw`. |
@@ -374,7 +382,7 @@ numbers anywhere, which is why the file they came from could not simply be delet
 
 | # | Sev | Finding | Consequence & fix |
 |---|---|---|---|
-| O3 | **HIGH** | **Manifest write cost is O(N²).** Every entry embeds a full `config_snapshot` (`src/manifest.py:695-696`), nothing prunes, and reduction writes once per frame under `flock` with no timeout. Measured 3.5 ms at 100 entries → **609 ms at 20 000**. | By 03:00 the bookkeeping costs more than the science and blocks all six writers. Fix: store each distinct config once under a top-level `configs` key, keep only `config_hash`; batch reduction's writes per poll cycle as average/background already do. |
+| O3 | **HIGH** | **Manifest write cost is O(N²).** Every entry embeds a full `config_snapshot` (`src/manifest.py:695-696`), nothing prunes, and reduction writes once per frame under `flock` with no timeout. Measured 3.5 ms at 100 entries → **609 ms at 20 000**. | By 03:00 the bookkeeping costs more than the science and blocks all six writers. Fix: **batch reduction's per-frame writes** per poll cycle as average/background already do, and drop `indent=2`. **Correction (Sept 2026):** the cause stated here is wrong. The snapshots the apps actually pass are 1-6 keys, ~100-200 bytes (`reduction/app.py:329-333` passes four); the dominant cost is that every write is a full read -> `json.load` -> mutate -> `json.dump` of the whole file under `flock`. Deduplicating configs would barely help. See ../CONTINUOUS_RUN_HARDENING_PLAN.md Phase 4. |
 | O4 | **HIGH** | **`flock` failure disables manifest writing silently** — the call is unguarded (`src/manifest.py:274-283`); on NFS/SMB it raises `ENOTSUP` and every caller swallows it into one log line. | Data reduces fine, `.dat` files appear, `manifest.json` is never created: **no provenance for the entire run**. Highest-variance item left. Fix: `except OSError` with a one-time ERROR and a portable `os.mkdir` lock fallback. |
 | O7 | **HIGH** | **Only the first rolling batch trains the optimizer.** The average app emits `batch001, batch002…`; `_pending.pop(rid, None)` (`analyzer/app.py:296`) means first-arrival wins — and `batch001` is the *least* settled flow with the worst statistics. | The manifest and campaign history disagree about the same recipe with no marker saying which trained the model. Fix: accumulate per recipe and `tell()` once on the highest-confidence batch. |
 | O9 | **MED** | **Subtracted `.dat` drops the sample's metadata footer**, including the simulator's `simulated=1` flag — `background/app.py:215-241` writes only its own header. | Mock and real results are indistinguishable downstream: manifest, campaign history and Slack reports alike. |

@@ -350,6 +350,7 @@ Encoding failures drop the single event, not the connection.
 | `docs/INTEGRATING_YOUR_OWN_CODE.md` | Plugging an external program (e.g. your own ML) into the pipeline: watched folders, the condition-file contract, event bus, every surface ranked by stability |
 | `docs/AUTONOMOUS_RUN_STEPS.md` | Operator runbook for a closed-loop run |
 | `docs/audits/OPEN_DEFECTS.md` | **The register of known open defects** |
+| `docs/CONTINUOUS_RUN_HARDENING_PLAN.md` | Plan (not yet implemented) for the defects that threaten a multi-day autonomous run — what to fix, in what order, and the test that proves each |
 | `docs/audits/PRE_BEAMTIME_READINESS.md` | Go/no-go checklist |
 | `docs/audits/BEAMLINE_SAFETY_AUDIT.md` | Every SPEC command the platform issues |
 | `docs/REACTOR_SETUP.md`, `_HARDWARE_SETUP.md`, `_MAP.md` | Reactor software, rig, code map |

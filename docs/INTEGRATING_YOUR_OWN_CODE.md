@@ -28,21 +28,53 @@ and you do **not** want to run the Auto-Fit & Optimiser app (5107) at all.
 You need exactly three things: where to read, what the files look like, and
 where to write. Nothing else — not a plugin API, not a registration step.
 
-### 1.1 Where to read
+### 1.1 Where to read — depends on whether you run the Quality Gate
 
-Watch this folder under your project root:
+Which folder you watch is a choice, and it is the one decision in this section:
 
-```
-1D/SAXS/Subtracted/Good/        ← Quality Gate accepted these
-```
+| Are you running the Quality Gate (5105)? | Watch |
+|---|---|
+| **Yes** | `1D/SAXS/Subtracted/Good/` |
+| **No** | `1D/SAXS/Subtracted/` |
 
-- If you run the **Quality Gate** (5105), read `Subtracted/Good/`. Profiles it
-  rejected are copied to `Subtracted/NeedsReview/` instead, and should not train
-  anything.
-- The gate **copies**, it does not move: `1D/SAXS/Subtracted/` keeps *every*
-  profile, accepted or not. So read `Good/` when you want the gate's filtering,
-  and the flat `Subtracted/` only when you deliberately want everything.
+**With the Quality Gate.** The gate scores each subtracted profile and copies
+it to `Subtracted/Good/` or `Subtracted/NeedsReview/`. Reading `Good/` means a
+profile the gate rejected — a bad subtraction, an aggregated sample, a frame
+the beam dropped out of — can never reach your model or the reactor. This is
+what the built-in analyzer does by default, and it is the safer setting for an
+unattended overnight run.
+
+**Without the Quality Gate.** Read the flat `1D/SAXS/Subtracted/` folder and
+you get every subtracted profile the moment it is written, with no filtering
+and no dependency on a second app being started. Choose this when you would
+rather your own model judge data quality, or when you are testing and do not
+want a gate silently withholding files.
+
+Two things to know either way:
+
+- **The gate copies, it does not move.** `Subtracted/` keeps *every* profile,
+  accepted or not, so the two folders overlap. If you watch both you will
+  process the same profile twice.
+- **`Good/` only exists once the gate has run.** If you watch `Good/` and
+  forget to start the Quality Gate, your program sits there seeing nothing, and
+  nothing in the platform will tell you why. Either handle the missing folder
+  explicitly, or use the auto-detect below.
 - WAXS is the same tree with `WAXS` in place of `SAXS`.
+
+**Auto-detect (what the built-in analyzer does).** If you want one program that
+works in both setups, resolve the folder at startup: use `Good/` when it
+exists, otherwise fall back to the flat folder.
+
+```python
+sub  = PROJECT / "1D/SAXS/Subtracted"
+good = sub / "Good"
+WATCH = good if good.is_dir() else sub     # gate running? use its output
+```
+
+The analyzer app exposes this as `gate_mode`: `auto` (this rule, the default),
+`good` (always require `Good/`, refuse to run without it), or `off` (always the
+flat folder). Copying those three options is worth it if other people will run
+your program.
 
 **Wait for the file to stop changing before you read it.** A `.dat` is written
 by one process and read by another, so a naive "file appeared → read it" loop
@@ -204,8 +236,11 @@ If you would rather it were not in the hub at all, delete its entry from
 import time, pathlib, numpy as np
 
 PROJECT = pathlib.Path("/path/to/project")
-WATCH   = PROJECT / "1D/SAXS/Subtracted/Good"
 OUT     = PROJECT / "1D/SAXS/Conditions"
+
+# Quality Gate running? read what it accepted. Otherwise read everything.
+_SUB  = PROJECT / "1D/SAXS/Subtracted"
+WATCH = (_SUB / "Good") if (_SUB / "Good").is_dir() else _SUB
 
 seen, stable = {}, {}
 
@@ -318,7 +353,99 @@ rest work but are more exposed to refactoring.
 
 ---
 
-## 5. Safety notes for anything that drives the reactor
+## 5. Performance and reliability: is folder-polling actually the right way?
+
+Short answer: **stable — yes, the most stable option available here; fast —
+comfortably; efficient — only if you avoid the mistakes the built-in apps
+made.** The detail matters if your program will run unattended for days.
+
+### 5.1 The latency budget
+
+Default poll intervals: 10 s for background and the Quality Gate, 3 s for the
+reactor. So from "a subtracted file exists" to "the reactor accepted your
+condition" is roughly:
+
+```
+10 s  Quality Gate picks it up (if you run it)
+ +    your own poll interval
+ 3 s  reactor picks up your condition file
+≈ 15-25 s
+```
+
+A synthesis-plus-acquisition cycle is minutes, so polling latency is around 1%
+of the loop. Your model's inference time will dominate it. Do not optimise
+this before measuring it.
+
+(The platform-wide figure is worse — four stages polling in series gives a
+measured ~264 s frame-to-fit latency, 99% of it waiting. That is tracked as
+**N16** in `docs/audits/OPEN_DEFECTS.md` and is about the built-in chain, not
+about your program.)
+
+### 5.2 Why polling beats the alternatives *here*
+
+- **The folder is a durable record.** Crash your program, restart it an hour
+  later, and the work is still there. The event bus does not replay what you
+  missed while you were down.
+- **No connection state**, no broker, no ordering assumptions.
+- **OS-level filesystem notifications (`inotify`/FSEvents/`watchdog`) are the
+  obvious-looking upgrade and are the wrong choice here.** Beamline data
+  frequently arrives over NFS/SMB or lands via SFTP, and native notifications
+  are unreliable on network filesystems — they silently drop events under
+  load. Polling does not care what the filesystem is.
+- Atomic `.part`-then-rename writes plus the size/mtime stability check already
+  close the torn-read hole.
+
+### 5.3 Three anti-patterns to avoid — all of them real defects in this repo
+
+Copying the built-in apps' *approach* is right. Copying their implementation
+is not. Each of these is a filed defect:
+
+1. **Do not re-parse the whole folder every poll.** The average app re-reads
+   and re-parses every `.dat` in the Reduction folder on each 10 s cycle with
+   no mtime filter; at ~10 000 files it falls progressively behind the
+   acquisition it is tracking (**N7**). Keep an index of
+   `path -> (size, mtime)` and only touch what changed. A poll then costs one
+   `listdir` plus a `stat` per file — microseconds for hundreds of files.
+2. **Track consumed files by name, never by count.** The average app's batch
+   state is a count, and `read_folder` silently skips unreadable files, so one
+   transient read failure shifts every subsequent batch boundary — a frame is
+   reused, another dropped, and if the count ever exceeds the group length that
+   keyword stops averaging entirely (**N4**). Store a set of filenames.
+3. **Persist that set to disk.** In-memory only means a restart re-processes
+   the entire experiment — which for the reduction app means rewriting every
+   `.dat` and thousands of manifest writes (**N1**), and for the average app
+   means re-emitting `file.averaged` for the whole night, which the reactor
+   treats as measurement-complete (**N3**). Write your seen-set next to your
+   output and reload it on startup.
+
+Also: if you write to `manifest.json` on every prediction, batch it. Manifest
+write cost is O(N²) — every entry embeds a full config snapshot, measured at
+3.5 ms per write at 100 entries and 609 ms at 20 000 (**O3**).
+
+### 5.4 The recommended shape
+
+```
+poll every 3-5 s  ──▶  mtime/size index  ──▶  filename-based dedup  ──▶  persist the seen-set
+        ▲
+        └── optionally also subscribe to file.subtracted on the bus, purely to wake early
+```
+
+Bus for latency, folder for truth. If the bus is down or you were restarted,
+the folder loop is still correct on its own — which is the property that lets
+this run for days.
+
+### 5.5 When to outgrow it
+
+Folder-polling stops being the right answer when you have tens of thousands of
+files in one campaign folder, or several consumers that must not double-process
+the same file, or you need transactional "claim this file" semantics. At that
+point a small SQLite work-queue beside the folders is the natural step, and it
+would fix the manifest cost too. Nothing at current scale demands it, and it is
+a platform-level change rather than something to bolt onto one model.
+
+---
+
+## 6. Safety notes for anything that drives the reactor
 
 Your program proposing conditions means your program can heat a reactor and
 consume reagents. Before pointing it at real hardware:
