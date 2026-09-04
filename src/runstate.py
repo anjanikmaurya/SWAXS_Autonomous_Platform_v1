@@ -76,14 +76,22 @@ def save_state(project_root: str | Path, name: str, data: dict) -> bool:
 
 
 def load_state(project_root: str | Path, name: str,
-               max_age_s: float | None = None) -> dict | None:
+               max_age_s: float | None = None,
+               *, honour_no_resume: bool = True) -> dict | None:
     """Read a state file. Returns None when absent, unreadable, resume is
     disabled, or the file is older than ``max_age_s``.
 
     The age guard matters: resuming a monitor from a state file written days ago
     (a different sample series) is worse than not resuming at all.
+
+    ``honour_no_resume=False`` reads the file even when ``SWAXS_NO_RESUME`` is
+    set. That flag means "do not auto-restart activity after a crash" — a safety
+    choice. It must NOT be read as "forget what you already processed": book-
+    keeping like the reduction app's processed-file set is what stops a restart
+    redoing the entire experiment, and losing it costs hours while protecting
+    nothing. Use this only for passive memory, never to resume a monitor.
     """
-    if resume_disabled():
+    if honour_no_resume and resume_disabled():
         logger.info("%s=1 — ignoring saved run-state '%s'", ENV_NO_RESUME, name)
         return None
     p = state_path(project_root, name)

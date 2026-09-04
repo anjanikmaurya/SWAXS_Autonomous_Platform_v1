@@ -42,7 +42,8 @@ from src.manifest import (                                             # noqa: E
     update_manifest,
     add_file_entry, make_provenance,
 )
-from src.runstate import save_monitor, load_monitor, monitor_alive        # noqa: E402
+from src.runstate import (save_monitor, load_monitor, monitor_alive,      # noqa: E402
+                          save_state, load_state)
 
 # ── Event bus (graceful degradation) ─────────────────────────────────────────
 try:
@@ -64,8 +65,90 @@ _avg_monitor_thread: threading.Thread | None = None
 _avg_lock = threading.Lock()
 _avg_log: collections.deque = collections.deque(maxlen=500)   # (seq, line) items
 _avg_seq: int = 0
-# (detector, keyword) -> number of frames already consumed into batches
+# ── N3/N4: batch state is IDENTITIES, not a count ────────────────────────────
+# (detector, keyword) -> {"files": set[str], "n": int}
+#   files — the frame filenames already averaged into a batch
+#   n     — how many batches have been written (for batch numbering)
+#
+# It used to be a bare count used to slice a freshly re-globbed list. Two
+# failures followed. (N4) read_folder silently skips unreadable files, so one
+# transient read failure shortened the group and shifted every later slice: a
+# frame silently reused, another dropped, and if the count outran the group that
+# keyword stopped averaging FOREVER with nothing logged. (N3) monitor_start
+# zeroed the dict on every start — including the boot resume — so a restart
+# re-averaged the whole night, overwriting each batch file and firing one
+# file.averaged per batch, which the reactor treats as measurement-complete.
+#
+# Tracking filenames makes membership invariant under a missing frame, and
+# persisting it makes a restart resume instead of redo.
 _avg_batch_state: dict = {}
+_BATCH_STATE = "average_batch"
+
+
+def _bkey(key) -> str:
+    """JSON needs string keys; the state is keyed by a (detector, keyword) tuple."""
+    det, kw = key
+    return f"{det}|{kw}"
+
+
+def _batch_rec(key) -> dict:
+    return _avg_batch_state.setdefault(tuple(key), {"files": set(), "n": 0})
+
+
+def _unconsumed(key, filenames) -> list:
+    """The frames in this group not yet averaged, in the order given."""
+    done = _batch_rec(key)["files"]
+    return [f for f in filenames if f not in done]
+
+
+def _batch_number(key) -> int:
+    """1-based number for the NEXT batch. Derived from batches written, never
+    from len(consumed), so it cannot rewind and overwrite an earlier file."""
+    return _batch_rec(key)["n"] + 1
+
+
+def _mark_consumed(key, filenames) -> None:
+    rec = _batch_rec(key)
+    rec["files"].update(filenames)
+    rec["n"] += 1
+
+
+def _save_batch_state() -> None:
+    """Persist batch state next to the monitor state. Never raises."""
+    root = _state_root()
+    if not root:
+        return
+    try:
+        save_state(root, _BATCH_STATE, {
+            "groups": {_bkey(k): {"files": sorted(v["files"]), "n": int(v["n"])}
+                       for k, v in _avg_batch_state.items()},
+        })
+    except Exception as exc:
+        _avg_emit(f"⚠ could not save the batch state: {exc}", "warn")
+
+
+def _load_batch_state() -> None:
+    """Restore batch state at startup.
+
+    honour_no_resume=False: SWAXS_NO_RESUME means "do not auto-restart the
+    monitor", not "re-average everything you already averaged". Forgetting this
+    costs a night's work and protects nothing.
+    """
+    root = _state_root()
+    if not root:
+        return
+    try:
+        st = load_state(root, _BATCH_STATE, honour_no_resume=False) or {}
+        for sk, v in (st.get("groups") or {}).items():
+            det, _, kw = sk.partition("|")
+            _avg_batch_state[(det, kw)] = {"files": set(v.get("files") or []),
+                                           "n": int(v.get("n") or 0)}
+        if _avg_batch_state:
+            done = sum(len(v["files"]) for v in _avg_batch_state.values())
+            _avg_emit(f"↩ resumed batch state — {done} frame(s) already averaged "
+                      f"in {len(_avg_batch_state)} group(s)", "info")
+    except Exception as exc:
+        _avg_emit(f"⚠ could not load the batch state: {exc}", "warn")
 #: (det, keyword) -> frames waiting, so the 'still waiting' line is
 #: logged once per change instead of every poll
 _avg_pending: dict = {}
@@ -611,7 +694,10 @@ def _avg_monitor_loop(dets, n_per_batch, interval, i0_filter_pct,
             for kw, grp in groups.items():
                 grp.sort(key=lambda d: d.get("scan_idx", 0))
                 key = (det, kw)
-                consumed = _avg_batch_state.get(key, 0)
+                # N4: what is LEFT is defined by identity, not by an index into
+                # a list that a failed read can shorten.
+                todo = [fd for fd in grp
+                        if fd["filename"] not in _batch_rec(key)["files"]]
 
                 # Say where each group stands. Without this the loop was SILENT
                 # whenever a group had fewer frames than one batch — and because
@@ -620,7 +706,7 @@ def _avg_monitor_loop(dets, n_per_batch, interval, i0_filter_pct,
                 # batch: no average is EVER written, the autonomous loop gets no
                 # subtracted profile, and the only symptom is "averaging seems
                 # slow". It was not slow; it was deadlocked.
-                have = len(grp) - consumed
+                have = len(todo)
                 if have < n_per_batch:
                     if _avg_pending.get(key) != have:
                         _avg_pending[key] = have
@@ -629,9 +715,9 @@ def _avg_monitor_loop(dets, n_per_batch, interval, i0_filter_pct,
                 else:
                     _avg_pending.pop(key, None)
 
-                while _avg_monitoring and (len(grp) - consumed) >= n_per_batch:
-                    batch    = grp[consumed:consumed + n_per_batch]
-                    batch_no = consumed // n_per_batch + 1
+                while _avg_monitoring and len(todo) >= n_per_batch:
+                    batch    = todo[:n_per_batch]
+                    batch_no = _batch_number(key)
                     out_dir  = Path(outdir) if outdir else fp.parent / "Averaged"
                     out_path = (out_dir /
                                 f"{kw}_batch{batch_no:03d}_{n_per_batch}files_"
@@ -647,8 +733,10 @@ def _avg_monitor_loop(dets, n_per_batch, interval, i0_filter_pct,
                         break   # stop this group; retry next cycle
 
                     # Advance regardless so a bad batch can't loop forever.
-                    consumed += n_per_batch
-                    _avg_batch_state[key] = consumed
+                    # Consume by NAME, and persist: a restart must not redo this.
+                    _mark_consumed(key, [fd["filename"] for fd in batch])
+                    todo = todo[n_per_batch:]
+                    _save_batch_state()
 
                     if written is None:
                         _avg_emit(f"⚠  {kw} [{det}] batch {batch_no}: "
@@ -774,7 +862,14 @@ def monitor_start():
                   f"average will be written. Set frames/batch to {per_acq} (or "
                   f"lower), or raise spec.frames in reactor/config.yml.", "error")
 
-    _avg_batch_state = {}
+    # N3: only a FRESH operator start clears the batch state. The boot resume
+    # replays the saved body through this same endpoint, and clearing there is
+    # what made a restart re-average the whole night.
+    if bool((request.get_json(silent=True) or {}).get("resume")):
+        _load_batch_state()
+    else:
+        _avg_batch_state = {}
+        _save_batch_state()
     _avg_pending.clear()
     _avg_status.update({"monitoring": True, "batches": 0, "last": None,
                         "frames_per_average": n_per_batch, "interval": interval})
@@ -1037,6 +1132,10 @@ def _boot_resume_monitor() -> None:
         params = load_monitor(_state_root(), _MON_APP)
         if not params:
             return
+        # N3: mark this as a RESUME. The endpoint is shared with the operator's
+        # Start button, and clearing the batch state there is what made a restart
+        # re-average the whole night and re-fire file.averaged per batch.
+        params = {**params, "resume": True}
         rv = app.test_client().post("/api/monitor/start", json=params)
         body = rv.get_json(silent=True) or {}
         # "Already monitoring" is a SUCCESS for our purposes: the loop is running.

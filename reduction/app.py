@@ -87,7 +87,8 @@ from src.reduction import core as reduction_core  # noqa: E402
 from src.manifest import (                        # noqa: E402
     update_manifest, add_file_entry, make_provenance, set_project_meta,
 )
-from src.runstate import save_monitor, load_monitor, monitor_alive        # noqa: E402
+from src.runstate import (save_monitor, load_monitor, monitor_alive,      # noqa: E402
+                          save_state, load_state)
 
 
 def _now_iso() -> str:
@@ -214,9 +215,119 @@ _processed_files: set = set()
 _monitoring           = False
 _monitor_thread       = None
 
+# ── N1: the processed set must survive a restart ─────────────────────────────
+# It used to be memory-only, and find_new_raw_files() filters on nothing else,
+# so after a restart every .raw in the tree was "new": every .dat rewritten,
+# thousands of manifest writes under the cross-process lock, and the live frames
+# starved behind the backlog. Two independent defences, because either alone has
+# a hole: the persisted set (fast, exact) and an on-disk output check (works
+# even when the state file is missing or the project folder moved).
+_PROCESSED_STATE = "reduction_processed"
+_processed_lock  = threading.Lock()
+
+
+def _save_processed() -> None:
+    """Persist the processed set. Paths are stored RELATIVE to the project root
+    where possible, so a remounted or copied project still recognises its own
+    work. Never raises — bookkeeping must not stop a reduction."""
+    root = _state_root()
+    if not root:
+        return
+    try:
+        rp = Path(root)
+        rel = []
+        with _processed_lock:
+            for f in _processed_files:
+                try:
+                    rel.append(str(Path(f).resolve().relative_to(rp.resolve())))
+                except Exception:
+                    rel.append(str(f))          # outside the project: keep absolute
+        save_state(root, _PROCESSED_STATE, {"files": sorted(rel)})
+    except Exception as exc:
+        _emit(f"  [state] could not save the processed list: {exc}", "warn")
+
+
+def _load_processed() -> None:
+    """Restore the processed set at startup, re-absolutising relative entries."""
+    root = _state_root()
+    if not root:
+        return
+    try:
+        # honour_no_resume=False: SWAXS_NO_RESUME means "don't auto-restart
+        # the monitor", not "re-reduce everything you already did".
+        st = load_state(root, _PROCESSED_STATE, honour_no_resume=False) or {}
+        rp = Path(root)
+        restored = set()
+        for f in st.get("files") or []:
+            pth = Path(f)
+            restored.add(str(pth if pth.is_absolute() else (rp / pth)))
+        if restored:
+            with _processed_lock:
+                _processed_files.update(restored)
+            _emit(f"  [state] {len(restored)} already-reduced frame(s) remembered "
+                  f"from the previous session", "info")
+    except Exception as exc:
+        _emit(f"  [state] could not load the processed list: {exc}", "warn")
+
+
+def _already_reduced(raw_path, out_root) -> bool:
+    """True when this .raw already has a NEWER .dat on disk.
+
+    The second defence, and the one that works with no saved state at all. A
+    .raw modified after its .dat (a re-acquisition, or a corrected frame) is
+    correctly treated as new again.
+    """
+    try:
+        raw = Path(raw_path)
+        stem = raw.name
+        for suffix in (".raw", ".tif", ".tiff", ".cbf", ".edf"):
+            if stem.lower().endswith(suffix):
+                stem = stem[: -len(suffix)]
+                break
+        raw_mtime = raw.stat().st_mtime
+        for det in ("SAXS", "WAXS"):
+            d = Path(out_root) / det / "Reduction"
+            if not d.is_dir():
+                continue
+            for cand in d.glob(f"{stem}*.dat"):
+                if cand.stat().st_mtime >= raw_mtime:
+                    return True
+        return False
+    except Exception:
+        return False        # never let the check itself skip a frame
+
 # Stop event for one-shot /api/run calls.
 # Cleared at the start of every new run; set by /api/run/stop.
 _run_stop_event = threading.Event()
+
+# ── N2 ───────────────────────────────────────────────────────────────────────
+# Serialises one-shot runs against each other. (Runs are serialised against the
+# MONITOR by refusing outright — see /api/run.) Held for the lifetime of the
+# worker thread, so it is a flag rather than a `with` block around the request.
+_run_active = False
+_run_active_lock = threading.Lock()
+
+
+class _run_lock_guard:
+    """Claim the one-shot-run slot. `with _run_lock_guard() as got:` is False
+    when another run already holds it."""
+
+    def __enter__(self) -> bool:
+        global _run_active
+        with _run_active_lock:
+            if _run_active:
+                return False
+            _run_active = True
+            return True
+
+    def __exit__(self, *exc) -> bool:
+        return False        # the WORKER releases it, not the request
+
+
+def _release_run_slot() -> None:
+    global _run_active
+    with _run_active_lock:
+        _run_active = False
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Image rendering: thread pool + LRU cache
@@ -418,6 +529,25 @@ def run():
     if not config:
         return jsonify({"ok": False, "error": "No config provided"}), 400
 
+    # ── N2: never run concurrently with the monitor ──────────────────────────
+    # Both paths call _get_experiment(), which returns the SAME cached
+    # Experiment — hence the same pyFAI AzimuthalIntegrator, whose contract is
+    # single-threaded — and both write then replace() the same `.part`. An
+    # interleave publishes a truncated `.dat` atomically, so it looks complete
+    # to every downstream size/mtime check and is consumed as real data.
+    # Refusing is the honest answer: the monitor is already processing new
+    # files, so a one-shot run has nothing to add.
+    if monitor_alive(_monitoring, _monitor_thread):
+        return jsonify({
+            "ok": False,
+            "error": ("The file monitor is running — it is already reducing new "
+                      "files. Stop monitoring first if you need a one-shot run."),
+        }), 409
+    with _run_lock_guard() as got:
+        if not got:
+            return jsonify({"ok": False,
+                            "error": "A one-shot run is already in progress."}), 409
+
     # Operator is metadata, not an Experiment parameter — pop it BEFORE the
     # config is hashed/cached so changing operator never reloads PyFAI. (user capture)
     operator = _current_user(config.pop("operator", None))
@@ -469,6 +599,7 @@ def run():
             _emit(traceback.format_exc(), "error")
             _invalidate_experiment()           # stale state — force reload next run
         finally:
+            _release_run_slot()                # N2: free the slot for the next run
             _emit("__RUN_DONE__", "sentinel")
 
     threading.Thread(target=_worker, daemon=True).start()
@@ -609,6 +740,11 @@ def monitor_start():
                 gc.collect()
 
             # ── End-of-cycle cleanup ──────────────────────────────────────
+            # N1: persist the processed set once per CYCLE, not per file — a
+            # restart then resumes where the last completed cycle left off
+            # instead of re-reducing the whole experiment.
+            if saxs_new or waxs_new:
+                _save_processed()
             gc.collect()
             time.sleep(interval)
 
@@ -635,6 +771,8 @@ def monitor_status():
 @app.route("/api/reset", methods=["POST"])
 def reset_processed():
     _processed_files.clear()
+    _save_processed()          # N1: clear the PERSISTED copy too, or a restart
+                               # would silently restore what the operator just reset
     _emit("♻  Processed-files list cleared — all files will reprocess on next run", "warn")
     return jsonify({"ok": True})
 
@@ -906,6 +1044,15 @@ def _boot_resume_monitor() -> None:
     except Exception as exc:
         _emit(f"⚠  auto-processing resume failed: {exc}", "warn")
 
+
+# N1: restore the processed set at startup, so a restart resumes where the last
+# completed cycle left off instead of re-reducing the whole experiment. Must sit
+# AFTER _state_root() is defined — an earlier call raised NameError into a
+# swallowing except and silently did nothing.
+try:
+    _load_processed()
+except Exception:                      # never block startup on bookkeeping
+    pass
 
 threading.Thread(target=_boot_resume_monitor, daemon=True).start()
 

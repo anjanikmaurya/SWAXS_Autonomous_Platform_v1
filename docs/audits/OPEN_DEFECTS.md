@@ -326,6 +326,14 @@ but harmless and self-documenting where it sits.
 
 ## Open — not fixed, ranked by expected loss
 
+> **N1–N4 are FIXED** (September 2026, before beta): the reduction processed-set
+> and the average batch state now persist across a restart, batch membership is
+> tracked by filename rather than by a count that a failed read could shift, and
+> `/api/run` is refused with 409 while the monitor is live. Regression tests:
+> `tests/test_continuous_run_hardening.py`. Rows kept below for the history.
+> **N5–N7, N16 and O3 remain open** — see
+> [../CONTINUOUS_RUN_HARDENING_PLAN.md](../CONTINUOUS_RUN_HARDENING_PLAN.md).
+
 These were reproduced or confirmed by reading, but are larger than a safe
 single-session change. Ranked by what they cost during an unattended run.
 
@@ -339,10 +347,10 @@ single-session change. Ranked by what they cost during an unattended run.
 
 | # | Sev | Finding | Consequence |
 |---|---|---|---|
-| N1 | **HIGH** | `reduction/app.py` `_processed_files` is memory-only, and `find_new_raw_files` filters on nothing else. After a restart it re-reduces the **entire** experiment, oldest first. | Every `.dat` rewritten, thousands of manifest writes under the cross-process lock, and live frames starved until the backlog clears — worse now that the monitor auto-resumes. Fix: persist the set, or skip files whose `.dat` is newer than the `.raw`. |
-| N2 | **HIGH** | No mutual exclusion between `/api/run` and the reduction monitor. Both take the same file list and share one `AzimuthalIntegrator` (whose contract says single-threaded), and both write then `replace()` the same `.part`. | An interleaved, truncated `.dat` published atomically — it looks complete to every downstream size/mtime check. Fix: one lock, or reject `/api/run` while monitoring. |
-| N3 | **HIGH** | `average` `_avg_batch_state` is zeroed on every `monitor_start`, including the boot resume. | After a restart the whole night is re-averaged: every batch file overwritten and one `file.averaged` per batch — which is what the reactor treats as measurement-complete. Fix: persist the batch state alongside the monitor state. |
-| N4 | **HIGH** | `average` batch state is a **count**, not a set of identities, and `read_folder` silently skips unreadable files. One transient read failure shifts every subsequent batch boundary. | A frame is silently reused in the next batch and one is dropped; if the count ever exceeds the group length, that keyword stops averaging entirely. Fix: track consumed filenames. |
+| N1 | **FIXED** | `reduction/app.py` `_processed_files` is memory-only, and `find_new_raw_files` filters on nothing else. After a restart it re-reduces the **entire** experiment, oldest first. | Every `.dat` rewritten, thousands of manifest writes under the cross-process lock, and live frames starved until the backlog clears — worse now that the monitor auto-resumes. Fix: persist the set, or skip files whose `.dat` is newer than the `.raw`. |
+| N2 | **FIXED** | No mutual exclusion between `/api/run` and the reduction monitor. Both take the same file list and share one `AzimuthalIntegrator` (whose contract says single-threaded), and both write then `replace()` the same `.part`. | An interleaved, truncated `.dat` published atomically — it looks complete to every downstream size/mtime check. Fix: one lock, or reject `/api/run` while monitoring. |
+| N3 | **FIXED** | `average` `_avg_batch_state` is zeroed on every `monitor_start`, including the boot resume. | After a restart the whole night is re-averaged: every batch file overwritten and one `file.averaged` per batch — which is what the reactor treats as measurement-complete. Fix: persist the batch state alongside the monitor state. |
+| N4 | **FIXED** | `average` batch state is a **count**, not a set of identities, and `read_folder` silently skips unreadable files. One transient read failure shifts every subsequent batch boundary. | A frame is silently reused in the next batch and one is dropped; if the count ever exceeds the group length, that keyword stops averaging entirely. Fix: track consumed filenames. |
 | N5 | **MEDIUM** | `average` stop→start within one interval can leave two loops racing the same counter, or the old thread can switch the **new** monitor off after `start` returned OK. | Double-written or skipped batches; or a monitor that reports running and is not. Fix: per-run `threading.Event` instead of a shared bool; join the old thread. |
 | N6 | **MEDIUM** | `quality` `_results` / `_overrides` are mutated by the grader thread, the bus thread and request threads while other requests iterate them. | `RuntimeError: dictionary changed size during iteration` — tolerable in `/api/results`, but `_recolor()` and `_rescore_all()` have side effects, so a mid-loop failure leaves half the profiles re-verdicted and re-copied, permanently, with nothing logged. Fix: snapshot under `_lock`. |
 | N7 | **MEDIUM** | `average` re-reads and re-parses **every** `.dat` in the Reduction folder on every poll (default 10 s), with no mtime filter. | At 10 000 files the loop falls progressively behind the acquisition it is tracking. Fix: cache by `(path, mtime, size)`. |

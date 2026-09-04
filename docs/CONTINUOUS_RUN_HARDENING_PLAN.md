@@ -4,7 +4,10 @@
 restart, a transient read failure, or a concurrent operator click corrupting
 the run or silently stalling it.
 
-**Status: PLAN ONLY. Nothing here is implemented.** Every defect below is open
+**Status: Phases 1 and 2 are DONE** (N1, N2, N3, N4 — September 2026, before
+the beta hand-off), with regression tests in
+`tests/test_continuous_run_hardening.py`. N5 is still open, and Phases 3–4
+(N6, N7, N16, O3) are unimplemented. Every defect below is open
 in [audits/OPEN_DEFECTS.md](audits/OPEN_DEFECTS.md); this document says how to close each
 one, what will bite while doing it, and what test proves it is closed.
 
