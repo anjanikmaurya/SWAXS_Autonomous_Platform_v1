@@ -45,10 +45,12 @@ class of problems.
 > **Partly overtaken.** The original fourth bullet said the event bus is
 > telemetry-only and nothing chains the stages. That is now only half true: the
 > bus chains the reactor↔analyzer end of the loop. The reactor reacts to
-> `file.averaged` and `analysis.complete` (`reactor/app.py:307-309`), quality
+> `file.averaged` and `fit.complete` (`reactor/app.py:307-310`), quality
 > consumes `file.subtracted` and publishes `file.classified`
 > (`quality/app.py:466`, `:385`), and the analyzer publishes
-> `analysis.complete` (`analyzer/app.py:479`). What is still folder-polled is
+> `fit.complete` (`analyzer/app.py:479`) — deliberately not `analysis.complete`,
+> which the Data Analysis app already uses for a different payload shape.
+> What is still folder-polled is
 > the reduce → average → subtract middle, which is what this design targets.
 
 ## 2. Goals / non-goals

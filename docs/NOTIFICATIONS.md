@@ -218,7 +218,9 @@ as one line per condition; email mirrors this with mail-thread headers.
 ```
 
 The fit result is posted by `_slack_analysis` (`reactor/app.py:319-341`) when the
-analyzer publishes `analysis.complete`; it forwards size, PDI, confidence, loss,
+analyzer publishes `fit.complete` (not `analysis.complete` — that name belongs
+to the Data Analysis app's Guinier/Porod/etc. events, a different shape); it
+forwards size, PDI, confidence, loss,
 distribution and phase into that recipe's thread. When the fit is flagged
 `suspect` the message escalates to the `alert` tier and the QC plot is attached via
 `upload_png` (`reactor/app.py:337-341`; bot token + `files:write` required).
@@ -285,7 +287,7 @@ Only stdlib is used (`urllib`, `smtplib`, `queue`, `threading`) — no new depen
 Events consumed from the controller (`reactor/app.py:130-154`):
 `reactor.run_start`, `reactor.run_complete`, `reactor.estop`, `reactor.safety`
 (carries `check` + `detail`), `reactor.backend`. Events consumed from the hub bus
-(`reactor/app.py:304-316`): `file.averaged`, `analysis.complete`.
+(`reactor/app.py:304-316`): `file.averaged`, `fit.complete`.
 
 ## Troubleshooting
 

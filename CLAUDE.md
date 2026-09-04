@@ -164,9 +164,14 @@ Apps read and write data from a user-selected project folder:
 │   │   │   ├── Good/               # Quality Gate: accepted
 │   │   │   └── NeedsReview/        # Quality Gate: flagged
 │   │   ├── Analysed/<Type>/        # analysis app: JSON + _fit.dat + PNG
-│   │   └── Conditions/             # optimizer → reactor handoff
+│   │   ├── Conditions/             # optimizer → reactor handoff
+│   │   └── Results/                # everything kept after the fact, nothing polled from here
+│   │       ├── campaign_<id>/          # analyzer: final figures + history.csv, written when a campaign ends
+│   │       ├── campaign_<id>.json      # analyzer: durable per-campaign target/outcome record
+│   │       ├── Fit/                    # analyzer: PNG + .dat per analyzed profile — every fit, so it can be
+│   │       │                           #   checked or replotted after the beamtime without redoing it
+│   │       └── QualityReports/         # Quality Gate: CSV reports + accepted lists
 │   ├── WAXS/                       # same tree
-│   └── QualityReports/             # Quality Gate CSV reports
 ├── config.yml                      # reduction configuration
 ├── reactor_limits.json             # persisted pump limits / calibration
 ├── manifest.json                   # cross-app provenance

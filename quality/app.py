@@ -793,7 +793,10 @@ def api_report():
     saved = None
     if _project_root:
         try:
-            rep_dir = Path(_project_root) / "1D" / "QualityReports"
+            # Lives under Results/ with everything else this platform keeps
+            # after the fact (campaign figures, fit records) — not a bare
+            # top-level folder next to the working stages.
+            rep_dir = Path(_project_root) / "1D" / "SAXS" / "Results" / "QualityReports"
             rep_dir.mkdir(parents=True, exist_ok=True)
             stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             (rep_dir / f"quality_report_{stamp}.csv").write_text(csv, encoding="utf-8")

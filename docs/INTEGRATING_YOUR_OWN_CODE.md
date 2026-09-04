@@ -17,7 +17,7 @@ contract described here.
 This is the case that motivated the doc. You want:
 
 ```
-Background Subtraction (5104)          your ML program            Flow Synthesis (5108)
+Background Subtraction (5104)          your ML program            Autonomous Synthesis (5108)
   writes subtracted .dat    ───────▶   reads it, predicts   ───▶   runs the next recipe
                                        structure, proposes
                                        the next conditions
@@ -304,7 +304,8 @@ told the moment a file is ready, instead of polling every three seconds:
 | `file.averaged` | the average app wrote an averaged curve |
 | `file.subtracted` | background subtraction finished one profile |
 | `file.classified` | the Quality Gate graded one (good/bad) |
-| `analysis.complete` | a fit finished |
+| `fit.complete` | the analyzer's nanoparticle fit finished — `recipe_id`, `file`, `size`, `pdi`, `confidence`, `suspect`, `plot_png` |
+| `analysis.complete` | the **Data Analysis** app's Guinier/Porod/Kratky/peak/model fit finished — a different payload (`analysis_type`, `file_path`, `results`). Don't confuse the two: they share a name pattern but not a shape, and this is exactly the mixup that once made the hub log show "undefined on ?" |
 
 Envelope:
 
@@ -321,8 +322,11 @@ from src.events import EventBusClient
 EventBusClient("my_ml").on_event(my_handler).connect(retry=True)
 ```
 
-You can publish too — emitting `analysis.complete` makes your prediction show up
-in the hub's live event feed exactly like the built-in analyzer's.
+You can publish too — emitting `fit.complete` (with `recipe_id`, `file`, `size`,
+`pdi`, `confidence`, `suspect`) makes your prediction show up in the hub's live
+event feed and in the reactor's Slack notifications, exactly like the built-in
+analyzer's. Use that exact name and shape — not `analysis.complete`, which is
+the Data Analysis app's event under a similar name but a different payload.
 
 **Polling still works and is the more robust choice** if your program may be
 restarted: the folder is the durable record, the bus is a live notification and

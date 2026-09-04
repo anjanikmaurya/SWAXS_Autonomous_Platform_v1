@@ -92,4 +92,6 @@ with AI" to force a full LLM judgment on a single profile.
   (good/bad + note) are logged and gently **adapt the threshold** toward the
   user's judgment.
 - Exports a QC summary CSV and an accepted-profiles list to
-  `1D/QualityReports/`.
+  `1D/SAXS/Results/QualityReports/` — moved here (from a bare `1D/QualityReports/`)
+  so everything the platform keeps after the fact lives under `Results/`,
+  alongside the analyzer's `Fit/` records and campaign figures.

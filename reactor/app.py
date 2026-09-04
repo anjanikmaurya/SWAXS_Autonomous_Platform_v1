@@ -1,6 +1,6 @@
 """
-reactor/app.py — Flow Synthesis (port 5108)
-============================================
+reactor/app.py — Autonomous Synthesis (port 5108)
+==================================================
 Pump-control / execution layer for the 5-pump continuous-flow nanoparticle
 reactor (Fong et al., J. Chem. Phys. 154, 224201, 2021).  Receives an
 already-predicted recipe (folder / JSON API / form) and drives the pumps; the
@@ -125,7 +125,7 @@ try:
     _slack = MultiNotifier(_CFG.get("notify", {}) or {}, log=_emit)
 except Exception as _exc:                                            # pragma: no cover
     _slack = None
-    print(f"[Flow Synthesis] notifier unavailable: {_exc}", file=sys.stderr)
+    print(f"[Autonomous Synthesis] notifier unavailable: {_exc}", file=sys.stderr)
 
 
 def _slack_event(etype: str, data: dict) -> None:
@@ -208,11 +208,11 @@ try:
                               event_cb=_event_cb, feedback_cb=_feedback_cb,
                               manifest_cb=_manifest_cb)
 except Exception as exc:
-    print("\n[Flow Synthesis] Startup failed:\n  " + str(exc) +
+    print("\n[Autonomous Synthesis] Startup failed:\n  " + str(exc) +
           "\n\nIn real mode, close the Dolomite GUI and any other program using "
           "the pump COM ports, then restart.\n", file=sys.stderr)
     sys.exit(1)
-_emit(f"Flow Synthesis ready — backend={_BACKEND}", "ok")
+_emit(f"Autonomous Synthesis ready — backend={_BACKEND}", "ok")
 # On exit, hand the rig back: idle pumps, close shutter, release SPEC control.
 import atexit as _atexit                                             # noqa: E402
 _atexit.register(lambda: _ctrl.shutdown())
@@ -307,10 +307,13 @@ def _on_bus_event(event: dict) -> None:
     data = event.get("data", event)
     if etype == "file.averaged":
         _ctrl.signal_measurement_complete(str(data.get("file_path", "")))
-    elif etype == "analysis.complete":
+    elif etype == "fit.complete":
         # The analyzer's answer — the message actually worth reading at 3 a.m.
         # Posted into this recipe's Slack thread, with the QC plot attached when
-        # the fit is suspect.
+        # the fit is suspect. NOT "analysis.complete" — that name belongs to the
+        # Data Analysis app's Guinier/Porod/etc. events, a different payload
+        # shape entirely; listening for it here used to fire this handler (and
+        # a garbage Slack message) on every one of THOSE results too.
         try:
             _slack_analysis(data)
         except Exception:
@@ -755,7 +758,7 @@ def api_stream():
 if __name__ == "__main__":
     _project_root = os.environ.get("SWAXS_PROJECT", "")
     print("━" * 52)
-    print("  Flow Synthesis (reactor)  ·  http://localhost:5108")
+    print("  Autonomous Synthesis (reactor)  ·  http://localhost:5108")
     print(f"  backend = {_BACKEND}   (set SWAXS_REACTOR_BACKEND=real for hardware)")
     print("━" * 52)
     app.run(host="127.0.0.1", port=5108, debug=False, threaded=True)

@@ -103,7 +103,8 @@ must use `event["type"]` and `event["timestamp"]`.
 | `file.averaged` | average | `file_path`, `keyword`, `n_files`, `detector` |
 | `file.subtracted` | background | `file_path`, `keyword`, `scale`, `mode` |
 | `file.classified` | quality | `file_path`, `score`, `verdict`, `detector`, `flags` |
-| `analysis.complete` | analysis, analyzer | `analysis_type`, `file_path`, `results` |
+| `analysis.complete` | analysis | `analysis_type`, `file_path`, `results` |
+| `fit.complete` | analyzer | `recipe_id`, `file`, `size`, `pdi`, `confidence`, `distribution`, `phase`, `guinier_rg`, `suspect`, `plot_png`, `loss` — a different shape from `analysis.complete` on purpose (see analyzer/knowledge.md) |
 | `watch.new_raw` | reduction | `file_path`, `detector` |
 | `ai.hint` | assistant | `hint`, `file_path`, `severity` (`info`/`warning`/`error`) |
 | `reactor.run_complete` | reactor | the run record: `recipe_id`, `recipe`, `setpoints`, `measured_flows`, `started`, `ended`, `duration_s`, `reason`, `status` |

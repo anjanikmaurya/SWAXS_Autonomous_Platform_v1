@@ -16,13 +16,13 @@ The platform is organized as nine small web apps, launched from one central hub.
 | # | App | Port | What it's for |
 |---|-----|------|---------------|
 | 🎯 | **Calibration & Raw Prep** | 5101 | Convert calibrant `.raw` → CBF and generate the pyFAI `.poni` files everything downstream needs; optional SFTP pull from the beamline host |
-| ⚙️ | **Reduction & Correction** | 5102 | Convert raw 2D detector images → 1D I(q) curves (PyFAI integration, transmission/normalization corrections) |
+| 🌀 | **Reduction & Correction** | 5102 | Convert raw 2D detector images → 1D I(q) curves (PyFAI integration, transmission/normalization corrections) |
 | 📊 | **Visualisation & Average** | 5103 | Visualise 2D & 1D data, average repeated scans, view SAXS and WAXS together |
-| 🔬 | **Background Subtraction** | 5104 | Subtract buffer/background by keyword, scan-matching, or manual selection |
-| ✅ | **Quality Gate** | 5105 | AI good/bad grading of subtracted profiles — scoring, auto-sort into Good/NeedsReview, frame selection |
+| ➖ | **Background Subtraction** | 5104 | Subtract buffer/background by keyword, scan-matching, or manual selection |
+| 🚦 | **Quality Gate** | 5105 | AI good/bad grading of subtracted profiles — scoring, auto-sort into Good/NeedsReview, frame selection |
 | 📈 | **Data Analysis** | 5106 | Guinier, Porod, Kratky, pair-distance, peak fitting |
-| 🔁 | **Auto-Fit & Optimiser** | 5107 | Fits nanoparticle size / PDI / phase from subtracted SAXS and proposes the next synthesis conditions (Bayesian optimization) — the brain of the autonomous loop |
-| 🧪 | **Flow Synthesis (reactor)** | 5108 | 5-pump flow reactor **and** beamline control: sets temperature (SPEC `csettemp`) and triggers 2D collection (shutter + a configurable collect command, default `ct`) through the SPEC bServer, plus auto-flush |
+| 🧭 | **Auto-Fit & Optimiser** | 5107 | Fits nanoparticle size / PDI / phase from subtracted SAXS and proposes the next synthesis conditions (Bayesian optimization) — the brain of the autonomous loop |
+| 🔁 | **Autonomous Synthesis (reactor)** | 5108 | 5-pump flow reactor **and** beamline control: sets temperature (SPEC `csettemp`) and triggers 2D collection (shutter + a configurable collect command, default `ct`) through the SPEC bServer, plus auto-flush |
 | 🤖 | **Tassone Group** (AI assistant) | 5109 | Ask questions about your data, generate plots, get proactive quality hints |
 
 A typical **data** session: **reduce → view & average → subtract background → quality-gate (optional) → analyze**, with the assistant available throughout.
@@ -31,7 +31,7 @@ A typical **data** session: **reduce → view & average → subtract background 
 
 For self-driving nanoparticle synthesis at the beamline, the reactor and analyzer close a loop:
 
-**Flow Synthesis** sets the temperature and flows for a recipe → triggers a SPEC 2D collection of the reacting sample (and a background during flush), tagged by `recipe_id` → the data pipeline reduces/averages/subtracts it → the **Analyzer** fits size/PDI/phase and the **optimizer** (`src/optimizer`) proposes the next conditions → the reactor runs them. Temperature and beamline actions go through the SPEC bServer; Stop/E-stop act on pumps only and never interrupt an in-progress X-ray collection. See the reactor doc set under `docs/` before a run.
+**Autonomous Synthesis** sets the temperature and flows for a recipe → triggers a SPEC 2D collection of the reacting sample (and a background during flush), tagged by `recipe_id` → the data pipeline reduces/averages/subtracts it → the **Analyzer** fits size/PDI/phase and the **optimizer** (`src/optimizer`) proposes the next conditions → the reactor runs them. Temperature and beamline actions go through the SPEC bServer; Stop/E-stop act on pumps only and never interrupt an in-progress X-ray collection. See the reactor doc set under `docs/` before a run.
 
 ---
 
@@ -225,11 +225,14 @@ Apps read and write inside a single project folder. The expected layout:
 ├── 1D/                       # Created by the apps:
 │   ├── SAXS/
 │   │   ├── {Reduction,Averaged}/
-│   │   └── Subtracted/{Good,NeedsReview}/   # NeedsReview/Good sorted by Quality Gate
+│   │   ├── Subtracted/{Good,NeedsReview}/   # NeedsReview/Good sorted by Quality Gate
+│   │   └── Results/           # everything kept after the fact
+│   │       ├── Fit/               # per-fit PNG + .dat, every analyzed profile (cross-check after beamtime)
+│   │       ├── QualityReports/    # Quality Gate CSV reports + accepted lists
+│   │       └── campaign_<id>/     # Auto-Fit & Optimiser: final figures, written when a campaign ends
 │   ├── WAXS/
 │   │   ├── {Reduction,Averaged}/
 │   │   └── Subtracted/{Good,NeedsReview}/
-│   └── QualityReports/       # Quality Gate CSV reports + accepted lists
 └── manifest.json             # Auto-managed shared state across apps
 ```
 
@@ -318,7 +321,7 @@ without touching this codebase and with no plugin API to learn.
 The common case is **your own ML model in place of Auto-Fit & Optimiser**: it
 watches `1D/SAXS/Subtracted/Good/` for newly subtracted profiles, predicts the
 structure, and drops the next conditions into `1D/SAXS/Conditions/`, which the
-Flow Synthesis app already polls. Leave app 5107 stopped and the loop closes
+Autonomous Synthesis app already polls. Leave app 5107 stopped and the loop closes
 through your model instead. Three folder paths and one small file format.
 
 Other ways in: subscribe to the WebSocket event bus for push notifications

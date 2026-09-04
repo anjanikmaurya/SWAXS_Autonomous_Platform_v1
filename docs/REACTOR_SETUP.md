@@ -111,7 +111,7 @@ Everything rig-specific lives here; no code changes needed. Key sections:
 
 **Via the hub (recommended):**
 ```bash
-python hub/app.py          # http://localhost:5100 — launch "Flow Synthesis" from the hub
+python hub/app.py          # http://localhost:5100 — launch "Autonomous Synthesis" from the hub
 ```
 The hub passes the selected project folder to the reactor and manages its process
 (and frees the port on hub exit).

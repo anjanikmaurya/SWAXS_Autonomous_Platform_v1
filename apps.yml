@@ -34,7 +34,7 @@ apps:
     entry:        "reduction/app.py"
     knowledge:    "reduction/knowledge.md"
     manifest_key: "files"
-    icon:         "⚙️"
+    icon:         "🌀"          # 2D diffraction rings collapsed to a 1D radial curve — what azimuthal integration does
     color:        "#1565C0"
 
   - id:           average
@@ -45,6 +45,7 @@ apps:
     knowledge:    "average/knowledge.md"
     manifest_key: "files"
     icon:         "📊"
+    icon_image:   "/static/average_icon.png"   # overlaid frame profiles, averaged curve on top
     color:        "#2E7D32"
 
   - id:           background
@@ -54,7 +55,8 @@ apps:
     entry:        "background/app.py"
     knowledge:    "background/knowledge.md"
     manifest_key: "background"
-    icon:         "🔬"
+    icon:         "➖"          # sample minus buffer/blank — literally what this app does
+    icon_image:   "/static/background_icon.png"  # sample + buffer curves, subtracted result on top
     color:        "#6A1B9A"
 
   - id:           quality
@@ -64,7 +66,7 @@ apps:
     entry:        "quality/app.py"
     knowledge:    "quality/knowledge.md"
     manifest_key: "quality"
-    icon:         "✅"
+    icon:         "🚦"          # triage into Good / NeedsReview, not a single pass/fail
     color:        "#00897B"
 
   - id:           analysis
@@ -75,6 +77,7 @@ apps:
     knowledge:    "analysis/knowledge.md"
     manifest_key: "analyses"
     icon:         "📈"
+    icon_image:   "/static/analysis_icon.png"  # SAXS profile with fitted curve overlaid
     color:        "#E65100"
 
   - id:           analyzer
@@ -83,18 +86,18 @@ apps:
     port:         5107
     entry:        "analyzer/app.py"
     manifest_key: "analyses"
-    icon:         "🧬"
+    icon:         "🧭"          # navigating parameter space toward the target size — the search/optimize loop
     color:        "#1565C0"
     knowledge:    "analyzer/knowledge.md"
 
   - id:           reactor
-    name:         "Flow Synthesis"
+    name:         "Autonomous Synthesis"
     description:  "5-pump continuous-flow reactor control — executes predicted recipes, auto-flush"
     port:         5108
     entry:        "reactor/app.py"
     knowledge:    "reactor/knowledge.md"
     manifest_key: "reactor"
-    icon:         "🧪"
+    icon:         "🔁"          # the unattended closed loop: recipe → collect → measure → next recipe
     color:        "#00838F"
 
   - id:           assistant

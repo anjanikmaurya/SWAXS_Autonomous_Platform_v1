@@ -119,7 +119,8 @@ Apps connect to `ws://localhost:5100/ws` on startup. Each message is a JSON obje
 | `file.averaged` | average | reactor — ends the run on the first new SAXS average (`reactor/app.py:307`) |
 | `file.subtracted` | background | quality — grades immediately (`quality/app.py:466`) |
 | `file.classified` | quality (`quality/app.py:385`) | hub log |
-| `analysis.complete` | analyzer (`analyzer/app.py:479`) | reactor — posts the fit into the recipe's Slack thread (`reactor/app.py:309`) |
+| `analysis.complete` | analysis (Guinier/Porod/Kratky/peaks/model) | hub log, assistant hints |
+| `fit.complete` | analyzer (`analyzer/app.py:479`) | reactor — posts the fit into the recipe's Slack thread (`reactor/app.py:310`). Deliberately a different event name from `analysis.complete` above — same name, different payload shape, used to render "undefined on ?" in the hub log |
 | `ai.hint` | assistant | whichever app the user is in |
 | `watch.new_raw` | reduction (watch mode) | hub log |
 | `app.started` / `app.stopped` / `app.reclaimed` | hub | hub UI |
@@ -152,7 +153,7 @@ registry — read it rather than this excerpt. Per-entry fields:
 | `entry` | yes | path to `app.py` relative to the project root |
 | `description` | no | one-line blurb on the hub card |
 | `icon` | no | emoji on the hub card |
-| `icon_image` | no | image URL, overrides `icon` (only `assistant` uses it) |
+| `icon_image` | no | image URL, overrides `icon`; served from that app's own `static/` folder, copied into `hub/static/` since the hub serves its own (`assistant`, `average`, `analysis`, `background` use it) |
 | `color` | no | hex accent for the hub card |
 | `knowledge` | no | path to a `knowledge.md` the AI indexes on registration |
 | `manifest_key` | no | top-level manifest section this app owns |
@@ -262,7 +263,7 @@ Full backwards-compatible extension of v1. New keys marked with `# NEW`.
     }
   },
 
-  "reactor": {                              // added with the Flow Synthesis app
+  "reactor": {                              // added with the Autonomous Synthesis app
     "runs": {
       "<recipe_id>": {
         // the controller's run record, verbatim: recipe_id, recipe, setpoints,

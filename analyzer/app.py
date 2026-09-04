@@ -45,8 +45,18 @@ from src.optimizer.io import (to_param_file, match_recipe_id,           # noqa: 
 from src.runstate import save_state, load_state, save_monitor, load_monitor  # noqa: E402
 
 # ── Event bus (graceful degradation) ─────────────────────────────────────────
-# Used to publish `analysis.complete` so downstream apps (e.g. the reactor's
+# Used to publish `fit.complete` so downstream apps (e.g. the reactor's
 # Slack notifier) can report the fitted result against its recipe.
+#
+# Deliberately NOT named `analysis.complete`: the Data Analysis app already
+# owns that name for a different payload shape (analysis_type/file_path/
+# results, via EventBusClient.emit_analysis_complete). Reusing it here made
+# the hub's event log render this app's events as "undefined on ?" (it read
+# data.analysis_type/data.file_path, which this payload doesn't have — it has
+# `file`, `size`, `pdi`, etc.), and would have made the reactor's Slack
+# notifier (which listens for this exact name) fire garbage messages for
+# every Guinier/Porod/Kratky/peak/model result the Data Analysis app produces.
+# Caught live from a user seeing the "undefined on ?" hub log line.
 try:
     from src.events import EventBusClient as _EventBusClient               # noqa: E402
     _bus = _EventBusClient("analyzer").connect(retry=True)
@@ -247,17 +257,25 @@ def _campaign_record() -> dict:
 
 
 def _write_campaign_record(outcome: dict | None = None) -> None:
-    """One JSON per campaign, next to the conditions it produced.
+    """One JSON per campaign, in Results/ — a sibling of the folder this same
+    campaign gets at the end (`Results/campaign_<id>/`), not inside it.
 
     Deliberately NOT .swaxs_state/: that file is resume state, is overwritten by
     the next campaign and expires after 7 days, so it can never answer what an
     old run targeted. This one is written on start and rewritten on finish.
+
+    Deliberately NOT Conditions/ either — that is a HIGH-severity fix, not a
+    style choice. The reactor globs *.dat/*.txt/*.json in Conditions/ every
+    poll looking for the next recipe (src/reactor/intake.py via reactor/app.py);
+    a record file living there gets rejected as an invalid recipe (missing
+    T_reac) on every single poll, forever, spamming the reactor log. Caught
+    live in a mock run — see test_the_campaign_record_never_lands_in_conditions.
     Never raises — a record-keeping failure must not stop a campaign.
     """
     if not _campaign_id:
         return
     try:
-        d = _resolve_cond(); d.mkdir(parents=True, exist_ok=True)
+        d = _resolve_results(); d.mkdir(parents=True, exist_ok=True)
         path = d / f"campaign_{_campaign_id}.json"
         body = _campaign_record()
         if path.is_file():                      # keep started_at from the first write
@@ -488,38 +506,100 @@ def _feed_campaign(name: str, res: dict) -> None:
     _save_campaign()
 
 
-#: fits at or below this confidence get a QC plot saved + flagged downstream
+#: fits at or below this confidence get flagged as "suspect" downstream
+#: (attached to notifications) — the fit RECORD itself (see _write_fit_record)
+#: is now written for every fit, suspect or not.
 QC_CONF_THRESHOLD = 0.5
 
 
-def _qc_plot(path: Path, q, I, model, summary: dict) -> str:
-    """Render a small log-log PNG of the profile (+ fit) for a suspect result.
+def _resolve_fit() -> Path:
+    """Results/Fit/ — a sibling of Results/campaign_<id>/ and
+    Results/QualityReports/. One per-fit record lives here for every analyzed
+    profile, so a fit can be checked or replotted after the beamtime without
+    redoing it."""
+    return _resolve_results() / "Fit"
 
-    Only produced for low-confidence fits — the case where somebody actually
-    wants to look at the curve rather than a number. Returns "" on any failure;
-    a missing plot must never stop the analysis.
+
+def _write_fit_record(path: Path, q, I, sigma, model, summary: dict, res: dict) -> str:
+    """Save a self-contained record of this fit — a PNG with the fit values
+    annotated on the plot, and a .dat with q/I/sigma/fit columns plus the fit
+    parameters in the header.
+
+    Written for EVERY analyzed profile, not just low-confidence ones: the
+    point is a durable cross-check trail for the whole campaign, available
+    after the beamtime ends, not just a flag for suspect fits. Returns the
+    PNG path (still used to attach suspect fits to notifications), or "" on
+    any failure — a record-keeping failure must never stop the analysis.
     """
     try:
+        out_dir = _resolve_fit()
+        out_dir.mkdir(parents=True, exist_ok=True)
+        stem = path.stem
+        png_path = out_dir / f"fit_{stem}.png"
+        dat_path = out_dir / f"fit_{stem}.dat"
+
         import matplotlib                                     # noqa: PLC0415
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt                       # noqa: PLC0415
-        out_dir = (Path(_project_root) / "1D" / "QualityReports"
-                   if _project_root else Path(tempfile.gettempdir()))
-        out_dir.mkdir(parents=True, exist_ok=True)
-        out = out_dir / f"qc_{path.stem}.png"
-        fig, ax = plt.subplots(figsize=(4.6, 3.4), dpi=110)
-        ax.loglog(q, np.maximum(I, 1e-12), lw=1.1, label="subtracted I(q)")
+
+        fig, ax = plt.subplots(figsize=(5.2, 3.8), dpi=120)
+        ax.loglog(q, np.maximum(I, 1e-12), lw=1.0, color="#5b8fc9",
+                  marker="o", ms=2.2, alpha=0.75, mew=0, label="subtracted I(q)")
         if model is not None:
-            ax.loglog(q, np.maximum(model, 1e-12), lw=1.1, ls="--", label="fit")
+            ax.loglog(q, np.maximum(model, 1e-12), lw=1.8, color="#e2402c", label="fit")
         ax.set_xlabel("q (nm$^{-1}$)"); ax.set_ylabel("I (a.u.)")
-        ax.set_title(f"{path.name}\nR={summary.get('radius')} nm  "
-                     f"PDI={summary.get('pdi')}  conf={summary.get('confidence')}",
-                     fontsize=8)
-        ax.legend(fontsize=7); fig.tight_layout()
-        fig.savefig(out); plt.close(fig)
-        return str(out)
+        ax.set_title(path.name, fontsize=9)
+        ax.legend(fontsize=7, loc="lower left")
+
+        value_lines = [
+            f"R = {summary.get('radius')} nm" if summary.get("radius") is not None else None,
+            f"D = {summary.get('diameter')} nm" if summary.get("diameter") is not None else None,
+            f"PDI = {summary.get('pdi')}" if summary.get("pdi") is not None else None,
+            f"phase = {summary.get('phase')}" if summary.get("phase") else None,
+            f"dist = {summary.get('distribution')}" if summary.get("distribution") else None,
+            f"conf = {summary.get('confidence')}" if summary.get("confidence") is not None else None,
+        ]
+        text = "\n".join(v for v in value_lines if v)
+        if text:
+            ax.text(0.98, 0.98, text, transform=ax.transAxes, ha="right", va="top",
+                    fontsize=8, family="monospace", linespacing=1.5,
+                    bbox=dict(boxstyle="round", fc="white", ec="#999", alpha=0.88))
+        fig.tight_layout()
+        fig.savefig(png_path)
+        plt.close(fig)
+
+        sig_col = np.asarray(sigma, float) if sigma is not None else np.full_like(q, np.nan)
+        fit_col = np.asarray(model, float) if model is not None else np.full_like(q, np.nan)
+        header = [
+            "# Nanoparticle fit record -- Auto-Fit & Optimiser (analyzer)",
+            f"# Source file     : {path}",
+            f"# Written         : {datetime.datetime.now().isoformat(timespec='seconds')}",
+            f"# Radius (nm)     : {summary.get('radius')}",
+            f"# Diameter (nm)   : {summary.get('diameter')}",
+            f"# PDI             : {summary.get('pdi')}",
+            f"# Distribution    : {summary.get('distribution')}",
+            f"# Phase           : {summary.get('phase')}",
+            f"# Confidence      : {summary.get('confidence')}",
+            f"# Invariant (rel) : {summary.get('invariant_rel')}",
+            f"# Guinier Rg (nm) : {summary.get('guinier_rg')}",
+        ]
+        if res.get("fit"):
+            header.append(f"# Fit scale       : {res['fit'].get('scale')}")
+            header.append(f"# Fit background  : {res['fit'].get('background')}")
+        if _campaign_cfg:
+            header += [
+                f"# Campaign ID     : {_campaign_id}",
+                f"# Target size (nm): {_campaign_cfg.get('target_size')}",
+                f"# Tolerance       : {_campaign_cfg.get('tolerance')}",
+                f"# PDI cap         : {_campaign_cfg.get('pdi_cap')}",
+            ]
+        header.append("# Columns: q_nm-1  I_data  sigma  I_fit  (I_fit is NaN if no form-factor fit)")
+        body = "\n".join(f"{qi:.6e}  {Ii:.6e}  {si:.6e}  {fi:.6e}"
+                         for qi, Ii, si, fi in zip(q, I, sig_col, fit_col))
+        dat_path.write_text("\n".join(header) + "\n" + body + "\n", encoding="utf-8")
+        return str(png_path)
     except Exception as exc:
-        _emit(f"⚠ could not render the QC plot: {exc}", "warn")
+        _emit(f"⚠ could not write the fit record: {exc}", "warn")
         return ""
 
 
@@ -639,13 +719,15 @@ def _analyze_file(path: Path) -> None:
             _emit(f"⚠ manifest write failed: {exc}", "warn")
 
     # ── publish the result so the reactor can report it against its recipe ────
-    # A low-confidence fit also gets a QC plot, which the notifier attaches.
+    # Every fit gets a durable record (Results/Fit/ — PNG + .dat, see
+    # _write_fit_record) so it can be checked or replotted after the beamtime.
+    # A low-confidence fit additionally gets its PNG attached to notifications.
     try:
         rid = recipe_id_from_filename(path.name)
         suspect = (conf or 0.0) <= QC_CONF_THRESHOLD
-        png = _qc_plot(path, q, I, model, summary) if suspect else ""
+        png = _write_fit_record(path, q, I, sig, model, summary, res)
         if _bus is not None:
-            _bus.publish("analysis.complete", {
+            _bus.publish("fit.complete", {
                 "recipe_id": rid, "file": path.name,
                 "size": summary["radius"], "pdi": summary["pdi"],
                 "confidence": conf, "distribution": summary["distribution"],
@@ -654,7 +736,7 @@ def _analyze_file(path: Path) -> None:
                 "loss": _last_loss_for(rid),
             })
     except Exception as exc:
-        _emit(f"⚠ could not publish analysis.complete: {exc}", "warn")
+        _emit(f"⚠ could not publish fit.complete: {exc}", "warn")
 
     _feed_campaign(path.name, res)          # drive the closed loop, if a campaign is running
 

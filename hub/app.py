@@ -476,6 +476,17 @@ def health():
     return jsonify({"status": "ok", "app": "hub"})
 
 
+#: consecutive failed health probes per app, while the process itself is still
+#: running. A busy app missing ONE probe is not the same as a dead one — the
+#: assistant's one-time knowledge-base warm-up at startup (embedding every
+#: knowledge.md into ChromaDB) can hold the GIL past the 1 s probe timeout,
+#: which used to flash the card "not responding" -> "running" on the very next
+#: tick. Require two consecutive misses before reporting not-responding, so a
+#: single slow tick doesn't flicker the UI for a process that is, in fact, fine.
+_health_fail_streak: dict = {}
+_HEALTH_FAIL_THRESHOLD = 2
+
+
 def _app_status() -> dict:
     """Per-app status, built once and used by both /api/status and the SSE stream.
     Two copies of this loop had already drifted apart — the stream reported
@@ -486,10 +497,16 @@ def _app_status() -> dict:
         aid = a["id"]
         running = _is_running(aid)
         alive, summary = _health_probe(a["port"]) if running else (False, None)
+        if running:
+            _health_fail_streak[aid] = 0 if alive else _health_fail_streak.get(aid, 0) + 1
+            healthy = alive or _health_fail_streak[aid] < _HEALTH_FAIL_THRESHOLD
+        else:
+            _health_fail_streak.pop(aid, None)
+            healthy = False
         proc = _procs.get(aid)
         out[aid] = {
             "running": running,
-            "healthy": alive,
+            "healthy": healthy,
             "port":    a["port"],
             "pid":     proc.pid if (running and proc is not None) else None,
             "summary": summary,

@@ -292,8 +292,8 @@ def test_the_campaign_target_is_recorded_durably(tmp_path, monkeypatch):
         "target_size": 7.25, "tolerance": 0.4, "pdi_cap": 0.12,
         "budget": 25, "n_init": 6})
 
-    # 1. the per-campaign record file, next to the conditions it produced
-    recs = list((tmp_path / "1D" / "SAXS" / "Conditions").glob("campaign_*.json"))
+    # 1. the per-campaign record file, in Results/ (NOT Conditions/ — see below)
+    recs = list((tmp_path / "1D" / "SAXS" / "Results").glob("campaign_*.json"))
     assert len(recs) == 1, f"expected one campaign record, got {recs}"
     body = json.loads(recs[0].read_text())
     assert body["target_size"] == 7.25 and body["tolerance"] == 0.4
@@ -310,8 +310,29 @@ def test_the_campaign_target_is_recorded_durably(tmp_path, monkeypatch):
     a2._restore_campaign()
     assert a2._campaign_id == body["campaign_id"], "resumed run lost its record"
     assert a2._campaign is not None, "restore broke"
-    assert len(list((tmp_path / "1D" / "SAXS" / "Conditions")
+    assert len(list((tmp_path / "1D" / "SAXS" / "Results")
                     .glob("campaign_*.json"))) == 1
+
+
+def test_the_campaign_record_never_lands_in_conditions(tmp_path, monkeypatch):
+    """Regression test for a real bug caught in a mock run: the reactor globs
+    *.dat/*.txt/*.json in Conditions/ every poll looking for the next recipe.
+    A campaign record file written there gets rejected as an invalid recipe
+    (missing T_reac) on every single poll, forever, spamming the reactor log.
+    The record must never appear in Conditions/, on start, mid-run, or at end."""
+    pytest.importorskip("scipy")
+    (tmp_path / "1D" / "SAXS" / "Conditions").mkdir(parents=True)
+    (tmp_path / "1D" / "SAXS" / "Subtracted").mkdir(parents=True)
+    monkeypatch.setenv("SWAXS_PROJECT", str(tmp_path))
+
+    a = _load("az_no_pollute", "analyzer/app.py")
+    a.app.test_client().post("/api/campaign/start", json={
+        "target_size": 6.0, "tolerance": 0.4, "pdi_cap": 0.12,
+        "budget": 25, "n_init": 6})
+    a.app.test_client().post("/api/campaign/abort")
+
+    assert list((tmp_path / "1D" / "SAXS" / "Conditions").glob("campaign_*.json")) == [], \
+        "a campaign record file leaked into Conditions/ — the reactor will reject it every poll"
 
 
 def test_campaign_results_are_saved_when_it_ends(tmp_path, monkeypatch):
@@ -375,3 +396,86 @@ def test_boot_resume_never_clobbers_a_live_campaign(tmp_path, monkeypatch):
     a._restore_campaign()          # what the boot timer would do
     assert a._campaign.status_str == "converged", "a live campaign was clobbered"
     assert len(a._campaign.history) == 1, "history was lost to the resume"
+
+
+def _write_monodisperse_subtracted_dat(path, R=5.0, n=100, seed=3):
+    """A clean, low-noise monodisperse-sphere profile — analyze_profile fits
+    this with confidence ~0.96 (well above QC_CONF_THRESHOLD), so a test using
+    it proves a record is written for a CONFIDENT fit, not just a suspect one."""
+    import numpy as np
+    rng = np.random.default_rng(seed)
+    q = np.linspace(0.02, 0.8, n)
+    qR = q * R
+    amp = 3.0 * (np.sin(qR) - qR * np.cos(qR)) / qR ** 3
+    I = 1.0e6 * amp ** 2 + 0.5
+    sigma = 0.02 * I + 0.1
+    I = I * rng.normal(1.0, 0.02, size=I.shape)
+    lines = ["# SAXS background-subtracted data (synthetic, monodisperse sphere)",
+             "# Columns: q_nm-1  I  sigma"]
+    lines += [f"{qi:.6e}  {Ii:.6e}  {si:.6e}" for qi, Ii, si in zip(q, I, sigma)]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def test_every_fit_gets_a_durable_record_not_just_suspect_ones(tmp_path, monkeypatch):
+    """Before this, a plot (QC PNG) was only ever saved for low-confidence
+    ("suspect") fits, and no .dat was saved at all — a confident fit left no
+    trail beyond a manifest.json summary and an in-memory row bounded to
+    _MAX_RESULTS and lost on restart. After a beamtime ends there was no way
+    to replot a fit and cross-check it. Every analyzed profile must now get a
+    PNG (data + fit curve + values annotated) and a .dat (data + fit columns +
+    parameters in the header) in Results/Fit/ — confident fits included."""
+    pytest.importorskip("scipy")
+    pytest.importorskip("matplotlib")
+    sub_dir = tmp_path / "1D" / "SAXS" / "Subtracted"
+    sub_dir.mkdir(parents=True)
+    (tmp_path / "1D" / "SAXS" / "Conditions").mkdir(parents=True)
+    monkeypatch.setenv("SWAXS_PROJECT", str(tmp_path))
+
+    a = _load("az_fit_record", "analyzer/app.py")
+    dat_path = sub_dir / "auto_test_sample_SAXS_subtracted.dat"
+    _write_monodisperse_subtracted_dat(dat_path)
+    a._analyze_file(dat_path)
+
+    conf = a._results[dat_path.name]["summary"]["confidence"]
+    assert conf > a.QC_CONF_THRESHOLD, \
+        "test fixture should be a CONFIDENT fit — that's the case this test covers"
+
+    fit_dir = tmp_path / "1D" / "SAXS" / "Results" / "Fit"
+    png = fit_dir / f"fit_{dat_path.stem}.png"
+    dat = fit_dir / f"fit_{dat_path.stem}.dat"
+    assert png.is_file(), "no PNG record for a confident fit — should be written for every fit"
+    assert png.read_bytes()[:4] == b"\x89PNG", "fit PNG is not a valid PNG"
+    assert dat.is_file(), "no .dat record for a confident fit — should be written for every fit"
+
+    text = dat.read_text()
+    assert "Radius (nm)" in text and "Confidence" in text, \
+        "fit parameters missing from the .dat header"
+    body_lines = [l for l in text.splitlines() if l and not l.startswith("#")]
+    assert len(body_lines) == 100, "expected one data row per input point"
+    cols = body_lines[0].split()
+    assert len(cols) == 4, "expected q, I_data, sigma, I_fit columns"
+    float(cols[3])   # I_fit must be a real fitted value, not a placeholder string
+
+    # Results/Fit/ is a sibling of Results/QualityReports/ and Results/campaign_<id>/,
+    # not nested inside Conditions/ (see test_the_campaign_record_never_lands_in_conditions)
+    assert fit_dir.parent == tmp_path / "1D" / "SAXS" / "Results"
+
+
+def test_quality_reports_are_saved_under_results(tmp_path, monkeypatch):
+    """QualityReports/ used to be a bare 1D/QualityReports/ folder, a stray
+    top-level output alongside the working stages. It now lives under
+    Results/, next to the analyzer's Fit/ records and campaign figures --
+    everything the platform keeps after the fact in one place."""
+    monkeypatch.setenv("SWAXS_PROJECT", str(tmp_path))
+    monkeypatch.setenv("SWAXS_NO_RESUME", "1")
+    q = _load("ql_report_path", "quality/app.py")
+    client = q.app.test_client()
+    client.post("/api/set_project", json={"path": str(tmp_path)})
+    resp = client.get("/api/report")
+    assert resp.status_code == 200
+
+    rep_dir = tmp_path / "1D" / "SAXS" / "Results" / "QualityReports"
+    assert list(rep_dir.glob("quality_report_*.csv")), "no CSV report in Results/QualityReports/"
+    assert list(rep_dir.glob("accepted_*.txt")), "no accepted-list in Results/QualityReports/"
+    assert not (tmp_path / "1D" / "QualityReports").exists(), \
+        "quality reports should no longer be written to the old bare 1D/QualityReports/"

@@ -190,6 +190,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
 .ev-file-stitched  {background:#0a2430;color:#39c5d8}
 .ev-file-subtracted{background:#2e1d00;color:#d29922}
 .ev-analysis       {background:#1a1434;color:#a78bfa}
+.ev-fit            {background:#1a1434;color:#ff8a80}
 .ev-watch          {background:#2b2000;color:#e3b341}
 .ev-ai             {background:#270d3a;color:#c084fc}
 .ev-app-start      {background:#0d2b0d;color:#3fb950}
@@ -368,6 +369,7 @@ const _TYPE_CLASS = {
   'file.stitched':     'ev-file-stitched',
   'file.subtracted':   'ev-file-subtracted',
   'analysis.complete': 'ev-analysis',
+  'fit.complete':      'ev-fit',
   'watch.new_raw':     'ev-watch',
   'ai.hint':           'ev-ai',
   'app.started':       'ev-app-start',
@@ -618,6 +620,12 @@ function _summarize(type, data) {
       return `${data.keyword||'?'} scale=${data.scale} [${data.mode}] → ${_base(data.file_path)}`;
     case 'analysis.complete':
       return `${data.analysis_type} on ${_base(data.file_path)}`;
+    case 'fit.complete':
+      // Analyzer's nanoparticle fit -- a DIFFERENT payload shape from
+      // analysis.complete above (file/size/pdi, not analysis_type/file_path).
+      // Sharing that case for this event used to render "undefined on ?".
+      return `${data.recipe_id||_base(data.file)} — R=${data.size??'?'} nm `
+           + `PDI=${data.pdi??'?'} conf=${data.confidence??'?'}`;
     case 'watch.new_raw':
       return `new raw: ${_base(data.file_path)} [${data.detector}]`;
     case 'ai.hint':

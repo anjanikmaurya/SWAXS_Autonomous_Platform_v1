@@ -105,10 +105,29 @@ f_unc  = 1 / (1 + (rel_err_radius / 0.10)²) 10% size error = borderline
 confidence = clamp(f_fit · f_guin · f_unc, 0, 1)
 ```
 
-The UI colours a result `ok` at ≥ 0.6, `warn` at ≥ 0.3 and `info` below that, and
-`QC_CONF_THRESHOLD = 0.5` — at or below it, a small log-log QC PNG of the profile
-plus fit is rendered into `1D/QualityReports/qc_<stem>.png` and attached to the
-`analysis.complete` event so the notifier can show the curve rather than a number.
+The UI colours a result `ok` at ≥ 0.6, `warn` at ≥ 0.3 and `info` below that.
+`QC_CONF_THRESHOLD = 0.5` no longer gates whether a plot is produced — see
+"Where every fit is recorded" below — it only decides whether that record's
+PNG gets attached to the `fit.complete` event / notifications (suspect
+fits do; confident ones don't, to avoid spamming Slack with routine results).
+
+## Where every fit is recorded
+
+Every analyzed profile — not just low-confidence ones — gets a durable record
+in `1D/SAXS/Results/Fit/`, written by `_write_fit_record()`:
+
+| File | What's in it |
+|---|---|
+| `Fit/fit_<stem>.png` | log-log data + fit curve, with R, D, PDI, phase, distribution and confidence annotated directly on the plot |
+| `Fit/fit_<stem>.dat` | `q_nm-1  I_data  sigma  I_fit` columns, plus a `#`-commented header with the same fit values, the campaign ID/target if one was running, and the source file path |
+
+The point is cross-checking after the beamtime ends: nothing here depends on
+the in-memory `_results` store (bounded to `_MAX_RESULTS`, lost on restart) or
+on re-running the fit. `I_fit` is `NaN` when no form-factor fit succeeded
+(Guinier/Porod-only profiles) — the data columns are still written.
+
+**Never write this into `Conditions/`** — see the campaign-record warning
+above; the same reactor-polling hazard applies to any file written there.
 
 **Always check `confidence` before trusting a size.**
 
@@ -260,7 +279,7 @@ run can always be asked what it was aiming for:
 |---|---|
 | `manifest.json` → `project_meta.campaign` | "what is/was this experiment targeting?" — permanent, cross-app, and the AI assistant reads it |
 | every `analyses` entry's `params` (`target_size`, `tolerance`, `pdi_cap`, `campaign_id`) | "what was **this fit** judged against?" — stays correct even if the operator aborts and restarts with a different target mid-experiment |
-| `1D/SAXS/Conditions/campaign_<id>.json` | a human-readable record per campaign, written on start and rewritten on finish with the outcome (`converged` + the converged condition, `exhausted` + best, or `aborted`) |
+| `1D/SAXS/Results/campaign_<id>.json` | a human-readable record per campaign, written on start and rewritten on finish with the outcome (`converged` + the converged condition, `exhausted` + best, or `aborted`) |
 
 `.swaxs_state/campaign.json` also holds the target, but that file is **resume
 state, not a record**: it is overwritten by the next campaign and expires after
@@ -268,6 +287,13 @@ state, not a record**: it is overwritten by the next campaign and expires after
 
 A resumed campaign keeps its original `campaign_id`, so a restart continues
 writing to the existing record rather than orphaning it and starting another.
+
+**Never write this record into `Conditions/`.** That folder is what the
+reactor polls every cycle for the next recipe (`*.dat`/`*.txt`/`*.json`); an
+early version put the record there and it was rejected as an invalid recipe
+(missing `T_reac`) on every poll, forever, spamming the reactor log — caught
+live in a mock run. Regression test:
+`tests/test_restart_recovery.py::test_the_campaign_record_never_lands_in_conditions`.
 
 ## Where a finished campaign's figures go
 
@@ -307,10 +333,19 @@ Each fitted profile is written to `manifest.json` via `add_analysis_entry` with
 `results` = the summary row, and `quality_score` = the confidence. Entries land
 under the top-level `analyses` key, one uuid per fit.
 
-An `analysis.complete` bus event is published with `recipe_id`, `file`, `size`,
+A `fit.complete` bus event is published with `recipe_id`, `file`, `size`,
 `pdi`, `confidence`, `distribution`, `phase`, `guinier_rg`, `suspect`,
 `plot_png` and `loss`. The reactor's notifier consumes it to report the fit
 against the recipe that produced it.
+
+**Not `analysis.complete`.** The Data Analysis app already owns that name for
+a completely different payload (`analysis_type`, `file_path`, `results`, via
+`EventBusClient.emit_analysis_complete`). Reusing it here used to make the
+hub's event log render this app's events as literally "undefined on ?" — it
+read `data.analysis_type`/`data.file_path`, fields this payload doesn't have —
+and would make the reactor's Slack notifier (which listens for the analyzer's
+exact event name) fire an empty message on every Guinier/Porod/Kratky/peak/
+model result the Data Analysis app produces. Found live from the hub log.
 
 ## Recipe correlation — tying a profile back to its conditions
 `src/optimizer/io.py`:

@@ -552,7 +552,7 @@ def add_quality_entry(
 
 
 def add_reactor_run(manifest: dict, *, record: dict) -> None:
-    """Record a Flow Synthesis reactor run in manifest["reactor"]["runs"].
+    """Record an Autonomous Synthesis reactor run in manifest["reactor"]["runs"].
 
     ``record`` is the controller's run record (recipe_id, recipe, setpoints,
     started/ended, duration_s, reason, status).

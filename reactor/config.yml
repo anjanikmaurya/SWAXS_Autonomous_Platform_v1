@@ -1,4 +1,4 @@
-# Flow Synthesis — reactor / pump-control configuration
+# Autonomous Synthesis — reactor / pump-control configuration
 # ─────────────────────────────────────────────────────────────────────────────
 # Edit these values to match your rig.  All flow rates are in µL/min.
 # The app reads this file on startup; nothing here requires code changes.

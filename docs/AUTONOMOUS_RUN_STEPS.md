@@ -28,7 +28,7 @@ optimizer campaign do not. If any one is off, the loop stalls at that stage.
 2. **Pick the project folder** in the hub (the experiment root that holds `2D/`,
    `poni/`, `config.yml`). This pushes the folder to every app.
 3. Start each app from the hub: **Calibration, Reduction, Visualisation & Average, Background,
-   Quality, Analyzer, Flow Synthesis (reactor)** (Assistant optional).
+   Quality, Analyzer, Autonomous Synthesis (reactor)** (Assistant optional).
    Calibration (:5101) is what generates the `.poni` files step 2 checks for —
    start it first if the calibration has not been done yet.
 4. Open each app and confirm it shows the right folder. The hub injects
@@ -48,7 +48,7 @@ optimizer campaign do not. If any one is off, the loop stalls at that stage.
    from the other apps.
 2. `poni/` has the calibration `.poni` + mask files; `config.yml` names them.
 
-## 3. Reactor / beamline setup (Flow Synthesis app, :5108)
+## 3. Reactor / beamline setup (Autonomous Synthesis app, :5108)
 
 1. Backend pill → **Real** (covers pumps + beamline).
 2. Confirm the log shows `📁 SPEC data_dir → /msd_data/…` matching where SPEC saves
