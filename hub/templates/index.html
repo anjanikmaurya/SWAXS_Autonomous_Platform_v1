@@ -101,6 +101,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
 }
 .section-hint b{color:var(--text);font-weight:600}
 .section-hint .arrow{color:#484f58;margin:0 2px}
+.flow-icon{width:15px;height:15px;border-radius:4px;object-fit:cover;vertical-align:-3px;margin-right:2px}
 .section-hint code{
   background:#21262d;border:1px solid var(--border);border-radius:4px;
   padding:1px 5px;font-size:12.5px;
@@ -294,21 +295,11 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,
     <div class="section-hint">
       <div class="flow-row">
         <span class="flow-badge flow-standard">STANDARD</span>
-        New here? 👋 Pick your project folder (top-right), then work through the
-        apps in order:
-        <b>🎯 Calibration</b><span class="arrow">→</span><b>🌀 Reduction</b><span class="arrow">→</span><b>📊 Visualisation &amp; Average</b><span class="arrow">→</span><b>➖ Background</b><span class="arrow">→</span><b>📈 Analysis</b>.
-        <b>🤖 Tassone Group</b> can help at any step — click <b>▶ Start</b> on a
-        card, then <b>↗ Open</b>.
+        Pick your project folder, then work through: <b>🎯 Calibration</b><span class="arrow">→</span><b>🌀 Reduction</b><span class="arrow">→</span><b><img src="/static/average_icon.png" class="flow-icon" alt=""> Visualisation &amp; Average</b><span class="arrow">→</span><b><img src="/static/background_icon.png" class="flow-icon" alt=""> Subtraction</b><span class="arrow">→</span><b><img src="/static/analysis_icon.png" class="flow-icon" alt=""> Analysis</b>. <b><img src="/static/saxs_smiley.png" class="flow-icon" alt=""> Tassone Group</b> can help any time.
       </div>
       <div class="flow-row flow-auto">
         <span class="flow-badge flow-autonomous">AUTONOMOUS</span>
-        Running unattended, e.g. overnight? 🌙 The reactor and optimiser close
-        the loop for you, on top of the same pipeline above:
-        <b>🔁 Autonomous Synthesis</b> collects a sample<span class="arrow">→</span>the
-        pipeline reduces it automatically<span class="arrow">→</span><b>🧭 Auto-Fit &amp; Optimiser</b>
-        fits the result and proposes what to try next<span class="arrow">→</span>back
-        to <b>🔁 Autonomous Synthesis</b>. Full setup in
-        <code>docs/AUTONOMOUS_RUN_STEPS.md</code>.
+        The reactor and optimiser close the loop: <b>🔁 Autonomous Synthesis</b> collects a sample<span class="arrow">→</span>pipeline reduces it<span class="arrow">→</span><b>🧭 Auto-Fit &amp; Optimiser</b> proposes what's next<span class="arrow">→</span>back to <b>🔁 Autonomous Synthesis</b>.
       </div>
     </div>
 
