@@ -36,9 +36,9 @@ python -m venv venv && source venv/bin/activate        # Windows: venv\Scripts\a
 pip install -r requirements-core.txt
 ```
 
-(Use `requirements-core.txt`, not `requirements.txt` — see
-[QUICKSTART.md](../QUICKSTART.md). `requirements.txt` is a `pip freeze` of a Mac
-and fails to install on Windows.)
+(Use `requirements-core.txt` — see [QUICKSTART.md](../QUICKSTART.md). There is
+no `requirements.txt`; it was a `pip freeze` of a Mac that failed to install on
+Windows and was removed.)
 
 **Extra packages for REAL hardware** (not in `requirements-core.txt`, imported
 lazily so Mock mode works without them):

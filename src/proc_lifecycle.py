@@ -37,7 +37,7 @@ import sys
 import time
 from pathlib import Path
 
-try:                                    # declared in requirements.txt
+try:                                    # declared in requirements-core.txt
     import psutil
 except Exception:                       # pragma: no cover - degraded mode
     psutil = None

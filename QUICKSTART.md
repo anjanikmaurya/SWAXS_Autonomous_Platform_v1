@@ -17,12 +17,14 @@ Pick your section:
 much you need for a multi-day run. **Internet:** needed for the install, not
 to run.
 
-> **One rule before you start.** Install from `requirements-core.txt`, **not**
-> `requirements.txt`. The latter is an old snapshot of the original developer's
-> Mac: it carries ~1 GB of packages this platform never uses (PyQt6, silx,
-> pyopencl, torch) and pins exact versions that have no Windows build for older
-> Pythons — pip then tries to compile numpy from source and fails. That is the
-> single most common reason an install goes wrong.
+> **One rule before you start.** Install from `requirements-core.txt`. There is
+> no requirements.txt in this repo — an old snapshot of the original
+> developer's Mac used to sit there, carrying ~1 GB of packages this platform
+> never uses (PyQt6, silx, pyopencl, torch) and pinning exact versions with no
+> Windows build for older Pythons, so pip tried to compile numpy from source
+> and failed. That was the single most common reason an install went wrong, so
+> the file was removed rather than just discouraged. If you have an old clone
+> with one still sitting in it, delete it — nothing here reads it.
 
 ---
 
@@ -422,6 +424,7 @@ changed — project folders, `config.yml` and `manifest.json` are all unaffected
 | **Tassone Group Assistant** | **Tassone Group** | shorter |
 | `start_platform.ps1` **and** `.bat` | **`start_platform.bat` only** | a `.bat` runs from PowerShell too and needs no execution-policy change, so the second launcher was upkeep for no gain |
 | **Flow Synthesis** | **Autonomous Synthesis** | the reactor is a fixture — flow rate is one setting, not the point; the point is that it runs the loop unattended |
+| `requirements.txt` present | **removed entirely** | it was a `pip freeze` of one Mac that made numpy try to compile from source on Windows — the single most common install failure |
 
 The app order also now follows the pipeline everywhere — hub cards, launcher
 banner and docs all read calibration → reduction → average → background →
@@ -434,6 +437,9 @@ What to do:
 - **`git pull`, then just start it.** No reinstall, no config edit.
 - **Windows:** run `.\start_platform.bat` even in PowerShell. If you had a
   shortcut to `start_platform.ps1`, repoint it — that file is gone.
+- If your clone still has a requirements.txt, delete it (`rm requirements.txt`)
+  — it's gone from the repo and installing from a leftover local copy is
+  exactly the Windows-numpy-compile failure this removal fixes.
 - Old `logs/viewer.log` and `.swaxs_state/viewer_monitor.json` are dead files;
   the app writes `average.log` and `average_monitor.json` now. Deleting the old
   ones is safe but not required.
@@ -463,7 +469,8 @@ start with `(venv)` or `(swaxs)`. Activate it (see
 pip is trying to **compile** a package because no prebuilt version matched your
 Python. Two causes:
 
-1. **You used `requirements.txt`.** Use `requirements-core.txt`.
+1. **You installed a leftover requirements.txt from an old clone** (it was
+   removed from the repo — delete your local copy). Use `requirements-core.txt`.
 2. **Your Python is 3.9 or older.** Check with `python --version`. Install 3.11
    or 3.12, delete the `venv` folder, and redo steps 3–4.
 
@@ -527,7 +534,7 @@ Check in order:
 2. **Subtraction** — the log names any sample waiting for its blank.
 3. **Folders** — each app must watch the previous stage's output folder.
 
-### numpy / chromadb dependency conflict (only if you used `requirements.txt`)
+### numpy / chromadb dependency conflict (only if you have a leftover requirements.txt)
 
 **Symptom:**
 
@@ -537,8 +544,9 @@ because these package versions have conflicting dependencies.
     chromadb 0.5.3 depends on numpy<2.0.0 and >=1.22.5
 ```
 
-**Cause:** old `chromadb` caps `numpy<2`, but `requirements.txt` pins
-`numpy==2.2.6`.
+**Cause:** old `chromadb` caps `numpy<2`, but the removed requirements.txt
+pinned `numpy==2.2.6` — a leftover local copy from before it was deleted will
+still hit this.
 
 **Fix:** `chromadb` is an *optional* AI-assistant dependency and is not in
 `requirements-core.txt` at all, so the conflict disappears. If you want the
@@ -580,7 +588,8 @@ python -m pip list
 
 ## What not to do
 
-- **Don't** `pip install -r requirements.txt` — see the note at the top.
+- **Don't** `pip install -r requirements.txt` from a leftover copy in an old
+  clone — it's gone from the repo; see the note at the top.
 - **Don't** install into conda `base`. Make a named environment.
 - **Don't** commit your `.env` file. It holds tokens and is git-ignored for that
   reason.

@@ -46,13 +46,15 @@ If a command fails, the exact error is almost certainly in
 [QUICKSTART.md](QUICKSTART.md#troubleshooting).
 
 > **⚠ One thing that matters more than anything else on this page:**
-> install from **`requirements-core.txt`**, never `requirements.txt`.
-> `requirements.txt` is an old snapshot of one developer's Mac — it drags in ~1 GB
-> the platform never uses and pins versions with no Windows build, so pip tries to
-> *compile* numpy and dies with *"Microsoft Visual C++ 14.0 or greater is
-> required"*. `requirements-core.txt` is 16 packages that install from prebuilt
-> wheels everywhere, with no compiler. This is what broke the first Windows
-> install, and it is the one line people get wrong.
+> install from **`requirements-core.txt`**. There is no `requirements.txt` —
+> it used to be an old snapshot of one developer's Mac that dragged in ~1 GB
+> the platform never uses and pinned versions with no Windows build, so pip
+> tried to *compile* numpy and died with *"Microsoft Visual C++ 14.0 or
+> greater is required"*. It broke the first Windows install badly enough that
+> it was removed outright (September 2026) rather than just discouraged — if
+> you have an old clone with one still in it, delete it, don't install it.
+> `requirements-core.txt` is 16 packages that install from prebuilt wheels
+> everywhere, with no compiler.
 
 ### ① Get Python and git
 
@@ -301,7 +303,7 @@ Its domain knowledge lives in `ai_knowledge/` and the per-app `knowledge.md` fil
 | An app card shows "Starting…" forever, then "Not responding" | Read `logs/<app>.log` (the previous run is kept as `logs/<app>.log.1`). Usually a bad path in `config.yml` or a missing `.poni`. |
 | An app card shows "⚠ CRASHED" | The card names the reason and the last log lines. Fix it, then press ▶ Start again. |
 | `ModuleNotFoundError: No module named 'flask'` | The virtual environment isn't activated — your prompt should show `(venv)` or `(swaxs)`. See [Starting again later](#starting-again-later). |
-| Red `Microsoft Visual C++ 14.0 or greater is required` on Windows | You used `requirements.txt`, or your Python is 3.9 or older. Use `requirements-core.txt` and Python 3.11/3.12. You do **not** need Visual Studio. |
+| Red `Microsoft Visual C++ 14.0 or greater is required` on Windows | You installed a leftover `requirements.txt` from an old clone (delete it — it's gone from the repo), or your Python is 3.9 or older. Use `requirements-core.txt` and Python 3.11/3.12. You do **not** need Visual Studio. |
 | `... running scripts is disabled` (activating the venv) | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`. The launcher itself is a `.bat` and never needs this. |
 | Pipeline runs but no averaged files appear | Frames/batch is larger than the frames one acquisition delivers, so a batch can never complete. The Visualisation & Average log says so — set frames/batch to match `spec.frames`. |
 

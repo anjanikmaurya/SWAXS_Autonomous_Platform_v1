@@ -512,15 +512,16 @@ not on this roadmap.
 
 ### 7. Dependencies added for v2
 
-Live versions, from `requirements.txt` / `requirements-core.txt` /
-`requirements-ai.txt`:
+Live versions, from `requirements-core.txt` / `requirements-ai.txt` (the old
+`requirements.txt` pip-freeze this used to also cite was removed entirely in
+September 2026 — see QUICKSTART.md):
 
 ```
 flask-sock>=0.7            # WebSocket event bus (hub :5100/ws)
 simple-websocket>=1.0      # flask-sock's transport
 pyyaml>=6.0                # config.yml, apps.yml
 anthropic>=0.40            # Claude API client
-chromadb>=0.5              # vector store (pinned 0.5.23 in requirements.txt)
+chromadb>=0.5              # vector store
 sentence-transformers>=3.0 # local embeddings — PULLS TORCH (~2 GB)
 ```
 

@@ -7,8 +7,10 @@ IMPORTANT: Run Python from the activated virtual environment (`venv/`), with pla
 `python`. Do **not** use `uv run` — there is no `pyproject.toml` or `uv.lock` here,
 and the hub launches every sub-app with `sys.executable`, so the interpreter that
 starts the hub is the one that must have the dependencies installed.
-IMPORTANT: Install with `pip install -r requirements-core.txt`, never
-`requirements.txt` (a `pip freeze` of one Mac; it fails to install on Windows).
+IMPORTANT: Install with `pip install -r requirements-core.txt`. There is no
+`requirements.txt` — it was a `pip freeze` of one Mac that failed to install
+on Windows and was removed entirely (September 2026); if an old clone still
+has one lying around, delete it rather than install it.
 IMPORTANT: VSCode may show false diagnostic warnings for the `periodictable` (pt) library — ignore them, they are not real errors.
 
 ---
@@ -88,7 +90,6 @@ SWAXS_Autonomous_Platform_v1/
 ├── requirements-core.txt   # What you install (16 packages, all prebuilt wheels)
 ├── requirements-hardware.txt   # pyserial, pyepics — real rig only
 ├── requirements-ai.txt     # anthropic, chromadb, … — AI assistant extras
-├── requirements.txt        # DEPRECATED pip freeze; do not install
 ├── check_imports.py · conftest.py · pytest.ini
 ├── tests/ · tools/ · docs/ · ai_knowledge/ · logs/
 └── CLAUDE.md               # This file

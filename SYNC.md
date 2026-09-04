@@ -53,7 +53,7 @@ After a fresh clone or pull on a new machine:
 ```bash
 python -m venv venv                   # recreate the environment
 source venv/bin/activate              # Windows: venv\Scripts\Activate.ps1
-pip install -r requirements-core.txt  # NOT requirements.txt - see QUICKSTART.md
+pip install -r requirements-core.txt  # there is no requirements.txt - see QUICKSTART.md
 # AI token: configure it once in ~/.claude/settings.json (see SECURITY.md) —
 # never in .env
 ```
