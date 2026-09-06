@@ -349,6 +349,14 @@ class KnowledgeBase:
             from chromadb.utils.embedding_functions import (
                 SentenceTransformerEmbeddingFunction,
             )
+            # Defensive cap: keep the embedding model from grabbing every core and
+            # starving the other apps (the OMP/MKL env in assistant/app.py is the
+            # primary guard; this covers callers that import the KB directly).
+            try:
+                import os as _os, torch as _torch
+                _torch.set_num_threads(max(1, int(_os.environ.get("OMP_NUM_THREADS", "2"))))
+            except Exception:
+                pass
             self._client = chromadb.PersistentClient(path=str(self._db_path))
             self._ef     = SentenceTransformerEmbeddingFunction(
                 model_name=self._em_model

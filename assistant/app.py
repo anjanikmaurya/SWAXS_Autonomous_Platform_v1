@@ -65,6 +65,20 @@ def _load_dotenv(path: Path) -> None:
 
 _load_dotenv(_ROOT / ".env")
 
+# ── Cap this process's CPU threads BEFORE torch/sentence-transformers load ────
+# The knowledge base embeds with sentence-transformers (torch), which by default
+# grabs EVERY CPU core via OpenMP/BLAS. On a laptop also running reduction /
+# average / background / analyzer / reactor, that burst (indexing knowledge.md at
+# startup, then a spike per chat query) starves those other processes, so they
+# miss the hub's 1 s health probe and their cards flash "not responding". Capping
+# the ASSISTANT's math threads keeps cores free for the pipeline (whose own
+# processes are uncapped). Must be set before torch is imported (KB is lazy, so
+# this runs in time). Override by exporting a higher value if you want.
+for _var in ("OMP_NUM_THREADS", "MKL_NUM_THREADS",
+             "OPENBLAS_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
+    os.environ.setdefault(_var, "2")
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+
 from src.ai.assistant import SWAXSAssistant   # noqa: E402
 from src.ai.hints import HintChecker          # noqa: E402
 
