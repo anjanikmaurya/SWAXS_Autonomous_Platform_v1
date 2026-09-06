@@ -69,7 +69,13 @@ def frame_stats(data):
     return {
         "min": int(finite.min()) if finite.size else 0,
         "max": int(finite.max()) if finite.size else 0,
-        "total_counts": int(finite.sum()) if finite.size else 0,
+        # Force a 64-bit accumulator for integer frames: numpy's default int
+        # accumulator is the platform long (32-bit on Windows), so a bright ~1 Mpx
+        # frame overflows/wraps total_counts there. Float frames already use float64.
+        "total_counts": (
+            int(finite.sum(dtype=np.int64))
+            if np.issubdtype(finite.dtype, np.integer) else int(finite.sum())
+        ) if finite.size else 0,
         "hot_pixels": int((finite > 1e6).sum()),
         "shape": list(d.shape),
     }

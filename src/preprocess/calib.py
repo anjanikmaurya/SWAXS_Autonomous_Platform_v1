@@ -16,6 +16,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -86,20 +87,28 @@ def launch_calib2(cbf_path, calibrant, energy_keV, pixel_um=None,
     env.pop("MPLBACKEND", None)          # the app forces Agg; the GUI must not inherit it
     env.pop("QT_QPA_PLATFORM", None)     # never inherit "offscreen"
 
+    # stderr goes to a temp file, NOT an unread PIPE: pyFAI-calib2 is a chatty Qt
+    # GUI that lives for the whole calibration session, and an undrained PIPE fills
+    # its ~64 KB OS buffer and freezes the child mid-session. A file never blocks,
+    # and the immediate-crash path below can still read it for diagnostics.
+    err_log = tempfile.NamedTemporaryFile(prefix="calib2_", suffix=".log", delete=False)
     try:
         proc = subprocess.Popen(cmd, cwd=str(workdir) if workdir else None, env=env,
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                                stdout=subprocess.DEVNULL, stderr=err_log)
     except FileNotFoundError:
+        err_log.close()
         return False, ("pyFAI-calib2 not found. Run the command below in a terminal "
                        "with the platform env active."), cmd_str
     except Exception as exc:
+        err_log.close()
         return False, f"could not launch pyFAI-calib2: {exc}", cmd_str
 
     time.sleep(1.5)                       # catch an immediate crash
     if proc.poll() is not None:
         err = ""
         try:
-            err = (proc.stderr.read() or b"").decode(errors="replace").strip()
+            err_log.flush()
+            err = Path(err_log.name).read_text(errors="replace").strip()
         except Exception:
             pass
         tail = " · ".join(err.splitlines()[-3:])[:400] if err else "no stderr"

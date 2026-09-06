@@ -138,6 +138,11 @@ def write_pdi_metadata(raw_path: Path, ctr: dict, motors: dict | None = None) ->
     raw_path = Path(raw_path)
     out = raw_path.with_suffix(raw_path.suffix + ".pdi")
     motors = motors or {"TwoTheta": 0.0, "Theta": 0.0}
+    # Stamp `simulated=1` like write_csv_metadata does, so PDI-mode mock frames
+    # (real-beamline default format) carry the synthetic marker downstream —
+    # otherwise mock and real results are indistinguishable and mock data can
+    # silently train the optimizer as if real. Parses as a float counter.
+    ctr = {**ctr, "simulated": 1}
     ctr_s = "\n".join(f"{k}={v}" for k, v in ctr.items())
     mot_s = "\n".join(f"{k}={v}" for k, v in motors.items())
     out.write_text(

@@ -14,6 +14,7 @@ Role handling:
 """
 from __future__ import annotations
 
+import hashlib
 import threading
 from pathlib import Path
 
@@ -279,7 +280,13 @@ class SimulatedCollector:
         is_bkg = str(role).lower().startswith("b")
         truth = truth_from_recipe(self._recipe or {}, self.cfg["truth"],
                                   seed_key=recipe_id or prefix)
-        rng = np.random.default_rng(abs(hash((recipe_id or prefix, role))) % 2**32)
+        # Deterministic seed: Python's str hash is per-process randomized (no
+        # PYTHONHASHSEED here), so hash(...) gave a different frame realization
+        # each restart — breaking the "same recipe → same frames" reproducibility
+        # the truth R/PDI already guarantees (sha256-seeded). Match that scheme.
+        _seed_key = f"{recipe_id or prefix}|{role}".encode()
+        rng = np.random.default_rng(
+            int.from_bytes(hashlib.sha256(_seed_key).digest()[:4], "big"))
 
         if is_bkg:
             self._log(f"simulator: background acquisition '{prefix}' "
