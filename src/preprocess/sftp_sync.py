@@ -256,8 +256,16 @@ class SftpSync(threading.Thread):
                 self._prog["current"].pop(name, None)
         return size
 
-    def _cycle(self, ssh, sftp, verbose: bool):
-        """One full pass. Returns (total, copied, skipped, failed)."""
+    def _cycle(self, ssh, sftp, verbose: bool, ex):
+        """One full pass over a caller-owned executor. Returns
+        (total, copied, skipped, failed).
+
+        The executor is owned by the CALLER (one for the whole watch loop, not one
+        per cycle): a fresh pool each cycle meant fresh worker threads, each of
+        which opened its own SFTP channel via _channel() and never closed it, so a
+        multi-day watch leaked ~workers channels per file-bearing cycle on the one
+        transport until paramiko refused new channels ('Secsh channel open failed')
+        and the live copy silently stalled."""
         self._prog_phase("scanning")
         files = self._list_remote(sftp, self.cfg["remote_dir"])
         total = len(files)
@@ -286,26 +294,25 @@ class SftpSync(threading.Thread):
         nbytes = 0
         t0 = time.time()
         done = 0
-        with ThreadPoolExecutor(max_workers=self.workers) as ex:
-            futs = {ex.submit(self._fetch, ssh, rp, size): (rp, mtime, size)
-                    for rp, mtime, size in todo}
-            for fut in as_completed(futs):
-                rp, mtime, size = futs[fut]
-                done += 1
-                if self._stop.is_set():
-                    fut.cancel(); continue
-                fn = Path(rp).name
-                try:
-                    nbytes += fut.result()
-                    copied += 1
-                    self.seen[rp] = mtime
-                    self.log(f"[{done}/{len(todo)}] saved {fn}", "OK")
-                except Exception as exc:
-                    failed += 1
-                    self.log(f"[{done}/{len(todo)}] failed {fn}: {exc}", "ERR")
-                with self._plock:
-                    self._prog["files_done"] = done
-                    self._prog["failed"] = failed
+        futs = {ex.submit(self._fetch, ssh, rp, size): (rp, mtime, size)
+                for rp, mtime, size in todo}
+        for fut in as_completed(futs):
+            rp, mtime, size = futs[fut]
+            done += 1
+            if self._stop.is_set():
+                fut.cancel(); continue
+            fn = Path(rp).name
+            try:
+                nbytes += fut.result()
+                copied += 1
+                self.seen[rp] = mtime
+                self.log(f"[{done}/{len(todo)}] saved {fn}", "OK")
+            except Exception as exc:
+                failed += 1
+                self.log(f"[{done}/{len(todo)}] failed {fn}: {exc}", "ERR")
+            with self._plock:
+                self._prog["files_done"] = done
+                self._prog["failed"] = failed
 
         self._prog_phase("idle")
         dt = time.time() - t0
@@ -323,7 +330,8 @@ class SftpSync(threading.Thread):
         try:
             sftp, ssh = _connect(self.cfg)
             self._status("Copying…", "warn")
-            total, copied, skipped, failed = self._cycle(ssh, sftp, verbose=True)
+            with ThreadPoolExecutor(max_workers=self.workers) as ex:
+                total, copied, skipped, failed = self._cycle(ssh, sftp, True, ex)
             if self._stop.is_set():
                 self.log(f"cancelled — {copied} file(s) copied", "WARN")
                 self._status("Cancelled", "muted")
@@ -344,25 +352,32 @@ class SftpSync(threading.Thread):
         self.log(f"watch mode — polling every {interval}s · {self.workers} parallel transfers")
         self._status("Connecting…", "warn")
         sftp = ssh = None
-        while not self._stop.is_set():
-            try:
-                if sftp is None:                            # (re)connect only when needed
-                    sftp, ssh = _connect(self.cfg)
-                    self._status("Connected — watching for new files", "ok")
-                _, copied, _, failed = self._cycle(ssh, sftp, verbose=False)
-                if not copied:
-                    self.log("no new files this cycle")
-            except Exception as exc:
-                self.log(f"connection error: {exc}", "ERR")
-                self._status("Connection failed — retrying…", "err")
-                self._close(sftp, ssh)
-                sftp = ssh = None                           # force a fresh connect
-                self._tl = threading.local()                # drop stale worker channels
-            for _ in range(interval * 2):                   # early-exit wait
-                if self._stop.is_set():
-                    break
-                time.sleep(0.5)
-        self._close(sftp, ssh)
+        # ONE executor for the whole watch loop: its worker threads (and the SFTP
+        # channel each opens via _channel) persist and are reused every cycle,
+        # instead of a fresh pool per cycle that leaked channels on the transport.
+        ex = ThreadPoolExecutor(max_workers=self.workers)
+        try:
+            while not self._stop.is_set():
+                try:
+                    if sftp is None:                        # (re)connect only when needed
+                        sftp, ssh = _connect(self.cfg)
+                        self._status("Connected — watching for new files", "ok")
+                    _, copied, _, failed = self._cycle(ssh, sftp, False, ex)
+                    if not copied:
+                        self.log("no new files this cycle")
+                except Exception as exc:
+                    self.log(f"connection error: {exc}", "ERR")
+                    self._status("Connection failed — retrying…", "err")
+                    self._close(sftp, ssh)                  # closing the transport kills its channels
+                    sftp = ssh = None                       # force a fresh connect
+                    self._tl = threading.local()            # workers rebuild channels on the new transport
+                for _ in range(interval * 2):               # early-exit wait
+                    if self._stop.is_set():
+                        break
+                    time.sleep(0.5)
+        finally:
+            ex.shutdown(wait=True)                          # join workers before dropping channels
+            self._close(sftp, ssh)
         self.log("monitor stopped")
         self._status("Stopped", "muted")
 

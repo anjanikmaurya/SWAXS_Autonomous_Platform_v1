@@ -156,3 +156,29 @@ def test_save_config_persists_mode(tmp_path, monkeypatch):
     monkeypatch.setattr(ss, "CONFIG_FILE", tmp_path / "c.json")
     ss.save_config({"host": "h", "mode": "once", "password": "p"})
     assert ss.load_config()["mode"] == "once"
+
+
+# ── regression: watch mode reuses ONE executor (no per-cycle channel leak) ────
+def test_watch_reuses_one_executor_across_cycles(monkeypatch):
+    """A fresh ThreadPoolExecutor per cycle spawned fresh worker threads, each of
+    which opened its own SFTP channel via _channel() and never closed it — a
+    multi-day watch leaked channels on the transport until paramiko refused new
+    ones. The watch loop must own ONE executor for all cycles."""
+    s = ss.SftpSync({"remote_dir": "/r", "local_dir": "/tmp", "interval": 1})
+    monkeypatch.setattr(ss, "_connect", lambda cfg: ("SFTP", "SSH"))
+    monkeypatch.setattr(ss.time, "sleep", lambda *_a, **_k: None)   # no real waiting
+
+    seen_executors = []
+
+    def _fake_cycle(self, ssh, sftp, verbose, ex):
+        seen_executors.append(id(ex))
+        if len(seen_executors) >= 3:
+            self._stop.set()               # end the loop after a few cycles
+        return (0, 0, 0, 0)
+
+    monkeypatch.setattr(ss.SftpSync, "_cycle", _fake_cycle)
+    monkeypatch.setattr(ss.SftpSync, "_close", staticmethod(lambda sftp, ssh: None))
+
+    s._run_watch()
+    assert len(seen_executors) >= 3
+    assert len(set(seen_executors)) == 1, "a new executor was created per cycle"
