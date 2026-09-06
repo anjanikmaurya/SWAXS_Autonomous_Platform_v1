@@ -184,28 +184,42 @@ _RUN_RE = re.compile(r"(?:^|[^A-Za-z])Run(\d+)_", re.IGNORECASE)
 
 
 def _next_run_no() -> int:
-    """The next Target-Run number = 1 + the highest Run<n> already on disk.
+    """The next Target-Run number = 1 + the highest Run<n> ALREADY ON DISK.
 
-    Scans durable artifacts (condition filenames, and the run_no recorded in each
-    Results/campaign_*.json) so the count survives a restart without persisting a
-    counter. Returns 1 when nothing is found."""
+    Overwrite safety is the whole point: after a restart, RunN must never reuse a
+    number whose data still exists, or a new run would overwrite it (same filenames).
+    So we take the max over EVERY durable place a RunN can appear, not just the
+    campaign bookkeeping (which could be cleared or moved):
+
+      * the run_no recorded in each Results/campaign_*.json (explicit + survives);
+      * any RunN_-prefixed file anywhere under the project's 2D/ and 1D/ trees —
+        the raw frames, the reduced/averaged/subtracted/analysed outputs, and the
+        Conditions files (incl. those the reactor moved into a processed/ subfolder).
+
+    Derived from disk, so it needs no stored counter and cannot reset to 1 while
+    RunN data is present. Returns 1 only on a genuinely empty project."""
     hi = 0
-    try:
-        for p in _resolve_cond().glob("Run*_*"):
-            m = _RUN_RE.search(p.name)
-            if m:
-                hi = max(hi, int(m.group(1)))
-    except Exception:
-        pass
+    # 1) explicit run_no in the durable campaign records
     try:
         for rec in _resolve_results().glob("campaign_*.json"):
             try:
-                n = int(json.loads(rec.read_text(encoding="utf-8")).get("run_no") or 0)
-                hi = max(hi, n)
+                hi = max(hi, int(json.loads(rec.read_text(encoding="utf-8")).get("run_no") or 0))
             except Exception:
                 continue
     except Exception:
         pass
+    # 2) any RunN_-tagged artifact in the actual data trees — this is what
+    #    guarantees we never step on data that exists but lost its record.
+    root = Path(_project_root) if _project_root else Path.cwd()
+    for base in (root / "2D", root / "1D"):
+        try:
+            if base.is_dir():
+                for p in base.rglob("Run*"):
+                    m = _RUN_RE.search(p.name)
+                    if m:
+                        hi = max(hi, int(m.group(1)))
+        except Exception:
+            continue
     return hi + 1
 
 

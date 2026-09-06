@@ -82,3 +82,45 @@ def test_run_tag_digits_only_never_aliases_a_role_token():
     # inside the tag. (A word tag like "Runwater" would — hence digits-only.)
     rid, role = split_role("Run12_r001_background_0001_WAXS")
     assert rid == "Run12_r001" and role == "background"
+
+
+# ── overwrite safety: a restart must NOT reuse a run number whose data exists ──
+def test_next_run_no_continues_after_a_restart_from_campaign_records(tmp_path, monkeypatch):
+    """The scenario the operator asked about: run 3 target campaigns, close the
+    whole pipeline, restart. The next run must be Run4 (never Run1), so new
+    filenames can't overwrite the earlier runs' data."""
+    monkeypatch.setenv("SWAXS_PROJECT", str(tmp_path))
+    import analyzer.app as az
+    az._project_root = str(tmp_path)
+    res = az._resolve_results(); res.mkdir(parents=True, exist_ok=True)
+    import json as _json
+    for n in (1, 2, 3):
+        (res / f"campaign_c{n}.json").write_text(_json.dumps({"run_no": n}))
+    assert az._next_run_no() == 4
+
+
+def test_next_run_no_derives_from_on_disk_data_when_records_are_gone(tmp_path, monkeypatch):
+    """Even if the durable campaign records are cleared/moved, an existing RunN
+    data file (2D raw, a reduced/subtracted .dat, or a consumed condition file the
+    reactor moved into processed/) must still bump the number — no overwrite."""
+    monkeypatch.setenv("SWAXS_PROJECT", str(tmp_path))
+    import analyzer.app as az
+    az._project_root = str(tmp_path)
+
+    (tmp_path / "2D" / "SAXS").mkdir(parents=True)
+    (tmp_path / "2D" / "SAXS" / "Run3_r002_sample_x_scan1_0000.raw").write_bytes(b"x")
+    assert az._next_run_no() == 4, "on-disk 2D data for Run3 was ignored"
+
+    # a consumed condition moved into Conditions/processed/ and a subtracted output
+    (tmp_path / "1D" / "SAXS" / "Conditions" / "processed").mkdir(parents=True)
+    (tmp_path / "1D" / "SAXS" / "Conditions" / "processed" / "Run7_r001.txt").write_text("x")
+    (tmp_path / "1D" / "SAXS" / "Subtracted" / "Good").mkdir(parents=True)
+    (tmp_path / "1D" / "SAXS" / "Subtracted" / "Good" / "Run7_r001_sample_0000_SAXS_sub.dat").write_text("# q\n")
+    assert az._next_run_no() == 8
+
+
+def test_next_run_no_is_one_on_an_empty_project(tmp_path, monkeypatch):
+    monkeypatch.setenv("SWAXS_PROJECT", str(tmp_path))
+    import analyzer.app as az
+    az._project_root = str(tmp_path)
+    assert az._next_run_no() == 1
