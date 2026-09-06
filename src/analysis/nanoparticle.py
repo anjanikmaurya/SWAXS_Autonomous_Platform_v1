@@ -23,7 +23,7 @@ from scipy.signal import find_peaks
 from scipy.ndimage import uniform_filter1d
 from scipy.stats import gamma, lognorm
 
-_trapezoid = getattr(np, "trapezoid", getattr(np, "trapz"))
+_trapezoid = np.trapezoid if hasattr(np, "trapezoid") else np.trapz  # np.trapz removed in NumPy 2.0
 
 # Expected structure-factor peak-position ratios (q/q1) for ordered mesophases.
 _PHASE_RATIOS = {

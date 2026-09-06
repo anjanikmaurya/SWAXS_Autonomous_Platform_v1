@@ -34,7 +34,15 @@ pyyaml>=6.0                # config.yml, apps.yml
 
 # ── Detector I/O and azimuthal integration ───────────────────────────────────
 fabio>=2024.9              # .raw / .edf / .cbf detector images
-pyfai>=2024.9              # calibration (.poni) + 2D→1D integration
+# UPPER-BOUNDED to the 2024.x series (a bounded range, not an exact pin, so pip still
+# picks a wheel — see test_install_requirements). pyFAI 2025.x/2026.x changed 2D→1D
+# integration numerics (breaks the golden-reference regression at rtol=1e-6) AND shipped a
+# broken f-string in the 1D ASCII writer, so reduced .dat files lose the "q_nm^-1" unit-label
+# line (a provenance regression). 2024.9.0 is what the golden fixtures were generated with
+# and installs cleanly on numpy 2.x. Before raising the cap: regenerate
+# tests/fixtures/demo_pipeline/golden/ and confirm the .dat column header still carries the
+# unit. (September 2026)
+pyfai>=2024.9,<2025       # calibration (.poni) + 2D→1D integration
 xraydb>=4.5                # X-ray absorption (transmission → sample thickness)
 
 # ── Platform plumbing ────────────────────────────────────────────────────────
