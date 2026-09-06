@@ -1,31 +1,32 @@
 """
-tests/test_retrieval_eval.py — minimal retrieval-quality eval (OPT-IN)
-=====================================================================
+tests/test_retrieval_eval.py — retrieval-quality eval (OPT-IN, ADVERSARIAL)
+===========================================================================
 A measured baseline for the RAG collections the assistant STILL semantically
 searches: ``literature``, ``user_papers`` and ``beamline``. (The ``apps``
 collection is no longer retrieved — its knowledge.md is injected directly into
-the system prompt; see src/ai/assistant.py::_resolve_app_knowledge — so it is
-deliberately NOT part of this eval.)
+the system prompt; see src/ai/assistant.py::_resolve_app_knowledge.)
 
-Why this exists
+Why ADVERSARIAL
 ---------------
-The chunker fix earlier in this project was validated by chunk lengths *looking*
-healthier, not by measured retrieval quality. Without a number we cannot tell
-whether a retrieval change (Change 1, or any future one) helped, hurt, or did
-nothing. This test fixes 22 questions (including deliberate near-collision
-questions that share surface vocabulary with a distractor doc but have one
-clearly-best source), each tagged with the ONE source document that should
-answer it, ingests a small controlled corpus into a TEMP KB, and reports
-recall@k plus exactly which questions miss. Measured baseline: 22/22 = 1.000.
+The first version of this eval used a well-separated corpus and saturated at
+recall@1 = 1.000 — with no headroom it could only ever detect a CATASTROPHIC
+regression, never an improvement or a subtle one. This version is built to be
+hard, so there is something to measure:
+  • near-duplicate content ACROSS collections (a literature method doc and a
+    user_paper that both lean on the same quantity — Rg/I0, Porod slope, d-spacing);
+  • WRONG-KEYWORD questions whose obvious search terms appear most prominently in
+    a DISTRACTOR doc, not the intended source;
+  • PARAPHRASED questions that share little/no vocabulary with their source, so a
+    hit depends on the embedding's semantics, not lexical overlap.
+The measured baseline sits well below 1.0 (see the assertion), so a retrieval
+change that helps OR hurts will move the number.
 
 Safety
 ------
 - Runs ONLY against a fresh KnowledgeBase rooted at a pytest ``tmp_path`` — it
-  never opens, reads, or writes the live ``ai_knowledge/vector_db``. (That DB is
-  currently empty from a blocked rebuild; a stray write would make things worse.)
-- OPT-IN: it loads the sentence-transformers embedding model (slow, may download
-  weights), so it is SKIPPED unless ``SWAXS_RUN_RETRIEVAL_EVAL=1`` is set. This
-  keeps the normal suite fast. Enable with::
+  never opens, reads, or writes the live ``ai_knowledge/vector_db``.
+- OPT-IN: it loads the sentence-transformers embedding model (slow), so it is
+  SKIPPED unless ``SWAXS_RUN_RETRIEVAL_EVAL=1`` is set. Enable with::
 
       SWAXS_RUN_RETRIEVAL_EVAL=1 pytest tests/test_retrieval_eval.py -s
 
@@ -33,8 +34,7 @@ Version portability
 -------------------
 The fixture KB contains ONLY the three RAG collections, so ``retrieve(query)``
 (default = all collections) is identical to the assistant's production call
-``retrieve(query, collections=RAG_COLLECTIONS)`` on this fixture. That lets the
-exact same file run against pre- and post-Change-1 code for a clean comparison.
+``retrieve(query, collections=RAG_COLLECTIONS)`` on this fixture.
 """
 
 from __future__ import annotations
@@ -53,210 +53,194 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-# ── Controlled fixture corpus ─────────────────────────────────────────────────
-# Each entry: (collection, source_name, text). Topics are deliberately distinct
-# so that a well-behaved retriever maps each question to exactly one source.
-# Content is paraphrased domain knowledge — no copyrighted text.
+# ── Adversarial fixture corpus ─────────────────────────────────────────────────
+# Deliberately overlapping: each doc shares dominant vocabulary with at least one
+# doc in ANOTHER collection, so a lexical/naive retriever confuses them.
 _CORPUS: list[tuple[str, str, str]] = [
-    # ---- literature: SAXS/WAXS method physics --------------------------------
+    # ---- literature: general method physics ----------------------------------
     ("literature", "guinier_analysis.md", """
-    Guinier analysis. At very low q the scattering intensity follows the Guinier
-    approximation I(q) = I0 exp(-q^2 Rg^2 / 3), where Rg is the radius of
-    gyration and I0 is the forward scattering. Plotting ln I(q) against q^2
-    yields a straight line whose slope is -Rg^2/3. The fit is valid only in the
-    Guinier region, conventionally q*Rg < 1.3 for globular particles and lower,
-    near q*Rg < 1.0, for elongated rod-like particles. A lower bound q_min*Rg
-    around 0.3 avoids beamstop and beam-divergence artefacts. Upward curvature at
-    low q indicates aggregation; downward curvature suggests interparticle
-    repulsion or a structure factor.
+    Guinier analysis. At very low q the intensity follows I(q) = I0 exp(-q^2
+    Rg^2/3). The radius of gyration Rg comes from the slope of ln I(q) versus
+    q^2, and the forward scattering I0 (the zero-angle intensity) from the
+    intercept. The approximation holds while q*Rg is below about 1.3 for a
+    globular particle. Upward curvature at the lowest q indicates aggregation;
+    downward curvature indicates interparticle repulsion.
     """),
     ("literature", "porod_analysis.md", """
-    Porod law and the Porod region. At high q, for a particle with a sharp,
-    smooth interface, the intensity decays as I(q) ~ q^-4. On a log-log plot the
-    high-q slope is therefore -4 for smooth surfaces; slopes between -3 and -4
-    indicate rough or fractal surfaces, and a slope of -2 indicates Gaussian
-    polymer chains or thin sheets. The Porod invariant Q, the integral of
-    q^2 I(q), relates to the total scattering volume and the specific surface
-    area per unit volume. A Porod constant is extracted from the plateau of
-    q^4 I(q) versus q^4.
+    Porod law. For a two-phase system with a sharp smooth interface the intensity
+    decays as q^-4 at high q, so the log-log slope is -4. A slope between -3 and
+    -4 indicates a rough or fractal surface. The Porod invariant, the integral of
+    q^2 I(q), together with the Porod constant gives the specific surface area
+    per unit volume. These are general relations, independent of any one sample.
     """),
-    ("literature", "kratky_plot.md", """
-    The Kratky plot displays q^2 I(q) versus q and is a sensitive probe of
-    particle compactness and flexibility. A compact, globular, well-folded
-    particle produces a clear bell-shaped peak that returns to the baseline at
-    high q. An unfolded, extended, or intrinsically disordered chain produces a
-    monotonic plateau or upturn that does not return to zero. The dimensionless
-    Kratky plot, (q Rg)^2 I(q)/I0 versus q Rg, normalizes for size and places the
-    peak of an ideal compact sphere near q Rg = sqrt(3) with a peak height of
-    about 1.1.
+    ("literature", "kratky_analysis.md", """
+    The Kratky plot, q^2 I(q) versus q, and its dimensionless form (q Rg)^2
+    I(q)/I0 versus q Rg, report compactness and flexibility. A compact folded
+    globular particle gives a bell-shaped peak near q Rg = sqrt(3) with height
+    about 1.104; an unfolded, extended or disordered chain gives a rising plateau
+    that does not come back down.
     """),
-    ("literature", "pair_distance_pr.md", """
-    The pair-distance distribution function p(r) is obtained from the scattering
-    curve by an indirect Fourier transform (IFT), as implemented in GNOM. p(r)
-    is the histogram of all intra-particle distances and goes to zero at the
-    maximum particle dimension Dmax. The shape of p(r) reveals overall geometry:
-    a symmetric bell indicates a globular particle, a skewed tail indicates an
-    elongated particle, and multiple peaks indicate a multidomain or hollow
-    structure. Both Rg and I0 can be recovered as moments of p(r), often more
-    robustly than from a direct Guinier fit.
+    ("literature", "pair_distance_analysis.md", """
+    The pair-distance distribution function p(r) is recovered from the scattering
+    by an indirect Fourier transform (GNOM). It is the distribution of all
+    intra-particle distances and falls to zero at the maximum dimension Dmax. Its
+    shape classifies overall geometry and gives a real-space cross-check on Rg.
     """),
-    ("literature", "form_factors.md", """
-    Form factors describe the scattering from a single particle of a given shape.
-    The sphere form factor has characteristic minima whose positions set the
-    radius R, with R approximately Rg times sqrt(5/3). The cylinder form factor
-    shows a q^-1 rod regime at low q from the length and a q^-4 decay from the
-    radius at high q. The lamellar form factor produces a q^-2 decay and Bragg
-    orders at q* = 2 pi / d, where d is the lamellar repeat spacing. Core-shell
-    models add contrast between an inner core and an outer shell.
-    """),
-    ("literature", "radiation_damage.md", """
-    Radiation damage in solution SAXS manifests as a progressive, dose-dependent
-    change across successive exposures of the same sample: a rising low-q
-    intensity from radiation-induced aggregation, or a falling I0 from
-    fragmentation. Mitigations include flowing the sample through the beam,
-    reducing exposure time, adding radical scavengers such as glycerol or
-    ascorbate, and lowering the flux with attenuators. Frames are compared
-    pairwise and damaged frames are discarded before averaging.
+    ("literature", "form_factor_models.md", """
+    Form factors. The sphere model has sharp minima setting the radius. The
+    cylinder shows a q^-1 rod regime at low q from the length and a q^-4 decay
+    from the radius. The lamellar form factor gives a q^-2 decay and Bragg orders
+    at q* = 2*pi/d, where d is the repeat spacing. Core-shell models add contrast
+    between an inner core and an outer shell.
     """),
 
-    # ---- user_papers: sample-specific system knowledge -----------------------
-    ("user_papers", "lipid_nanoparticle_lnp.pdf", """
-    Lipid nanoparticles (LNPs) for mRNA delivery show a SAXS signature dominated
-    by an internal inverse-hexagonal or lamellar arrangement of the ionizable
-    lipid and the encapsulated nucleic acid. A correlation peak at q* reports the
-    internal repeat spacing d = 2 pi / q*, typically a few nanometres, which
-    shifts with N/P ratio and lipid composition. The overall particle size is
-    read from the low-q Guinier region. Loss of the internal peak indicates
-    cargo release or structural collapse.
+    # ---- user_papers: sample-specific, overlapping the method docs above -----
+    ("user_papers", "albumin_reference_study.md", """
+    Albumin reference measurement. The radius of gyration Rg comes from the slope
+    of ln I(q) versus q^2, and the forward scattering I0 (the zero-angle
+    intensity) from the intercept. For this bovine serum albumin standard the
+    molar mass is obtained from the zero-angle intensity divided by the mass
+    concentration, using the known contrast and partial specific volume. A
+    dilution series is measured to extrapolate to infinite dilution. The monomer
+    radius of gyration for this sample is about 2.7 nm and the mass about 66 kDa.
     """),
-    ("user_papers", "bsa_standard.pdf", """
-    Bovine serum albumin (BSA) is a common molecular-weight and absolute-scale
-    calibration standard for biological SAXS. At infinite dilution monomeric BSA
-    has a radius of gyration near 2.7 nm and a molecular weight of about 66 kDa.
-    The forward scattering I0 on an absolute scale, divided by concentration,
-    gives the molecular weight via the contrast and partial specific volume. A
-    concentration series is measured to extrapolate out the structure factor.
+    ("user_papers", "polyamide_membrane_study.md", """
+    Polyamide thin-film composite membrane. For a sharp smooth interface the
+    intensity decays as q^-4 and the log-log slope is -4; a slope between -3 and
+    -4 indicates a rough or fractal surface. Grazing-incidence measurements of
+    this reverse-osmosis selective layer characterise the crumpled ridge-and-
+    valley surface roughness and the buried void network. For THIS film the
+    high-q power-law slope reports the fractal roughness of the polymer/air
+    interface, and a broad feature reports the characteristic void spacing;
+    cross-link density is inferred from the void size distribution.
     """),
-    ("user_papers", "block_copolymer_micelle.pdf", """
-    Amphiphilic block copolymer micelles are well described by a core-shell
-    spherical form factor: a dense hydrophobic core and a solvated corona of
-    hydrophilic blocks such as PEG. The aggregation number follows from the core
-    volume, and the corona thickness follows from the shell contrast. Above the
-    critical micelle concentration a structure factor peak appears from
-    inter-micelle correlations. Temperature and salt tune the core-shell contrast
-    and the aggregation number.
+    ("user_papers", "mrna_lipid_particle_study.md", """
+    mRNA lipid nanoparticle. Bragg orders appear at q* = 2*pi/d, where d is the
+    repeat spacing. This delivery particle shows an internal correlation peak
+    whose position q* gives the repeat spacing d = 2*pi/q* of the ionizable lipid
+    / nucleic-acid mesophase, a few nanometres. The spacing and whether the
+    arrangement is lamellar or inverse-hexagonal shift with the N/P ratio and the
+    lipid composition; loss of the peak means cargo release.
     """),
-    ("user_papers", "membrane_tfc.pdf", """
-    Thin-film composite (TFC) polyamide membranes for reverse osmosis are studied
-    by grazing-incidence SAXS to characterize the crumpled ridge-and-valley
-    surface roughness and the internal void structure of the polyamide selective
-    layer. The high-q power-law slope reports the fractal roughness of the
-    interface, and a broad correlation feature reports the characteristic void
-    spacing. Cross-linking density is inferred from changes in the void size
-    distribution.
+    ("user_papers", "block_copolymer_micelle_study.md", """
+    Amphiphilic block copolymer micelle. This assembly is modelled as a dense
+    hydrophobic core surrounded by a solvated PEG corona. The aggregation number
+    follows from the core volume and the corona thickness from the shell
+    contrast; above the critical micelle concentration an inter-micelle
+    correlation appears. Temperature and salt tune the aggregation number.
     """),
 
-    # ---- beamline: facility / instrument configuration -----------------------
-    ("beamline", "ssrl_bl15_config.yml", """
-    SSRL beamline 1-5 (BL 1-5) small/wide-angle scattering endstation. The
-    default X-ray energy is 12 keV. Beam conditioning uses slits and a set of
-    attenuator foils. Sample environment supports a flow cell and a temperature
-    stage. Data acquisition is orchestrated through the SPEC control program via
-    its bServer HTTP interface, and motor and shutter states are read over EPICS.
-    The incident and transmitted flux are monitored by an upstream ion chamber
-    (i0) and a photodiode on the beamstop.
+    # ---- beamline: two docs that overlap on i0 / bstop -----------------------
+    ("beamline", "ssrl_bl15_endstation.md", """
+    SSRL beamline 1-5 endstation. The default photon energy is 12 keV. Data
+    acquisition is orchestrated by the SPEC control program through its bServer
+    HTTP interface, with motor and shutter states read over EPICS. The incident
+    flux is monitored by an upstream ion chamber (i0) and the transmitted beam by
+    a photodiode on the beamstop. A flow cell and a temperature stage are
+    available.
     """),
-    ("beamline", "detector_geometry.yml", """
-    Detector geometry and calibration. The SAXS detector is a large-area module
-    of shape 1043 by 981 pixels and the WAXS detector is 195 by 487 pixels. The
-    sample-to-detector distance, beam centre, and detector tilt are stored in a
-    pyFAI .poni calibration file generated from a silver behenate (AgBeh)
-    standard. A mask file in EDF format flags the beamstop shadow, dead pixels,
-    and module gaps so they are excluded from azimuthal integration.
-    """),
-    ("beamline", "normalization_notes.yml", """
-    Normalization at the beamline. Each frame is normalized by a single scalar
-    before integration. In bstop mode the factor is the beamstop-diode reading,
-    giving transmission-corrected intensity I = counts/(i0*T). In i0 mode only the
-    incident flux is used. In absolute mode a calibration constant K from a water
-    or glassy-carbon standard converts to the differential cross-section in cm^-1.
-    Combining normalization terms is a physics error and is rejected. Frames with
-    a non-positive corrected i0 or bstop are skipped.
+    ("beamline", "flux_normalization_modes.md", """
+    Flux normalization. The incident flux is monitored by an upstream ion chamber
+    (i0) and the transmitted beam by a photodiode on the beamstop. Each frame is
+    divided by one scalar before integration. In bstop mode the factor gives
+    transmission-corrected intensity I = counts/(i0*T). In i0 mode only the
+    incident flux is used. In absolute mode a calibration constant K from a
+    glassy-carbon or water standard converts to the differential cross-section in
+    cm^-1. Combining terms is rejected as a physics error, and any frame whose
+    corrected i0 or beamstop reading is non-positive is skipped.
     """),
 ]
 
-# ── Fixed eval questions: (question, expected_source_name) ────────────────────
-_QUESTIONS: list[tuple[str, str]] = [
-    # literature
-    ("How do I determine the radius of gyration from the low-q slope of ln I versus q squared?",
-     "guinier_analysis.md"),
-    ("What is the valid q*Rg range for a Guinier fit on a rod-like particle?",
-     "guinier_analysis.md"),
-    ("Why does the high-q intensity decay as q to the minus four for a smooth interface?",
-     "porod_analysis.md"),
-    ("How do I get the specific surface area from the Porod invariant?",
-     "porod_analysis.md"),
-    ("What does a bell-shaped peak that returns to baseline tell me about protein folding?",
-     "kratky_plot.md"),
-    ("Where does the peak of a dimensionless Kratky plot sit for a compact sphere?",
-     "kratky_plot.md"),
-    ("How is the pair-distance distribution p(r) computed and what does Dmax mean?",
-     "pair_distance_pr.md"),
-    ("Which form factor gives a q^-1 rod regime at low q and how do I read the length?",
-     "form_factors.md"),
-    ("How do I recognise radiation damage across successive exposures and mitigate it?",
-     "radiation_damage.md"),
-    # ---- near-collision questions: each shares surface vocabulary with a
-    #      distractor doc but has ONE clearly-best source. These give the eval
-    #      discriminating power beyond a saturated recall@1. ------------------
-    ("For a particle with a smooth sharp interface, exactly what high-q power-law "
-     "slope does the Porod law predict?",            # vs membrane_tfc (fractal slope)
-     "porod_analysis.md"),
-    ("Which lamellar form factor gives Bragg orders at q* = 2 pi / d?",
-     "form_factors.md"),                              # vs lipid LNP (correlation peak d)
-    ("Besides a direct Guinier fit, which real-space method recovers Rg and I0 "
-     "as moments of a distribution?",                 # vs guinier_analysis (Rg/I0)
-     "pair_distance_pr.md"),
-    ("A dense hydrophobic core surrounded by a solvated PEG corona above the CMC "
-     "— which model and what sets the aggregation number?",  # vs form_factors (core-shell)
-     "block_copolymer_micelle.pdf"),
-    # user_papers
-    ("What SAXS correlation peak reports the internal spacing of an mRNA lipid nanoparticle?",
-     "lipid_nanoparticle_lnp.pdf"),
-    ("How do I get the molecular weight of BSA from the forward scattering on an absolute scale?",
-     "bsa_standard.pdf"),
-    ("Which model fits an amphiphilic PEG block copolymer micelle with a core and corona?",
-     "block_copolymer_micelle.pdf"),
-    ("How is grazing-incidence SAXS used to study polyamide reverse-osmosis membrane roughness?",
-     "membrane_tfc.pdf"),
-    # beamline
-    ("What X-ray energy and control software does SSRL beamline 1-5 use?",
-     "ssrl_bl15_config.yml"),
-    ("What are the SAXS and WAXS detector pixel dimensions and how is the .poni made?",
-     "detector_geometry.yml"),
-    ("What does bstop normalization mode compute and when are frames skipped?",
-     "normalization_notes.yml"),
-    ("Why is combining bstop and absolute normalization terms rejected as a physics error?",
-     "normalization_notes.yml"),
-    ("Which calibration standard is used to determine the sample-to-detector distance?",
-     "detector_geometry.yml"),
+# ── Fixed eval questions: (question, expected_source_name, kind) ────────────────
+#   kind is documentation only: 'paraphrase' (no shared vocab), 'wrong_keyword'
+#   (dominant terms live in a distractor), 'direct' (fair).
+_QUESTIONS: list[tuple[str, str, str]] = [
+    # paraphrase — no 'Guinier'/'Rg'/'q'
+    ("How do I read a particle's overall size from the way the curve levels off "
+     "at the very smallest scattering angles?", "guinier_analysis.md", "paraphrase"),
+    # wrong-keyword — 'zero-angle intensity' is loudest in guinier, answer is albumin
+    ("How do I get the molar mass of my protein reference from the zero-angle "
+     "intensity and its concentration?", "albumin_reference_study.md", "wrong_keyword"),
+    # direct-ish but competes with the membrane paper on 'slope/fractal'
+    ("For a particle with a perfectly smooth sharp boundary, what high-q power-law "
+     "exponent governs the tail?", "porod_analysis.md", "direct"),
+    # wrong-keyword — 'fractal/slope/surface' are in porod_analysis too
+    ("In the reverse-osmosis polyamide film, what does the high-q slope reveal "
+     "about the interface?", "polyamide_membrane_study.md", "wrong_keyword"),
+    # paraphrase — no 'Kratky'
+    ("Which plot tells me whether my protein is folded and compact versus "
+     "unfolded and floppy?", "kratky_analysis.md", "paraphrase"),
+    # form factor vs LNP both carry 'd = 2 pi / q*'
+    ("Which scattering model produces Bragg orders at q* = 2*pi/d?",
+     "form_factor_models.md", "wrong_keyword"),
+    # LNP, but 'spacing / d=2pi/q*' also in form_factor_models
+    ("What internal repeat spacing does the correlation peak of the mRNA delivery "
+     "particle report?", "mrna_lipid_particle_study.md", "direct"),
+    # micelle vs form-factor core-shell
+    ("For the PEG-corona block copolymer assembly, which structural model "
+     "applies?", "block_copolymer_micelle_study.md", "wrong_keyword"),
+    # paraphrase — no 'p(r)'/'Dmax'
+    ("How do I obtain the largest internal distance and a real-space size profile "
+     "from the scattering data?", "pair_distance_analysis.md", "paraphrase"),
+    # beamline energy/control — competes with normalization doc on i0/bstop
+    ("What photon energy and control server does the SSRL 1-5 endstation use?",
+     "ssrl_bl15_endstation.md", "direct"),
+    # wrong-keyword — 'beamstop diode' also in the endstation doc
+    ("When the transmitted-beam diode reads non-positive, what happens to that "
+     "frame during flux normalization?", "flux_normalization_modes.md", "wrong_keyword"),
+    # guinier aggregation vs albumin dilution
+    ("What curvature at the lowest angles signals that my sample is aggregating?",
+     "guinier_analysis.md", "direct"),
+    ("How is the total scattering invariant related to the specific surface "
+     "area?", "porod_analysis.md", "direct"),
+    # paraphrase — no 'Porod'
+    ("How is the crumpled roughness of the selective polymer layer characterised "
+     "by scattering?", "polyamide_membrane_study.md", "paraphrase"),
+    ("For a rigid rod, which low-q power-law regime appears and how is the length "
+     "inferred?", "form_factor_models.md", "direct"),
+    ("How does the N/P ratio change the internal mesophase of the nucleic-acid "
+     "lipid particle?", "mrna_lipid_particle_study.md", "direct"),
+    ("What does absolute-scale normalization use to convert counts to a "
+     "differential cross-section?", "flux_normalization_modes.md", "direct"),
+    # wrong-keyword — 'radius of gyration' dominant in guinier_analysis
+    ("What monomer radius of gyration is expected for the albumin calibration "
+     "standard?", "albumin_reference_study.md", "wrong_keyword"),
+    ("Where does the dimensionless compactness plot peak for an ideal globular "
+     "particle?", "kratky_analysis.md", "direct"),
+    # wrong-keyword — both beamline docs mention i0
+    ("Which detector monitors the incident flux upstream of the sample?",
+     "ssrl_bl15_endstation.md", "wrong_keyword"),
+    # near-duplicate contests: the signature sentence now lives in a paper too,
+    # and the GENERAL method doc is the intended source — several will lose to
+    # the near-duplicate, which is the point (headroom to measure).
+    ("How is the radius of gyration obtained from the slope of ln I(q) versus "
+     "q^2?", "guinier_analysis.md", "near_duplicate"),
+    ("For a sharp smooth interface, why is the high-q log-log slope equal to -4?",
+     "porod_analysis.md", "near_duplicate"),
+    ("At what q value do Bragg orders appear for a lamellar repeat spacing d?",
+     "form_factor_models.md", "near_duplicate"),
+    ("Which upstream detector reading is used as i0?",
+     "ssrl_bl15_endstation.md", "near_duplicate"),
+    ("What slope range at high q indicates a rough or fractal surface?",
+     "porod_analysis.md", "near_duplicate"),
+    ("What is the zero-angle intensity and how is it read from the fit?",
+     "guinier_analysis.md", "near_duplicate"),
+    ("During flux correction, which reading represents the transmitted beam?",
+     "ssrl_bl15_endstation.md", "wrong_keyword"),
 ]
 
-# k values reported. recall@k = fraction of questions whose expected source is
-# among the top-k retrieved sources.
 _KS = (1, 3, 5)
 
 
 @pytest.fixture(scope="module")
 def eval_kb(tmp_path_factory):
-    """Build a throwaway KnowledgeBase rooted in a temp dir and ingest the
-    controlled corpus. NEVER touches the live ai_knowledge/vector_db."""
+    """Throwaway KnowledgeBase in a temp dir. NEVER touches the live vector_db."""
     pytest.importorskip("chromadb")
     pytest.importorskip("sentence_transformers")
     from src.ai.knowledge import KnowledgeBase
 
     base = tmp_path_factory.mktemp("retrieval_eval_kb")
-    kb = KnowledgeBase(base)                     # db lives at base/vector_db
+    kb = KnowledgeBase(base)
     for collection, name, text in _CORPUS:
         n = kb.ingest_text(text, name=name, collection=collection)
         assert n >= 1, f"fixture ingest produced no chunks for {name}"
@@ -264,12 +248,9 @@ def eval_kb(tmp_path_factory):
 
 
 def _topk_sources(kb, question: str, k: int) -> list[str]:
-    """The distinct source names of the top-k retrieved chunks, best first.
-
-    Note: on a fixture holding only the RAG collections, retrieve(query) (all
-    collections) is identical to the assistant's production call
-    retrieve(query, collections=RAG_COLLECTIONS) — so this measures the real
-    RAG path in a version-portable way."""
+    """Distinct source names of the top-k retrieved chunks, best first. On a
+    fixture holding only the RAG collections, retrieve(query) == the production
+    retrieve(query, collections=RAG_COLLECTIONS)."""
     hits = kb.retrieve(question, top_k=k)
     seen: list[str] = []
     for h in hits:
@@ -280,53 +261,45 @@ def _topk_sources(kb, question: str, k: int) -> list[str]:
 
 
 def test_retrieval_recall_at_k(eval_kb):
-    """Report recall@1/3/5 over the fixed question set and list every miss.
+    """Report recall@1/3/5 over the adversarial question set and list every miss.
 
-    Measured baseline (all-MiniLM-L6-v2): recall@1 = recall@3 = recall@5 =
-    22/22 = 1.000, INCLUDING the near-collision questions above. The controlled
-    corpus is topically well-separated by design and the retriever handles the
-    surface-vocabulary overlaps correctly, so recall saturates — that is the
-    correct outcome for a controlled eval, not a weakness. The value here is a
-    REGRESSION GUARD: an embedding failure, a chunker-corruption regression, a
-    source-labelling bug, or a ranking regression all pull recall well below the
-    floor. (Measuring incremental *gains* would need a harder/real corpus; this
-    fixture deliberately trades that for a stable, unambiguous baseline.)
-
-    The floor sits below the 1.000 baseline with margin for a future embedding-
-    model swap (a couple of shifted questions still pass; a real regression does
-    not)."""
-    # Retrieve once at the largest k; recall@k for smaller k reuses the prefix.
-    per_q: list[tuple[str, str, list[str]]] = []
-    for q, expected in _QUESTIONS:
+    Asserts a floor on recall@1 (the metric with the most headroom on this hard
+    corpus) set just below the measured baseline, so a real regression fails here
+    while normal embedding-model jitter does not."""
+    per_q = []
+    for q, expected, kind in _QUESTIONS:
         top = _topk_sources(eval_kb, q, max(_KS))
-        per_q.append((q, expected, top))
+        per_q.append((q, expected, kind, top))
 
     total = len(_QUESTIONS)
-    recall: dict[int, int] = {k: 0 for k in _KS}
-    misses: dict[int, list[str]] = {k: [] for k in _KS}
-    for q, expected, top in per_q:
+    recall = {k: 0 for k in _KS}
+    misses = {k: [] for k in _KS}
+    for q, expected, kind, top in per_q:
         for k in _KS:
             if expected in top[:k]:
                 recall[k] += 1
             else:
-                misses[k].append(f"    - {expected!r}: {q}")
+                got = top[0] if top else "(none)"
+                misses[k].append(f"    [{kind}] want {expected!r}, got {got!r}: {q}")
 
-    # ── report (visible with `pytest -s`) ────────────────────────────────────
     print("\n" + "=" * 72)
-    print(f"RETRIEVAL EVAL — {total} questions over literature/user_papers/beamline")
+    print(f"ADVERSARIAL RETRIEVAL EVAL — {total} questions "
+          "(literature/user_papers/beamline)")
     print("=" * 72)
     for k in _KS:
         print(f"  recall@{k}: {recall[k]}/{total} = {recall[k] / total:.3f}")
-    for k in _KS:
+    for k in (1,):                          # the misses that matter for headroom
         if misses[k]:
-            print(f"\n  MISSES @{k} (expected source not in top-{k}):")
+            print(f"\n  MISSES @{k}:")
             print("\n".join(misses[k]))
     print("=" * 72)
 
-    # Regression floor — measured baseline is 1.000; 0.85 allows a couple of
-    # shifted questions on a model swap but fails on any real regression.
-    floor = 0.85
-    assert recall[5] / total >= floor, (
-        f"recall@5 = {recall[5] / total:.3f} < floor {floor}; retrieval "
-        f"regressed. Misses@5:\n" + "\n".join(misses[5])
-    )
+    # Measured baseline (all-MiniLM-L6-v2): recall@1 = 21/27 = 0.778, recall@3 =
+    # recall@5 = 1.000 (the intended doc is always within the top 3; only top-1
+    # has error, which is the headroom). Floor set just under 0.778 with ~2
+    # questions of margin for a future embedding-model swap; a real regression
+    # (which drops many) fails here, unlike the old saturated 1.000 corpus.
+    floor1 = 0.70
+    assert recall[1] / total >= floor1, (
+        f"recall@1 = {recall[1] / total:.3f} < floor {floor1}; retrieval "
+        "regressed. Misses@1:\n" + "\n".join(misses[1]))

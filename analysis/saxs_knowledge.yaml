@@ -230,7 +230,7 @@ entries:
     requires:
       - {key: background_ok, hint: "background subtraction must be sane first (t0_background_subtraction_sanity)"}
     inapplicable_when:
-      - {key: bragg_present, hint: "curve is dominated by Bragg peaks — this is a WAXS/structure question, not a Guinier one"}
+      - {key: bragg_dominates, hint: "Bragg peaks leave no smooth low-q region — this is a WAXS/structure question, not a Guinier one. (On a normal SWAXS curve Guinier still applies below the first peak.)"}
     provides: [Rg, I0, guinier_qmin, guinier_qmax, guinier_R2, guinier_linearity]
     consumes: [q_usable_min, q_usable_max]
     initial_guesses: {}
@@ -283,7 +283,7 @@ entries:
       - "slope of log I(q) vs log q over a fitted high-q window"
     requires: []
     inapplicable_when:
-      - {key: bragg_present, hint: "high-q window is dominated by Bragg peaks — route to WAXS for peak/lattice analysis"}
+      - {key: bragg_dominates, hint: "Bragg peaks leave no smooth power-law window — route the peak region to WAXS. (On a normal SWAXS curve the exponent is fit below the first peak.)"}
     provides: [powerlaw_exponent, powerlaw_qmin, powerlaw_qmax, interface_class]
     consumes: [q_usable_min, q_usable_max]
     initial_guesses:

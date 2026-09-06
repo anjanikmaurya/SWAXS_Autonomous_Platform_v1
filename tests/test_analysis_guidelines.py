@@ -229,5 +229,42 @@ def test_tool_reroutes_and_switches_modality(monkeypatch, tmp_path):
     import json
     payload = json.loads(out)
     assert payload["modality"] == "waxs"
+    assert payload["detector"] == "SAXS"            # detector != modality, named separately (#3)
+    assert "detector_vs_modality" in payload
     assert "modality_switch" in payload             # surfaced, not silent
     assert a._get_modality("u1") == "waxs"          # stored modality switched
+
+
+def test_tier1_integration_real_dat_and_manifest(tmp_path):
+    """End-to-end through the REAL .dat parser and a REAL manifest.json — no
+    monkeypatching of _load_dat / _load_manifest_cached. Proves the tool touches
+    the actual file-reading path, not just the in-memory logic."""
+    import json
+    import tempfile
+    from src.ai.assistant import SWAXSAssistant
+
+    sub = tmp_path / "1D" / "SAXS" / "Subtracted"
+    sub.mkdir(parents=True)
+    dat = sub / "bsa_test_SAXS_subtracted.dat"
+    q, I, s = _saxs_curve(400)
+    with dat.open("w", encoding="utf-8") as fh:
+        fh.write("# q_nm^-1  I  sigma\n")            # header comment (skipped)
+        for a_, b_, c_ in zip(q, I, s):
+            fh.write(f"{a_:.6e} {b_:.6e} {c_:.6e}\n")
+
+    (tmp_path / "manifest.json").write_text(json.dumps({
+        "version": 2,
+        "files": {str(dat): {"stage": "subtracted", "detector": "SAXS",
+                             "path": str(dat)}},
+        "ai_memory": {"user_context": {"concentration": 3.0}},
+    }), encoding="utf-8")
+
+    a = SWAXSAssistant(ai_knowledge_dir=tempfile.mkdtemp(), user_id="u2")
+    out, _ = a._tool_analysis_tier1({"keyword": "bsa_test", "detector": "SAXS"},
+                                    project_root=str(tmp_path), user_id="u2")
+    p = json.loads(out)
+    assert p["modality"] == "saxs"
+    assert p["detector"] == "SAXS"
+    assert p["tier1"]["guinier"]["Rg"] > 0          # real parse -> real Guinier fit
+    assert p["tier1"].get("mw_estimate_kda") is not None   # concentration in manifest
+    assert "t1_guinier" in p["gated"]["proposable"]

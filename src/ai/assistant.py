@@ -2108,6 +2108,10 @@ Experiment data was not modified.</p></body></html>"""
         uc = (mf.get("ai_memory", {}) or {}).get("user_context", {}) or {}
         ctx: dict = {"bragg_present": route["bragg_present"],
                      "is_subtracted": cand.get("stage") == "subtracted"}
+        # First sharp-peak q -> the SAXS pass scopes its windows below it.
+        sharp = route.get("sharp_peak_q") or []
+        if route["bragg_present"] and sharp:
+            ctx["first_bragg_q"] = min(sharp)
         conc = uc.get("concentration")
         if conc not in (None, "", 0):
             ctx["concentration"] = conc
@@ -2117,13 +2121,22 @@ Experiment data was not modified.</p></body></html>"""
             if inp.get(flag) is True:
                 ctx[key] = True
 
+        # `detector` = which file to load; `modality` = which analysis applies.
+        # They are INDEPENDENT: a SAXS detector routinely records Bragg peaks, so
+        # detector=SAXS -> modality=waxs/both is correct, not a bug. Name both.
+        det_note = (f"`detector`={det} selects the file; `modality`={detected} is "
+                    "what the DATA supports (independent — a SAXS detector can "
+                    "record Bragg peaks).")
+
         # WAXS: SAXS tier-1 (Guinier etc.) does not apply — return the router
         # result + the WAXS gated set (scaffold), don't force a SAXS fit.
         if detected == "waxs":
             entries = _G.load_guideline("waxs")["doc"]["entries"]
             gated = _G.gate_entries(entries, {**ctx, "has_peaks": route["n_peaks"] > 0,
                                               "peak_q_positions": None})
-            payload = {"file": Path(cand["path"]).name, "modality": "waxs",
+            payload = {"file": Path(cand["path"]).name,
+                       "detector": det, "modality": "waxs",
+                       "detector_vs_modality": det_note,
                        "router": route, "gated": gated,
                        "note": ("WAXS content is a scaffold (peak detection, "
                                 "d-spacing, Scherrer). Phase ID / indexing / "
@@ -2138,7 +2151,9 @@ Experiment data was not modified.</p></body></html>"""
         gated = _G.gate_entries(entries, t1["state"])
         payload = {
             "file": Path(cand["path"]).name,
+            "detector": det,
             "modality": detected,
+            "detector_vs_modality": det_note,
             "router": {"modality": route["modality"], "reason": route["reason"],
                        "n_sharp_peaks": route["n_sharp_peaks"]},
             "tier1": t1["summary"],

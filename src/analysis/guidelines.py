@@ -44,8 +44,8 @@ _VALID_COST = {"free_local", "cheap", "expensive"}
 # State quantities produced OUTSIDE the entry graph (router / raw data), so the
 # graph-closure check and the gate know they are legitimately external.
 EXTERNAL_STATE_KEYS = {
-    "bragg_present", "n_frames_ge_2", "has_conc_series", "is_subtracted",
-    "has_peaks",
+    "bragg_present", "bragg_dominates", "n_frames_ge_2", "has_conc_series",
+    "is_subtracted", "has_peaks",
 }
 
 
@@ -161,7 +161,7 @@ def route_modality(q, I, sigma=None) -> dict:
     m = np.isfinite(q) & np.isfinite(I) & (q > 0) & (I > 0)
     q, I = q[m], I[m]
     out = {"modality": "saxs", "bragg_present": False,
-           "n_sharp_peaks": 0, "n_peaks": 0, "reason": ""}
+           "n_sharp_peaks": 0, "n_peaks": 0, "sharp_peak_q": [], "reason": ""}
     if q.size < 20:
         out["reason"] = "too few points to detect peaks; defaulting to SAXS"
         return out
@@ -186,9 +186,11 @@ def route_modality(q, I, sigma=None) -> dict:
     for pk, w in zip(idx, props["widths"]):
         fwhm_q = float(w * dq[pk])
         rel_w.append(fwhm_q / max(q[pk], 1e-12))
-    n_sharp = int(np.sum(np.asarray(rel_w) < _SHARP_REL_WIDTH))
+    sharp = np.asarray(rel_w) < _SHARP_REL_WIDTH
+    n_sharp = int(sharp.sum())
     out["n_sharp_peaks"] = n_sharp
     out["bragg_present"] = n_sharp >= 1
+    out["sharp_peak_q"] = sorted(float(q[pk]) for pk, sh in zip(idx, sharp) if sh)
 
     # Is there a substantial smooth-decay region (SAXS content) as well? Look at
     # the low-q half's baseline slope in log-log.
@@ -281,11 +283,49 @@ def run_tier1(q, I, sigma=None, context: dict | None = None) -> dict:
     state["q_usable_min"], state["q_usable_max"] = qu_min, qu_max
     summary["q_usable"] = [round(qu_min, 4), round(qu_max, 4)]
 
-    def _within(rng, tol=1e-9):
-        return rng and (rng[0] >= qu_min - tol) and (rng[1] <= qu_max + tol)
+    # SWAXS scoping (follow-up #1): on a curve with Bragg peaks AND a smooth low-q
+    # region, the SAXS model-free analyses apply ONLY below the first sharp peak.
+    # Restrict the working arrays to [qu_min, qu_max_saxs] so the power law is fit
+    # over the SAXS decay — NOT through the peaks — and Kratky/invariant don't pick
+    # up a Bragg peak. `bragg_dominates` is True only when no usable SAXS window
+    # remains; the gate refuses SAXS entries on THAT, not on the mere presence of
+    # peaks (so the exponent is produced on a normal SWAXS curve, not refused).
+    bragg = state.get("bragg_present") is True
+    first_bragg_q = ctx.get("first_bragg_q")
+    qu_max_saxs = qu_max
+    bragg_dominates = False
+    if bragg and first_bragg_q:
+        qu_max_saxs = min(qu_max, float(first_bragg_q) * 0.9)   # stay below the peak
+        if qu_max_saxs <= qu_min * 1.2:            # no smooth region below the peak
+            bragg_dominates = True
+            qu_max_saxs = qu_max                    # nothing to scope to
+    state["bragg_dominates"] = bragg_dominates
+    if bragg and not bragg_dominates and qu_max_saxs < qu_max:
+        summary["saxs_window"] = [round(qu_min, 4), round(qu_max_saxs, 4)]
+        summary["note_swaxs"] = (
+            f"Bragg peak at q~{round(float(first_bragg_q), 3)}; SAXS model-free "
+            "analyses scoped below it — the peak region is WAXS, treated separately.")
 
-    # --- Guinier (clamped to q_usable) ---
-    g = guinier_fit(q, I, sig, q_min=qu_min, q_max=qu_max, auto_range=True)
+    # working arrays for the SAXS pass: usable range, capped below the first peak
+    sl = (q >= qu_min) & (q <= qu_max_saxs)
+    qa, Ia = q[sl], I[sl]
+    siga = sig[sl] if sig is not None else None
+
+    # tier-0 local check: background/subtraction sanity. Over-subtraction drives
+    # I(q) negative; a sane subtracted curve is almost entirely positive. Compute
+    # it here (the tool doesn't run a separate tier-0 pass) unless the caller
+    # already asserted it. This is what unblocks the Guinier `requires`.
+    if "background_ok" not in state:
+        usable = I[(q >= qu_min) & (q <= qu_max)]
+        neg_frac = float(np.mean(usable < 0)) if usable.size else 1.0
+        state["background_ok"] = neg_frac < 0.05
+        summary["background_ok"] = state["background_ok"]
+
+    def _within(rng, tol=1e-9):
+        return rng and (rng[0] >= qu_min - tol) and (rng[1] <= qu_max_saxs + tol)
+
+    # --- Guinier (clamped to the SAXS window) ---
+    g = guinier_fit(qa, Ia, siga, q_min=qu_min, q_max=qu_max_saxs, auto_range=True)
     if "error" in g:
         warnings.append(f"Guinier: {g['error']}")
         summary["guinier"] = {"error": g["error"]}
@@ -293,7 +333,7 @@ def run_tier1(q, I, sigma=None, context: dict | None = None) -> dict:
         if not _within(g.get("q_range")):
             warnings.append(
                 f"Guinier window {g.get('q_range')} escaped usable range "
-                f"[{round(qu_min,4)}, {round(qu_max,4)}] — refusing this Rg "
+                f"[{round(qu_min,4)}, {round(qu_max_saxs,4)}] — refusing this Rg "
                 "(would fit into the beamstop/noise region).")
             summary["guinier"] = {"error": "fit window outside usable q-range"}
         else:
@@ -316,7 +356,7 @@ def run_tier1(q, I, sigma=None, context: dict | None = None) -> dict:
 
     # --- dimensionless Kratky (needs Rg, I0) ---
     if "Rg" in state and "I0" in state:
-        k = dimensionless_kratky(q, I, state["Rg"], state["I0"])
+        k = dimensionless_kratky(qa, Ia, state["Rg"], state["I0"])
         if "error" not in k:
             comp = ("compact-globular"
                     if abs(k["peak_qRg"] - k["ideal_peak_qRg"]) < 0.4
@@ -328,31 +368,35 @@ def run_tier1(q, I, sigma=None, context: dict | None = None) -> dict:
             summary["kratky"] = {"peak_qRg": k["peak_qRg"],
                                  "peak_height": k["peak_y"], "class": comp}
 
-    # --- high-q power law (clamped) ---
-    hi_min = 10 ** (0.5 * (np.log10(qu_min) + np.log10(qu_max)))  # upper half decade
-    p = porod_fit(q, I, sig, q_min=hi_min, q_max=qu_max)
-    if "error" in p:
-        warnings.append(f"power-law: {p['error']}")
-    elif not _within(p.get("q_range")):
-        warnings.append("power-law window escaped usable range — skipped.")
+    # --- high-q power law (clamped to below the first Bragg peak) ---
+    if bragg_dominates:
+        warnings.append("Bragg peaks dominate the high-q region — no SAXS "
+                        "power-law window; route the peak region to WAXS.")
     else:
-        state["powerlaw_exponent"] = p["n"]
-        state["powerlaw_qmin"], state["powerlaw_qmax"] = p["q_range"]
-        state["interface_class"] = p["interpretation"]
-        summary["power_law"] = {"exponent": p["n"], "class": p["interpretation"],
-                                "window": [round(x, 4) for x in p["q_range"]],
-                                "R2": p["R2"]}
+        hi_min = 10 ** (0.5 * (np.log10(qu_min) + np.log10(qu_max_saxs)))
+        p = porod_fit(qa, Ia, siga, q_min=hi_min, q_max=qu_max_saxs)
+        if "error" in p:
+            warnings.append(f"power-law: {p['error']}")
+        elif not _within(p.get("q_range")):
+            warnings.append("power-law window escaped usable range — skipped.")
+        else:
+            state["powerlaw_exponent"] = p["n"]
+            state["powerlaw_qmin"], state["powerlaw_qmax"] = p["q_range"]
+            state["interface_class"] = p["interpretation"]
+            summary["power_law"] = {"exponent": p["n"], "class": p["interpretation"],
+                                    "window": [round(x, 4) for x in p["q_range"]],
+                                    "R2": p["R2"]}
 
     # --- structure-factor screen (indirect low-q trend hint) ---
     if "structure_factor_present" in ctx:
         state["structure_factor_present"] = ctx["structure_factor_present"]
     else:
-        state["structure_factor_present"] = _structure_factor_hint(q, I)
+        state["structure_factor_present"] = _structure_factor_hint(qa, Ia)
     summary["structure_factor_present"] = state["structure_factor_present"]
 
-    # --- Porod volume (needs Rg, I0) ---
+    # --- Porod volume (needs Rg, I0) — invariant over the SAXS window only ---
     if "Rg" in state and "I0" in state:
-        inv = classical_invariants(q, I, state["Rg"], state["I0"])
+        inv = classical_invariants(qa, Ia, state["Rg"], state["I0"])
         if "error" not in inv:
             state["porod_volume"] = inv["porod_volume"]
             summary["porod_volume"] = inv["porod_volume"]
