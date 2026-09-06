@@ -169,6 +169,12 @@ _project_root: str = _load_project_state()
 # ── WebSocket event bus state ─────────────────────────────────────────────────
 _ws_clients: set = set()
 _ws_lock     = threading.Lock()
+# Guards the process bookkeeping dicts (_procs / _crashed / _last_running), which
+# are mutated by request threads (_start_app/_stop_app) and read+mutated by
+# _detect_crashes from BOTH the SSE stream thread and /api/status request threads.
+# Without it two threads can observe the same running->dead edge and both emit
+# app.crashed, or a reap can race a concurrent start assignment.
+_procs_lock  = threading.Lock()
 # Per-socket send lock: simple_websocket's send() is not internally locked, and
 # multiple threads (each publishing app + hub request threads) broadcast to the
 # same socket concurrently. Without serialising sends, two wsproto frames'
@@ -334,9 +340,10 @@ def _start_app(app_id: str) -> tuple[bool, str]:
     # (with output going to DEVNULL) it looked like "nothing happened".
     try:
         proc = _launch([sys.executable, str(entry)])
-        _procs[app_id] = proc
-        _crashed.pop(app_id, None)
-        _last_running[app_id] = True
+        with _procs_lock:
+            _procs[app_id] = proc
+            _crashed.pop(app_id, None)
+            _last_running[app_id] = True
         _record_children()
         _hub_emit("app.started", {"app_id": app_id, "pid": proc.pid})
         return True, f"Started (PID {proc.pid}){note}"
@@ -361,7 +368,8 @@ def _stop_app(app_id: str) -> tuple[bool, str]:
 
     if proc is not None and proc.poll() is None:
         notes.append(pl.kill_tree(proc, grace=5.0))
-    _procs[app_id] = None
+    with _procs_lock:
+        _procs[app_id] = None
 
     # Whatever the handle said, the port is the ground truth. If something is
     # still listening and it identifies as this app, it is an orphan of ours.
@@ -467,9 +475,13 @@ if _SOCK_AVAILABLE and sock is not None:
                     continue
                 logger.debug("[Hub WS] ← %s from %s",
                              event.get("type"), event.get("source_app"))
-                # Persist to manifest and broadcast
-                _append_event_to_manifest(event)
+                # Broadcast FIRST so a per-event manifest write never delays the
+                # fan-out of the very file.averaged/file.subtracted events the
+                # autonomous loop advances on. (The per-event write COST itself is
+                # tracked as O3 in docs/audits/OPEN_DEFECTS.md — batching belongs
+                # with that fix, not here.)
                 _broadcast(event, exclude=ws)
+                _append_event_to_manifest(event)
         except Exception as exc:
             logger.debug("[Hub WS] Client disconnected: %s", exc)
         finally:
@@ -605,34 +617,41 @@ def _detect_crashes() -> None:
     the operator pressing Stop. A crash is now only ever reported when we STILL
     HOLD the handle and that process has exited by itself.
     """
-    for a in APPS:
-        aid = a["id"]
-        proc = _procs.get(aid)
-        if proc is None:
-            # Deliberately stopped, or never started. Not a crash, and the state
-            # was already cleared by _stop_app.
-            _last_running[aid] = False
-            continue
-        code = proc.poll()
-        running = code is None
-        was = _last_running.get(aid)
-        _last_running[aid] = running
-        if was and not running:                     # exited without being asked
-            reason = _exit_reason(code)
-            _crashed[aid] = {"exit_code": code, "reason": reason,
-                             "at": time.time(), "tail": _log_tail(aid)}
-            _procs[aid] = None                      # reap; the handle is spent
-            logger.error("APP CRASHED: %s %s — see logs/%s.log", aid, reason, aid)
-            for ln in _crashed[aid]["tail"][-4:]:
-                logger.error("    %s | %s", aid, ln[:160])
-            try:
-                _hub_emit("app.crashed", {"app": aid, "exit_code": code,
-                                          "reason": reason,
-                                          "log": f"logs/{aid}.log"})
-            except Exception:
-                pass
-        elif running and aid in _crashed:
-            _crashed.pop(aid, None)                 # started again by the operator
+    # Detect under the lock so a status request and the SSE tick can't both see
+    # the same edge; collect the crashes and emit/log OUTSIDE the lock (a
+    # broadcast must never run while _procs_lock is held).
+    newly_crashed: list = []
+    with _procs_lock:
+        for a in APPS:
+            aid = a["id"]
+            proc = _procs.get(aid)
+            if proc is None:
+                # Deliberately stopped, or never started. Not a crash, and the
+                # state was already cleared by _stop_app.
+                _last_running[aid] = False
+                continue
+            code = proc.poll()
+            running = code is None
+            was = _last_running.get(aid)
+            _last_running[aid] = running
+            if was and not running:                 # exited without being asked
+                reason = _exit_reason(code)
+                _crashed[aid] = {"exit_code": code, "reason": reason,
+                                 "at": time.time(), "tail": _log_tail(aid)}
+                _procs[aid] = None                  # reap; the handle is spent
+                newly_crashed.append((aid, code, reason))
+            elif running and aid in _crashed:
+                _crashed.pop(aid, None)             # started again by the operator
+    for aid, code, reason in newly_crashed:
+        logger.error("APP CRASHED: %s %s — see logs/%s.log", aid, reason, aid)
+        for ln in _crashed.get(aid, {}).get("tail", [])[-4:]:
+            logger.error("    %s | %s", aid, ln[:160])
+        try:
+            _hub_emit("app.crashed", {"app": aid, "exit_code": code,
+                                      "reason": reason,
+                                      "log": f"logs/{aid}.log"})
+        except Exception:
+            pass
 
 
 @app.route("/api/status/stream")
@@ -791,7 +810,8 @@ def api_reload_apps():
     existing_ids = {a["id"] for a in APPS}
     for a in new_apps:
         if a["id"] not in existing_ids:
-            _procs[a["id"]] = None
+            with _procs_lock:
+                _procs[a["id"]] = None
             logger.info("[Hub] Registered new app: %s (port %d)", a["id"], a["port"])
     APPS = new_apps
     return jsonify({"ok": True, "apps": [a["id"] for a in APPS]})
