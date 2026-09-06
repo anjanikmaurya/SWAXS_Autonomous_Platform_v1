@@ -2,7 +2,10 @@
 # requirements-core.txt — everything needed to RUN the platform, nothing else.
 #
 # Use this one. It installs on macOS, Windows and Linux from prebuilt wheels,
-# so no compiler, no Qt, no CUDA, no OpenCL SDK. Typical install: 1-3 minutes.
+# so no compiler, no CUDA, no OpenCL SDK. Typical install: 1-3 minutes.
+# (It DOES include PySide6 for the calibration GUI — that ships binary wheels on
+#  all three platforms, unlike the old PyQt6 that made the Windows freeze fail;
+#  it just needs a display to actually open the GUI.)
 #
 #     pip install -r requirements-core.txt
 #
@@ -53,6 +56,16 @@ requests>=2.31             # SPEC/bServer HTTP driver (real beamline)
 # ── Reporting ────────────────────────────────────────────────────────────────
 openpyxl>=3.1              # .xlsx export from the analysis app
 
+# ── Analysis model fitting ───────────────────────────────────────────────────
+sasmodels>=1.0             # the analysis app's model tab (form/structure factors)
+
+# ── Calibration GUI ──────────────────────────────────────────────────────────
+# Qt binding for the interactive pyFAI-calib2 calibration GUI (silx.gui). Ships
+# binary wheels on macOS/Windows/Linux, so it installs without a compiler; it
+# only needs a DISPLAY to actually open the window (a headless box installs it
+# fine and simply never launches the GUI). PyQt6 / PyQt5 are alternatives.
+PySide6>=6.5
+
 # ─────────────────────────────────────────────────────────────────────────────
 # NOT here on purpose — install only if you need the feature:
 #
@@ -61,15 +74,6 @@ openpyxl>=3.1              # .xlsx export from the analysis app
 #
 #   AI assistant with a searchable knowledge base:
 #       pip install -r requirements-ai.txt
-#
-#   Model fitting with sasmodels (the analysis app's model tab):
-#       pip install sasmodels
-#
-#   The pyFAI-calib2 calibration GUI (calibration app "Open calibration GUI"):
-#       pip install PySide6      # a Qt binding — PyQt6 / PyQt5 also work.
-#       Qt is left out of core ON PURPOSE (it broke Windows installs); the GUI is
-#       the only feature that needs it, and it opens a real window, so install it
-#       only on a workstation with a display.
 #
 #   Running the test suite:
 #       pip install pytest

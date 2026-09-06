@@ -113,12 +113,14 @@ exited and, if so, reports its stderr tail instead of falsely claiming success
 `command` string, so the user can run it by hand in a terminal with the platform
 environment active.
 
-**Qt binding required.** pyFAI-calib2 is a Qt GUI (via silx.gui), and the core
-install deliberately omits Qt (it broke Windows installs). If it exits with
-`ImportError: No Qt wrapper found`, install a binding into the SAME environment
-that runs the platform: `pip install PySide6` (PyQt6 / PyQt5 also work). When the
-Qt-wrapper error is detected the launcher now says exactly this. Install it only
-on a workstation with a display — the GUI opens a real window.
+**Qt binding required.** pyFAI-calib2 is a Qt GUI (via silx.gui). The Qt binding
+**PySide6** now ships in `requirements-core.txt`, so a normal install has it. If it
+still exits with `ImportError: No Qt wrapper found` (a stale/partial environment),
+reinstall into the SAME environment that runs the platform:
+`pip install -r requirements-core.txt` (or `pip install PySide6`; PyQt6 / PyQt5
+also work). The launcher says exactly this when it detects the Qt-wrapper error.
+PySide6 installs from binary wheels everywhere; it only needs a display to open the
+window (a headless box installs it fine and simply never launches the GUI).
 
 ## Poni folder
 The output folder is `poni_directory` from the project `config.yml`, falling back

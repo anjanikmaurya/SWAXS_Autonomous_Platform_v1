@@ -87,7 +87,7 @@ SWAXS_Autonomous_Platform_v1/
 ├── start_platform.bat      # Windows launcher (PowerShell, Anaconda Prompt,
 │                           #   cmd, or double-click) — the only one; the
 │                           #   separate .ps1 was dropped September 2026
-├── requirements-core.txt   # What you install (16 packages, all prebuilt wheels)
+├── requirements-core.txt   # What you install (all prebuilt wheels; incl. PySide6 + sasmodels)
 ├── requirements-hardware.txt   # pyserial, pyepics — real rig only
 ├── requirements-ai.txt     # anthropic, chromadb, … — AI assistant extras
 ├── check_imports.py · conftest.py · pytest.ini
