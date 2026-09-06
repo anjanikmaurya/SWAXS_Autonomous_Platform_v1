@@ -209,8 +209,95 @@ def _resolve_app_knowledge(repo_root, app_id: str) -> str | None:
     return text
 
 
+# ── Analysis guideline injection (Change 3) ────────────────────────────────────
+# The SAXS/WAXS ladder YAMLs ride the SAME static cached prefix as the app
+# knowledge (the resolver reads them mtime-cached from src.analysis.guidelines,
+# so a mid-beamtime edit lands next turn with no re-ingest / no DB write). Only
+# the analysis-family apps get them — injecting a SAXS ladder into e.g. the
+# calibration app's prefix would be noise. The block is byte-stable for a given
+# (modality, file mtime); a modality switch invalidates the cache ONCE, which is
+# expected and acceptable.
+_GUIDELINE_APPS = {"analysis", "analyzer", "assistant"}
+
+# The tier ladder's prompt rules (3d). STATIC + terse: it rides the cached prefix
+# but still competes for attention, so keep it short and imperative.
+_ANALYSIS_LADDER_RULES = """\
+## Analysis ladder rules (SAXS/WAXS)
+The injected guideline YAML is the ladder: model-free results are the INPUTS to
+model fitting, not a politeness ordering. Follow it mechanically:
+1. NEVER propose a specific model before reporting tier 0-2 results — or stating
+   which could not be computed and why. Run `analysis_tier1` first.
+2. Derive every initial guess from a tier-1/2 quantity and SHOW the derivation
+   (e.g. sphere R ~ Rg*sqrt(5/3); lamellar d = 2*pi/q*).
+3. Present tier 4+ as a NUMBERED MENU of what each option would DISTINGUISH — not
+   a single recommendation.
+4. Label every suggestion's source: my tested notes > package docs > ingested
+   paper (cited) > unaided reasoning. Say which. If nothing matches, say so
+   rather than inventing a recommendation.
+5. Only propose an entry whose `consumes` are satisfied by quantities actually
+   produced earlier in THIS conversation (the tool reports the gated set).
+6. If tiers 0-2 already answer the question, ANSWER AND STOP, then offer the
+   expensive next steps as opt-in ("I can suggest form-factor models to fit, or
+   ATSAS steps for real-space analysis"). Never preemptively run tier 3-4.
+When the gate REFUSES an entry, relay the named precondition and its remedy — do
+not work around it. A wrong Dmax is worse than no Dmax."""
+
+
+def _resolve_guideline_block(modality: str) -> str | None:
+    """Raw guideline-YAML text for the current modality, wrapped with a heading,
+    for injection into the STATIC cached prefix. 'both' injects both files.
+    Returns None if unavailable (degrade: inject nothing, never crash)."""
+    mods = ["saxs", "waxs"] if modality == "both" else [modality]
+    try:
+        from src.analysis.guidelines import guideline_text
+    except Exception:
+        return None
+    parts: list[str] = []
+    for m in mods:
+        t = guideline_text(m)
+        if t:
+            parts.append(
+                f"## Analysis guideline ladder — {m.upper()} "
+                f"(`analysis/{m}_knowledge.yaml`)\n\n{t}")
+    return "\n\n".join(parts) if parts else None
+
+
 # ── Tool definitions for Claude API ──────────────────────────────────────────
 _TOOLS: list[dict] = [
+    {
+        "name":        "analysis_tier1",
+        "description": (
+            "Run the model-free analysis ladder on ONE curve as a single local "
+            "pass (NO token cost beyond interpreting the result). It (1) ROUTES "
+            "the modality from the DATA — sharp Bragg peaks => WAXS, smooth decay "
+            "=> SAXS, both => SWAXS, borderline => ask; (2) computes tier 0-2 "
+            "model-free quantities (Guinier Rg/I0 + linearity, qRg validity, "
+            "dimensionless Kratky, high-q power law, Porod volume, MW if "
+            "concentration is known); and (3) returns the GATED set of which "
+            "higher-tier steps are applicable vs refused (with the failed "
+            "precondition + remedy). ALWAYS call this BEFORE proposing any "
+            "specific model or ATSAS/P(r) step. Locate the curve by `keyword`."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "keyword":  {"type": "string",
+                             "description": "Substring selecting the sample (averaged/subtracted file)."},
+                "detector": {"type": "string", "enum": ["SAXS", "WAXS"],
+                             "description": "Detector (default SAXS)."},
+                "known_isotropic": {"type": "boolean",
+                             "description": "Set true ONLY if the user has confirmed from the 2D/cake "
+                                            "pattern that the sample is isotropic (not oriented). "
+                                            "Cannot be measured from the 1D curve."},
+                "known_dilute": {"type": "boolean",
+                             "description": "Set true ONLY if the user has confirmed the dilute limit "
+                                            "(a dilution series ruled out interparticle effects)."},
+                "frames_stable": {"type": "boolean",
+                             "description": "Set true ONLY if radiation-damage frame comparison passed."},
+            },
+            "required": ["keyword"],
+        },
+    },
     {
         "name":        "generate_plot",
         "description": (
@@ -883,6 +970,13 @@ class SWAXSAssistant:
         self._mems: dict[str, Any] = {}
         self._mem_lock = _threading.Lock()
         self._anthropic_client: Any = None
+        # Per-user current analysis modality (Change 3). Drives which guideline
+        # YAML is injected into the static prefix. Default SAXS; the analysis_tier1
+        # tool re-verifies it against the current curve and switches on mismatch
+        # (surfaced, not silent). Per-user + lock, mirroring _mems, so concurrent
+        # users don't thrash each other's modality.
+        self._modality: dict[str, str] = {}
+        self._modality_lock = _threading.Lock()
 
     # ── Public API ─────────────────────────────────────────────────────────────
 
@@ -1219,6 +1313,16 @@ class SWAXSAssistant:
         if app_know:
             static_parts.append(app_know)
 
+        # STATIC: analysis ladder (Change 3) for the analysis-family apps only.
+        # Guideline YAML for the current modality + the terse ladder rules. Both
+        # are byte-stable for a given (modality, file mtime), so they stay on the
+        # cached side of the breakpoint; a modality switch invalidates once.
+        if app_id in _GUIDELINE_APPS:
+            gblock = _resolve_guideline_block(self._get_modality(user_id))
+            if gblock:
+                static_parts.append(gblock)
+                static_parts.append(_ANALYSIS_LADDER_RULES)
+
         # DYNAMIC: Layer 3 + 2 + 1 memory context
         mem = self._get_memory(user_id)
         if mem:
@@ -1330,6 +1434,9 @@ class SWAXSAssistant:
 
             if name == "assess_quality":
                 return self._tool_assess_quality(inputs, project_root)
+
+            if name == "analysis_tier1":
+                return self._tool_analysis_tier1(inputs, project_root, user_id)
 
             if name == "run_analysis":
                 return self._tool_run_analysis(inputs)
@@ -1935,6 +2042,116 @@ Experiment data was not modified.</p></body></html>"""
             "count":  len(curated),
             "models": curated,
         }, indent=2), None
+
+    def _tool_analysis_tier1(
+        self, inp: dict, project_root: str | Path | None, user_id: str,
+    ) -> tuple[str, None]:
+        """Route modality from the data + run the tier-0/1(/2-gate) model-free
+        pass in ONE local computation, and return a compact numeric summary plus
+        the gated set of applicable/refused higher-tier steps."""
+        if not project_root:
+            return "No project root set — ask the user to select a project folder.", None
+        keyword = (inp.get("keyword") or "").strip()
+        if not keyword:
+            return "analysis_tier1 needs a `keyword` to locate the curve.", None
+        det = (inp.get("detector") or "SAXS").upper()
+
+        from src.manifest import manifest_path_for
+        root  = Path(project_root)
+        mpath = root if root.is_file() else manifest_path_for(root)
+        mf    = _load_manifest_cached(mpath)
+        files = mf.get("files", {})
+        # Prefer a subtracted curve (what you analyse), then averaged.
+        cand = None
+        for want in ("subtracted", "averaged"):
+            for k, v in files.items():
+                if (v.get("stage") == want
+                        and (v.get("detector") or "").upper() == det
+                        and keyword.lower() in Path(k).name.lower()):
+                    cand = v; break
+            if cand:
+                break
+        if cand is None:
+            return (f"No subtracted/averaged {det} curve matched '{keyword}'.", None)
+
+        q, I, sigma = _load_dat(cand.get("path", ""))
+        if q is None:
+            return (f"Could not load data for {Path(cand.get('path','')).name}.", None)
+
+        from src.analysis import guidelines as _G
+
+        route = _G.route_modality(q, I, sigma)
+        detected = route["modality"]
+        stored   = self._get_modality(user_id)
+
+        # Genuinely ambiguous -> ask, do not guess (router contract).
+        if detected == "ambiguous":
+            return (json.dumps({
+                "file": Path(cand["path"]).name,
+                "modality": "ambiguous",
+                "router": route,
+                "action": ("Cannot decide SAXS vs WAXS from the data alone — ask "
+                           "the user which interpretation applies before analysing."),
+            }, indent=2), None)
+
+        # Re-verify against the stored modality on every curve; SURFACE a
+        # mismatch and switch (never silently correct). The one-off cache
+        # invalidation from the switch is expected.
+        switch_note = None
+        if detected != stored:
+            switch_note = (f"Modality switched {stored} -> {detected} based on THIS "
+                           f"curve ({route['reason']}). Guideline injection updates "
+                           "next turn.")
+            self._set_modality(user_id, detected)
+
+        # Assemble tier-0 context (flags that a single 1D curve can't produce).
+        uc = (mf.get("ai_memory", {}) or {}).get("user_context", {}) or {}
+        ctx: dict = {"bragg_present": route["bragg_present"],
+                     "is_subtracted": cand.get("stage") == "subtracted"}
+        conc = uc.get("concentration")
+        if conc not in (None, "", 0):
+            ctx["concentration"] = conc
+        for flag, key in (("known_isotropic", "azimuthal_isotropy"),
+                          ("known_dilute", "interparticle_free"),
+                          ("frames_stable", "frames_stable")):
+            if inp.get(flag) is True:
+                ctx[key] = True
+
+        # WAXS: SAXS tier-1 (Guinier etc.) does not apply — return the router
+        # result + the WAXS gated set (scaffold), don't force a SAXS fit.
+        if detected == "waxs":
+            entries = _G.load_guideline("waxs")["doc"]["entries"]
+            gated = _G.gate_entries(entries, {**ctx, "has_peaks": route["n_peaks"] > 0,
+                                              "peak_q_positions": None})
+            payload = {"file": Path(cand["path"]).name, "modality": "waxs",
+                       "router": route, "gated": gated,
+                       "note": ("WAXS content is a scaffold (peak detection, "
+                                "d-spacing, Scherrer). Phase ID / indexing / "
+                                "Rietveld are not implemented.")}
+            if switch_note:
+                payload["modality_switch"] = switch_note
+            return json.dumps(payload, indent=2)[:_MAX_TOOL_RESULT_CHARS], None
+
+        # SAXS or BOTH: run the SAXS model-free pass; gate the SAXS ladder.
+        t1 = _G.run_tier1(q, I, sigma, context=ctx)
+        entries = _G.load_guideline("saxs")["doc"]["entries"]
+        gated = _G.gate_entries(entries, t1["state"])
+        payload = {
+            "file": Path(cand["path"]).name,
+            "modality": detected,
+            "router": {"modality": route["modality"], "reason": route["reason"],
+                       "n_sharp_peaks": route["n_sharp_peaks"]},
+            "tier1": t1["summary"],
+            "gated": {"proposable": gated["proposable"],
+                      "refused": gated["refused"]},
+        }
+        if detected == "both":
+            payload["note"] = ("SWAXS: sharp Bragg peaks are also present — treat "
+                               "the high-q peak region as WAXS separately; the SAXS "
+                               "tier-1 above applies to the smooth low-q decay.")
+        if switch_note:
+            payload["modality_switch"] = switch_note
+        return json.dumps(payload, indent=2)[:_MAX_TOOL_RESULT_CHARS], None
 
     def _tool_run_analysis(self, inp: dict) -> tuple[str, None]:
         """
@@ -2542,6 +2759,16 @@ Experiment data was not modified.</p></body></html>"""
         except Exception as exc:
             logger.debug("[Assistant] KB unavailable: %s", exc)
             return None
+
+    def _get_modality(self, user_id: str) -> str:
+        """Current analysis modality for this user (default 'saxs')."""
+        with self._modality_lock:
+            return self._modality.get(user_id, "saxs")
+
+    def _set_modality(self, user_id: str, modality: str) -> None:
+        if modality in ("saxs", "waxs", "both"):
+            with self._modality_lock:
+                self._modality[user_id] = modality
 
     def _get_memory(self, user_id: str | None = None):
         uid = user_id or self._user_id
