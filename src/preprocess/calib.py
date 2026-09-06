@@ -112,8 +112,17 @@ def launch_calib2(cbf_path, calibrant, energy_keV, pixel_um=None,
         except Exception:
             pass
         tail = " · ".join(err.splitlines()[-3:])[:400] if err else "no stderr"
-        return False, (f"pyFAI-calib2 exited immediately (rc={proc.returncode}). "
-                       f"Usually a missing Qt or no display. {tail}"), cmd_str
+        # The most common cause: the calib2 GUI needs a Qt binding, which the
+        # headless core install deliberately omits. Name the exact fix instead of
+        # the vague "missing Qt or no display".
+        if "No Qt wrapper" in err or "Qt wrapper found" in err:
+            hint = ("the calibration GUI needs a Qt binding, which the core install "
+                    "does not include. Install one into the SAME environment that "
+                    "runs the platform:  pip install PySide6")
+        else:
+            hint = "usually a missing Qt binding (pip install PySide6) or no display"
+        return False, (f"pyFAI-calib2 exited immediately (rc={proc.returncode}) — "
+                       f"{hint}. {tail}"), cmd_str
 
     where = f" Save the .poni into {workdir}." if workdir else ""
     return True, (f"Launched pyFAI-calib2 via {how} — pick rings, refine, then "

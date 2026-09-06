@@ -109,9 +109,16 @@ app's forced `Agg` backend or an `offscreen` Qt platform.
 
 The launch is verified: after 1.5 s the app checks whether the process already
 exited and, if so, reports its stderr tail instead of falsely claiming success
-("pyFAI-calib2 exited immediately (rc=…). Usually a missing Qt or no display.").
-The response always includes the full `command` string, so the user can run it by
-hand in a terminal with the platform environment active.
+("pyFAI-calib2 exited immediately (rc=…)"). The response always includes the full
+`command` string, so the user can run it by hand in a terminal with the platform
+environment active.
+
+**Qt binding required.** pyFAI-calib2 is a Qt GUI (via silx.gui), and the core
+install deliberately omits Qt (it broke Windows installs). If it exits with
+`ImportError: No Qt wrapper found`, install a binding into the SAME environment
+that runs the platform: `pip install PySide6` (PyQt6 / PyQt5 also work). When the
+Qt-wrapper error is detected the launcher now says exactly this. Install it only
+on a workstation with a display — the GUI opens a real window.
 
 ## Poni folder
 The output folder is `poni_directory` from the project `config.yml`, falling back

@@ -65,6 +65,12 @@ openpyxl>=3.1              # .xlsx export from the analysis app
 #   Model fitting with sasmodels (the analysis app's model tab):
 #       pip install sasmodels
 #
+#   The pyFAI-calib2 calibration GUI (calibration app "Open calibration GUI"):
+#       pip install PySide6      # a Qt binding — PyQt6 / PyQt5 also work.
+#       Qt is left out of core ON PURPOSE (it broke Windows installs); the GUI is
+#       the only feature that needs it, and it opens a real window, so install it
+#       only on a workstation with a display.
+#
 #   Running the test suite:
 #       pip install pytest
 #
