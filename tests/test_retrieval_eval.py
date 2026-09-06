@@ -12,9 +12,11 @@ Why this exists
 The chunker fix earlier in this project was validated by chunk lengths *looking*
 healthier, not by measured retrieval quality. Without a number we cannot tell
 whether a retrieval change (Change 1, or any future one) helped, hurt, or did
-nothing. This test fixes ~18 questions, each tagged with the ONE source document
-that should answer it, ingests a small controlled corpus into a TEMP KB, and
-reports recall@k plus exactly which questions miss.
+nothing. This test fixes 22 questions (including deliberate near-collision
+questions that share surface vocabulary with a distractor doc but have one
+clearly-best source), each tagged with the ONE source document that should
+answer it, ingests a small controlled corpus into a TEMP KB, and reports
+recall@k plus exactly which questions miss. Measured baseline: 22/22 = 1.000.
 
 Safety
 ------
@@ -204,6 +206,20 @@ _QUESTIONS: list[tuple[str, str]] = [
      "form_factors.md"),
     ("How do I recognise radiation damage across successive exposures and mitigate it?",
      "radiation_damage.md"),
+    # ---- near-collision questions: each shares surface vocabulary with a
+    #      distractor doc but has ONE clearly-best source. These give the eval
+    #      discriminating power beyond a saturated recall@1. ------------------
+    ("For a particle with a smooth sharp interface, exactly what high-q power-law "
+     "slope does the Porod law predict?",            # vs membrane_tfc (fractal slope)
+     "porod_analysis.md"),
+    ("Which lamellar form factor gives Bragg orders at q* = 2 pi / d?",
+     "form_factors.md"),                              # vs lipid LNP (correlation peak d)
+    ("Besides a direct Guinier fit, which real-space method recovers Rg and I0 "
+     "as moments of a distribution?",                 # vs guinier_analysis (Rg/I0)
+     "pair_distance_pr.md"),
+    ("A dense hydrophobic core surrounded by a solvated PEG corona above the CMC "
+     "— which model and what sets the aggregation number?",  # vs form_factors (core-shell)
+     "block_copolymer_micelle.pdf"),
     # user_papers
     ("What SAXS correlation peak reports the internal spacing of an mRNA lipid nanoparticle?",
      "lipid_nanoparticle_lnp.pdf"),
@@ -266,10 +282,19 @@ def _topk_sources(kb, question: str, k: int) -> list[str]:
 def test_retrieval_recall_at_k(eval_kb):
     """Report recall@1/3/5 over the fixed question set and list every miss.
 
-    Asserts a conservative floor on recall@5 so this doubles as a regression
-    guard: a future retrieval change that drops recall@5 below the floor fails
-    here. The floor is intentionally well below the measured baseline so normal
-    embedding-model jitter does not flake it."""
+    Measured baseline (all-MiniLM-L6-v2): recall@1 = recall@3 = recall@5 =
+    22/22 = 1.000, INCLUDING the near-collision questions above. The controlled
+    corpus is topically well-separated by design and the retriever handles the
+    surface-vocabulary overlaps correctly, so recall saturates — that is the
+    correct outcome for a controlled eval, not a weakness. The value here is a
+    REGRESSION GUARD: an embedding failure, a chunker-corruption regression, a
+    source-labelling bug, or a ranking regression all pull recall well below the
+    floor. (Measuring incremental *gains* would need a harder/real corpus; this
+    fixture deliberately trades that for a stable, unambiguous baseline.)
+
+    The floor sits below the 1.000 baseline with margin for a future embedding-
+    model swap (a couple of shifted questions still pass; a real regression does
+    not)."""
     # Retrieve once at the largest k; recall@k for smaller k reuses the prefix.
     per_q: list[tuple[str, str, list[str]]] = []
     for q, expected in _QUESTIONS:
@@ -298,8 +323,9 @@ def test_retrieval_recall_at_k(eval_kb):
             print("\n".join(misses[k]))
     print("=" * 72)
 
-    # Conservative regression floor — measured baseline sits comfortably above.
-    floor = 0.66
+    # Regression floor — measured baseline is 1.000; 0.85 allows a couple of
+    # shifted questions on a model swap but fails on any real regression.
+    floor = 0.85
     assert recall[5] / total >= floor, (
         f"recall@5 = {recall[5] / total:.3f} < floor {floor}; retrieval "
         f"regressed. Misses@5:\n" + "\n".join(misses[5])
