@@ -220,8 +220,7 @@ def _last_loss_for(recipe_id: str):
             if _campaign is None:
                 return None
             for rec in reversed(_campaign.history):
-                if recipe_id in str(rec.get("recipe_id", "")) or \
-                        recipe_id in str(rec.get("params", {}).get("recipe_id", "")):
+                if str(rec.get("recipe_id", "")) == recipe_id:
                     return round(float(rec["loss"]), 4)
     except Exception:
         pass
@@ -379,7 +378,7 @@ def _save_campaign() -> None:
             "history": _campaign.history,
             "pending": _pending,
             "pending_at": _pending_at,
-            "handled": {k: list(v) for k, v in _handled.items()},
+            "handled": _snapshot_handled(),
         })
     except Exception as exc:
         _emit(f"⚠ could not save the campaign state: {exc}", "warn")
@@ -418,7 +417,8 @@ def _restore_campaign() -> None:
         camp.start()
         for rec in hist:                       # rebuild the GP from real results
             camp.tell(rec.get("params") or {}, rec.get("size"),
-                      rec.get("pdi"), float(rec.get("confidence") or 0.0))
+                      rec.get("pdi"), float(rec.get("confidence") or 0.0),
+                      recipe_id=rec.get("recipe_id", ""))
         with _campaign_lock:
             _campaign = camp
             _campaign_cfg = cfg
@@ -429,11 +429,12 @@ def _restore_campaign() -> None:
             # Restoring `handled` is what stops a restart re-analysing every
             # existing profile — which would append a duplicate manifest entry
             # (new uuid each time) and fire a duplicate notification per file.
-            for k, v in (st.get("handled") or {}).items():
-                try:
-                    _handled[k] = tuple(v)
-                except Exception:
-                    pass
+            with _intake_lock:
+                for k, v in (st.get("handled") or {}).items():
+                    try:
+                        _handled[k] = tuple(v)
+                    except Exception:
+                        pass
         _emit(f"♻ campaign RESUMED from disk — {len(hist)} result(s) replayed, "
               f"{len(_pending)} condition(s) still pending, target "
               f"R={cfg.get('target_size')}±{cfg.get('tolerance')} nm", "ok")
@@ -476,7 +477,7 @@ def _expire_pending() -> None:
                   f"{_PENDING_TIMEOUT_S / 60:.0f} min — recording it as a FAILED "
                   f"measurement and proposing the next condition", "warn")
             try:
-                _campaign.tell(params, None, None, 0.0)
+                _campaign.tell(params, None, None, 0.0, recipe_id=rid)
             except Exception as exc:
                 _emit(f"⚠ could not record the failed measurement: {exc}", "warn")
         if stale:
@@ -499,7 +500,7 @@ def _feed_campaign(name: str, res: dict) -> None:
         size = sz.get("radius")
         pdi = res.get("pdi")
         conf = res.get("confidence", 0.0)
-        _campaign.tell(params, size, pdi, conf)
+        _campaign.tell(params, size, pdi, conf, recipe_id=rid)
         _emit(f"📊 told campaign {rid}: R={size} PDI={pdi} conf={conf} "
               f"(loss={_campaign.history[-1]['loss']:.3f})", "info")
         _advance_campaign()
@@ -722,6 +723,11 @@ def _analyze_file(path: Path) -> None:
     # Every fit gets a durable record (Results/Fit/ — PNG + .dat, see
     # _write_fit_record) so it can be checked or replotted after the beamtime.
     # A low-confidence fit additionally gets its PNG attached to notifications.
+    # Drive the closed loop FIRST, so the loss for THIS recipe is in the campaign
+    # history before fit.complete is published — otherwise _last_loss_for(rid)
+    # below sees only the previous recipe's history and always reported None.
+    _feed_campaign(path.name, res)          # drive the closed loop, if a campaign is running
+
     try:
         rid = recipe_id_from_filename(path.name)
         suspect = (conf or 0.0) <= QC_CONF_THRESHOLD
@@ -738,12 +744,25 @@ def _analyze_file(path: Path) -> None:
     except Exception as exc:
         _emit(f"⚠ could not publish fit.complete: {exc}", "warn")
 
-    _feed_campaign(path.name, res)          # drive the closed loop, if a campaign is running
-
 
 # ── folder watcher ─────────────────────────────────────────────────────────────
 _handled: dict = {}
 _lastsig: dict = {}
+# Guards the intake memos above. They are mutated by the watcher thread and
+# CLEARED by request threads (set_project / api_folder), and snapshotted by
+# _save_campaign — so an unguarded iteration (the cleanup/cap loops, or the save
+# snapshot) could raise "dictionary changed size during iteration". A dedicated
+# lock, NOT _campaign_lock: the watcher calls _feed_campaign (which takes
+# _campaign_lock), so reusing it here would deadlock.
+_intake_lock = threading.Lock()
+
+
+def _snapshot_handled() -> dict:
+    """A consistent copy of _handled for persistence, taken under _intake_lock so
+    it can't race the watcher's cleanup/cap loops (RuntimeError: dict changed
+    size during iteration)."""
+    with _intake_lock:
+        return {k: list(v) for k, v in _handled.items()}
 
 
 def _watcher() -> None:
@@ -767,17 +786,19 @@ def _watcher() -> None:
                     if action == "wait":
                         _lastsig[key] = sig; continue
                     _analyze_file(f)
-                    _handled[key] = sig; _lastsig.pop(key, None)
-                for k in [k for k in _lastsig if k not in present]:
-                    _lastsig.pop(k, None)
-                # `_handled` used to grow forever. Drop entries whose file is no
-                # longer in the folder, then hard-cap it — an overnight campaign
-                # otherwise accumulates thousands of dead keys.
-                for k in [k for k in _handled if k not in present]:
-                    _handled.pop(k, None)
-                if len(_handled) > _MAX_RESULTS * 2:
-                    for k in list(_handled)[:len(_handled) - _MAX_RESULTS]:
+                    with _intake_lock:
+                        _handled[key] = sig; _lastsig.pop(key, None)
+                with _intake_lock:
+                    for k in [k for k in _lastsig if k not in present]:
+                        _lastsig.pop(k, None)
+                    # `_handled` used to grow forever. Drop entries whose file is
+                    # no longer in the folder, then hard-cap it — an overnight
+                    # campaign otherwise accumulates thousands of dead keys.
+                    for k in [k for k in _handled if k not in present]:
                         _handled.pop(k, None)
+                    if len(_handled) > _MAX_RESULTS * 2:
+                        for k in list(_handled)[:len(_handled) - _MAX_RESULTS]:
+                            _handled.pop(k, None)
             _expire_pending()      # self-heal a proposal whose data never arrived
         except Exception:
             pass
@@ -824,7 +845,8 @@ def set_project():
         os.environ["SWAXS_PROJECT"] = p
         _project_root = p
         threading.Thread(target=_boot_resume, daemon=True).start()
-        _handled.clear(); _lastsig.clear()      # rescan under the new project
+        with _intake_lock:
+            _handled.clear(); _lastsig.clear()  # rescan under the new project
         _emit(f"📁 project → {p}", "info")
     return jsonify({"ok": True, "watching": str(_resolve_sub())})
 
@@ -837,13 +859,15 @@ def api_folder():
         f = (body.get("folder", "") or "").strip()
         if f:
             _sub_folder = f
-            _handled.clear(); _lastsig.clear()
+            with _intake_lock:
+                _handled.clear(); _lastsig.clear()
             _gate_note_shown = False
             _emit(f"📁 watching → {f}", "info")
         g = str(body.get("gate", "") or "").strip().lower()
         if g in ("auto", "good", "off"):
             _gate_mode = g
-            _handled.clear(); _lastsig.clear()
+            with _intake_lock:
+                _handled.clear(); _lastsig.clear()
             _gate_note_shown = False
             _emit(f"🔒 quality gate mode → {g}"
                   + (" (rejected profiles WILL be analysed)" if g == "off" else ""),

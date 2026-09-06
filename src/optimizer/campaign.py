@@ -82,11 +82,19 @@ class CampaignController:
         self._n_asked += 1
         return dict(cond)
 
-    def tell(self, params: dict, size, pdi, confidence: float) -> dict:
-        """Record a measured result and update stop state."""
+    def tell(self, params: dict, size, pdi, confidence: float,
+             recipe_id: str = "") -> dict:
+        """Record a measured result and update stop state.
+
+        ``recipe_id`` is stored as a TOP-LEVEL field (not inside ``params``, which
+        is replayed into the GP) so the loss can be joined back to the reactor's
+        run/condition records and reported in notifications. Without it the loss
+        sent to Slack and written to the durable history.csv was always
+        None/blank."""
         loss = self.loss(size, pdi)
         rec = {"params": dict(params), "size": size, "pdi": pdi,
-               "confidence": float(confidence), "loss": loss}
+               "confidence": float(confidence), "loss": loss,
+               "recipe_id": str(recipe_id or "")}
         self.history.append(rec)
         if self.best is None or loss < self.best["loss"]:
             self.best = rec
