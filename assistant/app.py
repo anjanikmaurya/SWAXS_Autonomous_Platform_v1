@@ -206,19 +206,22 @@ def _knowledge_files() -> list[Path]:
 
 
 def _ingest_app_knowledge(assistant: SWAXSAssistant) -> None:
-    """Index all per-app knowledge.md files into the 'apps' KB collection."""
+    """Ingest the runtime KB docs that STILL use semantic retrieval.
+
+    Per-app knowledge.md files are NO LONGER ingested into ChromaDB. The
+    in-scope app's doc is now injected directly into the assistant's system
+    prompt, read from disk and mtime-cached
+    (src/ai/assistant.py::_resolve_app_knowledge). That removes the ChromaDB
+    WRITE dependency for app knowledge — important mid-beamtime, when the
+    running assistant holds the DB write lock — and takes chunking out of the
+    equation for the one collection that suffered most from the chunker bug.
+    `_knowledge_files()` is retained as the canonical app→doc mapping (and the
+    docs-integrity test asserts it stays); only the beamline YAML (a genuine
+    volume-of-documents RAG doc) is ingested here now.
+    """
     kb = assistant._get_knowledge_base()
     if kb is None:
         return
-    for md_path in _knowledge_files():
-        app_name = md_path.parent.name
-        if True:
-            try:
-                n = kb.ingest_markdown(str(md_path), collection="apps")
-                if n:
-                    logger.info("Ingested %s/knowledge.md → %d chunks", app_name, n)
-            except Exception as exc:
-                logger.warning("KB ingest error for %s: %s", app_name, exc)
     # Ingest beamline YAML
     bl_path = _ROOT / "ai_knowledge" / "beamline" / f"{BEAMLINE_ID}.yml"
     if bl_path.exists():
