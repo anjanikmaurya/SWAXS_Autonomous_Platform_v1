@@ -363,12 +363,4 @@ Each analysis route also emits an `analysis.complete` bus event with
 `analysis_type`, `file_path` and `results`.
 
 ## src/ Imports
-- `src.analysis.core` — `guinier_fit`, `guinier_quality`, `porod_fit`,
-  `kratky_plot`, `dimensionless_kratky`, `pair_distance_ift`,
-  `classical_invariants`, `peak_fit`, `sasmodels_fit`, `sasmodels_params`
-- `src.analysis.io` — `save_analysis`, `analysed_dir_for_source`,
-  `annotate_source_dat`, `write_batch_summary`
-- `src.analysis.atsas` — `available`, `run_autorg`, `run_datgnom`,
-  `run_datporod`, `run_datvc`, `run_datmw`, `run_dammif`
-- `src.manifest` — register analysis results
-- `src.utils.read_dat_metadata.read_dat_data_metadata` — load `.dat` files
+src/ imports: see CLAUDE.md.

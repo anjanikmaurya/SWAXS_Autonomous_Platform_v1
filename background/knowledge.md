@@ -200,8 +200,7 @@ time, and a `file.subtracted` bus event is emitted with
 `file_path`, `keyword`, `scale`, `mode`.
 
 ## src/ Imports
-- `src.manifest` — load/save manifest entries
-- `src.utils.read_dat_metadata.read_dat_data_metadata` — load .dat files
+src/ imports: see CLAUDE.md.
 
 ## Scale Factor Quality Checks — done by the ASSISTANT, not this app
 This app itself does not flag scale factors: it clamps `c` to **[0.1, 5]** and has

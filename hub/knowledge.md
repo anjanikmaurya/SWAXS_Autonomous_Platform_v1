@@ -60,10 +60,8 @@ The hub reads `apps.yml` from the project root at startup. Each entry:
 ```
 `id`, `name`, `port` and `entry` are required. `description`, `icon`,
 `icon_image`, `color`, `knowledge` and `manifest_key` are optional and get
-defaults (`icon` "🔧", `color` "#455A64", the rest empty/None).
-
-Hot-reload: `POST /api/apps/reload` re-reads `apps.yml` and registers new apps
-without restarting the hub.
+defaults (`icon` "🔧", `color` "#455A64", the rest empty/None). Hot-reload via
+`POST /api/apps/reload` (see the API table).
 
 ## App launch details
 Each app is launched with the SAME Python interpreter that runs the hub
@@ -145,6 +143,15 @@ When a sub-app sends a message to `/ws`, the hub:
 `add_event` keeps a ROLLING window of only the last `_EVENTS_MAX` = 100 events
 (`src/manifest.py:119`); older events are dropped from `manifest.json`. Events
 are only persisted while a project folder is selected.
+
+## manifest.json — Cross-App Contract
+`src/manifest.py` owns a single `manifest.json` at the project root. Each app
+reads and writes ONLY its own section (declared as `manifest_key` in `apps.yml`)
+and must never overwrite another app's keys: reduction/average → `files`,
+background → `background`, quality → `quality`, analysis/analyzer → `analyses`,
+reactor → `reactor.runs`, assistant → `ai_memory`. The `events` key holds the
+rolling window of the last 100 bus events (above). The assistant reads the whole
+manifest to answer questions about the experiment.
 
 ## Project Folder Management
 The hub holds a global `_project_root: str`. It is persisted to

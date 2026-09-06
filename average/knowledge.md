@@ -199,16 +199,4 @@ interpolation and the induced correlation (<https://doi.org/10.6028/jres.108.008
 Pauw, "Everything SAXS", 2013, § rebinning
 (<https://doi.org/10.1088/0953-8984/25/38/383201>).
 
-## src/ Imports
-- `src.plot_reduction.read_folder(folder, keywords=None) -> list[dict]` — a FLAT
-  list of frame dicts, each `{filename, keyword, scan_idx, q, I, sigma, metadata}`.
-  It is not a `{keyword: [...]}` mapping; group it yourself if you need groups.
-- `src.plot_reduction.average_and_save(folder, keywords, *, n_pts=1000,
-  label_suffix="Average", output_dir=None, i0_filter_pct=0.0, q_min=None,
-  q_max=None) -> list[(keyword, Path)]` — groups a whole FOLDER by keyword and
-  writes one averaged `.dat` per keyword.
-- `src.plot_reduction.average_batch(frames, keyword, out_path, *,
-  i0_filter_pct=0.0, n_pts=1000, q_min=None, q_max=None) -> Path | None` — a
-  DIFFERENT function that averages exactly the explicit list of frame dicts passed
-  in and writes one file. This is what the auto-averaging monitor uses.
-- `src.utils.read_dat_metadata.read_dat_data_metadata(path)` — parse a single `.dat`.
+src/ imports: see CLAUDE.md.

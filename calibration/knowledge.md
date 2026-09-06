@@ -11,8 +11,7 @@ It has **no `manifest_key`** in `apps.yml` and writes nothing to
 geometries. Nothing downstream reads its state; reduction simply picks up the
 `.poni` files by path.
 
-All logic lives in `src/preprocess/` (`raw_convert.py`, `calib.py`,
-`sftp_sync.py`); `calibration/app.py` is a thin Flask shell.
+src/ imports: see CLAUDE.md.
 
 ## Three-stage workflow
 

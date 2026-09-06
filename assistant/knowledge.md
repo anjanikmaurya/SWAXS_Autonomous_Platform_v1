@@ -35,6 +35,10 @@ Cost controls: only the `_MAX_HISTORY_USER_TURNS = 6` most recent user prompts
 (with their tool exchanges) are re-sent, and any single tool result is truncated
 at `_MAX_TOOL_RESULT_CHARS = 8000` characters.
 
+See hub/knowledge.md for the event bus and manifest contract. This app subscribes
+to the bus for proactive hints (`/api/events/stream`) and reads the whole manifest
+via the `query_manifest` tool.
+
 ## Available Tools — all 18
 
 `_TOOLS` in `src/ai/assistant.py` defines eighteen tools.
