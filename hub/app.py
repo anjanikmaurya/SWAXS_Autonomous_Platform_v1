@@ -504,14 +504,18 @@ def health():
 
 
 #: consecutive failed health probes per app, while the process itself is still
-#: running. A busy app missing ONE probe is not the same as a dead one — the
-#: assistant's one-time knowledge-base warm-up at startup (embedding every
-#: knowledge.md into ChromaDB) can hold the GIL past the 1 s probe timeout,
-#: which used to flash the card "not responding" -> "running" on the very next
-#: tick. Require two consecutive misses before reporting not-responding, so a
-#: single slow tick doesn't flicker the UI for a process that is, in fact, fine.
+#: running. A busy app missing a probe is not the same as a dead one — the AI
+#: assistant does short but real GIL bursts (its KB warm-up at startup, loading +
+#: analysing each new .dat in the bus hint handler during a run, and reading the
+#: manifest + rendering a plot per chat) that can briefly push /api/health past a
+#: 1 s probe. Require THREE consecutive misses AND give each probe a 2 s window
+#: (see _app_status) before reporting not-responding, so a bursty-but-alive app
+#: (the assistant especially) doesn't flicker the card. A genuinely wedged app is
+#: still caught in ~3 ticks. The probe loop is sequential, but a healthy app
+#: answers in a few ms, so the larger timeout only costs anything when an app is
+#: actually unresponsive.
 _health_fail_streak: dict = {}
-_HEALTH_FAIL_THRESHOLD = 2
+_HEALTH_FAIL_THRESHOLD = 3
 
 
 def _app_status() -> dict:
@@ -523,7 +527,7 @@ def _app_status() -> dict:
     for a in APPS:
         aid = a["id"]
         running = _is_running(aid)
-        alive, summary = _health_probe(a["port"]) if running else (False, None)
+        alive, summary = _health_probe(a["port"], timeout=2.0) if running else (False, None)
         if running:
             _health_fail_streak[aid] = 0 if alive else _health_fail_streak.get(aid, 0) + 1
             healthy = alive or _health_fail_streak[aid] < _HEALTH_FAIL_THRESHOLD
