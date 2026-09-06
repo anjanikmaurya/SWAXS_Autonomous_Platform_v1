@@ -182,15 +182,22 @@ def run_user_code(
     script_path = workdir / "snippet.py"
     script_path.write_text(script)
 
-    # Minimal environment: no proxy/network hints, no inherited secrets.
+    # Minimal environment: no proxy/network hints, no inherited secrets. HOME is
+    # remapped to the workdir so `~` / Path.home() can't reach the real home
+    # (where the gateway token lives).
     env = {"HOME": str(workdir), "MPLBACKEND": "Agg",
            "PYTHONHASHSEED": "0", "PYTHONUTF8": "1"}
     if sys.platform == "win32":
-        # Windows Python needs a few base vars just to start the interpreter.
-        for _v in ("SYSTEMROOT", "PATH", "TEMP", "TMP", "USERPROFILE",
-                   "HOMEDRIVE", "HOMEPATH", "PATHEXT", "APPDATA", "LOCALAPPDATA"):
+        # Windows Python needs SYSTEMROOT/PATH/PATHEXT/TEMP to start. Do NOT leak
+        # the real USERPROFILE/HOMEDRIVE/HOMEPATH/APPDATA — Path.home() reads
+        # USERPROFILE, which would defeat the HOME jail; point them at the workdir.
+        for _v in ("SYSTEMROOT", "PATH", "TEMP", "TMP", "PATHEXT"):
             if _v in os.environ:
                 env[_v] = os.environ[_v]
+        _wd = Path(workdir)
+        env["USERPROFILE"] = str(_wd)
+        env["HOMEDRIVE"]   = _wd.drive or "C:"
+        env["HOMEPATH"]    = "\\" + str(_wd).split(":", 1)[-1].lstrip("\\/")
     else:
         env["PATH"] = "/usr/bin:/bin"
 

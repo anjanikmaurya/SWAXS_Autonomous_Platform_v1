@@ -134,6 +134,10 @@ app = Flask(__name__, template_folder="templates")
 # ── Global state ──────────────────────────────────────────────────────────────
 _sessions: dict[str, dict] = {}   # {session_id: {history, user_id, last_active}}
 _sessions_lock = Lock()
+#: cap the in-session history kept in RAM. Token cost is already bounded by
+#: _trim_history in the model call; this just stops a long conversation growing
+#: the session dict without limit (kept generous — trims oldest turns/tool pairs).
+_MAX_SESSION_HISTORY = 60
 
 _hint_events: list[dict] = []     # SSE queue for event-bus hints (capped)
 _hint_events_lock = Lock()
@@ -333,6 +337,10 @@ def _expire_sessions() -> None:
         logger.debug("Expired %d stale sessions", len(dead))
 
 
+_proot_cache: dict = {"root": None, "t": 0.0}
+_PROOT_TTL = 3.0   # seconds; the hub /api/status probe is the slow part
+
+
 def _resolve_project_root() -> str | None:
     """
     Find the active experiment folder via a robust fallback chain, so the
@@ -342,7 +350,15 @@ def _resolve_project_root() -> str | None:
       2. the SWAXS_PROJECT env var (set when the hub launches this app)
       3. the persisted .hub_state.json (last folder, survives restarts)
     Returns the first path that exists on disk, else None.
+
+    Result is cached for _PROOT_TTL so a blocking hub HTTP probe doesn't run on
+    EVERY /api/chat, /api/chat/stream, /api/health and /api/project call (that
+    added up to 1 s each when the hub was slow/unreachable).
     """
+    now = time.time()
+    if (now - _proot_cache["t"]) < _PROOT_TTL:
+        return _proot_cache["root"]
+
     candidates: list[str] = []
 
     # 1. Live hub status
@@ -370,10 +386,9 @@ def _resolve_project_root() -> str | None:
     except Exception:
         pass
 
-    for c in candidates:
-        if c and Path(c).is_dir():
-            return c
-    return None
+    result = next((c for c in candidates if c and Path(c).is_dir()), None)
+    _proot_cache.update(root=result, t=now)
+    return result
 
 
 # Backwards-compatible alias (older callers).
@@ -451,6 +466,8 @@ def api_chat():
     # Persist history delta
     with _sessions_lock:
         sess["history"] += result.pop("_history_delta", [])
+        if len(sess["history"]) > _MAX_SESSION_HISTORY:
+            sess["history"] = sess["history"][-_MAX_SESSION_HISTORY:]
 
     # Persist this turn to the project's on-disk chat history (text only).
     if project_root:
@@ -544,6 +561,8 @@ def api_chat_stream():
 
         with _sessions_lock:
             sess["history"] += result.pop("_history_delta", [])
+            if len(sess["history"]) > _MAX_SESSION_HISTORY:
+                sess["history"] = sess["history"][-_MAX_SESSION_HISTORY:]
         if project_root:
             try:
                 mem = assistant._get_memory(user_id)

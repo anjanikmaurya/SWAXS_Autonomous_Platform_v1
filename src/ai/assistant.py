@@ -122,8 +122,11 @@ _TOOLS: list[dict] = [
         "description": (
             "Generate a SAXS/WAXS analysis plot (Guinier, Kratky, Porod, "
             "p(r), multi-curve overlay, or plain curve) and return it as a "
-            "base64 PNG for inline display. Pass q, I, sigma arrays as JSON "
-            "lists alongside the plot type and any fit parameters."
+            "base64 PNG for inline display. STRONGLY PREFER `file_path` (the "
+            "assistant loads q/I/sigma from the .dat itself) — or use the "
+            "keyword-based tools overlay_curves/run_analysis/compute_pr instead. "
+            "Only pass raw q/I/sigma arrays for SMALL computed data you cannot "
+            "source from a file; never paste thousands of points inline."
         ),
         "input_schema": {
             "type": "object",
@@ -605,25 +608,10 @@ _TOOLS: list[dict] = [
             "required": ["code"],
         },
     },
-    {
-        "name":        "ingest_pdf",
-        "description": (
-            "Ingest a PDF file (paper, manual, protocol) into the AI knowledge "
-            "base so it can be retrieved in future conversations. "
-            "Use when the user uploads or mentions a reference document."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "pdf_path":   {"type": "string",
-                               "description": "Absolute path to the PDF."},
-                "collection": {"type": "string",
-                               "enum": ["literature", "user_papers"],
-                               "description": "Target collection (default: user_papers)."},
-            },
-            "required": ["pdf_path"],
-        },
-    },
+    # NOTE: PDF ingestion is exposed via `manage_knowledge` (action="add_pdf"),
+    # which is a strict superset (list/add_pdf/add_note/ingest_folder/remove). The
+    # standalone `ingest_pdf` tool was dropped — one action, one tool, ~300 fewer
+    # prompt tokens and no tool-selection ambiguity.
 ]
 
 # ── Base system prompt (static) ────────────────────────────────────────────────
@@ -695,8 +683,8 @@ When the user asks to compare samples or overlay profiles:
 3. Ground the interpretation in the literature: the system prompt already
    surfaces relevant Knowledge-Base excerpts, INCLUDING the user's own ingested
    papers (collection `user_papers`). Cite them by source name. If a paper would
-   help and isn't indexed, tell the user they can add it (you can call
-   `ingest_pdf` on a PDF path).
+   help and isn't indexed, tell the user they can add it (call
+   `manage_knowledge` with action="add_pdf" and the PDF path).
 4. Recommend a fitting model: call `list_saxs_models` (the Analysis app's
    sasmodels range), pick the model whose form matches the observed features,
    and give concrete INITIAL GUESSES derived from the data:
@@ -1225,9 +1213,6 @@ class SWAXSAssistant:
 
             if name == "run_python":
                 return self._tool_run_python(inputs, project_root)
-
-            if name == "ingest_pdf":
-                return self._tool_ingest_pdf(inputs)
 
             if name == "manage_knowledge":
                 return self._tool_manage_knowledge(inputs, project_root)

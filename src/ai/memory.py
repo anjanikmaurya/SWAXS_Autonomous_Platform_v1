@@ -43,6 +43,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -208,31 +210,33 @@ class LayeredMemory:
 
     def add_group_sop(self, title: str, text: str) -> dict:
         """Add a shared group SOP/convention. Returns the new entry."""
-        sops = self.load_group_sops()
         entry = {
             "id":    uuid.uuid4().hex[:8],
             "title": (title or "untitled").strip(),
             "text":  (text or "").strip(),
             "added": _now(),
         }
-        sops.append(entry)
-        self._save_group_sops(sops)
+        with _WRITE_LOCK:                       # lock the whole read-modify-write
+            sops = self.load_group_sops()
+            sops.append(entry)
+            self._save_group_sops(sops)
         return entry
 
     def remove_group_sop(self, ident: str) -> bool:
         """Remove a group SOP by id or (case-insensitive) title. Returns True if removed."""
-        sops = self.load_group_sops()
         key = str(ident).strip().lower()
-        kept = [s for s in sops
-                if s.get("id", "").lower() != key
-                and s.get("title", "").strip().lower() != key]
-        if len(kept) == len(sops):
-            return False
-        self._save_group_sops(kept)
+        with _WRITE_LOCK:
+            sops = self.load_group_sops()
+            kept = [s for s in sops
+                    if s.get("id", "").lower() != key
+                    and s.get("title", "").strip().lower() != key]
+            if len(kept) == len(sops):
+                return False
+            self._save_group_sops(kept)
         return True
 
     def _save_group_sops(self, sops: list[dict]) -> None:
-        self._group_sops_path.write_text(json.dumps(sops, indent=2), encoding="utf-8")
+        _atomic_write_text(self._group_sops_path, json.dumps(sops, indent=2))
 
     # ── User corrections ───────────────────────────────────────────────────────
 
@@ -258,11 +262,11 @@ class LayeredMemory:
 
     def update_preferences(self, **kwargs: Any) -> None:
         """Merge kwargs into the user preferences YAML file."""
-        prefs = self._load_preferences()
-        prefs.update(kwargs)
-        self._preferences_path.write_text(
-            yaml.dump(prefs, default_flow_style=False), encoding="utf-8"
-        )
+        with _WRITE_LOCK:
+            prefs = self._load_preferences()
+            prefs.update(kwargs)
+            _atomic_write_text(self._preferences_path,
+                               yaml.dump(prefs, default_flow_style=False))
 
     # ── User context (sample details for current session) ─────────────────────
 
@@ -271,19 +275,19 @@ class LayeredMemory:
         Update transient sample context for the current session.
         Stored in preferences.yml under the ``_session_context`` key.
         """
-        prefs = self._load_preferences()
-        prefs.setdefault("_session_context", {}).update(kwargs)
-        self._preferences_path.write_text(
-            yaml.dump(prefs, default_flow_style=False), encoding="utf-8"
-        )
+        with _WRITE_LOCK:
+            prefs = self._load_preferences()
+            prefs.setdefault("_session_context", {}).update(kwargs)
+            _atomic_write_text(self._preferences_path,
+                               yaml.dump(prefs, default_flow_style=False))
 
     def clear_user_context(self) -> None:
         """Clear the transient session context (call at session end)."""
-        prefs = self._load_preferences()
-        prefs.pop("_session_context", None)
-        self._preferences_path.write_text(
-            yaml.dump(prefs, default_flow_style=False), encoding="utf-8"
-        )
+        with _WRITE_LOCK:
+            prefs = self._load_preferences()
+            prefs.pop("_session_context", None)
+            _atomic_write_text(self._preferences_path,
+                               yaml.dump(prefs, default_flow_style=False))
 
     # ── Session summaries ──────────────────────────────────────────────────────
 
@@ -291,7 +295,7 @@ class LayeredMemory:
         """Persist a plain-text digest of a completed conversation session."""
         ts   = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         name = f"{ts}_{session_id[:8]}.txt"
-        (self._session_summary_dir / name).write_text(summary, encoding="utf-8")
+        _atomic_write_text(self._session_summary_dir / name, summary)
         logger.debug("[Memory] Session summary saved: %s", name)
 
     # ── Project layer (Layer 2) ────────────────────────────────────────────────
@@ -357,10 +361,8 @@ class LayeredMemory:
             return []
         out: list[dict] = []
         try:
-            for line in path.read_text(encoding="utf-8").splitlines():
-                line = line.strip()
-                if line:
-                    out.append(json.loads(line))
+            for line in _tail_lines(path, max_turns):   # read only the tail
+                out.append(json.loads(line))
         except Exception as exc:
             logger.debug("[Memory] Could not load chat: %s", exc)
             return []
@@ -396,7 +398,7 @@ class LayeredMemory:
     def _load_corrections(self, n: int) -> list[dict]:
         if not self._corrections_path.exists():
             return []
-        lines = self._corrections_path.read_text(encoding="utf-8").splitlines()
+        lines = _tail_lines(self._corrections_path, n)
         records = []
         for line in reversed(lines):
             line = line.strip()
@@ -424,7 +426,7 @@ class LayeredMemory:
         hist_path = _project_memory_dir(project_root) / "experiment_history.jsonl"
         if not hist_path.exists():
             return []
-        lines = hist_path.read_text(encoding="utf-8").splitlines()
+        lines = _tail_lines(hist_path, n)
         records = []
         for line in reversed(lines):
             line = line.strip()
@@ -444,7 +446,7 @@ class LayeredMemory:
         log_path = _project_memory_dir(project_root) / "quality_log.jsonl"
         if not log_path.exists():
             return []
-        lines = log_path.read_text(encoding="utf-8").splitlines()
+        lines = _tail_lines(log_path, n)
         records = []
         for line in reversed(lines):
             line = line.strip()
@@ -469,6 +471,52 @@ class LayeredMemory:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+#: Serialises the small config read-modify-write paths (preferences.yml,
+#: group/sops.json) across concurrent Flask threads so an update isn't lost.
+_WRITE_LOCK = threading.Lock()
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    """Write via temp file + os.replace so a crash or concurrent write can't leave
+    a truncated file — which _load_preferences/load_group_sops would then silently
+    read as empty, losing all prefs/SOPs."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + f".{os.getpid()}.tmp")
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, path)
+    finally:
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except Exception:
+            pass
+
+
+def _tail_lines(path: Path, n: int) -> list[str]:
+    """The last ~n non-empty lines, read from the END of the file so an
+    append-only jsonl log that has grown large isn't fully read+split on every
+    call. Oldest-first. Falls back to a full read on any error."""
+    try:
+        with open(path, "rb") as fh:
+            fh.seek(0, 2)
+            size = fh.tell()
+            data = b""
+            while size > 0 and data.count(b"\n") <= n:
+                step = min(65536, size)
+                size -= step
+                fh.seek(size)
+                data = fh.read(step) + data
+        return [ln for ln in data.decode("utf-8", "replace").splitlines() if ln.strip()][-n:]
+    except Exception:
+        try:
+            return [ln for ln in Path(path).read_text(encoding="utf-8").splitlines()
+                    if ln.strip()][-n:]
+        except Exception:
+            return []
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
