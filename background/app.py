@@ -38,7 +38,8 @@ from src.manifest import (                                        # noqa: E402
     add_file_entry, add_background_entry,
     manifest_path_for, make_provenance,
 )
-from src.runstate import save_monitor, load_monitor, monitor_alive        # noqa: E402
+from src.runstate import (save_monitor, load_monitor, monitor_alive,      # noqa: E402
+                          save_state, load_state)
 
 # ── Event bus (graceful degradation) ─────────────────────────────────────────
 try:
@@ -126,6 +127,38 @@ def _interpolate_onto(q_target: np.ndarray,
     return q_target, I_interp, sig_interp
 
 
+def _interpolate_onto_signed(q_target: np.ndarray,
+                             q_src: np.ndarray,
+                             I_src: np.ndarray,
+                             sig_src: np.ndarray
+                             ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Resample (I_src, sig_src) onto q_target while PRESERVING SIGN.
+
+    Same log-q axis as _interpolate_onto, but intensity is interpolated in LINEAR
+    space and the (I_src > 0) mask is dropped — so negative intensities survive.
+    This is for the SUBTRACTED curve: negative high-q points are a real, load-
+    bearing signature of over-subtraction, and the positive-only log scheme in
+    _interpolate_onto silently dropped them and log-interpolated across the gap,
+    fabricating a positive plateau. That defeated the very over-subtraction check
+    the Quality Gate grades the WRITTEN file on. (The positive-only scheme remains
+    correct for a background, which is physically positive.)
+    """
+    q_src = np.asarray(q_src, float); I_src = np.asarray(I_src, float); sig_src = np.asarray(sig_src, float)
+    m = np.isfinite(q_src) & np.isfinite(I_src) & (q_src > 0)   # NOTE: no positivity on I
+    if m.sum() < 2:
+        z = np.zeros_like(q_target, dtype=float)
+        return q_target, z, z
+    log_q_s = np.log(q_src[m])
+    order   = np.argsort(log_q_s)                # np.interp needs ascending xp
+    log_q_s = log_q_s[order]
+    I_m     = I_src[m][order]
+    sig_m   = np.where(np.isfinite(sig_src[m]), sig_src[m], 0.0)[order]
+    log_q_t = np.log(q_target)
+    I_interp   = np.interp(log_q_t, log_q_s, I_m)        # linear in I → sign kept
+    sig_interp = np.interp(log_q_t, log_q_s, sig_m)
+    return q_target, I_interp, sig_interp
+
+
 def _subtract(q_sam: np.ndarray, I_sam: np.ndarray, sig_sam: np.ndarray,
               q_bkg: np.ndarray, I_bkg: np.ndarray, sig_bkg: np.ndarray,
               scale: float
@@ -196,7 +229,9 @@ def truncate_rebin(q_nm: np.ndarray, I: np.ndarray, sigma: np.ndarray,
         grid = np.logspace(np.log10(lo), np.log10(hi), n)
     else:
         grid = np.linspace(lo, hi, n)
-    _, I_g, sig_g = _interpolate_onto(grid, q_src, I, sigma)
+    # Sign-preserving: the subtracted curve can legitimately go negative, and
+    # dropping those points here would hide over-subtraction from the Quality Gate.
+    _, I_g, sig_g = _interpolate_onto_signed(grid, q_src, I, sigma)
     return grid, I_g, sig_g, clipped, (lo, hi)
 
 
@@ -1307,6 +1342,7 @@ def _sub_monitor_loop(dets, interval, sample_kw="", bkg_kw="",
         return (bk in name.lower()) if bk else _is_background(name)
 
     while _sub_monitoring:
+        _cycle_changed = False
         for det, avg_folder, out_folder in dets:
             fp = Path(avg_folder)
             if not fp.is_dir():
@@ -1356,9 +1392,11 @@ def _sub_monitor_loop(dets, interval, sample_kw="", bkg_kw="",
                 except Exception as exc:
                     _sub_emit(f"✗  {sample.name}: {exc}", "error")
                     _sub_done[rp] = sig   # don't retry THIS version forever
+                    _cycle_changed = True
                     continue
 
                 _sub_done[rp] = sig
+                _cycle_changed = True
                 _sub_lastsig.pop(rp, None)
                 _sub_status["subtracted"] += 1
                 _sub_status["last"] = rec["out"].name
@@ -1371,6 +1409,8 @@ def _sub_monitor_loop(dets, interval, sample_kw="", bkg_kw="",
                     f"{' (clamped)' if rec['clamped'] else ''}  ·  QC {rec['verdict']}",
                     tag,
                 )
+        if _cycle_changed:
+            _save_sub_done()          # persist so a restart resumes, not redoes
         gc.collect()
         time.sleep(interval)
 
@@ -1433,7 +1473,14 @@ def monitor_start():
     if not dets:
         return jsonify({"ok": False, "error": "No Averaged folder provided"}), 400
 
+    # Only a FRESH operator start forgets what was already subtracted. The boot
+    # resume passes resume=True so a restart RESUMES instead of re-subtracting the
+    # whole night (see _save_sub_done). Mirrors the average app's N3 fix.
     _sub_done = {}
+    if bool((request.get_json(silent=True) or {}).get("resume")):
+        _load_sub_done()
+    else:
+        _save_sub_done()             # clear the persisted copy on a fresh start
     _sub_nobkg.clear(); _sub_seen.clear(); _sub_lastsig.clear()
     _sub_status.update({"monitoring": True, "subtracted": 0, "flagged": 0,
                         "last": None, "interval": interval})
@@ -1488,6 +1535,46 @@ def monitor_stream():
 # The saved body is replayed through the SAME endpoint, so there is no second
 # copy of the argument parsing to drift out of sync.
 _MON_APP = "background"
+_SUB_STATE = "background_sub_done"
+
+
+def _save_sub_done() -> None:
+    """Persist the 'already subtracted' memo next to the monitor state, so a
+    restart RESUMES instead of re-subtracting every averaged file. Re-subtracting
+    is wasteful for recipe-keyed data, and for MANUAL data _pick_background can
+    choose a different nearest-index background from the now-complete folder — so
+    the result and its provenance silently change — and it re-fires
+    file.subtracted (re-triggering the Quality Gate) for the whole night. Never
+    raises."""
+    root = _state_root()
+    if not root:
+        return
+    try:
+        save_state(root, _SUB_STATE,
+                   {"done": {k: list(v) for k, v in _sub_done.items()}})
+    except Exception as exc:
+        _sub_emit(f"⚠ could not save the subtraction state: {exc}", "warn")
+
+
+def _load_sub_done() -> None:
+    """Restore the subtraction memo on a resume. honour_no_resume=False:
+    SWAXS_NO_RESUME means 'do not auto-restart the monitor', not 're-subtract
+    everything already done'."""
+    root = _state_root()
+    if not root:
+        return
+    try:
+        st = load_state(root, _SUB_STATE, honour_no_resume=False) or {}
+        for k, v in (st.get("done") or {}).items():
+            try:
+                _sub_done[k] = tuple(v)
+            except Exception:
+                pass
+        if _sub_done:
+            _sub_emit(f"↩ resumed subtraction state — {len(_sub_done)} profile(s) "
+                      f"already subtracted", "info")
+    except Exception as exc:
+        _sub_emit(f"⚠ could not load the subtraction state: {exc}", "warn")
 
 
 def _state_root() -> str:
@@ -1517,6 +1604,9 @@ def _boot_resume_monitor() -> None:
         params = load_monitor(_state_root(), _MON_APP)
         if not params:
             return
+        # resume=True so monitor_start restores _sub_done instead of clearing it
+        # (otherwise a restart re-subtracts every averaged file in the folder).
+        params = {**params, "resume": True}
         rv = app.test_client().post("/api/monitor/start", json=params)
         body = rv.get_json(silent=True) or {}
         # "Already monitoring" is a SUCCESS for our purposes: the loop is running.

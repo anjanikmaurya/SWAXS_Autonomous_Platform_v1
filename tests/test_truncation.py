@@ -131,3 +131,24 @@ def test_label_reflects_what_was_written_not_the_config():
     finally:
         bg.truncate_rebin = orig
         bg._TRUNC["enabled"] = False
+
+
+# ── regression: over-subtraction (negative I) must survive truncate/rebin ─────
+def test_truncate_rebin_preserves_negative_intensities():
+    """The subtracted curve can legitimately go negative (over-subtraction). The
+    rebin used the positive-only log interpolator, which DROPPED those points and
+    log-interpolated across the gap — fabricating a positive plateau that hid the
+    over-subtraction from the Quality Gate (which grades the WRITTEN file)."""
+    import numpy as np
+    q_nm = np.linspace(0.1, 8.0, 1500)
+    # a form factor that has been over-subtracted: clearly negative at high q
+    I = 100.0 / (1.0 + (q_nm) ** 2) - 6.0
+    sig = 0.5 * np.ones_like(q_nm)
+    assert np.any(I < 0), "test setup: the source must contain negatives"
+
+    g, Ig, sg, _clipped, _rng = bg.truncate_rebin(
+        q_nm, I, sig, 0.03, 0.7, 549, spacing="linear", q_unit="A")
+    # the high-q negative region must still be negative, not an invented plateau
+    assert np.any(Ig < 0), "negative intensities were dropped/fabricated positive"
+    # the rebinned curve tracks the source sign at the high-q end
+    assert Ig[-1] < 0
