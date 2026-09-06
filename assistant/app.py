@@ -228,6 +228,8 @@ def _ingest_app_knowledge(assistant: SWAXSAssistant) -> None:
 
 def _setup_event_bus() -> None:
     """Subscribe to hub event bus and convert events to SSE hints."""
+    import queue as _queue
+    import threading as _threading
     try:
         from src.events import EventBusClient
 
@@ -235,13 +237,15 @@ def _setup_event_bus() -> None:
         bus.connect(retry=True)
 
         checker = HintChecker()
+        # Hint checks LOAD .dat files and run numpy fits. Doing that inside the
+        # bus receive callback stalled the single bus consumer thread during a
+        # burst of file.averaged/file.subtracted events (and delayed the
+        # back-onto-bus emits). Offload to a dedicated worker; the callback only
+        # enqueues, so the bus loop stays responsive.
+        work_q: "_queue.Queue" = _queue.Queue(maxsize=2000)
 
-        def _on_event(event: dict) -> None:
-            # Canonical bus events use the key "type" (see src/events.py).
-            etype = event.get("type", "")
-            data  = event.get("data", {})
+        def _process(etype: str, data: dict) -> None:
             hints: list = []
-
             if etype == "file.reduced":
                 hints = checker.on_file_reduced(data)
             elif etype == "file.averaged":
@@ -264,22 +268,35 @@ def _setup_event_bus() -> None:
                         "check":      h.check,
                         "event_type": etype,
                     })
-                # Cap the queue (trimming is now safe: SSE cursors track `seq`,
-                # not the list index).
-                if len(_hint_events) > 200:
+                if len(_hint_events) > 200:   # safe: SSE cursors track `seq`
                     del _hint_events[:-200]
 
-            # Publish high-severity hints back onto the bus
-            for h in hints:
+            for h in hints:                    # publish high-severity back to the bus
                 if h.severity in ("warning", "error"):
                     try:
-                        bus.emit_ai_hint(
-                            hint      = h.message,
-                            file_path = h.file_path,
-                            severity  = h.severity,
-                        )
+                        bus.emit_ai_hint(hint=h.message, file_path=h.file_path,
+                                         severity=h.severity)
                     except Exception:
                         pass
+
+        def _hint_worker() -> None:
+            while True:
+                etype, data = work_q.get()
+                try:
+                    _process(etype, data)
+                except Exception as exc:
+                    logger.debug("[Assistant] hint worker error: %s", exc)
+
+        _threading.Thread(target=_hint_worker, daemon=True,
+                          name="assistant-hints").start()
+
+        def _on_event(event: dict) -> None:
+            # Enqueue only — keep the bus receive thread free. Drop under extreme
+            # backlog rather than block the bus (hints are advisory).
+            try:
+                work_q.put_nowait((event.get("type", ""), event.get("data", {})))
+            except _queue.Full:
+                pass
 
         bus.on_event(_on_event)
         logger.info("[Assistant] Event bus connected to %s", HUB_URL)

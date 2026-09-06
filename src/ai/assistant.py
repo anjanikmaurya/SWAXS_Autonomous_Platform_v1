@@ -81,6 +81,40 @@ _EFFORT = {
 _MAX_HISTORY_USER_TURNS = 6      # how many recent user prompts to retain
 _MAX_TOOL_RESULT_CHARS  = 8000   # truncate any single tool result beyond this
 
+# ── Manifest read cache ───────────────────────────────────────────────────────
+# Several tools load the manifest within a single chat turn (query_manifest +
+# plot_metadata + assess_quality…); a large manifest (thousands of entries) was
+# re-read and re-parsed per tool. Cache by (path, mtime_ns, size) so it is reused
+# within a turn AND across turns while unchanged, and re-parsed the moment it
+# changes. Shared across concurrent chats under a lock. READ-ONLY: the write tools
+# use update_manifest (a separate path), never this.
+_manifest_cache: dict = {}
+_manifest_cache_lock = _threading.Lock()
+_MANIFEST_CACHE_MAX = 4
+
+
+def _load_manifest_cached(mpath):
+    from pathlib import Path as _P
+    from src.manifest import load_manifest
+    p = _P(mpath)
+    try:
+        st = p.stat()
+        key = (str(p), st.st_mtime_ns, st.st_size)
+    except OSError:
+        return load_manifest(mpath)          # let load_manifest handle the miss
+    with _manifest_cache_lock:
+        hit = _manifest_cache.get(key)
+    if hit is not None:
+        return hit
+    mf = load_manifest(mpath)
+    with _manifest_cache_lock:
+        _manifest_cache[key] = mf
+        if len(_manifest_cache) > _MANIFEST_CACHE_MAX:
+            for k in list(_manifest_cache)[:-_MANIFEST_CACHE_MAX]:
+                _manifest_cache.pop(k, None)
+    return mf
+
+
 # ── Tool definitions for Claude API ──────────────────────────────────────────
 _TOOLS: list[dict] = [
     {
@@ -759,7 +793,13 @@ class SWAXSAssistant:
 
         # Lazy init — avoid import errors if optional packages are missing
         self._kb:  Any = None
-        self._mem: Any = None
+        # Memory is keyed BY user_id (this SWAXSAssistant is a process-wide
+        # singleton served by threaded Flask): a single cached _mem that got
+        # swapped whenever a different user_id arrived let two concurrent users
+        # thrash it and persist one user's chat/corrections into the other's
+        # store. A per-user dict under a lock keeps them isolated.
+        self._mems: dict[str, Any] = {}
+        self._mem_lock = _threading.Lock()
         self._anthropic_client: Any = None
 
     # ── Public API ─────────────────────────────────────────────────────────────
@@ -1250,7 +1290,7 @@ class SWAXSAssistant:
 
         root  = Path(project_root)
         mpath = root if root.is_file() else manifest_path_for(root)
-        mf    = load_manifest(mpath)
+        mf    = _load_manifest_cached(mpath)
         files = mf.get("files", {})
         reduced  = [v for v in files.values() if v.get("stage") == "reduced"]
         # Source samples come from either the averaged or the subtracted folder;
@@ -1341,7 +1381,7 @@ class SWAXSAssistant:
 
         root  = Path(project_root)
         mpath = root if root.is_file() else manifest_path_for(root)
-        mf    = load_manifest(mpath)
+        mf    = _load_manifest_cached(mpath)
         files = mf.get("files", {})
 
         groups: dict[str, list] = {"saxs": [], "waxs": []}
@@ -1413,7 +1453,7 @@ class SWAXSAssistant:
         from src.manifest import load_manifest, manifest_path_for
         root  = Path(project_root)
         mpath = root if root.is_file() else manifest_path_for(root)
-        mf    = load_manifest(mpath)
+        mf    = _load_manifest_cached(mpath)
         kw    = (keyword or "").lower()
         det   = (detector or "saxs").lower()
         matches = [
@@ -1621,7 +1661,7 @@ class SWAXSAssistant:
         from src.manifest import load_manifest, manifest_path_for
         import collections
         root  = Path(project_root); root = root.parent if root.is_file() else root
-        mf    = load_manifest(manifest_path_for(root))
+        mf    = _load_manifest_cached(manifest_path_for(root))
         files = mf.get("files", {})
         kw    = (inp.get("keyword") or "").lower()
         analyses = mf.get("analyses", {})
@@ -1864,7 +1904,7 @@ Experiment data was not modified.</p></body></html>"""
         try:
             root  = Path(project_root)
             mpath = root if root.is_file() else manifest_path_for(root)
-            mf    = load_manifest(mpath)
+            mf    = _load_manifest_cached(mpath)
         except Exception as exc:
             return f"Cannot load manifest: {exc}", None
 
@@ -1990,6 +2030,18 @@ Experiment data was not modified.</p></body></html>"""
         code = inp.get("code", "")
         if not code.strip():
             return "Provide `code` to run.", None
+        # ENFORCED gate: code execution is OFF unless the OPERATOR opted in by
+        # launching with SWAXS_ALLOW_CODE_EXEC=1. The model cannot set an env var,
+        # so a prompt-injected instruction (from an ingested PDF/knowledge doc or a
+        # data footer) cannot get code run on its own — the human decides. When
+        # disabled we return the proposed snippet for review instead of running it.
+        if os.environ.get("SWAXS_ALLOW_CODE_EXEC", "").strip().lower() not in ("1", "true", "yes"):
+            return (
+                "Code execution is disabled. I did NOT run this. To allow ad-hoc "
+                "Python, restart the assistant with SWAXS_ALLOW_CODE_EXEC=1 (it runs "
+                "sandboxed: no network, no file writes, no secret reads). Proposed "
+                "snippet for your review:\n\n```python\n" + code.strip() + "\n```"
+            ), None
         try:
             from src.ai.code_exec import run_user_code
         except Exception as exc:
@@ -2376,18 +2428,22 @@ Experiment data was not modified.</p></body></html>"""
 
     def _get_memory(self, user_id: str | None = None):
         uid = user_id or self._user_id
-        if self._mem is not None and self._mem._user_id == uid:
-            return self._mem
+        with self._mem_lock:
+            mem = self._mems.get(uid)
+        if mem is not None:
+            return mem
         try:
             from src.ai.memory import LayeredMemory
-            self._mem = LayeredMemory(
+            mem = LayeredMemory(
                 ai_knowledge_dir = self._kb_dir,
                 user_id          = uid,
             )
-            return self._mem
         except Exception as exc:
             logger.debug("[Assistant] Memory unavailable: %s", exc)
             return None
+        with self._mem_lock:
+            self._mems[uid] = mem
+        return mem
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
