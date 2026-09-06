@@ -55,6 +55,19 @@ _DEFAULT_MODEL      = "claude-sonnet-4-6"
 _MAX_TOKENS         = 4096
 _KB_TOP_K           = 6          # knowledge-base hits to include
 _MAX_TOOL_ROUNDS    = 5          # max recursive tool-use loops per chat turn
+
+#: Per-turn "effort" the UI can pick → (response token budget, system-prompt nudge).
+#: Deliberately NOT Anthropic extended-thinking: the agentic tool loop re-sends the
+#: assistant turn each round, and thinking blocks must be preserved intact or the
+#: API rejects the follow-up — so effort tunes response depth + tool thoroughness,
+#: which is safe with every gateway model and never breaks the loop.
+_EFFORT = {
+    "low":    (2048, "\n\nEFFORT=LOW: answer concisely and quickly — a direct answer "
+                     "with the fewest tool calls needed."),
+    "medium": (_MAX_TOKENS, ""),
+    "high":   (8192, "\n\nEFFORT=HIGH: be thorough — verify with the data/analysis "
+                     "tools, cross-check results, and briefly explain your reasoning."),
+}
 # ── Cost / context controls ───────────────────────────────────────────────────
 # The full conversation history is re-sent on every turn, so unbounded history
 # means ever-growing input-token cost. We keep only the most recent user turns
@@ -753,6 +766,8 @@ class SWAXSAssistant:
         app_id:       str = "assistant",
         history:      list[dict] | None = None,
         emit:         "callable | None" = None,
+        model:        str | None = None,
+        effort:       str | None = None,
     ) -> dict:
         """
         Send a message to the assistant and return the response.
@@ -797,6 +812,15 @@ class SWAXSAssistant:
             project_root = project_root,
             app_id       = app_id,
         )
+
+        # Per-turn model + effort (UI-selectable; both optional). A blank model
+        # falls back to the configured/gateway default so an unknown id is never
+        # forced. Effort tunes the response token budget and a system-prompt nudge.
+        model_id = (model or "").strip() or self._model
+        max_toks, _eff_nudge = _EFFORT.get((effort or "medium").strip().lower(),
+                                           _EFFORT["medium"])
+        if _eff_nudge:
+            system_prompt = system_prompt + _eff_nudge
 
         messages = _trim_history(history or []) + [
             {"role": "user", "content": message}
@@ -854,8 +878,8 @@ class SWAXSAssistant:
         for _round in range(_MAX_TOOL_ROUNDS):
             try:
                 response = client.messages.create(
-                    model      = self._model,
-                    max_tokens = _MAX_TOKENS,
+                    model      = model_id,
+                    max_tokens = max_toks,
                     system     = system_prompt,
                     tools      = _TOOLS,
                     messages   = messages,
@@ -942,8 +966,8 @@ class SWAXSAssistant:
             # turn never ends on an unanswered tool exchange.
             try:
                 response = client.messages.create(
-                    model      = self._model,
-                    max_tokens = _MAX_TOKENS,
+                    model      = model_id,
+                    max_tokens = max_toks,
                     system     = system_prompt,
                     messages   = messages,
                 )

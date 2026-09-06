@@ -417,6 +417,8 @@ def api_chat():
             project_root = project_root,
             app_id       = app_id,
             history      = list(sess["history"]),
+            model        = (body.get("model") or "").strip() or None,
+            effort       = (body.get("effort") or "").strip() or None,
         )
     except Exception as exc:
         logger.exception("Chat error: %s", exc)
@@ -492,6 +494,8 @@ def api_chat_stream():
                 message=message, user_id=user_id, project_root=project_root,
                 app_id=app_id, history=list(sess["history"]),
                 emit=lambda ev: q.put(ev),
+                model=(body.get("model") or "").strip() or None,
+                effort=(body.get("effort") or "").strip() or None,
             )
         except Exception as exc:                       # noqa: BLE001
             holder["error"] = str(exc)
