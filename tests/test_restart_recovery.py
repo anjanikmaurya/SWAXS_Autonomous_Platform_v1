@@ -25,6 +25,14 @@ from src.runstate import (save_state, load_state, save_monitor, load_monitor,
                           clear_state, resume_disabled, ENV_NO_RESUME)
 
 
+@pytest.fixture(autouse=True)
+def _enable_resume(monkeypatch):
+    """Resume is OFF by default now (fresh start on every restart). This whole
+    suite documents the OPT-IN resume path, so enable it. Individual tests that
+    assert resume is refused (stale/finished/NO_RESUME) still override as needed."""
+    monkeypatch.setenv("SWAXS_RESUME", "1")
+
+
 def _load(tag: str, path: str):
     """Import an app module fresh — the closest thing to a process restart."""
     spec = u.spec_from_file_location(tag, path)

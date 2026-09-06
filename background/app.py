@@ -1564,7 +1564,9 @@ def _load_sub_done() -> None:
     if not root:
         return
     try:
-        st = load_state(root, _SUB_STATE, honour_no_resume=False) or {}
+        # Fresh by default (Sept 2026): the subtraction memo is restored only
+        # under SWAXS_RESUME=1; otherwise a restart re-subtracts from scratch.
+        st = load_state(root, _SUB_STATE) or {}
         for k, v in (st.get("done") or {}).items():
             try:
                 _sub_done[k] = tuple(v)

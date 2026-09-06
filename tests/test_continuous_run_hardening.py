@@ -24,12 +24,14 @@ ROOT = Path(__file__).resolve().parents[1]
 def _load(tag: str, rel: str, tmp_path=None, monkeypatch=None):
     """Import an app module fresh — the closest thing to a process restart.
 
-    SWAXS_NO_RESUME is essential: reduction and average both start a
-    _boot_resume daemon thread at import time.
+    Resume is OFF by default (Sept 2026): every restart starts fresh. These tests
+    exercise the OPT-IN persistence path, so they set SWAXS_RESUME=1. The
+    _boot_resume daemon still fires on import but no-ops here (no saved *running*
+    monitor exists in the fresh tmp project), so it doesn't interfere.
     """
     if monkeypatch is not None:
         monkeypatch.setenv("SWAXS_PROJECT", str(tmp_path))
-        monkeypatch.setenv("SWAXS_NO_RESUME", "1")
+        monkeypatch.setenv("SWAXS_RESUME", "1")
     spec = u.spec_from_file_location(tag, str(ROOT / rel))
     m = u.module_from_spec(spec)
     sys.modules[tag] = m

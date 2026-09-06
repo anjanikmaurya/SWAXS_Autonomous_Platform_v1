@@ -138,7 +138,9 @@ def _load_batch_state() -> None:
     if not root:
         return
     try:
-        st = load_state(root, _BATCH_STATE, honour_no_resume=False) or {}
+        # Fresh by default (Sept 2026): batch state is restored only under
+        # SWAXS_RESUME=1; otherwise a restart re-averages from scratch.
+        st = load_state(root, _BATCH_STATE) or {}
         for sk, v in (st.get("groups") or {}).items():
             det, _, kw = sk.partition("|")
             _avg_batch_state[(det, kw)] = {"files": set(v.get("files") or []),

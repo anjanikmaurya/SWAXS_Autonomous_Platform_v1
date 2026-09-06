@@ -75,6 +75,22 @@ These are not in the UI. Check them before the first cycle.
 | `spec.background_when` (`:284`) | `"before"` | Sets the physical order of the cycle — see step 7. `"after"` is the legacy order. |
 | `reactor.resume_auto_run` (`:379`) | `false` | Deliberately false: auto-run does **not** resume after an app restart, because resuming moves pumps unattended. After any restart you must turn Auto-run back on by hand. |
 
+**Fresh start (Sept 2026).** Every app now comes up **fresh** after a stop or a
+hub restart: monitors do not auto-resume, the reduction/average/background memos
+are not restored (data re-processes from scratch), and the Bayesian campaign is
+not resumed. Nothing from a previous run carries over. To opt back into the old
+resume-after-crash behavior (restore the processed/batch memos and auto-restart
+the monitors), export `SWAXS_RESUME=1` before launching. Reactor **pump limits**
+and the **recipes-folder** setting are hardware calibration/config and are kept
+regardless.
+
+**Target Runs.** Each optimization campaign is a **Target Run** tagged `Run1`,
+`Run2`, … (the number is one more than the highest already on disk). The tag is
+prepended to every `recipe_id` (`Run3_r001`, `Run3_r002`, …) and therefore into
+the 2D/SAXS filenames (`Run3_r001_sample_..._SAXS.raw`), so every dataset is
+traceable to the target-run conditions that produced it. **Aborting** a campaign
+resets the analyzer to a clean slate; the next **Start** is a brand-new Target Run.
+
 **Run notifications** (Slack thread per recipe, email) are configured
 separately — see `docs/NOTIFICATIONS.md`. Set them up before an overnight run;
 the analyzer's fit for each recipe is posted into that recipe's thread, with the

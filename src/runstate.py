@@ -13,8 +13,12 @@ run-state is small, changes often, and must never contend with it. Files live in
 ``<project>/.swaxs_state/`` and are written with the same temp+rename discipline
 so a crash mid-write cannot leave a half-file.
 
-Set ``SWAXS_NO_RESUME=1`` to disable every automatic resume (escape hatch when a
-saved state is causing trouble).
+Resume is OFF by DEFAULT: every stop or hub restart brings an app up FRESH — no
+monitor auto-resume, no restoring the processed/batch/subtraction memos, no reusing
+the previous run's settings or the Bayesian campaign. Nothing from a previous run is
+carried over. Opt back into the old resume-after-crash behavior with
+``SWAXS_RESUME=1`` (and ``SWAXS_NO_RESUME=1`` still force-disables it, which now only
+matters when SWAXS_RESUME is also set).
 """
 from __future__ import annotations
 
@@ -28,10 +32,21 @@ logger = logging.getLogger(__name__)
 
 STATE_DIR = ".swaxs_state"
 ENV_NO_RESUME = "SWAXS_NO_RESUME"
+ENV_RESUME = "SWAXS_RESUME"
+
+_TRUTHY = ("1", "true", "yes")
 
 
 def resume_disabled() -> bool:
-    return str(os.environ.get(ENV_NO_RESUME, "")).strip().lower() in ("1", "true", "yes")
+    """True when saved run-state must NOT be resumed.
+
+    Resume is OFF by default (fresh start on every stop/restart). It is enabled
+    ONLY when SWAXS_RESUME is truthy AND SWAXS_NO_RESUME is not — so an explicit
+    NO_RESUME still wins as a hard override.
+    """
+    if str(os.environ.get(ENV_NO_RESUME, "")).strip().lower() in _TRUTHY:
+        return True
+    return str(os.environ.get(ENV_RESUME, "")).strip().lower() not in _TRUTHY
 
 
 def state_dir(project_root: str | Path) -> Path | None:
@@ -84,12 +99,13 @@ def load_state(project_root: str | Path, name: str,
     The age guard matters: resuming a monitor from a state file written days ago
     (a different sample series) is worse than not resuming at all.
 
-    ``honour_no_resume=False`` reads the file even when ``SWAXS_NO_RESUME`` is
-    set. That flag means "do not auto-restart activity after a crash" — a safety
-    choice. It must NOT be read as "forget what you already processed": book-
-    keeping like the reduction app's processed-file set is what stops a restart
-    redoing the entire experiment, and losing it costs hours while protecting
-    nothing. Use this only for passive memory, never to resume a monitor.
+    ``honour_no_resume=False`` reads the file regardless of the resume setting.
+    NOTE (Sept 2026): the platform now starts FRESH by default (see
+    ``resume_disabled``), and that includes forgetting the passive processed/batch
+    /subtraction memos — the operator asked that nothing from a previous run carry
+    over. So all callers now use the default (``honour_no_resume=True``). This
+    parameter is kept for callers that must read state unconditionally regardless
+    of the resume policy.
     """
     if honour_no_resume and resume_disabled():
         logger.info("%s=1 — ignoring saved run-state '%s'", ENV_NO_RESUME, name)

@@ -253,9 +253,10 @@ def _load_processed() -> None:
     if not root:
         return
     try:
-        # honour_no_resume=False: SWAXS_NO_RESUME means "don't auto-restart
-        # the monitor", not "re-reduce everything you already did".
-        st = load_state(root, _PROCESSED_STATE, honour_no_resume=False) or {}
+        # Fresh by default (Sept 2026): the processed-set is only restored when
+        # the operator opts into resume (SWAXS_RESUME=1). Otherwise a restart
+        # re-reduces from scratch, per the "carry nothing over" requirement.
+        st = load_state(root, _PROCESSED_STATE) or {}
         rp = Path(root)
         restored = set()
         for f in st.get("files") or []:

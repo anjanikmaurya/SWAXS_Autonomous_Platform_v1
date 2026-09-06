@@ -205,9 +205,11 @@ def test_reduction_persists_its_monitor_state(tmp_path, monkeypatch):
     save_monitor(m._state_root(), "reduction", True, {"interval": 5})
     assert (tmp_path / ".swaxs_state" / "reduction_monitor.json").is_file(), \
         "reduction still writes its monitor state nowhere"
-    # SWAXS_NO_RESUME is set above (so importing the app does not start a
-    # monitor); lift it just for the read-back.
+    # Resume is OFF by default now; opt in just for the read-back (this test only
+    # checks that the state is WRITTEN, per the NameError fix — not that it auto-
+    # resumes). Clear NO_RESUME (a hard override) and set the RESUME opt-in.
     monkeypatch.delenv("SWAXS_NO_RESUME", raising=False)
+    monkeypatch.setenv("SWAXS_RESUME", "1")
     assert load_monitor(m._state_root(), "reduction") == {"interval": 5}
 
 
