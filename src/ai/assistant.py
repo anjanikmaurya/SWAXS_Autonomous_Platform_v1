@@ -115,6 +115,100 @@ def _load_manifest_cached(mpath):
     return mf
 
 
+# ── App-knowledge injection (replaces RAG over the `apps` collection) ─────────
+# Each app's knowledge.md is small (~1.3–5K tokens) and we ALWAYS know which app
+# is in scope (the `app_id` passed to chat()), so we inject the full doc into the
+# STATIC system prefix instead of semantically searching chunks of it. Benefits:
+#   • removes chunking from the equation for the collection worst hit by the
+#     chunker bug (whole doc, verbatim);
+#   • removes the ChromaDB-WRITE dependency for updating app knowledge — a
+#     mid-beamtime edit to a knowledge.md takes effect on the NEXT turn with no
+#     re-ingest and no DB write (relevant when the running assistant holds the
+#     DB write lock).
+# Read from disk and mtime-cached, exactly like _load_manifest_cached. The other
+# collections (literature/user_papers/beamline) keep RAG — those are a
+# volume-of-documents problem injection can't solve.
+_appknow_cache: dict = {}
+_appknow_cache_lock = _threading.Lock()
+_APPKNOW_CACHE_MAX = 12
+
+
+def _extract_manifest_contract(hub_md: str) -> str:
+    """Return the hub's canonical '## manifest.json — Cross-App Contract' section
+    (its heading through the next level-2 heading), or '' if not present."""
+    import re
+    m = re.search(r"(?m)^##[^\n]*manifest\.json\b.*?(?=^##\s|\Z)", hub_md, re.S)
+    return m.group(0).strip() if m else ""
+
+
+def _resolve_app_knowledge(repo_root, app_id: str) -> str | None:
+    """The in-scope app's knowledge.md text plus the hub's manifest-contract
+    section, read from disk and mtime-cached.
+
+    Returns None (→ inject NOTHING) if the app can't be resolved — e.g. an
+    unknown app_id or a missing repo layout. We deliberately never fall back to
+    injecting all ten docs, and never raise: a bad app_id must degrade quietly.
+    Resolution is by `app_id` alone (authoritative — no manifest read, no hub
+    HTTP round-trip needed), against the source tree at <repo_root>/<app_id>/.
+    """
+    from pathlib import Path as _P
+    try:
+        root   = _P(repo_root)
+        app_md = root / (app_id or "") / "knowledge.md"
+        if not app_md.is_file():
+            return None
+        hub_md = root / "hub" / "knowledge.md"
+        a_st   = app_md.stat()
+        try:
+            h_st  = hub_md.stat()
+            h_key = (h_st.st_mtime_ns, h_st.st_size)
+        except OSError:
+            h_key = None                      # hub doc is optional
+        # Cache key covers BOTH files' mtime+size, so an edit to either the app
+        # doc or the hub contract invalidates the entry next turn.
+        key = (str(app_md), a_st.st_mtime_ns, a_st.st_size, h_key)
+    except OSError:
+        return None
+
+    with _appknow_cache_lock:
+        hit = _appknow_cache.get(key)
+    if hit is not None:
+        return hit
+
+    try:
+        app_text = app_md.read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        return None
+    if not app_text:
+        return None
+
+    contract = ""
+    if h_key is not None:
+        try:
+            contract = _extract_manifest_contract(
+                hub_md.read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            contract = ""
+
+    parts = [
+        f"## In-scope app knowledge — `{app_id}` (`{app_id}/knowledge.md`)",
+        "(The full, authoritative knowledge doc for the app you are embedded in, "
+        "injected directly rather than retrieved. When it disagrees with the "
+        "numbered KB excerpts about how THIS platform works, prefer this.)",
+        app_text,
+    ]
+    if contract:
+        parts += ["### Cross-app manifest contract (from hub)", contract]
+    text = "\n\n".join(parts)
+
+    with _appknow_cache_lock:
+        _appknow_cache[key] = text
+        if len(_appknow_cache) > _APPKNOW_CACHE_MAX:
+            for k in list(_appknow_cache)[:-_APPKNOW_CACHE_MAX]:
+                _appknow_cache.pop(k, None)
+    return text
+
+
 # ── Tool definitions for Claude API ──────────────────────────────────────────
 _TOOLS: list[dict] = [
     {
@@ -840,7 +934,7 @@ class SWAXSAssistant:
                 "_history_delta": [],
             }
 
-        system_prompt = self._build_system_prompt(
+        static_sys, dynamic_sys = self._build_system_prompt(
             message      = message,
             user_id      = uid,
             project_root = project_root,
@@ -853,8 +947,12 @@ class SWAXSAssistant:
         model_id = (model or "").strip() or self._model
         max_toks, _eff_nudge = _EFFORT.get((effort or "medium").strip().lower(),
                                            _EFFORT["medium"])
+        # The effort nudge is UI-selectable per turn, so it goes in the DYNAMIC
+        # half — appending it to the static block would break the byte-stability
+        # the cache breakpoint depends on.
         if _eff_nudge:
-            system_prompt = system_prompt + _eff_nudge
+            dynamic_sys = (dynamic_sys + _eff_nudge
+                           if dynamic_sys.strip() else _eff_nudge.strip())
 
         messages = _trim_history(history or []) + [
             {"role": "user", "content": message}
@@ -937,14 +1035,21 @@ class SWAXSAssistant:
             }
 
         # Agentic loop — handle multi-turn tool use
-        # Prompt caching: a cache breakpoint on the system block caches the whole
-        # static request prefix (tools render before system, so [tools + system]
-        # are cached). The agentic loop re-sends that identical ~7-10K-token prefix
-        # on every one of the up-to-6 rounds in a turn; caching it cuts the repeat
-        # input cost ~90%. The SLAC gateway accepts cache_control (verified). If a
-        # backend ignores it, this degrades to a normal (uncached) call.
-        system_param = [{"type": "text", "text": system_prompt,
+        # Prompt caching: the cache breakpoint sits on the STATIC block ONLY
+        # (base prompt + injected in-scope app knowledge), which is byte-stable
+        # across turns for a given app. Tools render before system, so
+        # [tools + static system] are cached together. That identical prefix is
+        # re-sent on every one of the up-to-6 tool rounds in a turn AND across
+        # turns; caching it cuts the repeat input cost ~90%. The DYNAMIC block
+        # (memory + KB retrieval + effort nudge) is query-dependent and rides
+        # AFTER the breakpoint, UNCACHED — if it were inside the cached block the
+        # prefix would change every turn and caching would never hit. The SLAC
+        # gateway accepts cache_control (verified); a backend that ignores it
+        # degrades to a normal (uncached) call.
+        system_param = [{"type": "text", "text": static_sys,
                          "cache_control": {"type": "ephemeral"}}]
+        if dynamic_sys.strip():
+            system_param.append({"type": "text", "text": dynamic_sys})
         for _round in range(_MAX_TOOL_ROUNDS):
             try:
                 response = client.messages.create(
@@ -1043,7 +1148,7 @@ class SWAXSAssistant:
                 response = client.messages.create(
                     model      = model_id,
                     max_tokens = max_toks,
-                    system     = system_prompt,
+                    system     = system_param,
                     messages   = messages,
                 )
                 for block in response.content:
@@ -1087,13 +1192,34 @@ class SWAXSAssistant:
         user_id:      str,
         project_root: str | Path | None,
         app_id:       str,
-    ) -> str:
+    ) -> tuple[str, str]:
+        """Build the system prompt as two halves: (static, dynamic).
+
+        STATIC = base prompt + the in-scope app's injected knowledge.md (+ the
+        hub manifest contract). It is byte-stable across turns for a given
+        (app_id, knowledge-file mtime), so in chat() it — and ONLY it — carries
+        the prompt-cache breakpoint.
+
+        DYNAMIC = per-message memory context + KB retrieval excerpts. These
+        change on every turn and MUST live AFTER the cache breakpoint: folding
+        them into the static block would make the cached prefix change every
+        turn and defeat caching entirely.
+        """
         # NOTE: use .replace (not .format) — the prompt contains LaTeX examples
         # with curly braces (e.g. \frac{R_g^2 q^2}{3}) that .format would try to
         # parse as replacement fields and crash on.
-        parts: list[str] = [_SYSTEM_BASE.replace("{app_id}", app_id)]
+        static_parts:  list[str] = [_SYSTEM_BASE.replace("{app_id}", app_id)]
+        dynamic_parts: list[str] = []
 
-        # Layer 3 + 2 + 1 memory context
+        # STATIC: inject the in-scope app's knowledge.md directly (replaces RAG
+        # over the `apps` collection). Read from disk + mtime-cached; None → skip
+        # (never inject all ten, never crash). kb_dir is <repo>/ai_knowledge, so
+        # its parent is the repo root that holds each app's knowledge.md.
+        app_know = _resolve_app_knowledge(self._kb_dir.parent, app_id)
+        if app_know:
+            static_parts.append(app_know)
+
+        # DYNAMIC: Layer 3 + 2 + 1 memory context
         mem = self._get_memory(user_id)
         if mem:
             try:
@@ -1103,20 +1229,24 @@ class SWAXSAssistant:
                 )
                 ctx_text = mem.format_for_prompt(ctx)
                 if ctx_text.strip():
-                    parts.append(ctx_text)
+                    dynamic_parts.append(ctx_text)
                 # Adaptive verbosity from saved preferences (cross-project).
                 prefs = ctx.get("user_preferences") or {}
                 directive = _audience_directive(prefs)
                 if directive:
-                    parts.append(directive)
+                    dynamic_parts.append(directive)
             except Exception as exc:
                 logger.debug("[Assistant] Memory load error: %s", exc)
 
-        # KB retrieval — find relevant knowledge chunks
+        # DYNAMIC: KB retrieval — relevant knowledge chunks. The `apps`
+        # collection is EXCLUDED (injected into the static block above); only
+        # literature/user_papers/beamline are searched (RAG_COLLECTIONS).
         kb = self._get_knowledge_base()
         if kb:
             try:
-                hits = kb.retrieve(message, top_k=_KB_TOP_K)
+                from src.ai.knowledge import RAG_COLLECTIONS
+                hits = kb.retrieve(message, top_k=_KB_TOP_K,
+                                   collections=RAG_COLLECTIONS)
                 if hits:
                     # Number the sources so the model can cite as [n] with a
                     # reference list (user's chosen citation style).
@@ -1135,11 +1265,13 @@ class SWAXSAssistant:
                         )
                     refs = "  ".join(f"[{i}] {s}" for s, i in seen.items())
                     snippet_lines.append(f"\nReference key: {refs}")
-                    parts.append("\n".join(snippet_lines))
+                    dynamic_parts.append("\n".join(snippet_lines))
             except Exception as exc:
                 logger.debug("[Assistant] KB retrieval error: %s", exc)
 
-        return "\n\n---\n\n".join(parts)
+        static  = "\n\n---\n\n".join(static_parts)
+        dynamic = "\n\n---\n\n".join(dynamic_parts)
+        return static, dynamic
 
     # ── Tool dispatcher ───────────────────────────────────────────────────────
 

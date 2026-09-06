@@ -257,8 +257,11 @@ def test_build_system_prompt_handles_latex_braces():
     assistant crashed with KeyError: 'R_g^2 q^2')."""
     from src.ai.assistant import SWAXSAssistant
     a = SWAXSAssistant(ai_knowledge_dir=tempfile.mkdtemp(), user_id="tester")
-    sp = a._build_system_prompt(message="hi", user_id="tester",
-                                project_root=None, app_id="assistant")
+    # _build_system_prompt now returns (static, dynamic) — the static block is
+    # cached, the dynamic block (memory/retrieval) rides after the breakpoint.
+    # Join both halves for these content assertions.
+    sp = "\n\n".join(a._build_system_prompt(message="hi", user_id="tester",
+                                            project_root=None, app_id="assistant"))
     assert "Current app: assistant" in sp        # app_id injected
     assert "{app_id}" not in sp                   # placeholder consumed
     assert r"\frac{R_g^2 q^2}{3}" in sp           # LaTeX braces preserved

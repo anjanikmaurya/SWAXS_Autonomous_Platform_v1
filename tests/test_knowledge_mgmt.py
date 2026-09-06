@@ -112,12 +112,14 @@ def test_preferences_drive_audience_directive():
     from src.ai.assistant import SWAXSAssistant
     a = SWAXSAssistant(ai_knowledge_dir=tempfile.mkdtemp(), user_id="tester")
     a._tool_set_preferences({"audience": "student", "verbosity": "detailed"}, "tester")
-    sp = a._build_system_prompt(message="x", user_id="tester",
-                                project_root=None, app_id="assistant")
+    # _build_system_prompt now returns (static, dynamic); the audience directive
+    # lives in the dynamic half (per-message). Join both for the assertions.
+    sp = "\n\n".join(a._build_system_prompt(message="x", user_id="tester",
+                                            project_root=None, app_id="assistant"))
     assert "Audience is a STUDENT" in sp and "detailed" in sp
     a._tool_set_preferences({"audience": "expert", "verbosity": "concise"}, "tester")
-    sp2 = a._build_system_prompt(message="x", user_id="tester",
-                                 project_root=None, app_id="assistant")
+    sp2 = "\n\n".join(a._build_system_prompt(message="x", user_id="tester",
+                                             project_root=None, app_id="assistant"))
     assert "Audience is EXPERT" in sp2 and "concise" in sp2
 
 

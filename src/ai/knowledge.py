@@ -8,7 +8,10 @@ and stored persistently so ingestion only ever runs once per document.
 Collections
 -----------
   literature   — SAXS/WAXS textbooks, review papers, instrument papers
-  apps         — per-app knowledge.md files (indexed on app registration)
+  apps         — per-app knowledge.md files. NOTE: no longer queried at runtime.
+                 The in-scope app's doc is injected directly into the assistant's
+                 system prompt from disk (assistant.py::_resolve_app_knowledge);
+                 it is not ingested here anymore. See RAG_COLLECTIONS.
   user_papers  — user-uploaded sample-specific PDFs (runtime uploads)
   beamline     — facility/instrument YAML configs
 
@@ -52,6 +55,19 @@ COLLECTION_BEAMLINE    = "beamline"
 ALL_COLLECTIONS = [
     COLLECTION_LITERATURE,
     COLLECTION_APPS,
+    COLLECTION_USER_PAPERS,
+    COLLECTION_BEAMLINE,
+]
+
+#: Collections that STILL use semantic RAG retrieval at query time. `apps` is
+#: deliberately excluded: each app's knowledge.md is a small, single, already-
+#: in-scope document that the assistant injects verbatim into its system prompt
+#: (see src/ai/assistant.py::_resolve_app_knowledge), so chunk-level semantic
+#: search over it solves a problem we don't have — and it was the collection
+#: worst hit by the chunker bug. literature/user_papers/beamline stay on RAG:
+#: those are volume-of-documents corpora that injection can't replace.
+RAG_COLLECTIONS = [
+    COLLECTION_LITERATURE,
     COLLECTION_USER_PAPERS,
     COLLECTION_BEAMLINE,
 ]
@@ -214,25 +230,36 @@ class KnowledgeBase:
 
     def retrieve(
         self,
-        query:       str,
-        top_k:       int = 8,
-        collection:  str | None = None,
+        query:        str,
+        top_k:        int = 8,
+        collection:   str | None = None,
+        collections:  list[str] | None = None,
     ) -> list[dict]:
         """
         Semantic search across the knowledge base.
 
         Parameters
         ----------
-        query      : natural language query
-        top_k      : number of chunks to return per collection
-        collection : if given, search only that collection;
-                     otherwise search all collections
+        query       : natural language query
+        top_k       : number of chunks to return per collection
+        collection  : if given, search only that single collection
+        collections : if given, search exactly this list of collections (takes
+                      precedence over `collection`). Callers pass RAG_COLLECTIONS
+                      here to skip `apps` — that doc is injected, not retrieved.
+                      If neither is given, search all collections.
+
+        The query is embedded ONCE and reused across the chosen collections.
 
         Returns a list of dicts with keys:
             text, source, doc_type, collection, distance
         sorted by relevance (ascending distance).
         """
-        cols = [collection] if collection else ALL_COLLECTIONS
+        if collections is not None:
+            cols = list(collections)
+        elif collection:
+            cols = [collection]
+        else:
+            cols = ALL_COLLECTIONS
         hits: list[dict] = []
 
         # Embed the query ONCE and reuse across collections. Previously each
