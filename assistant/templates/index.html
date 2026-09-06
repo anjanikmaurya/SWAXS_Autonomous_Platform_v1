@@ -438,10 +438,11 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
               title="Claude model id — leave blank to use the configured/gateway default"
               style="font-size:var(--fs-xs);margin-left:4px;width:150px">
             <datalist id="modelList">
-              <option value="us.anthropic.claude-sonnet-4-6">
-              <option value="us.anthropic.claude-opus-4-6">
-              <option value="us.anthropic.claude-haiku-4-5">
-              <option value="claude-sonnet-4-6">
+              <option value="us.anthropic.claude-sonnet-4-6" label="Sonnet 4.6 (default, balanced)">
+              <option value="us.anthropic.claude-sonnet-5" label="Sonnet 5">
+              <option value="us.anthropic.claude-opus-4-8" label="Opus 4.8 (stronger)">
+              <option value="us.anthropic.claude-opus-5" label="Opus 5 (strongest)">
+              <option value="us.anthropic.claude-haiku-4-5-20251001-v1:0" label="Haiku 4.5 (fastest; use Medium/High effort)">
             </datalist>
           </label>
           <div style="flex:1"></div>

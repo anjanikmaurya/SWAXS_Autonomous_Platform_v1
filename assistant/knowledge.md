@@ -18,7 +18,7 @@ SWAXSAssistant.chat()
   │    3. KB retrieval (top-6 ChromaDB hits, _KB_TOP_K = 6)
   │
   ▼
-Claude API (default model claude-sonnet-4-6, max_tokens 4096)
+Claude API (default model us.anthropic.claude-sonnet-4-6 on the SLAC gateway, max_tokens 4096; UI-selectable per turn). Valid gateway model ids: us.anthropic.claude-{sonnet-4-6,sonnet-5,opus-4-8,opus-5,haiku-4-5-20251001-v1:0}. The bare 'claude-sonnet-4-6' is rejected by the gateway.
   │  18 tools available; up to _MAX_TOOL_ROUNDS = 5 recursive tool-use loops
   │  per chat turn
   ▼
@@ -210,7 +210,7 @@ Retrieval pulls the top 6 hits (`_KB_TOP_K = 6`) into the system prompt.
 ## Environment Variables
 - `ANTHROPIC_API_KEY` — required; set in the shell (or `.env`) before starting
   the platform
-- `ANTHROPIC_MODEL` — optional; overrides the default `claude-sonnet-4-6` (used
+- `ANTHROPIC_MODEL` — optional; overrides the default `us.anthropic.claude-sonnet-4-6` (used
   for gateway/proxy deployments)
 - `SWAXS_USER_ID` — optional; overrides the OS username for the memory layer
 - `SWAXS_BEAMLINE` — facility id for the Layer-3 memory file (default `ssrl_1-5`)

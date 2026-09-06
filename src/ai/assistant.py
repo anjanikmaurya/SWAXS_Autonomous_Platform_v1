@@ -51,7 +51,13 @@ def _emit_interactive(fig: dict | None) -> None:
     _PLOT_TL.fig = fig
 
 # ── Model config ───────────────────────────────────────────────────────────────
-_DEFAULT_MODEL      = "claude-sonnet-4-6"
+# Last-resort fallback when neither ANTHROPIC_MODEL nor ~/.claude/settings.json's
+# ANTHROPIC_DEFAULT_SONNET_MODEL is available. This platform runs on the SLAC
+# Bedrock gateway (see SECURITY.md), which REJECTS the bare "claude-sonnet-4-6"
+# ("Invalid model name") — it needs the "us.anthropic." prefix. Falling back to the
+# bare id was why the "default" model failed while explicitly-picked ids worked.
+# The env/settings value still overrides this for any other deployment.
+_DEFAULT_MODEL      = "us.anthropic.claude-sonnet-4-6"
 _MAX_TOKENS         = 4096
 _KB_TOP_K           = 6          # knowledge-base hits to include
 _MAX_TOOL_ROUNDS    = 5          # max recursive tool-use loops per chat turn
