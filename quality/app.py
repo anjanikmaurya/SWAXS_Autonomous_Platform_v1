@@ -473,6 +473,14 @@ def _on_bus_event(event: dict) -> None:
     det = "waxs" if "waxs" in str(p).lower() else "saxs"
     try:
         _grade_and_record(p, det)
+        # Record the signature so the poll loop does NOT immediately re-grade
+        # this same file (a duplicate locked manifest write, a duplicate folder
+        # sort, and a second paid LLM call for a borderline profile).
+        try:
+            st = p.stat()
+            _graded[str(p.resolve())] = (st.st_size, st.st_mtime_ns)
+        except OSError:
+            pass
         _recount()
     except Exception as exc:
         _emit(f"⚠  event grade failed: {exc}", "warn")

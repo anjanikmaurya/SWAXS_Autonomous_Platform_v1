@@ -870,8 +870,15 @@ def api_result(name):
 def _campaign_status() -> dict:
     if _campaign is None:
         return {"status": "idle"}
-    st = _campaign.status()
-    st["pending"] = list(_pending.keys())
+    # Snapshot under the lock: the watcher thread pops _pending inside
+    # _campaign_lock, so an unguarded list(_pending.keys()) here (called from the
+    # 1 Hz SSE stream and GET /api/campaign) could raise "dictionary changed size
+    # during iteration" and kill the client's event stream.
+    with _campaign_lock:
+        if _campaign is None:
+            return {"status": "idle"}
+        st = _campaign.status()
+        st["pending"] = list(_pending.keys())
     st["conditions_folder"] = str(_resolve_cond())
     return st
 
