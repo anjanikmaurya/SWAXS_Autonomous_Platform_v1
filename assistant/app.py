@@ -135,8 +135,11 @@ app = Flask(__name__, template_folder="templates")
 _sessions: dict[str, dict] = {}   # {session_id: {history, user_id, last_active}}
 _sessions_lock = Lock()
 
-_hint_events: list[dict] = []     # SSE queue for event-bus hints
+_hint_events: list[dict] = []     # SSE queue for event-bus hints (capped)
 _hint_events_lock = Lock()
+_hint_seq = 0                     # monotonic id per hint; SSE cursors track this,
+                                  # NOT the list index (which resets when the
+                                  # queue is trimmed, permanently stalling streams)
 
 # ── Lazy assistant singleton ──────────────────────────────────────────────────
 _assistant: SWAXSAssistant | None = None
@@ -248,9 +251,12 @@ def _setup_event_bus() -> None:
             elif etype == "file.subtracted":
                 hints = checker.on_file_subtracted(data)
 
+            global _hint_seq
             with _hint_events_lock:
                 for h in hints:
+                    _hint_seq += 1
                     _hint_events.append({
+                        "seq":        _hint_seq,
                         "id":         str(uuid.uuid4()),
                         "severity":   h.severity,
                         "message":    h.message,
@@ -258,7 +264,8 @@ def _setup_event_bus() -> None:
                         "check":      h.check,
                         "event_type": etype,
                     })
-                # Cap the queue
+                # Cap the queue (trimming is now safe: SSE cursors track `seq`,
+                # not the list index).
                 if len(_hint_events) > 200:
                     del _hint_events[:-200]
 
@@ -635,18 +642,28 @@ def api_events_stream():
         const es = new EventSource('/api/events/stream');
         es.onmessage = (e) => { const hint = JSON.parse(e.data); ... };
     """
-    cursor = [0]   # per-connection pointer into _hint_events
+    # Track the last hint SEQ delivered, not a list index: the queue is trimmed
+    # to 200, which would leave an index-based cursor pointing past the end and
+    # silently deliver nothing for the rest of a long run.
+    with _hint_events_lock:
+        last_seq = _hint_events[-1]["seq"] if _hint_events else 0
 
     def _generate():
+        nonlocal last_seq
         yield "data: {\"type\": \"connected\"}\n\n"
         while True:
             with _hint_events_lock:
-                pending = _hint_events[cursor[0]:]
-                cursor[0] = len(_hint_events)
+                pending = [e for e in _hint_events if e.get("seq", 0) > last_seq]
+                if pending:
+                    last_seq = pending[-1]["seq"]
 
             for evt in pending:
                 yield f"data: {_dumps(evt)}\n\n"
 
+            # Heartbeat comment every loop so a disconnected client raises a
+            # broken pipe here (ending this generator/thread) instead of leaking
+            # a worker thread that polls forever after the tab closed.
+            yield ": keep-alive\n\n"
             time.sleep(1.0)
 
     return Response(

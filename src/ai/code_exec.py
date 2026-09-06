@@ -52,6 +52,13 @@ _DENY_ATTRS = {
     "loads_pickle", "savefig",   # savefig handled by the runner, not the user
     # block file writes/creation via pathlib (open is already denied)
     "write_text", "write_bytes", "mkdir", "touch", "symlink_to", "hardlink_to",
+    # block the raw-file-read + home-resolution vectors that let a snippet (or a
+    # prompt-injected KB/PDF) exfiltrate secrets, e.g.
+    #   pathlib.Path.home()/".claude/settings.json").read_text()  → gateway TOKEN.
+    # Data analysis still reads .dat via np.loadtxt / pd.read_csv on manifest-known
+    # paths; it never needs raw .open()/.read_text() or the home directory.
+    "open", "read_text", "read_bytes", "read", "readlines", "readline",
+    "home", "expanduser", "expandvars", "getenv",
 }
 
 

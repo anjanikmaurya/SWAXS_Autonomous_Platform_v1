@@ -29,3 +29,4 @@ logs/
 
 # node_modules for the jsdom UI runtime checks (optional, dev only)
 tests/ui/node_modules/
+ai_knowledge/ingestion_log.json

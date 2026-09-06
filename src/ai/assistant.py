@@ -847,19 +847,47 @@ class SWAXSAssistant:
                     pass
 
         def _api_error(exc: Exception) -> dict:
-            logger.error("[Assistant] Claude API error: %s", exc)
+            # Log with the request id when present (invaluable for gateway support).
+            rid = getattr(getattr(exc, "response", None), "headers", {}) or {}
+            req_id = getattr(exc, "request_id", None) or (rid.get("request-id") if hasattr(rid, "get") else None)
+            logger.error("[Assistant] Claude API error (request_id=%s): %s", req_id, exc)
             msg = str(exc)
-            if "authentication" in msg.lower() or "api_key" in msg.lower() or "401" in msg:
+            # Classify on the SDK's TYPED exceptions first (robust across gateway
+            # wording/locale); fall back to substring sniffing only if the typed
+            # classes aren't importable.
+            kind = None
+            try:
+                import anthropic as _an
+                if isinstance(exc, getattr(_an, "AuthenticationError", ())):
+                    kind = "auth"
+                elif isinstance(exc, getattr(_an, "RateLimitError", ())):
+                    kind = "rate"
+                elif isinstance(exc, getattr(_an, "BadRequestError", ())):
+                    kind = "badrequest"
+            except Exception:
+                pass
+            if kind is None:
+                low = msg.lower()
+                if "authentication" in low or "api_key" in low or "401" in low:
+                    kind = "auth"
+                elif "rate" in low and "limit" in low:
+                    kind = "rate"
+            if kind == "auth":
                 friendly = (
                     "I couldn't authenticate to the AI service — the token/key "
                     "looks invalid or missing. Check ANTHROPIC_AUTH_TOKEN (SLAC "
                     "gateway) or ANTHROPIC_API_KEY, confirm you're on the SLAC "
                     "network/VPN, then restart the assistant."
                 )
-            elif "rate" in msg.lower() and "limit" in msg.lower():
+            elif kind == "rate":
                 friendly = (
                     "The Claude API is rate-limiting requests right now. "
                     "Please wait a moment and try again."
+                )
+            elif kind == "badrequest":
+                friendly = (
+                    "The AI service rejected the request (often an invalid model "
+                    f"id for this gateway). Try the Default model. Details: {msg}"
                 )
             else:
                 friendly = (
@@ -881,12 +909,20 @@ class SWAXSAssistant:
             }
 
         # Agentic loop — handle multi-turn tool use
+        # Prompt caching: a cache breakpoint on the system block caches the whole
+        # static request prefix (tools render before system, so [tools + system]
+        # are cached). The agentic loop re-sends that identical ~7-10K-token prefix
+        # on every one of the up-to-6 rounds in a turn; caching it cuts the repeat
+        # input cost ~90%. The SLAC gateway accepts cache_control (verified). If a
+        # backend ignores it, this degrades to a normal (uncached) call.
+        system_param = [{"type": "text", "text": system_prompt,
+                         "cache_control": {"type": "ephemeral"}}]
         for _round in range(_MAX_TOOL_ROUNDS):
             try:
                 response = client.messages.create(
                     model      = model_id,
                     max_tokens = max_toks,
-                    system     = system_prompt,
+                    system     = system_param,
                     tools      = _TOOLS,
                     messages   = messages,
                 )
@@ -898,7 +934,11 @@ class SWAXSAssistant:
             for block in response.content:
                 if getattr(block, "type", None) == "text":
                     round_text += block.text
-            result_text += round_text
+            # NOTE: do NOT fold round_text into result_text here. On a tool_use
+            # round it is interim narration ("Let me check the manifest…") which
+            # is already streamed as a `thinking` step below; baking it into the
+            # returned answer made the reply repeat the preamble and read as
+            # rambling. Only the FINAL (non-tool) round's text is the answer.
 
             # If Claude wants to use tools
             if response.stop_reason == "tool_use":
@@ -963,7 +1003,8 @@ class SWAXSAssistant:
                 # Continue loop
                 continue
 
-            # Normal end — no more tool calls. Record the final assistant turn.
+            # Normal end — no more tool calls. THIS round's text is the answer.
+            result_text += round_text
             history_delta.append({"role": "assistant", "content": _clean_content(response.content)})
             break
         else:

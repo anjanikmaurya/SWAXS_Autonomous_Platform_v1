@@ -308,7 +308,7 @@ def plot_multi(
         label : str  (optional)
         sigma : array-like  (optional)
     """
-    cmap   = plt.cm.get_cmap("tab10")
+    cmap   = plt.get_cmap("tab10")
     fig, ax = plt.subplots(figsize=(_FIG_W, _FIG_H + 0.5), dpi=_DPI)
 
     for i, ds in enumerate(datasets):
@@ -473,7 +473,7 @@ def plot_overlay(
     fig, axes = plt.subplots(1, len(dets),
                              figsize=(6.2 * len(dets), 4.3), dpi=_DPI,
                              squeeze=False)
-    cmap = plt.cm.get_cmap("tab10")
+    cmap = plt.get_cmap("tab10")
     for col, det in enumerate(dets):
         ax = axes[0][col]
         ds_list = groups.get(det, [])

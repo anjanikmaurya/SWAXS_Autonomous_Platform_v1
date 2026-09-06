@@ -101,7 +101,10 @@ def test_a_single_missed_health_probe_does_not_flip_a_running_app_to_not_respond
     assert out2[aid]["healthy"] is True, "probe recovered — should read healthy"
 
 
-def test_two_consecutive_missed_probes_do_report_not_responding(monkeypatch):
+def test_consecutive_missed_probes_report_not_responding_after_the_threshold(monkeypatch):
+    """The threshold was raised from 2 to 3 misses (with a 2 s probe window) so a
+    bursty-but-alive app — the AI assistant especially — doesn't flicker. A
+    genuinely stuck app is still reported, just after _HEALTH_FAIL_THRESHOLD."""
     monkeypatch.setenv("SWAXS_NO_RESUME", "1")
     h = _load("hub_debounce2", "hub/app.py")
 
@@ -109,10 +112,12 @@ def test_two_consecutive_missed_probes_do_report_not_responding(monkeypatch):
     monkeypatch.setattr(h, "_is_running", lambda a: True)
     monkeypatch.setattr(h, "_health_probe", lambda port, timeout=1.0: (False, None))
 
-    h._app_status()                      # miss 1 -- still optimistic
-    out = h._app_status()                # miss 2 -- now report it
-    assert out[aid]["healthy"] is False, \
-        "a genuinely stuck app must still be reported, just not on the first miss"
+    # Every miss up to (but not including) the threshold stays optimistic.
+    for _ in range(h._HEALTH_FAIL_THRESHOLD - 1):
+        assert h._app_status()[aid]["healthy"] is True
+    # The miss that reaches the threshold flips it to not-responding.
+    assert h._app_status()[aid]["healthy"] is False, \
+        "a genuinely stuck app must still be reported once the streak hits the threshold"
 
 
 def test_a_stopped_app_is_never_reported_healthy_regardless_of_streak(monkeypatch):

@@ -162,10 +162,15 @@ class KnowledgeBase:
 
         text   = path.read_text(encoding="utf-8", errors="replace")
         chunks = _chunk_markdown(text)
+        # Qualify the source with its parent dir (e.g. "reduction/knowledge.md")
+        # instead of the bare "knowledge.md": otherwise all ten apps share one
+        # source string — citations can't tell them apart, and removing/replacing
+        # one app's chunks would key on "knowledge.md" and wipe them all.
+        src_label = f"{path.parent.name}/{path.name}" if path.parent.name else path.name
         n = self._add_chunks(
             chunks,
             collection = collection,
-            source     = path.name,
+            source     = src_label,
             doc_type   = "markdown",
         )
         self._record_ingestion(collection, key, file_hash, n)
@@ -230,6 +235,18 @@ class KnowledgeBase:
         cols = [collection] if collection else ALL_COLLECTIONS
         hits: list[dict] = []
 
+        # Embed the query ONCE and reuse across collections. Previously each
+        # collection's col.query(query_texts=[query]) re-encoded the same string
+        # with the SentenceTransformer — 4× the embedding CPU per chat turn (on the
+        # 2-thread cap). Falls back to text query if the embedder isn't ready.
+        q_emb = None
+        try:
+            self._client_init()
+            if self._ef is not None:
+                q_emb = self._ef([query])
+        except Exception:
+            q_emb = None
+
         for col_name in cols:
             col = self._get_collection(col_name)
             if col is None:
@@ -239,7 +256,9 @@ class KnowledgeBase:
                 if count == 0:
                     continue
                 k = min(top_k, count)
-                res = col.query(query_texts=[query], n_results=k)
+                res = (col.query(query_embeddings=q_emb, n_results=k)
+                       if q_emb is not None
+                       else col.query(query_texts=[query], n_results=k))
                 docs  = res.get("documents", [[]])[0]
                 metas = res.get("metadatas",  [[]])[0]
                 dists = res.get("distances",  [[]])[0]
@@ -349,14 +368,10 @@ class KnowledgeBase:
             from chromadb.utils.embedding_functions import (
                 SentenceTransformerEmbeddingFunction,
             )
-            # Defensive cap: keep the embedding model from grabbing every core and
-            # starving the other apps (the OMP/MKL env in assistant/app.py is the
-            # primary guard; this covers callers that import the KB directly).
-            try:
-                import os as _os, torch as _torch
-                _torch.set_num_threads(max(1, int(_os.environ.get("OMP_NUM_THREADS", "2"))))
-            except Exception:
-                pass
+            # NB: CPU-thread capping is handled by the OMP/MKL env vars set in
+            # assistant/app.py BEFORE torch loads (the assistant is the only KB
+            # user). Not re-imposed here — a direct `import torch` would also be an
+            # undeclared dependency (torch is transitive via sentence-transformers).
             self._client = chromadb.PersistentClient(path=str(self._db_path))
             self._ef     = SentenceTransformerEmbeddingFunction(
                 model_name=self._em_model
@@ -391,6 +406,16 @@ class KnowledgeBase:
         col = self._get_collection(collection)
         if col is None:
             return 0
+
+        # Upsert semantics: drop this source's existing chunks before adding the
+        # new ones. IDs embed a timestamp, so without this a re-ingest of an
+        # EDITED file left the old chunks behind forever (the corpus grew ~2x per
+        # edit, and a renamed/removed doc's chunks stayed retrievable). Scoped by
+        # the now-qualified `source` (see ingest_markdown).
+        try:
+            col.delete(where={"source": source})
+        except Exception as exc:
+            logger.debug("[KB] pre-add delete for '%s' skipped: %s", source, exc)
 
         # Deduplicate chunk IDs using source + index
         src_key  = re.sub(r"[^a-zA-Z0-9_\-]", "_", source)
@@ -500,7 +525,16 @@ def _chunk_text(text: str) -> list[str]:
         if len(chunk) >= _MIN_CHUNK:
             chunks.append(chunk)
 
-        start = max(start + 1, end - _CHUNK_OVERLAP)
+        if end >= length:
+            break
+        # Guarantee forward progress. The old `max(start+1, end-overlap)` advanced
+        # by a SINGLE character whenever a paragraph/sentence break landed within
+        # _CHUNK_OVERLAP of start (every section tail), emitting ~100 near-identical
+        # 1-char-shifted fragments per section and bloating the corpus ~60%. Step
+        # back by the overlap only when that still moves past the current chunk;
+        # otherwise jump to `end` (no overlap) so we never stall.
+        nxt = end - _CHUNK_OVERLAP
+        start = nxt if nxt > start else end
 
     return chunks
 
