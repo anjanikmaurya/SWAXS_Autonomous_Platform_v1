@@ -17,6 +17,7 @@ from __future__ import annotations
 import collections
 import json
 import os
+import re
 import sys
 import tempfile
 import threading
@@ -42,7 +43,8 @@ from src.reactor import load_config                                      # noqa:
 from src.optimizer import ParameterSpace, CampaignController             # noqa: E402
 from src.optimizer.io import (to_param_file, match_recipe_id,           # noqa: E402
                               recipe_id_from_filename)
-from src.runstate import save_state, load_state, save_monitor, load_monitor  # noqa: E402
+from src.runstate import (save_state, load_state, clear_state,             # noqa: E402
+                          save_monitor, load_monitor)
 
 # ── Event bus (graceful degradation) ─────────────────────────────────────────
 # Used to publish `fit.complete` so downstream apps (e.g. the reactor's
@@ -167,7 +169,54 @@ def _resolve_results() -> Path:
     return p
 
 
+# ── Target-Run tagging ────────────────────────────────────────────────────────
+# Each optimization campaign is a "Target Run", tagged RunN. The tag is prepended
+# to every recipe_id, so it propagates automatically into the condition file, the
+# reactor recipe, and the 2D/SAXS filenames ({recipe_id}_{role}_..._SAXS.raw) — you
+# can tell at a glance which data belongs to which target-run conditions. N is
+# DERIVED FROM DISK at campaign start (max existing Run<n> + 1), never stored as a
+# setting, so it survives a restart without carrying anything over. RunN must stay
+# digits-only: split_role() truncates a recipe_id at the first role token, so a
+# word tag that aliased sample/background/bkg/blank/... would corrupt parsing.
+_run_tag: str = ""          # e.g. "Run3"; empty when no campaign is active
+_run_seq: int = 0           # per-campaign proposal counter (in-memory, resets each run)
+_RUN_RE = re.compile(r"(?:^|[^A-Za-z])Run(\d+)_", re.IGNORECASE)
+
+
+def _next_run_no() -> int:
+    """The next Target-Run number = 1 + the highest Run<n> already on disk.
+
+    Scans durable artifacts (condition filenames, and the run_no recorded in each
+    Results/campaign_*.json) so the count survives a restart without persisting a
+    counter. Returns 1 when nothing is found."""
+    hi = 0
+    try:
+        for p in _resolve_cond().glob("Run*_*"):
+            m = _RUN_RE.search(p.name)
+            if m:
+                hi = max(hi, int(m.group(1)))
+    except Exception:
+        pass
+    try:
+        for rec in _resolve_results().glob("campaign_*.json"):
+            try:
+                n = int(json.loads(rec.read_text(encoding="utf-8")).get("run_no") or 0)
+                hi = max(hi, n)
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return hi + 1
+
+
 def _new_rid() -> str:
+    """The id for the next proposed condition. When a Target Run is active it is
+    Run{N}_r{seq} (e.g. Run3_r001), which flows into the SAXS filenames; otherwise
+    a timestamp+uuid fallback for manual/non-campaign use."""
+    global _run_seq
+    if _run_tag:
+        _run_seq += 1
+        return f"{_run_tag}_r{_run_seq:03d}"
     return "auto_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:4]
 
 
@@ -914,7 +963,7 @@ def api_campaign():
 
 @app.route("/api/campaign/start", methods=["POST"])
 def api_campaign_start():
-    global _campaign, _campaign_cfg, _campaign_id, _campaign_meta
+    global _campaign, _campaign_cfg, _campaign_id, _campaign_meta, _run_tag, _run_seq
     b = request.get_json(silent=True) or {}
     try:
         space = ParameterSpace.from_config(load_config())
@@ -929,6 +978,12 @@ def api_campaign_start():
                 n_init=int(b.get("n_init", 10)))
             _campaign_id = (datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
                             + "_" + uuid.uuid4().hex[:4])
+            # New Target Run: derive N from disk (max existing + 1) and reset the
+            # per-run proposal counter. Must be set BEFORE _advance_campaign(),
+            # which mints the first recipe_id via _new_rid().
+            _run_no = _next_run_no()
+            _run_tag = f"Run{_run_no}"
+            _run_seq = 0
             _campaign_cfg = {
                 "target_size": _campaign.target_size,
                 "tolerance": _campaign.tolerance,
@@ -940,6 +995,8 @@ def api_campaign_start():
                 "objective": "min ((size - target_size)/tolerance)^2 + w*(PDI/pdi_cap)",
                 "started_at": datetime.datetime.now().isoformat(timespec="seconds"),
                 "operator": os.environ.get("SWAXS_USER_ID", "") or "",
+                "run_no": _run_no,          # Target-Run number (also read back by _next_run_no)
+                "run_tag": _run_tag,
             }
             _campaign.start()
             _emit(f"🚀 campaign started — target R={_campaign.target_size}±{_campaign.tolerance} nm, "
@@ -956,6 +1013,7 @@ def api_campaign_start():
 
 @app.route("/api/campaign/abort", methods=["POST"])
 def api_campaign_abort():
+    global _campaign, _campaign_id, _campaign_cfg, _campaign_meta, _run_tag, _run_seq
     with _campaign_lock:
         if _campaign is not None:
             _campaign.abort()
@@ -965,6 +1023,16 @@ def api_campaign_abort():
             _oc = {"outcome": "aborted", "best": _campaign.best}
             _write_campaign_record(_oc)
             _write_campaign_results(_oc)
+            # Reset to a CLEAN SLATE so the next start is a brand-new Target Run,
+            # never a continuation. The durable records above are already written;
+            # everything below is transient run state.
+            _campaign = None
+            _campaign_id = ""; _campaign_cfg = {}; _campaign_meta = {}
+            _run_tag = ""; _run_seq = 0
+            _pending.clear(); _pending_at.clear()
+            with _intake_lock:
+                _handled.clear(); _lastsig.clear()
+            clear_state(_project_root, _CAMPAIGN_STATE)   # remove the resume file too
     return jsonify({"ok": True})
 
 

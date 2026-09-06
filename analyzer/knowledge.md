@@ -376,3 +376,22 @@ recipe file, and the filename carries the `recipe_id` that links them.
 Retained results are capped at `SWAXS_ANALYZER_MAX_RESULTS` (default 600) — an
 overnight campaign produces thousands and the full record lives in the manifest,
 so keeping every fit in RAM only slows the app down.
+
+## Target Runs & fresh start (Sept 2026)
+
+Each optimization campaign is a **Target Run** tagged `Run1`, `Run2`, … The number
+is derived from disk at campaign start (`_next_run_no` = max existing `Run<n>` + 1,
+read from the Conditions folder and `Results/campaign_*.json`), so it survives a
+restart without storing a counter. The tag is prepended to every `recipe_id`
+(`_new_rid` → `Run{N}_r{seq}`), so it flows automatically into the condition file,
+the reactor recipe, and the 2D/SAXS filenames (`Run3_r001_sample_..._SAXS.raw`) —
+every dataset is traceable to its target-run conditions. Downstream parsers are
+unaffected because `recipe_id` is "everything before the role tag" (`split_role`),
+and `Run<digits>` never aliases a role token.
+
+**Aborting** a campaign (`POST /api/campaign/abort`) resets the analyzer to a clean
+slate — `_campaign`, `_pending`, `_handled`, the run tag, and the `.swaxs_state`
+campaign file are all cleared — so the next **Start** is a brand-new Target Run.
+
+Resume is OFF by default: a restart never auto-resumes a campaign (or any monitor).
+Export `SWAXS_RESUME=1` to opt back into resume-after-crash.
