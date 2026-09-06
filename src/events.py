@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
 import time
 from datetime import datetime, timezone
@@ -141,6 +142,15 @@ class EventBusClient:
 
             bus = EventBusClient("reduction").connect()
         """
+        # Escape hatch for headless/CI/test runs: SWAXS_NO_BUS skips the reconnect
+        # thread entirely. Every caller already degrades gracefully when the bus is
+        # not connected (emit_* just drops the event), so this is safe. It also
+        # stops the test suite from accumulating dozens of forever-retrying
+        # reconnect threads (one per importlib-loaded app module), whose scheduling
+        # jitter made wall-clock-based monitor tests flaky under load.
+        if str(os.environ.get("SWAXS_NO_BUS", "")).strip().lower() in ("1", "true", "yes"):
+            self._connected = False
+            return self
         if self._running:
             return self
         self._running = True

@@ -50,6 +50,9 @@ def _write_dat(path: Path, particle: float = 1.0, n: int = 300):
         f.write("\n# --- metadata ---\n# detector: saxs\n")
 
 
+_LOADED: list = []
+
+
 def _load(tag, tmp_path, monkeypatch):
     monkeypatch.setenv("SWAXS_PROJECT", str(tmp_path))
     monkeypatch.setenv("SWAXS_NO_RESUME", "1")     # don't resume a saved monitor
@@ -57,7 +60,32 @@ def _load(tag, tmp_path, monkeypatch):
     m = u.module_from_spec(spec)
     sys.modules[tag] = m
     spec.loader.exec_module(m)
+    _LOADED.append(m)
     return m
+
+
+@pytest.fixture(autouse=True)
+def _stop_monitors_after_each_test():
+    """Stop AND JOIN every monitor thread this test started before the next test
+    runs. Setting the flag alone (the old per-test `finally`) let a finishing
+    monitor thread linger ~one poll into the following test, and those leaked
+    threads — plus the reconnect thread each import's event-bus client spawns —
+    made the wall-clock/`sleep`-based assertions here flaky under full-suite load.
+    Joining removes that cross-test contention."""
+    yield
+    for m in _LOADED:
+        try:
+            m._sub_monitoring = False
+        except Exception:
+            pass
+    for m in _LOADED:
+        t = getattr(m, "_sub_monitor_thread", None)
+        if t is not None:
+            try:
+                t.join(timeout=8.0)
+            except Exception:
+                pass
+    _LOADED.clear()
 
 
 def _wait(pred, timeout=12.0, step=0.25):
@@ -106,8 +134,14 @@ def test_a_subtracted_sample_is_not_redone_every_poll(tmp_path, monkeypatch):
         m.app.test_client().post("/api/monitor/start",
                                  json={"interval": 1, "saxs_avg_folder": str(avg)})
         assert _wait(lambda: m._sub_status["subtracted"] >= 1)
+        out = list((tmp_path / "1D" / "SAXS" / "Subtracted").rglob("*.dat"))
+        assert len(out) == 1, [p.name for p in out]
+        mtime0 = out[0].stat().st_mtime_ns
         time.sleep(3.5)                                    # several more polls
+        # "not redone" checked deterministically: the count is unchanged AND the
+        # output file was not rewritten (its mtime is stable across the polls).
         assert m._sub_status["subtracted"] == 1, "the sample was subtracted twice"
+        assert out[0].stat().st_mtime_ns == mtime0, "the subtracted file was rewritten"
         assert len(list((tmp_path / "1D" / "SAXS" / "Subtracted").rglob("*.dat"))) == 1
     finally:
         m._sub_monitoring = False

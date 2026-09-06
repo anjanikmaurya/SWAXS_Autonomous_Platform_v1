@@ -12,12 +12,30 @@ libraries for the duration of each test and restores the stubs afterwards, so
 the whole suite can run in one process.
 """
 
+import os
 import sys
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
+
+# Tests never run against a live hub, so the event-bus reconnect thread each app
+# module spawns at import has nothing to connect to and just retries forever.
+# Loading app modules with importlib (several tests do, some with many unique
+# tags) accumulated dozens of these threads across the session; their scheduling
+# jitter made wall-clock/`sleep`-based monitor tests flaky under load. Default the
+# bus off for the whole suite — apps degrade gracefully (emit_* drops the event).
+# A test that specifically needs the client thread can still monkeypatch it back.
+os.environ.setdefault("SWAXS_NO_BUS", "1")
+
+# Same reasoning for the apps' module-level auto-start daemons (the analyzer's
+# folder _watcher and every app's _boot_resume). No test relies on them firing on
+# import — they all call _boot_resume/_analyze_file/etc. directly — but left
+# running they poll folders and render plots (pyplot is not thread-safe, N14),
+# racing a test's own synchronous _analyze_file and flaking under load. Disable
+# the auto-start for the suite; explicit /api/monitor/start still works.
+os.environ.setdefault("SWAXS_NO_WATCH", "1")
 
 # Preload the REAL scipy before any test module is collected, so the numpy-only
 # tests (which stub scipy only "if scipy not in sys.modules") leave the real

@@ -1067,7 +1067,8 @@ try:
 except Exception:                      # never block startup on bookkeeping
     pass
 
-threading.Thread(target=_boot_resume_monitor, daemon=True).start()
+if os.environ.get("SWAXS_NO_WATCH", "").strip().lower() not in ("1", "true", "yes"):
+    threading.Thread(target=_boot_resume_monitor, daemon=True).start()
 
 if __name__ == "__main__":
     print()

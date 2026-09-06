@@ -879,8 +879,9 @@ def _boot_resume() -> None:
         _emit(f"⚠ campaign resume failed: {exc}", "warn")
 
 
-threading.Thread(target=_boot_resume, daemon=True).start()
-threading.Thread(target=_watcher, daemon=True).start()
+if os.environ.get("SWAXS_NO_WATCH", "").strip().lower() not in ("1", "true", "yes"):
+    threading.Thread(target=_boot_resume, daemon=True).start()
+    threading.Thread(target=_watcher, daemon=True).start()
 
 
 # ── routes ───────────────────────────────────────────────────────────────────

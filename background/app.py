@@ -1625,7 +1625,8 @@ def _boot_resume_monitor() -> None:
         _sub_emit(f"⚠  auto-processing resume failed: {exc}", "warn")
 
 
-threading.Thread(target=_boot_resume_monitor, daemon=True).start()
+if os.environ.get("SWAXS_NO_WATCH", "").strip().lower() not in ("1", "true", "yes"):
+    threading.Thread(target=_boot_resume_monitor, daemon=True).start()
 
 if __name__ == "__main__":
     import os
