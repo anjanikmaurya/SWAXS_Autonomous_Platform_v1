@@ -431,10 +431,18 @@ class ReactorController:
         """Emergency stop. Returns the names of any pumps that could NOT be idled
         so the caller (API/UI) can report a partial failure instead of a green
         tick — this is the one path where a false 'success' is unacceptable."""
+        # Stop reagents FIRST, WITHOUT waiting on self._lock. The control loop can
+        # hold self._lock for seconds while doing a blocking beamline csettemp HTTP
+        # or a manifest write (R1: measured 7.8 s), and reagents must not keep
+        # flowing for that long. Each pump has its own serial lock, so idle_all()
+        # is safe to call here and stops delivery immediately. PUMPS ONLY —
+        # deliberately nothing to the beamline/SPEC, so an in-progress X-ray
+        # collection finishes on its own; temperature is left exactly as-is.
+        failed = self.pumps.idle_all()   # guarded per-pump; never blocks on one
         with self._lock:
-            # Record the E-stop FIRST: even if a serial write below throws, the
-            # system must not be left without the estop state (and _safety_check
-            # must see it to stop re-entering).
+            # Record the E-stop state (even if a serial write threw above, the
+            # system must not be left without it — _safety_check must see it to
+            # stop re-entering).
             self.state = "estop"
             self.current = None
             # Kill the autonomous loop too: otherwise the folder watcher submits
@@ -443,10 +451,10 @@ class ReactorController:
                 self.auto_run = False
                 self._log("⏸ auto-run DISABLED by the emergency stop — re-enable it "
                           "deliberately after clearing the fault", "warn")
-            failed = self.pumps.idle_all()   # guarded per-pump; never blocks on one
-            # PUMPS ONLY: deliberately send NOTHING to the beamline/SPEC here, so
-            # an in-progress X-ray collection finishes on its own and SPEC is not
-            # disturbed. Temperature is left exactly as-is.
+            # Re-idle under the lock to catch anything the control loop may have
+            # commanded in the brief window between the idle above and acquiring
+            # the lock. idle_all() is idempotent.
+            failed = self.pumps.idle_all()
             if failed:
                 self._log(f"🛑 EMERGENCY STOP — but could NOT idle: {', '.join(failed)} "
                           f"— CHECK THESE PUMPS/PORTS IMMEDIATELY", "error")

@@ -168,3 +168,41 @@ def test_fire_spec_collection_cancels_on_backend_switch():
     # dispatched under the current backend -> proceeds
     ctl._fire_spec_collection("r1", "sample", backend_at_dispatch="mock", bl=fake)
     assert fake.collect_calls == 1
+
+
+# ── R1 / #8: E-stop stops reagents without waiting on the control-loop lock ────
+
+def test_estop_idles_pumps_without_waiting_on_the_lock():
+    """The control loop can hold self._lock for seconds during a blocking beamline
+    csettemp HTTP call or a manifest write (R1: measured 7.8 s). An operator E-stop
+    must stop reagents immediately, not wait for that lock."""
+    import threading
+    ctl = _ctl()
+
+    holding = threading.Event()
+    release = threading.Event()
+
+    def _hog_the_lock():
+        with ctl._lock:                 # simulate the loop holding it across slow I/O
+            holding.set()
+            release.wait(3.0)
+
+    hog = threading.Thread(target=_hog_the_lock, daemon=True)
+    hog.start()
+    assert holding.wait(1.0)
+
+    idled = threading.Event()
+    orig_idle = ctl.pumps.idle_all
+    def _spy_idle():
+        idled.set()
+        return orig_idle()
+    ctl.pumps.idle_all = _spy_idle
+
+    est = threading.Thread(target=ctl.estop, daemon=True)
+    est.start()
+    try:
+        # pumps must be idled while the lock is STILL held by the hog thread
+        assert idled.wait(1.0), "estop waited on self._lock before idling the pumps"
+    finally:
+        release.set(); hog.join(timeout=3.0); est.join(timeout=3.0)
+    assert ctl.state == "estop"
