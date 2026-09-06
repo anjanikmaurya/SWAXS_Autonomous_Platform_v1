@@ -1,0 +1,388 @@
+# =============================================================================
+# saxs_knowledge.yaml — SAXS analysis ladder (model-free -> model-based)
+# =============================================================================
+# This file is INJECTED verbatim into the assistant's STATIC (cached) system
+# prefix by the Change-1 resolver when the current modality is SAXS. It is
+# mtime-cached: edit it mid-beamtime and the next turn picks it up — no
+# re-ingest, no ChromaDB write.
+#
+# WHY A LADDER (encode this, don't just follow it): model-free results are the
+# INPUTS to model fitting, not a politeness ordering. Rg from Guinier is the
+# size initial guess; the high-q power law decides which model families are
+# admissible at all; Dmax from P(r) bounds the fit. Proposing a form factor
+# before computing these is guessing. The consumes/provides fields below make
+# that dependency MECHANICAL: an entry is only proposable once the quantities it
+# `consumes` have actually been produced this conversation.
+#
+# APPLICABILITY GATE (critical): most of tier 2+ assumes dilute, monodisperse,
+# isotropic solution scattering. This is a SWAXS platform with mixed-materials
+# caseloads, not pure bio-SAXS. On oriented samples, structure-factor-dominated
+# dispersions, lamellar phases, or curves with crystalline peaks these tools
+# return confident meaningless numbers. `requires` / `inapplicable_when` encode
+# the preconditions; the gate REFUSES the entry (naming the failed precondition
+# AND what would satisfy it) rather than emitting a wrong Dmax. A wrong Dmax is
+# worse than no Dmax.
+#
+# -----------------------------------------------------------------------------
+# ENTRY SCHEMA (shared with waxs_knowledge.yaml)
+#   id:                stable identifier (string, unique within the file)
+#   tier:              0..5  (see TIER MAP below)
+#   modality:          saxs | waxs | both
+#   package:           where the computation lives (e.g. "local:src.analysis.core",
+#                        "ATSAS", "SasView/sasmodels"); paraphrase + cite, never
+#                        transcribe package docs
+#   observes:          list — data features that point to this entry
+#   requires:          list of {key, hint} — preconditions that MUST hold. The
+#                        gate treats `key` as satisfied iff state[key] is truthy
+#                        (True, or a non-null/non-zero value). None / False /
+#                        missing => REFUSE, quoting `hint` (what would satisfy it).
+#                        A required flag defaults to unknown (None) => refused,
+#                        so "isotropic" et al. must be MEASURED, never assumed.
+#   inapplicable_when: list of {key, hint} — the entry is meaningless when
+#                        state[key] is truthy (True). Unknown (None) does NOT
+#                        trigger it (softer than `requires`).
+#   provides:          list — quantity keys this entry produces (consumed above)
+#   consumes:          list — quantity keys required from lower tiers; the gate
+#                        blocks the entry until every one is present & non-null
+#   initial_guesses:   map  — derivations, e.g. "R: '~ Rg*sqrt(5/3)'"
+#   my_notes:          operator's tested experience — AUTHORITATIVE. LEFT EMPTY
+#                        here on purpose; only the operator writes this field.
+#   confidence:        tested | documented | untested  (only the operator sets
+#                        `tested`)
+#   cost:              free_local | cheap | expensive
+#   invocable:         true  = the assistant can run it via a platform tool
+#                      false = the user runs it externally; the assistant must
+#                              NOT imply it can call it
+#
+# STATE QUANTITIES produced OUTSIDE the entry graph (by the router / tier passes),
+# referenced by requires/inapplicable_when so the graph still closes:
+#   bragg_present  — set by the modality router from the current curve
+#   monodisperse   — NOT gated mechanically (no single-curve provider exists);
+#                    the assistant states it as a caveat for tier-2 entries
+#                    instead of asserting it. SEC-SAXS / a dilution series is the
+#                    real check.
+#
+# TIER MAP (SAXS)
+#   0  is-the-data-fittable-at-all (damage, interparticle, subtraction, q-range,
+#      concentration, azimuthal isotropy, structure-factor screen)
+#   1  model-free invariants — ONE unconditional local pass (Guinier, validity,
+#      dimensionless Kratky, high-q power law, Porod volume, MW)
+#   2  real space — P(r) by indirect Fourier transform (Dmax, real-space Rg,
+#      shape class) as an INDEPENDENT cross-check on Guinier
+#   3  package pipelines (ATSAS AUTORG/PRIMUS/DATCMP/…, DAMMIF/GASBOR, EOM,
+#      OLIGOMER, CRYSOL; SasView/sasmodels form-factor fitting) — NOT seeded yet
+#   4  specific models, opt-in menu — NOT seeded yet
+#   5  ingested PDFs/knowledge/web — last, always attributed — handled via RAG
+#
+# NOTE: only tiers 0-2 are seeded. Tier 3-5 live in the prompt ladder + the RAG
+# collections; the sasmodels catalog is the live `list_saxs_models` tool, NOT
+# duplicated here.
+# =============================================================================
+
+version: 1
+modality: saxs
+
+entries:
+
+  # ---- Tier 0 — is the data fittable at all --------------------------------
+  - id: t0_radiation_damage
+    tier: 0
+    modality: saxs
+    package: "local:src.analysis (frame-to-frame comparison)"
+    observes:
+      - "successive same-sample exposures drift (rising low-q or falling I(0))"
+    requires:
+      - {key: n_frames_ge_2, hint: "need >=2 frames of the same sample to compare"}
+    inapplicable_when: []
+    provides: [frames_stable]
+    consumes: []
+    initial_guesses: {}
+    my_notes: ""
+    confidence: documented
+    cost: free_local
+    invocable: true
+
+  - id: t0_interparticle_conc_series
+    tier: 0
+    modality: saxs
+    package: "local:src.analysis (concentration-series comparison)"
+    observes:
+      - "low-q intensity per concentration is non-linear"
+      - "apparent Rg trends with concentration"
+    requires:
+      - {key: has_conc_series, hint: "need a dilution/concentration series (>=2 concentrations) of the same sample"}
+    inapplicable_when: []
+    provides: [interparticle_free]
+    consumes: []
+    initial_guesses: {}
+    my_notes: ""
+    confidence: documented
+    cost: free_local
+    invocable: false
+
+  - id: t0_background_subtraction_sanity
+    tier: 0
+    modality: saxs
+    package: "local:src.analysis (subtracted-curve sanity)"
+    observes:
+      - "over-subtraction drives I(q) negative at high q"
+      - "under-subtraction leaves a constant high-q offset"
+    requires:
+      - {key: is_subtracted, hint: "run background subtraction first (Background app)"}
+    inapplicable_when: []
+    provides: [background_ok]
+    consumes: []
+    initial_guesses: {}
+    my_notes: ""
+    confidence: documented
+    cost: free_local
+    invocable: true
+
+  - id: t0_usable_q_range
+    tier: 0
+    modality: saxs
+    package: "local:src.analysis (q-range determination)"
+    observes:
+      - "beamstop shadow / divergence artefacts at the lowest q"
+      - "noise-dominated points at the highest q"
+    requires: []
+    inapplicable_when: []
+    provides: [q_usable_min, q_usable_max]
+    consumes: []
+    initial_guesses: {}
+    my_notes: ""
+    confidence: documented
+    cost: free_local
+    invocable: true
+
+  - id: t0_concentration
+    tier: 0
+    modality: saxs
+    package: "local:src.manifest (user_context.concentration)"
+    observes:
+      - "sample concentration recorded in the manifest user_context"
+    requires: []
+    inapplicable_when: []
+    # Legitimately absent sometimes -> `concentration` is None; entries that
+    # consume it (e.g. mw_estimate) are then simply not offered.
+    provides: [concentration]
+    consumes: []
+    initial_guesses: {}
+    my_notes: ""
+    confidence: documented
+    cost: free_local
+    invocable: true
+
+  - id: t0_azimuthal_isotropy
+    tier: 0
+    modality: saxs
+    # NO src helper exists (verified) and the 1D .dat has already collapsed the
+    # azimuth, so this CANNOT be computed from the reduced curve. It is assessed
+    # upstream from the 2D detector image / caked pattern (reduction or average
+    # app). Defaults to unknown -> the gate refuses tier-2 until it is affirmed,
+    # because this platform's caseload includes oriented samples: isotropy must
+    # be MEASURED, not assumed. The assistant must not imply it can compute it.
+    package: "2D detector image / azimuthal (cake) pattern — assessed upstream"
+    observes:
+      - "azimuthal (chi) intensity variation in the 2D pattern before integration"
+    requires: []
+    inapplicable_when: []
+    provides: [azimuthal_isotropy]
+    consumes: []
+    initial_guesses: {}
+    my_notes: ""
+    confidence: documented
+    cost: free_local
+    invocable: false
+
+  - id: t0_structure_factor_screen
+    tier: 0
+    modality: saxs
+    # Indirect single-curve hint (low-q upturn/downturn); a concentration series
+    # is the real confirmation. Sets structure_factor_present True/False when it
+    # can decide, else None (unknown). Kept tier-0 and consumes nothing so it
+    # cannot create a tier-0<-tier-1 cycle; tier-1's Guinier linearity corroborates.
+    package: "local:src.analysis (low-q trend heuristic; conc-series confirms)"
+    observes:
+      - "low-q downturn (repulsion / S(q)<1) or upturn (attraction / aggregation)"
+    requires: []
+    inapplicable_when: []
+    provides: [structure_factor_present]
+    consumes: []
+    initial_guesses: {}
+    my_notes: ""
+    confidence: documented
+    cost: free_local
+    invocable: true
+
+  # ---- Tier 1 — model-free invariants (ONE unconditional local pass) -------
+  # These run together in a single local pass (the analysis_tier1 tool); the
+  # model interprets the numbers, it does not sequence the methods. Fitted
+  # windows are CLAMPED to [q_usable_min, q_usable_max] in code, and a fit that
+  # would extend outside it fails loudly (a Guinier fit wandering below
+  # q_usable_min into the beamstop shadow is the "beautiful, wrong Rg" case).
+  - id: t1_guinier
+    tier: 1
+    modality: saxs
+    package: "local:src.analysis.core.guinier_fit"
+    observes:
+      - "the low-q region of ln I(q) vs q^2 is approximately linear"
+    requires:
+      - {key: background_ok, hint: "background subtraction must be sane first (t0_background_subtraction_sanity)"}
+    inapplicable_when:
+      - {key: bragg_present, hint: "curve is dominated by Bragg peaks — this is a WAXS/structure question, not a Guinier one"}
+    provides: [Rg, I0, guinier_qmin, guinier_qmax, guinier_R2, guinier_linearity]
+    consumes: [q_usable_min, q_usable_max]
+    initial_guesses: {}
+    my_notes: ""
+    confidence: documented
+    cost: free_local
+    invocable: true
+
+  - id: t1_guinier_validity
+    tier: 1
+    modality: saxs
+    package: "local:src.analysis.core.guinier_quality"
+    observes:
+      - "the fitted Guinier window relative to q*Rg"
+    requires: []
+    inapplicable_when: []
+    provides: [qRg_max, guinier_valid]
+    consumes: [Rg, guinier_qmax]
+    initial_guesses:
+      qRg_max_globular: "<= ~1.3 (globular/spherical)"
+      qRg_max_rod: "~0.7-1.0 (extended / rod-like)"
+    my_notes: ""
+    confidence: documented
+    cost: free_local
+    invocable: true
+
+  - id: t1_dimensionless_kratky
+    tier: 1
+    modality: saxs
+    package: "local:src.analysis.core.dimensionless_kratky"
+    observes:
+      - "shape of (q*Rg)^2 * I(q)/I(0) vs q*Rg"
+    requires: []
+    inapplicable_when: []
+    provides: [kratky_peak_qRg, kratky_peak_height, compactness_class]
+    consumes: [Rg, I0]
+    initial_guesses:
+      ideal_compact_peak_qRg: "~1.73 (sqrt 3)"
+      ideal_compact_peak_height: "~1.104"
+    my_notes: ""
+    confidence: documented
+    cost: free_local
+    invocable: true
+
+  - id: t1_high_q_power_law
+    tier: 1
+    modality: saxs
+    package: "local:src.analysis.core.porod_fit"
+    observes:
+      - "slope of log I(q) vs log q over a fitted high-q window"
+    requires: []
+    inapplicable_when:
+      - {key: bragg_present, hint: "high-q window is dominated by Bragg peaks — route to WAXS for peak/lattice analysis"}
+    provides: [powerlaw_exponent, powerlaw_qmin, powerlaw_qmax, interface_class]
+    consumes: [q_usable_min, q_usable_max]
+    initial_guesses:
+      exponent_smooth_sharp_interface: "-4"
+      exponent_gaussian_chain_or_sheet: "-2"
+      exponent_rod: "-1"
+      exponent_swollen_chain: "-5/3"
+      exponent_fractal: "fractional -> mass/surface fractal dimension"
+    my_notes: ""
+    confidence: documented
+    cost: free_local
+    invocable: true
+
+  - id: t1_porod_volume
+    tier: 1
+    modality: saxs
+    package: "local:src.analysis.core.classical_invariants"
+    observes:
+      - "the integral of q^2 * I(q) converges (bounded scattering volume)"
+    requires: []
+    inapplicable_when:
+      - {key: structure_factor_present, hint: "structure-factor-dominated curve — the invariant is no longer a single-particle volume; measure a dilution series"}
+    provides: [porod_volume]
+    consumes: [Rg, I0]
+    initial_guesses: {}
+    my_notes: ""
+    confidence: documented
+    cost: free_local
+    invocable: true
+
+  - id: t1_mw_estimate
+    tier: 1
+    modality: saxs
+    # Split from Porod volume ON PURPOSE: MW from I(0)/Vc is meaningless without
+    # concentration, so it CONSUMES concentration and is simply NOT offered when
+    # concentration is absent — never estimated with a caveat. Porod volume above
+    # does not consume concentration, so it stays available.
+    package: "local:src.analysis (Vc/DATMW-style MW from I(0) & concentration)"
+    observes:
+      - "concentration is known and the curve is single-species"
+    requires: []
+    inapplicable_when:
+      - {key: structure_factor_present, hint: "S(q) present — MW from I(0) needs the dilute single-particle limit; measure a dilution series"}
+    provides: [mw_estimate]
+    consumes: [I0, porod_volume, concentration]
+    initial_guesses:
+      mw_from_vc: "MW ~ Vc / DATMW calibration"
+    my_notes: ""
+    confidence: untested
+    cost: free_local
+    invocable: true
+
+  # ---- Tier 2 — real space (two entries: local IFT vs ATSAS GNOM) ----------
+  # NOT interchangeable. Regularization / alpha and the input q-range materially
+  # change Dmax, so they have different failure modes and trust levels and get
+  # separate my_notes. Both provide the SAME keys so higher tiers consume either.
+  - id: t2_pr_local
+    tier: 2
+    modality: saxs
+    package: "local:src.analysis.core.pair_distance_ift (regularized indirect Fourier transform)"
+    observes:
+      - "a smooth, monotonic-decay solution curve over a good q-range"
+    requires:
+      - {key: frames_stable, hint: "radiation damage detected between frames — re-run with fewer frames or a lower dose"}
+      - {key: interparticle_free, hint: "interparticle effects not ruled out — measure a dilution series to confirm the dilute limit"}
+      - {key: azimuthal_isotropy, hint: "azimuthal isotropy not verified — inspect the 2D/cake pattern for orientation; P(r) assumes isotropic solution scattering"}
+    inapplicable_when:
+      - {key: bragg_present, hint: "Bragg/structure-factor peaks present — P(r) assumes single-particle scattering"}
+      - {key: structure_factor_present, hint: "structure-factor-dominated dispersion / lamellar phase — P(r) will return a meaningless Dmax"}
+    provides: [Dmax, Rg_realspace, pr_shape_class]
+    consumes: [Rg, q_usable_min, q_usable_max]
+    initial_guesses:
+      Dmax_seed: "~ 2 * Rg (globular); larger for elongated shapes"
+    my_notes: ""
+    confidence: documented
+    cost: cheap
+    invocable: true
+
+  - id: t2_pr_gnom
+    tier: 2
+    modality: saxs
+    # Reference implementation; the user runs it externally in ATSAS. The alpha
+    # regularization choice and the input q-range change Dmax vs the local IFT,
+    # so results and trust differ — recorded separately.
+    package: "ATSAS GNOM / DATGNOM (external; Svergun indirect transform). BayesApp is an alternative."
+    observes:
+      - "a smooth, monotonic-decay solution curve over a good q-range"
+    requires:
+      - {key: frames_stable, hint: "radiation damage detected between frames — re-run with fewer frames or a lower dose"}
+      - {key: interparticle_free, hint: "interparticle effects not ruled out — measure a dilution series to confirm the dilute limit"}
+      - {key: azimuthal_isotropy, hint: "azimuthal isotropy not verified — inspect the 2D/cake pattern for orientation; P(r) assumes isotropic solution scattering"}
+    inapplicable_when:
+      - {key: bragg_present, hint: "Bragg/structure-factor peaks present — P(r) assumes single-particle scattering"}
+      - {key: structure_factor_present, hint: "structure-factor-dominated dispersion / lamellar phase — P(r) will return a meaningless Dmax"}
+    provides: [Dmax, Rg_realspace, pr_shape_class]
+    consumes: [Rg, q_usable_min, q_usable_max]
+    initial_guesses:
+      Dmax_seed: "~ 2 * Rg (globular); larger for elongated shapes"
+    my_notes: ""
+    confidence: documented
+    cost: expensive
+    invocable: false

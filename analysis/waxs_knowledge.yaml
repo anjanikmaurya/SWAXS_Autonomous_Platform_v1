@@ -1,0 +1,111 @@
+# =============================================================================
+# waxs_knowledge.yaml — WAXS analysis ladder (SCAFFOLD ONLY)
+# =============================================================================
+# SCAFFOLD. Four tier-0/1 seed entries prove the mechanism (same schema, same
+# gate, same router hook as saxs_knowledge.yaml). The real WAXS content is
+# UNWRITTEN and will be authored by the operator.
+#
+# DELIBERATELY NOT WRITTEN YET (do not stub these — they carry the most
+# operator-specific value and placeholders would obscure what has been validated):
+#   • phase identification / search-match
+#   • peak indexing and unit-cell determination
+#   • Rietveld / Le Bail full-pattern refinement
+#   • texture / preferred-orientation (pole figures)
+#   • pair distribution function (PDF / total scattering) analysis
+#
+# The WAXS tier structure is NOT assumed to mirror SAXS. SAXS climbs
+# size -> shape -> real-space -> model; WAXS is about phase, lattice, crystallite
+# size, and orientation from Bragg peaks. The tier numbers here are provisional
+# and the operator may restructure them.
+#
+# Schema is identical to saxs_knowledge.yaml (see its header for field docs:
+# id, tier, modality, package, observes, requires{key,hint},
+# inapplicable_when{key,hint}, provides, consumes, initial_guesses, my_notes,
+# confidence, cost, invocable). Only tools verifiable in THIS environment are
+# marked invocable: true — external crystallography suites (GSAS-II, TOPAS,
+# FullProf, PDFgui) are NOT stubbed here.
+# =============================================================================
+
+version: 1
+modality: waxs
+
+entries:
+
+  - id: w0_peak_detection
+    tier: 0
+    modality: waxs
+    # Reuses the existing Bragg-peak finder; the router uses the same signal.
+    package: "local:src.analysis.nanoparticle.detect_bragg_peaks (scipy.signal.find_peaks)"
+    observes:
+      - "sharp maxima sitting above a smooth background in I(q)"
+    requires: []
+    inapplicable_when: []
+    provides: [peak_q_positions, n_peaks]
+    consumes: []
+    initial_guesses: {}
+    my_notes: ""
+    confidence: documented
+    cost: free_local
+    invocable: true
+
+  - id: w0_instrumental_width_check
+    tier: 0
+    modality: waxs
+    # A peak narrower than / near the instrumental resolution is a real Bragg
+    # reflection; much broader implies size/strain broadening (or it is not WAXS).
+    # This is what distinguishes a WAXS peak from a broad SAXS correlation bump
+    # in the router.
+    package: "local:src.analysis (peak FWHM vs instrumental resolution)"
+    observes:
+      - "peak FWHM comparable to the instrumental resolution => genuine Bragg peak"
+    requires:
+      - {key: has_peaks, hint: "no peaks detected — run w0_peak_detection first; a smooth decay is SAXS, not WAXS"}
+    inapplicable_when: []
+    provides: [peaks_are_bragg, peak_fwhm]
+    consumes: [peak_q_positions]
+    initial_guesses: {}
+    my_notes: ""
+    confidence: untested
+    cost: free_local
+    invocable: true
+
+  - id: w1_d_spacing
+    tier: 1
+    modality: waxs
+    package: "local:src.analysis (Bragg: d = 2*pi/q)"
+    observes:
+      - "confirmed Bragg peak positions"
+    requires:
+      - {key: peaks_are_bragg, hint: "peaks not confirmed as Bragg (instrumental-width check) — d-spacings would be meaningless"}
+    inapplicable_when: []
+    provides: [d_spacings]
+    consumes: [peak_q_positions]
+    initial_guesses:
+      d_from_q: "d = 2*pi/q  (q in nm^-1 -> d in nm)"
+    my_notes: ""
+    confidence: documented
+    cost: free_local
+    invocable: true
+
+  - id: w1_scherrer_crystallite_size
+    tier: 1
+    modality: waxs
+    # Scherrer gives an APPARENT size only: it conflates size and microstrain,
+    # assumes the instrumental contribution is removed, and the shape factor K
+    # (~0.9) depends on crystallite shape and how width is defined. Report as a
+    # lower bound with caveats, not a definitive size.
+    package: "local:src.analysis (Scherrer: L = K*lambda/(beta*cos(theta)))"
+    observes:
+      - "Bragg peak breadth beyond the instrumental resolution"
+    requires:
+      - {key: peaks_are_bragg, hint: "peaks not confirmed as Bragg — Scherrer needs real reflections"}
+    inapplicable_when: []
+    provides: [crystallite_size_apparent]
+    consumes: [peak_q_positions, peak_fwhm]
+    initial_guesses:
+      K_shape_factor: "~0.9 (shape-dependent)"
+      note: "apparent size; conflates size + microstrain; instrumental width must be removed"
+    my_notes: ""
+    confidence: untested
+    cost: free_local
+    invocable: true
