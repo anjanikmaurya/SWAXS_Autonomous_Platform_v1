@@ -191,9 +191,16 @@ def _fit_one(q, I, dist, Rbar0, pdi0=0.15, sigma=None):
     # scale so the model roughly matches I at the lowest q
     m0 = model_intensity(q, Rbar0, pdi0, 1.0, 0.0, dist)
     scale0 = max(I[0] / max(m0[0], 1e-30), 1e-30)
+    # R upper bound derived from the DATA (~the largest radius the q-range can
+    # probe, π/q_min, with headroom), not just Rbar0*20 — otherwise a bad/low
+    # initial guess (e.g. when the Guinier region is below q_min) capped the fit
+    # far under a genuinely large particle and reported a too-small size.
+    qmin = float(np.min(q)) if q.size else 1e-3
+    R_hi = max(Rbar0 * 20.0, 3.0 * np.pi / max(qmin, 1e-6))
+    PDI_HI = 0.6
     p0 = [Rbar0, pdi0, np.log10(scale0), bkg0]
     lo = [1e-3, 0.01, np.log10(scale0) - 6, 0.0]
-    hi = [Rbar0 * 20, 0.6, np.log10(scale0) + 6, max(I) ]
+    hi = [R_hi, PDI_HI, np.log10(scale0) + 6, max(I) ]
 
     # sigma(log10 I) ≈ sigma(I) / (I·ln 10) — first-order propagation of the
     # measured sigma through log10. A handful of unusable values (zero/NaN,
@@ -234,16 +241,43 @@ def _fit_one(q, I, dist, Rbar0, pdi0=0.15, sigma=None):
         perr = list(np.sqrt(np.abs(np.diag(cov))))
     except Exception:
         pass
-    return sol.x, perr, rms
+    # Flags for confidence: did R or PDI rail against a bound (a wall, not a
+    # minimum — and the covariance above can't see the active constraint), and
+    # did the solver actually converge?
+    at_bounds = bool(Rbar_f >= R_hi * 0.99 or pdi_f >= PDI_HI * 0.99
+                     or Rbar_f <= lo[0] * 1.01 or pdi_f <= lo[1] * 1.01)
+    flags = {"at_bounds": at_bounds, "converged": bool(getattr(sol, "success", True))}
+    return sol.x, perr, rms, flags
 
 
-def _confidence(rms_log, guinier_valid, rel_err_R):
-    """Blend fit residual + Guinier validity + size uncertainty into 0-1."""
+def _confidence(rms_log, guinier_valid, rel_err_R, *, at_bounds=False,
+                converged=True, r_fit=None, r_guinier=None):
+    """Blend fit residual + Guinier validity + size uncertainty into 0-1.
+
+    Confidence GATES campaign convergence (see optimizer campaign._check_stop), so
+    a falsely-high confidence on a bad fit can stop the whole run on garbage. Beyond
+    the residual/Guinier/uncertainty blend, three extra guards knock it down:
+      • at_bounds: a parameter railed against a bound is a wall, not a minimum —
+        and the covariance (rel_err_R) can't see the active constraint, so it may
+        even look spuriously precise. Distrust it hard.
+      • not converged: the solver hit max_nfev without settling.
+      • r_fit vs Guinier R disagreement: a classic bad-fit tell (a smooth power law
+        fit by a huge high-PDI sphere) that the residual alone won't catch.
+    """
     f_fit = 1.0 / (1.0 + (rms_log / 0.05) ** 2)          # ~0.05 log10 RMS = good
     f_guin = 1.0 if guinier_valid else 0.6
     re = rel_err_R if (rel_err_R is not None and np.isfinite(rel_err_R)) else 1.0
     f_unc = 1.0 / (1.0 + (re / 0.10) ** 2)               # 10% size error = borderline
-    return float(round(max(0.0, min(1.0, f_fit * f_guin * f_unc)), 3))
+    c = f_fit * f_guin * f_unc
+    # form-factor vs Guinier radius agreement (only when a valid Guinier exists)
+    if guinier_valid and r_fit and r_guinier and r_guinier > 0:
+        disagree = abs(float(r_fit) - float(r_guinier)) / float(r_guinier)
+        c *= 1.0 / (1.0 + (disagree / 0.30) ** 2)        # 30% disagreement = borderline
+    if at_bounds:
+        c *= 0.25                                        # railed → not a real minimum
+    if not converged:
+        c *= 0.5                                         # solver didn't settle
+    return float(round(max(0.0, min(1.0, c)), 3))
 
 
 def analyze_profile(q, I, sigma=None, dist="auto") -> dict:
@@ -284,9 +318,9 @@ def analyze_profile(q, I, sigma=None, dist="auto") -> dict:
     best = None
     for d in dists:
         try:
-            p, perr, rms = _fit_one(q, I, d, Rbar0, sigma=sigma_arr)
+            p, perr, rms, flags = _fit_one(q, I, d, Rbar0, sigma=sigma_arr)
             if best is None or rms < best[3]:
-                best = (d, p, perr, rms)
+                best = (d, p, perr, rms, flags)
         except Exception:
             continue
     if best is None:                              # full fit failed → Guinier fallback
@@ -298,7 +332,7 @@ def analyze_profile(q, I, sigma=None, dist="auto") -> dict:
         result["diagnostics"]["note"] = "form-factor fit failed; Guinier-only size"
         return result
 
-    d, (Rbar, pdi, logs, bkg), perr, rms = best
+    d, (Rbar, pdi, logs, bkg), perr, rms, flags = best
     rel_err_R = (perr[0] / Rbar) if (perr and np.isfinite(perr[0]) and Rbar) else None
     result["distribution"] = d
     result["size"] = {"radius": float(Rbar), "diameter": float(2 * Rbar),
@@ -307,9 +341,15 @@ def analyze_profile(q, I, sigma=None, dist="auto") -> dict:
     result["fit"] = {"rms_log10": rms, "scale": float(10 ** logs), "background": float(bkg)}
     result["uncertainty"] = {"radius": float(perr[0]) if np.isfinite(perr[0]) else None,
                              "pdi": float(perr[1]) if np.isfinite(perr[1]) else None}
-    result["confidence"] = _confidence(rms, g.get("valid", False), rel_err_R)
+    result["confidence"] = _confidence(
+        rms, g.get("valid", False), rel_err_R,
+        at_bounds=flags.get("at_bounds", False),
+        converged=flags.get("converged", True),
+        r_fit=Rbar, r_guinier=g.get("R_from_Rg"))
     result["diagnostics"] = {"rms_log10": round(rms, 4),
                              "guinier_valid": g.get("valid", False),
                              "rel_err_radius": round(rel_err_R, 3) if rel_err_R else None,
+                             "at_bounds": flags.get("at_bounds", False),
+                             "converged": flags.get("converged", True),
                              "chosen_distribution": d}
     return result
