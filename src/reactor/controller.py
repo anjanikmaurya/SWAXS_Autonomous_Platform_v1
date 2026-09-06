@@ -391,17 +391,30 @@ class ReactorController:
                 return False, "a collection is already in progress"
             role = "background" if str(role).lower().startswith("b") else "sample"
             rid = "manual_" + time.strftime("%Y%m%d_%H%M%S")
-        threading.Thread(target=self._fire_spec_collection, args=(rid, role), daemon=True).start()
+        threading.Thread(target=self._fire_spec_collection,
+                         args=(rid, role, self.backend, self.beamline),
+                         daemon=True).start()
         self._log(f"📷 manual collect requested ({role}) — {rid}", "info")
         return True, rid
 
     # ── run-end triggers ───────────────────────────────────────────────────────
-    def signal_measurement_complete(self, info: str = "") -> None:
+    def signal_measurement_complete(self, info: str = "", recipe_id: str = "") -> None:
         with self._lock:
-            if self.state == "running":
-                self._measure_done = True
-                self._run_reason = f"SAXS measurement complete{(' — ' + info) if info else ''}"
-                self._log(f"📈 measurement signal received — ending run", "ok")
+            if self.state != "running":
+                return
+            # Only end THIS recipe's run. In a pipelined campaign a late or
+            # duplicate file.averaged from the PREVIOUS recipe (or a background
+            # average) could otherwise truncate the recipe now running. When the
+            # signal carries no recipe_id (a manual, non-autonomous run), honour
+            # it as before for backward compatibility.
+            cur = self.current.recipe_id if self.current else ""
+            if recipe_id and cur and recipe_id != cur:
+                self._log(f"↩ ignoring measurement signal for {recipe_id} — "
+                          f"current run is {cur}", "info")
+                return
+            self._measure_done = True
+            self._run_reason = f"SAXS measurement complete{(' — ' + info) if info else ''}"
+            self._log(f"📈 measurement signal received — ending run", "ok")
 
     # ── abort / emergency ──────────────────────────────────────────────────────
     def abort(self) -> None:
@@ -892,18 +905,26 @@ class ReactorController:
         self.current = None
         self.setpoints = {}
 
-    def _fire_spec_collection(self, recipe_id: str, role: str) -> None:
+    def _fire_spec_collection(self, recipe_id: str, role: str,
+                              backend_at_dispatch: str | None = None,
+                              bl=None) -> None:
         """Trigger a SPEC 2D acquisition. ``role`` is 'sample' (during the run) or
         'background' (during the flush). The filename is
         ``{recipe_id}_{tag}`` so averaging separates the two and background
         subtraction pairs them by the shared recipe_id. Runs in its own thread —
-        blocking SPEC I/O must not stall the control loop."""
+        blocking SPEC I/O must not stall the control loop.
+
+        ``backend_at_dispatch`` and ``bl`` are captured by the DISPATCHER at
+        Thread-construction time and passed in, so the guard below can detect a
+        backend switch that happened between dispatch and this thread running.
+        (They used to be read here, inside the thread, and compared to themselves
+        one line later — the check could never fire, so a mock-initiated collect
+        could execute on real hardware, or vice versa.)"""
         t_start = time.time()
-        # Bind the backend and beamline ONCE. This runs in its own thread, so a
-        # backend switch between dispatch and execution would otherwise send a
-        # mock-initiated collect to real hardware (or vice versa).
-        bl = self.beamline
-        backend_at_dispatch = self.backend
+        if backend_at_dispatch is None:
+            backend_at_dispatch = self.backend
+        if bl is None:
+            bl = self.beamline
         try:
             if backend_at_dispatch != self.backend:
                 self._log(f"📷 2D {role} collect CANCELLED — backend changed from "
@@ -1082,7 +1103,8 @@ class ReactorController:
                         self._spec_fired = True
                         _rid = self.current.recipe_id if self.current else "run"
                         threading.Thread(target=self._fire_spec_collection,
-                                         args=(_rid, "sample"), daemon=True).start()
+                                         args=(_rid, "sample", self.backend, self.beamline),
+                                         daemon=True).start()
                     if self._measure_done:
                         self._end_run(flush=True)
                     elif now > self._run_deadline:
@@ -1110,7 +1132,8 @@ class ReactorController:
                             and now >= self._flush_deadline - self._spec_lead):
                         self._bkg_fired = True
                         threading.Thread(target=self._fire_spec_collection,
-                                         args=(self._bkg_recipe_id, "background"),
+                                         args=(self._bkg_recipe_id, "background",
+                                               self.backend, self.beamline),
                                          daemon=True).start()
                     if now > self._flush_deadline:
                         self._end_flush()

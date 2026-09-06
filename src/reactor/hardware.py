@@ -277,6 +277,28 @@ class RealPump(_CalibratedPump):
         # ⟵ REAL DRIVER: idle / vent the chamber ('P0').
         self._pump.set_idle()
 
+    def confirm_idle(self) -> bool:
+        """Verify the pump actually accepted the idle command — i.e. it is still
+        under REMOTE control (mode==1) and not in an ERROR state.
+
+        A 'P0' written to a pump that has silently dropped to manual/local mode
+        (e.g. after a >30 s comms gap) is ignored but raises NOTHING, so idle_now()
+        reports success while the pump keeps delivering. This is the readback that
+        turns that false-success into a surfaced failure. Called on the E-stop path
+        AFTER every pump has already been commanded to idle, so its bounded status
+        read never delays the actual stop. Returns True only when control is
+        confirmed; refreshes the cached fault flag either way."""
+        try:
+            st = self._pump.read_status()
+        except Exception:
+            self.fault = True
+            self.stale = True
+            return False
+        mode = st.get("mode")
+        self.state_code = st.get("state_code", self.state_code)
+        self.fault = (st.get("state_code") == 3) or (mode == 0)
+        return (mode == 1) and (st.get("state_code") != 3)
+
     def tick(self, dt: float) -> None:
         # ⟵ REAL DRIVER: poll status ~every 3 s. This updates the live flow +
         # chamber pressure AND keeps the pump in control mode (any command,
@@ -291,7 +313,10 @@ class RealPump(_CalibratedPump):
                 self.pressure = st["chamber_pressure"]
                 self.state_code = st["state_code"]
                 self.error_code = st["error_code"]
-                self.fault = (st["state_code"] == 3)   # 3 = ERROR
+                # 3 = ERROR; mode 0 = manual/local. A pump silently in manual has
+                # dropped out of our control (it ignores flow/idle commands), so
+                # it is a fault even though its state_code isn't ERROR.
+                self.fault = (st["state_code"] == 3) or (st.get("mode") == 0)
                 self._poll_fails = 0
                 self.stale = False
                 self._update_health(self._poll_accum if self._poll_accum else 3.0)
@@ -421,14 +446,31 @@ class PumpBank:
         """Idle / vent every pump. Each pump is guarded independently so one
         failed serial port can NEVER prevent the others from being idled — this
         is on the emergency-stop path. Returns the names of any pumps that could
-        not be idled (so the caller can surface the failure loudly)."""
+        not be idled OR could not be confirmed idle (so the caller can surface the
+        failure loudly).
+
+        Two passes on purpose: pass 1 fires the stop command at EVERY pump first,
+        so no pump waits behind another's confirmation readback; pass 2 then reads
+        back each real pump and flags any that did not confirm REMOTE control — a
+        'P0' to a pump silently in manual mode is ignored but raises nothing, so
+        without the readback a still-delivering pump reads as 'idled'."""
         failed: list[str] = []
+        reals: list = []
+        # Pass 1 — fire the stop at everything, fast.
         for name, p in self.pumps.items():
             try:
                 if isinstance(p, RealPump):
                     p.idle_now()
+                    reals.append((name, p))
                 else:
                     p.set_flow(0.0)
+            except Exception:
+                failed.append(name)
+        # Pass 2 — confirm each real pump actually accepted it (bounded read).
+        for name, p in reals:
+            try:
+                if not p.confirm_idle():
+                    failed.append(name)
             except Exception:
                 failed.append(name)
         return failed
@@ -640,5 +682,13 @@ class TempController:
             self._in_band_since = None
 
     def is_stable(self) -> bool:
+        # A stale/frozen reading is never "stable". If the temperature source
+        # dies while the last-read `current` happens to sit in-band, tick() stops
+        # updating `current` but leaves `_in_band_since` set — so without this
+        # guard the arming→running gate would open on a DEAD sensor and inject
+        # reagents at an unknown temperature (T_max interlock also blind). Forcing
+        # False here routes a stale sensor to the existing ARM-TIMEOUT path.
+        if self.stale:
+            return False
         return (self.target > 0 and self._in_band_since is not None
                 and (time.time() - self._in_band_since) >= self.stable_hold)

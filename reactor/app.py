@@ -36,6 +36,7 @@ from src.reactor import load_config, ReactorController, RecipeError   # noqa: E4
 from src.reactor.config import hub_to_spec_dir                        # noqa: E402
 from src.reactor.recipe import parse_param_file                       # noqa: E402
 from src.reactor.intake import decide_intake                          # noqa: E402
+from src.loop_naming import split_role, is_background                 # noqa: E402
 from src.manifest import update_manifest, add_reactor_run            # noqa: E402
 
 # ── Event bus (graceful degradation) ─────────────────────────────────────────
@@ -306,7 +307,16 @@ def _on_bus_event(event: dict) -> None:
     etype = event.get("type") or event.get("event_type") or ""
     data = event.get("data", event)
     if etype == "file.averaged":
-        _ctrl.signal_measurement_complete(str(data.get("file_path", "")))
+        # Correlate the averaged file to the running recipe so a late/duplicate
+        # event from a previous (pipelined) recipe can't truncate the current run.
+        # The averaging keyword is "{recipe_id}_{role}"; fall back to the filename.
+        fp = str(data.get("file_path", ""))
+        key = str(data.get("keyword") or "") or Path(fp).name
+        rid, _role = split_role(key)
+        # A background/blank average never ends a synthesis run — only the sample does.
+        if is_background(key):
+            return
+        _ctrl.signal_measurement_complete(fp, recipe_id=rid or "")
     elif etype == "fit.complete":
         # The analyzer's answer — the message actually worth reading at 3 a.m.
         # Posted into this recipe's Slack thread, with the QC plot attached when
