@@ -91,9 +91,9 @@
       "ingested_at": "2026-07-30T02:22:53.867656+00:00"
     },
     "/Users/akmaurya/Desktop/Claude_Projects/SWAXS_Autonomous_Platform_v1/calibration/knowledge.md": {
-      "hash": "1cf85d6a699bd403010328c07a4cda09de7071d21a5d7eeb21ce35b7f53e9c7e",
-      "chunks": 16,
-      "ingested_at": "2026-09-04T20:43:51.126841+00:00"
+      "hash": "79a2b25e04a3582b46401b56431303aaf1a9dbfc9b9a2b171430f526c8ba49e7",
+      "chunks": 118,
+      "ingested_at": "2026-09-06T09:11:53.370666+00:00"
     },
     "/Users/akmaurya/Desktop/Claude_Projects/SWAXS_Autonomous_Platform_v1/quality/knowledge.md": {
       "hash": "640817169663e54fb1a4ce51500a0111fcb658d3d737b67d78b3795ff8e57b39",
@@ -106,9 +106,9 @@
       "ingested_at": "2026-09-04T20:43:54.138450+00:00"
     },
     "/Users/akmaurya/Desktop/Claude_Projects/SWAXS_Autonomous_Platform_v1/analyzer/knowledge.md": {
-      "hash": "75f9521441c689af3d3a89f05ad0bbad3f4594f342f8259859560f8ee0d8b2d7",
-      "chunks": 22,
-      "ingested_at": "2026-09-04T20:43:53.820185+00:00"
+      "hash": "27bc39098fb1547b8f94a0b50c4f711ed1707ed62f3d2ff1b6c074784ed556fb",
+      "chunks": 23,
+      "ingested_at": "2026-09-06T09:11:53.688068+00:00"
     },
     "/Users/akmaurya/Desktop/Claude_Projects/SWAXS_Autonomous_Platform_v1/average/knowledge.md": {
       "hash": "404325e4b15eb4390032c6c7ebcecc5c0d745d0bba484692e8d0c1bd7c1c1cdd",
