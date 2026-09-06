@@ -232,7 +232,12 @@ def save_manifest(manifest: dict, path: str | Path) -> None:
     tmp = p.with_name(f".{p.name}.tmp.{os.getpid()}.{uuid.uuid4().hex[:8]}")
     try:
         with tmp.open("w", encoding="utf-8") as fh:
-            json.dump(manifest, fh, indent=2)
+            # default=str mirrors every sibling serializer (events._json_safe,
+            # runstate, make_provenance): without it a stray np.int64/np.bool_/
+            # ndarray in any app's stored section raises TypeError INSIDE the flock,
+            # the mutation is discarded, and every caller swallows it into one warn
+            # line — the .dat lands but its provenance/analysis record vanishes.
+            json.dump(manifest, fh, indent=2, default=str)
         tmp.replace(p)   # atomic on POSIX and Windows (os.replace)
     finally:
         try:

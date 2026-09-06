@@ -169,6 +169,14 @@ _project_root: str = _load_project_state()
 # ── WebSocket event bus state ─────────────────────────────────────────────────
 _ws_clients: set = set()
 _ws_lock     = threading.Lock()
+# Per-socket send lock: simple_websocket's send() is not internally locked, and
+# multiple threads (each publishing app + hub request threads) broadcast to the
+# same socket concurrently. Without serialising sends, two wsproto frames'
+# bytes interleave on one TCP stream → a corrupted frame the peer drops or that
+# desyncs its framing (e.g. the reactor stops getting file.averaged and the loop
+# stalls). Per-socket (not one global) so a slow client can't block broadcasts
+# to the reactor. Keyed by client, guarded by _ws_lock for add/remove.
+_ws_send_locks: dict = {}
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -385,12 +393,17 @@ def _broadcast(event: dict, exclude=None) -> None:
     """Broadcast an event dict to all connected WebSocket clients."""
     dead: set = set()
     with _ws_lock:
-        clients = set(_ws_clients)
-    for client in clients:
+        clients = [(c, _ws_send_locks.get(c)) for c in _ws_clients]
+    wire = json.dumps(event)
+    for client, send_lock in clients:
         if client is exclude:
             continue
         try:
-            client.send(json.dumps(event))
+            if send_lock is not None:
+                with send_lock:
+                    client.send(wire)
+            else:
+                client.send(wire)
         except Exception:
             dead.add(client)
     if dead:
@@ -441,6 +454,7 @@ if _SOCK_AVAILABLE and sock is not None:
         """
         with _ws_lock:
             _ws_clients.add(ws)
+            _ws_send_locks[ws] = threading.Lock()
         logger.debug("[Hub WS] Client connected (total=%d)", len(_ws_clients))
         try:
             while True:
@@ -461,6 +475,7 @@ if _SOCK_AVAILABLE and sock is not None:
         finally:
             with _ws_lock:
                 _ws_clients.discard(ws)
+                _ws_send_locks.pop(ws, None)
             logger.debug("[Hub WS] Client removed (total=%d)", len(_ws_clients))
 
 

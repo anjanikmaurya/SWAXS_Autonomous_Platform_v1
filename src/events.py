@@ -208,7 +208,15 @@ class EventBusClient:
         except Exception as exc:
             logger.warning("[EventBus:%s] Publish failed: %s", self._app_id, exc)
             self._connected = False
-            self._ws = None
+            # Close the socket so run_forever() returns and the reconnect loop
+            # fires now. Without this, a transient send error on a still-open
+            # socket drops every publish until the ~30-40 s ping timeout notices.
+            ws, self._ws = self._ws, None
+            try:
+                if ws is not None:
+                    ws.close()
+            except Exception:
+                pass
             return False
 
     def on_event(self, callback: Callable[[dict], None]) -> "EventBusClient":
