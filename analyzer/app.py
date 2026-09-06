@@ -234,6 +234,22 @@ def _new_rid() -> str:
     return "auto_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:4]
 
 
+def _max_run_seq(tag: str, ids) -> int:
+    """Highest ``r{NNN}`` sequence already issued under ``tag`` across recipe ids.
+
+    On resume the counter must continue PAST what's already on disk — restarting
+    at r001 would reuse ids and overwrite this run's frames (same filenames)."""
+    if not tag:
+        return 0
+    rx = re.compile(rf"^{re.escape(tag)}_r(\d+)")
+    hi = 0
+    for rid in ids:
+        m = rx.match(str(rid or ""))
+        if m:
+            hi = max(hi, int(m.group(1)))
+    return hi
+
+
 def _write_condition(rid: str, params: dict) -> None:
     d = _resolve_cond(); d.mkdir(parents=True, exist_ok=True)
     (d / f"{rid}.txt").write_text(to_param_file(rid, params), encoding="utf-8")
@@ -261,16 +277,19 @@ def _advance_campaign() -> None:
         _oc = {"outcome": "converged", "converged_condition": cc,
                "n_evaluations": _campaign.status().get("n_evaluations")}
         _write_campaign_record(_oc); _write_campaign_results(_oc)
+        _record_campaign_in_manifest(_oc)
     elif st == "exhausted":
         _emit(f"⏹ campaign budget exhausted ({_campaign.status()['n_evaluations']} runs) — "
               f"best size {(_campaign.best or {}).get('size')}", "warn")
         _oc = {"outcome": "exhausted", "best": _campaign.best,
                "n_evaluations": _campaign.status().get("n_evaluations")}
         _write_campaign_record(_oc); _write_campaign_results(_oc)
+        _record_campaign_in_manifest(_oc)
     elif st == "aborted":
         _emit("⏹ campaign aborted", "warn")
         _oc = {"outcome": "aborted", "best": _campaign.best}
         _write_campaign_record(_oc); _write_campaign_results(_oc)
+        _record_campaign_in_manifest(_oc)
 
 
 def _last_loss_for(recipe_id: str):
@@ -310,11 +329,13 @@ _campaign_id: str = ""
 _campaign_meta: dict = {}
 
 
-def _campaign_record() -> dict:
+def _campaign_record(outcome: dict | None = None) -> dict:
     """Everything needed to answer "what was this run aiming for?" later."""
     rec = {"campaign_id": _campaign_id, **(_campaign_cfg or {}), **(_campaign_meta or {})}
     if _campaign is not None:
         rec["status"] = _campaign.status_str
+    if outcome:                       # final outcome/best/converged_condition
+        rec["outcome"] = outcome
     return rec
 
 
@@ -415,14 +436,16 @@ def _write_campaign_results(outcome: dict) -> str:
         return ""
 
 
-def _record_campaign_in_manifest() -> None:
+def _record_campaign_in_manifest(outcome: dict | None = None) -> None:
     """Put the target in the permanent cross-app record, so the assistant and
-    anyone reading the experiment afterwards can see it. Best-effort."""
+    anyone reading the experiment afterwards can see it. Called on start AND on
+    end — otherwise the manifest's campaign stays "running" forever and the
+    assistant reports a finished/aborted run as still live. Best-effort."""
     if not _project_root or not _campaign_id:
         return
     try:
         update_manifest(_project_root,
-                        lambda mf: set_project_meta(mf, campaign=_campaign_record()))
+                        lambda mf: set_project_meta(mf, campaign=_campaign_record(outcome)))
     except Exception as exc:
         _emit(f"⚠ could not record the campaign in the manifest: {exc}", "warn")
 
@@ -454,7 +477,7 @@ def _restore_campaign() -> None:
     step is skipped while replaying — the pending set is restored verbatim
     instead.
     """
-    global _campaign, _campaign_cfg, _campaign_id, _campaign_meta
+    global _campaign, _campaign_cfg, _campaign_id, _campaign_meta, _run_tag, _run_seq
     # NEVER clobber a live campaign. _boot_resume runs on a timer ~1 s after
     # import, so an operator (or a test) who starts a campaign inside that window
     # would have their running campaign silently replaced by the rebuilt one from
@@ -474,6 +497,16 @@ def _restore_campaign() -> None:
     _campaign_id = str(st.get("campaign_id") or "")
     _campaign_meta = dict(st.get("meta") or {})
     hist = st.get("history") or []
+    # Rehydrate the Target-Run tag AND advance the sequence counter past every id
+    # already issued this run. Without this, a resumed campaign either falls back to
+    # timestamp ids (empty _run_tag → provenance breaks) or, worse, restarts the
+    # counter at r001 and OVERWRITES the frames already collected this run.
+    _run_tag = str(_campaign_meta.get("run_tag") or "")
+    if _run_tag:
+        _issued = (list((st.get("pending") or {}).keys())
+                   + [str(h.get("recipe_id") or "") for h in hist]
+                   + list((st.get("handled") or {}).keys()))
+        _run_seq = _max_run_seq(_run_tag, _issued)
     try:
         space = ParameterSpace.from_config(load_config())
         camp = CampaignController(space, **cfg)
@@ -556,6 +589,15 @@ def _feed_campaign(name: str, res: dict) -> None:
             return
         rid = match_recipe_id(name, _pending.keys())
         if not rid:
+            # A measurement that carries a recipe_id but matches nothing pending is
+            # an ORPHAN — a late frame from a timed-out/expired condition, or a
+            # naming mismatch. Silently dropping it meant a fed-but-lost result the
+            # operator never saw; surface it (once) so the loop's blind spot shows.
+            carried = recipe_id_from_filename(name)
+            if carried:
+                _emit(f"⚠ measured profile {name} carries recipe_id "
+                      f"'{carried}' but no matching pending condition "
+                      f"(expired or already fed) — not driving the loop", "warn")
             return
         params = _pending.pop(rid)
         _pending_at.pop(rid, None)
@@ -701,6 +743,20 @@ def _q_is_angstrom(header_lines) -> bool:
     return ("q_a-1" in txt) or ("a^-1" in txt) or ("å" in txt)
 
 
+def _is_simulated(meta, header_lines) -> bool:
+    """True when the profile came from the mock simulator, not the beamline. The
+    simulator stamps ``simulated=1`` into the frame metadata (writer.py); it flows
+    into the .dat footer, so mock and real fits stay distinguishable in provenance."""
+    try:
+        if isinstance(meta, dict):
+            for k, v in meta.items():
+                if str(k).strip().lower() == "simulated" and str(v).strip() not in ("", "0", "false", "none"):
+                    return True
+    except Exception:
+        pass
+    return "simulated" in " ".join(header_lines or []).lower()
+
+
 def _analyze_file(path: Path) -> None:
     try:
         hdr, q, I, sigma, _meta = read_dat_data_metadata(path)
@@ -775,9 +831,21 @@ def _analyze_file(path: Path) -> None:
                     "tolerance":    _campaign_cfg.get("tolerance"),
                     "pdi_cap":      _campaign_cfg.get("pdi_cap"),
                 })
+            # Provenance is derived from the FILE, not the current campaign state,
+            # so a re-analysis after a restart/target-change still records what
+            # this fit actually pertains to. `simulated` keeps mock and real fits
+            # distinguishable in the manifest (the simulator stamps simulated=1,
+            # which flows into the .dat metadata footer).
+            _m = _RUN_RE.search(path.name)
+            _prov = {
+                "recipe_id": recipe_id_from_filename(path.name),
+                "run_tag":   (f"Run{_m.group(1)}" if _m else ""),
+                "q_unit":    ("A^-1->nm^-1" if _q_is_angstrom(hdr) else "nm^-1"),
+                "source":    ("simulated" if _is_simulated(_meta, hdr) else "measured"),
+            }
             update_manifest(_project_root, lambda mf: add_analysis_entry(
                 mf, analysis_type="nanoparticle", file_path=path,
-                params=_params,
+                params=_params, provenance=_prov,
                 results=summary, quality_score=conf))
         except Exception as exc:
             _emit(f"⚠ manifest write failed: {exc}", "warn")
@@ -983,6 +1051,13 @@ def api_campaign_start():
     try:
         space = ParameterSpace.from_config(load_config())
         with _campaign_lock:
+            # Refuse to start over a live run: a second start would drop the running
+            # campaign's history, orphan its pending conditions, and re-derive the
+            # SAME RunN tag (its data isn't finalized on disk yet) → overwrite risk.
+            # Abort it explicitly first (which clears the slate).
+            if _campaign is not None and _campaign.status_str == "running":
+                return jsonify({"ok": False, "error": "a campaign is already "
+                                "running — abort it before starting a new one"}), 409
             _pending.clear()
             _campaign = CampaignController(
                 space,
@@ -1038,6 +1113,10 @@ def api_campaign_abort():
             _oc = {"outcome": "aborted", "best": _campaign.best}
             _write_campaign_record(_oc)
             _write_campaign_results(_oc)
+            # Refresh the manifest to "aborted" BEFORE clearing _campaign_id (the
+            # recorder no-ops without it) — otherwise the manifest campaign stays
+            # "running" forever after an operator abort.
+            _record_campaign_in_manifest(_oc)
             # Reset to a CLEAN SLATE so the next start is a brand-new Target Run,
             # never a continuation. The durable records above are already written;
             # everything below is transient run state.

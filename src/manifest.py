@@ -368,18 +368,30 @@ def add_analysis_entry(
     Append an analysis record to manifest["analyses"].
     Returns the new analysis ID (uuid4).
     """
-    aid = str(uuid.uuid4())
-    manifest.setdefault("analyses", {})[aid] = {
+    resolved = str(Path(file_path).resolve())
+    analyses = manifest.setdefault("analyses", {})
+    # Upsert by (type, file_path): re-analysing the same file (a restart, a re-fit,
+    # a file rewritten by an earlier stage) must UPDATE its record, not append a
+    # near-duplicate under a fresh uuid — which bloated the manifest and left stale
+    # sizes sitting beside current ones. A DIFFERENT analysis_type on the same file
+    # (Guinier vs Porod vs nanoparticle) is legitimately a separate record.
+    aid = next((k for k, v in analyses.items()
+                if v.get("type") == analysis_type and v.get("file_path") == resolved),
+               None)
+    created = analyses.get(aid, {}).get("created_at") if aid else None
+    aid = aid or str(uuid.uuid4())
+    analyses[aid] = {
         "id":            aid,
         "type":          analysis_type,
-        "file_path":     str(Path(file_path).resolve()),
+        "file_path":     resolved,
         "params":        params,
         "results":       results,
         "fit_range":     fit_range     or [],
         "quality_score": quality_score,
         "ai_assessment": ai_assessment,
         "provenance":    provenance    or {},
-        "created_at":    _now(),
+        "created_at":    created or _now(),
+        "updated_at":    _now(),
     }
     return aid
 
