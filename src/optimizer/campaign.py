@@ -96,8 +96,20 @@ class CampaignController:
                "confidence": float(confidence), "loss": loss,
                "recipe_id": str(recipe_id or "")}
         self.history.append(rec)
-        if self.best is None or loss < self.best["loss"]:
-            self.best = rec
+        # Track `best` among CONFIDENCE-GATED points. `best` is reported as the
+        # recommended recipe on exhaustion, so a low-confidence lucky hit (a
+        # railed/noisy fit whose size happens to land on target → lowest loss)
+        # must not become the answer. A trusted point always beats an untrusted
+        # one; within a tier, lowest loss wins; an all-failed campaign still keeps
+        # its least-bad point so `best` is never None once there's data.
+        trusted = (size is not None and float(confidence) >= self.confidence_min)
+        cur = self.best
+        if cur is None:
+            self.best = {**rec, "_trusted": trusted}
+        elif trusted and not cur.get("_trusted"):
+            self.best = {**rec, "_trusted": True}
+        elif bool(cur.get("_trusted")) == trusted and loss < cur["loss"]:
+            self.best = {**rec, "_trusted": trusted}
         self._check_stop(rec)
         return rec
 
@@ -154,6 +166,11 @@ class CampaignController:
         Returns ``(gp, X, y)`` or None when there is nothing to fit.
         """
         hist = self.history if upto is None else self.history[:upto]
+        # Exclude FAILED measurements (unsized profiles / the _FAIL_LOSS sentinel):
+        # a single 1e3 outlier dominates np.var(y) and the base noise floor, so the
+        # GP posterior goes flat everywhere and EI can't discriminate. Failures
+        # still count against the budget; they just don't train the surrogate.
+        hist = [h for h in hist if h.get("size") is not None and h["loss"] < _FAIL_LOSS]
         if not hist:
             return None
         X = np.array([self.space.to_unit(h["params"]) for h in hist])
@@ -171,7 +188,14 @@ class CampaignController:
     def _suggest_bo(self) -> dict:
         # y here is already on the transformed scale, and so is gp — EI must be
         # evaluated against the incumbent on that same scale.
-        gp, X, y = self.fit_surrogate()
+        fit = self.fit_surrogate()
+        if fit is None:
+            # Every result so far failed (no sized fit) → no surrogate to fit.
+            # Fall back to a fresh constraint-valid random point rather than
+            # crashing on a None unpack; keep exploring until something sizes.
+            pool = self.candidate_pool(1)
+            return dict(pool[0]) if pool else dict(self._seeds[0])
+        gp, X, y = fit
         cand = self.candidate_pool(256)
         Xc = np.array([self.space.to_unit(c) for c in cand])
         mu, var = gp.predict(Xc)
