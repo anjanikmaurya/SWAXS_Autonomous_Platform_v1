@@ -411,6 +411,21 @@ class Experiment:
         i0    = float(metadata[I0_KEY])
         bstop = float(metadata[BSTOP_KEY])
 
+        # A blank/NaN metadata cell (as opposed to a missing *column*) parses to
+        # float('nan'), and every `<= 0` guard below is False for NaN — so without
+        # this an all-NaN .dat would be published as complete and consumed
+        # downstream as real data. Reject non-finite readings up front, on the same
+        # per-file skip path run_pipeline() already handles. (Audit fix: NaN metadata)
+        if not (np.isfinite(i0) and np.isfinite(bstop)):
+            self._log(
+                f"  ⛔ {fname}: non-finite i0/bstop (i0={i0}, bstop={bstop}) "
+                f"— skipping file. Check the CSV/PDI for a blank cell.", "error"
+            )
+            raise ValueError(
+                f"{fname}: non-finite i0/bstop (i0={i0}, bstop={bstop}); file skipped "
+                f"to avoid an all-NaN profile. Check for a blank metadata cell."
+            )
+
         i0_corr    = i0    - self.i0_offset
         bstop_corr = bstop - self.bstop_offset
 
@@ -586,7 +601,11 @@ class Experiment:
                           detector_type: str, prefix: str) -> Path:
         output_dir = self.output_dir_1d / detector_type.upper() / "Reduction"
         output_dir.mkdir(parents=True, exist_ok=True)
-        stem = raw_file_path.name.replace(self.data_format, "")
+        # Strip the data-format token as a SUFFIX only. `.replace(fmt, "")` removed
+        # every occurrence, so a name that embedded the token mid-stem (e.g.
+        # "scan.raw_sample_0001.raw") produced a mangled/colliding output name.
+        name = raw_file_path.name
+        stem = name[: -len(self.data_format)] if name.endswith(self.data_format) else name
         if prefix and stem.startswith(prefix):
             stem = stem[len(prefix):]
         return output_dir / f"{stem}_{detector_type.upper()}.dat"

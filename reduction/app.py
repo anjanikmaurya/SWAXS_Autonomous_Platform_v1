@@ -690,6 +690,15 @@ def monitor_start():
                 time.sleep(interval)
                 continue
 
+            # Second defence against re-reducing the whole experiment when the
+            # persisted processed-set is missing/unreadable at boot (fresh clone,
+            # two-laptop move, deleted state dir): skip any .raw whose .dat is
+            # already newer on disk. `_already_reduced` existed and was unit-tested
+            # but was never wired into the live pipeline.
+            _out_root = experiment.output_dir_1d
+            saxs_new = [f for f in saxs_new if not _already_reduced(f, _out_root)]
+            waxs_new = [f for f in waxs_new if not _already_reduced(f, _out_root)]
+
             if not saxs_new and not waxs_new:
                 _emit("  (no new files)", "info")
             else:
@@ -717,7 +726,8 @@ def monitor_start():
                 _emit(f"  SAXS  {f.name}", "info")
                 try:
                     result = experiment.process_saxs_file(f)   # frees arrays inside
-                    _processed_files.add(str(f))
+                    with _processed_lock:
+                        _processed_files.add(str(f))
                     _emit(reduction_core._fmt_result_line(result), "ok")
                     _register_reduced(result, f, "saxs", experiment, config, operator)
                 except Exception as e:
@@ -732,7 +742,8 @@ def monitor_start():
                 _emit(f"  WAXS  {f.name}", "info")
                 try:
                     result = experiment.process_waxs_file(f)
-                    _processed_files.add(str(f))
+                    with _processed_lock:
+                        _processed_files.add(str(f))
                     _emit(reduction_core._fmt_result_line(result), "ok")
                     _register_reduced(result, f, "waxs", experiment, config, operator)
                 except Exception as e:
@@ -770,7 +781,8 @@ def monitor_status():
 
 @app.route("/api/reset", methods=["POST"])
 def reset_processed():
-    _processed_files.clear()
+    with _processed_lock:
+        _processed_files.clear()
     _save_processed()          # N1: clear the PERSISTED copy too, or a restart
                                # would silently restore what the operator just reset
     _emit("♻  Processed-files list cleared — all files will reprocess on next run", "warn")

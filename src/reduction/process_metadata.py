@@ -31,10 +31,13 @@ def find_row_number_to_read(raw_file_path: Path) -> int:
     # re.search returns the leftmost hit — so EVERY frame in the run read the
     # same CSV row, i.e. the same i0/bstop, silently wrecking normalisation and
     # defeating the I0 outlier filter.
-    match = re.search(r"_(\d{4})\.", Path(raw_file_path).name)
+    # ≥4 digits, not exactly 4: a long autonomous run rolls past frame 9999, and
+    # `_(\d{4})\.` matched none of "exp_10000.raw" → RuntimeError → every frame from
+    # 10000 on silently never reduced (retried and re-failed each poll, card green).
+    match = re.search(r"_(\d{4,})\.", Path(raw_file_path).name)
     if match is None:
         raise RuntimeError(
-            f"Could not parse 4-digit index from filename: {raw_file_path.name}\n"
+            f"Could not parse frame index (≥4 digits) from filename: {raw_file_path.name}\n"
             "Expected a filename like  experiment_0042.raw"
         )
     return int(match.group(1))
