@@ -28,7 +28,7 @@ from pathlib import Path
 
 import pytest
 
-from src.runstate import save_state, load_state, state_path
+from src.runstate import save_state, load_state, state_path, save_monitor
 
 
 def _load(tag: str, path: str):
@@ -192,3 +192,76 @@ def test_background_fresh_start_no_banner_and_defaults_shown(tmp_path, monkeypat
     assert b._TRUNC_NOTICE["level"] == "none"
     shown = b.app.test_client().get("/api/truncation").get_json()
     assert shown["q_min"] == 0.03 and shown["q_max"] == 0.6 and shown["n_points"] == 549
+
+
+# ══ AVERAGE (the app the operator originally observed) ═══════════════════════
+_AA_BODY = {"frames_per_average": 12, "interval": 7, "keywords": ["Run5"],
+            "i0_filter_pct": 3, "q_min": 0.1, "q_max": 2.0,
+            "saxs_folder": "x", "resume": True}
+
+
+def test_average_settings_restore_with_resume_OFF(tmp_path, monkeypatch):
+    """(a) After a restart the LAST auto-average settings are exposed for the UI to
+    display, with resume OFF, so a manual Start runs what the operator sees — not the
+    30-frame / all-keywords HTML defaults the observed bug fell back to."""
+    monkeypatch.setenv("SWAXS_PROJECT", str(tmp_path))
+    # a crash while running: state persisted with running=True
+    save_monitor(str(tmp_path), "average", True, _AA_BODY)
+
+    m = _load("avpd_1", "average/app.py")   # import runs _restore_settings()
+    assert m._LAST_SETTINGS["frames_per_average"] == 12
+    assert m._LAST_SETTINGS["interval"] == 7
+    assert m._LAST_SETTINGS["keywords"] == ["Run5"]
+    assert m._AVG_NOTICE["level"] == "restored"
+    # displayed source: status carries last_settings for the UI to fill the fields.
+    st = m.app.test_client().get("/api/monitor/status").get_json()
+    assert st["last_settings"]["frames_per_average"] == 12
+    assert st["last_settings"]["keywords"] == ["Run5"]
+
+
+def test_average_running_status_reflects_all_params(tmp_path, monkeypatch):
+    """RC1: a running monitor's status must expose the FULL param set (keywords, i0,
+    q-range — not just batch size/interval) so the UI reflects exactly what runs."""
+    monkeypatch.setenv("SWAXS_PROJECT", str(tmp_path))
+    (tmp_path / "red").mkdir()
+    m = _load("avpd_run", "average/app.py")
+    c = m.app.test_client()
+    try:
+        r = c.post("/api/monitor/start", json={
+            "frames_per_average": 9, "interval": 1, "keywords": ["A", "B"],
+            "i0_filter_pct": 4, "q_min": 0.2, "q_max": 3.0,
+            "saxs_folder": str(tmp_path / "red")})
+        assert (r.get_json() or {}).get("ok"), r.get_json()
+        st = c.get("/api/monitor/status").get_json()
+        assert st["frames_per_average"] == 9 and st["interval"] == 1
+        assert st["keywords"] == ["A", "B"] and st["i0_filter_pct"] == 4
+        assert st["q_min"] == 0.2 and st["q_max"] == 3.0
+    finally:
+        c.post("/api/monitor/stop")
+        m._avg_monitoring = False
+
+
+def test_average_lost_settings_shout_not_silently_default(tmp_path, monkeypatch):
+    """(b) A stale saved-running file must NOT be applied silently; the loud banner
+    fires and _LAST_SETTINGS stays empty (fields will show visible defaults)."""
+    monkeypatch.setenv("SWAXS_PROJECT", str(tmp_path))
+    save_monitor(str(tmp_path), "average", True, _AA_BODY)
+    f = state_path(str(tmp_path), "average_monitor")
+    d = json.loads(f.read_text()); d["_saved_at"] = time.time() - 100 * 3600
+    f.write_text(json.dumps(d))
+
+    m = _load("avpd_lost", "average/app.py")
+    assert m._LAST_SETTINGS == {}, "a stale monitor body was applied silently"
+    assert m._AVG_NOTICE["level"] == "lost"
+    assert m._AVG_NOTICE["params"]
+
+
+def test_average_stopped_monitor_no_banner(tmp_path, monkeypatch):
+    """A monitor the operator STOPPED must not raise a banner on the next start —
+    there is nothing to restore, and the fields correctly show defaults."""
+    monkeypatch.setenv("SWAXS_PROJECT", str(tmp_path))
+    save_monitor(str(tmp_path), "average", True, _AA_BODY)
+    save_monitor(str(tmp_path), "average", False)     # operator stopped it
+    m = _load("avpd_stopped", "average/app.py")
+    assert m._AVG_NOTICE["level"] == "none"
+    assert m._LAST_SETTINGS == {}

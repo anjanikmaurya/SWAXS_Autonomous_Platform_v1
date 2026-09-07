@@ -566,6 +566,12 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
 .nav-btn{font-size:18px}
 .nav-section-label{font-size:15px}
 #logo-name{font-size:22px}
+/* Restart notice — two visually distinct tiers so a genuine loss stays loud */
+.restart-banner{display:none;margin:0 0 12px;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);line-height:1.4;font-size:14px}
+.restart-banner.show{display:block}
+.restart-banner.restored{background:rgba(29,78,216,.10);color:var(--info-text);border-color:var(--info-text)}
+.restart-banner.lost{background:var(--err-lt);color:var(--err-text);font-weight:700;border:2px solid var(--err-text)}
+.restart-banner .rb-x{float:right;cursor:pointer;opacity:.6;font-weight:700;margin-left:12px}
 </style>
 </head>
 
@@ -1233,6 +1239,11 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
             <button class="btn btn-ghost btn-sm" onclick="openBrowser('aa-out-dir')">Browse…</button>
           </div></div>
         </div>
+      </div>
+
+      <div class="restart-banner" id="restartBanner">
+        <span class="rb-x" onclick="this.parentElement.classList.remove('show')">✕</span>
+        <span id="restartBannerMsg"></span>
       </div>
 
       <div class="card">
@@ -2011,9 +2022,42 @@ async function stopAutoAvg(){
   document.getElementById('aa-stop').disabled=true;
   aaSetState('Idle',false);
 }
+function aaFillFields(p){
+  // Populate the aa-* fields from a params object (running status or last_settings)
+  // so the fields show EXACTLY what a run would use — never stale HTML defaults.
+  if(!p) return;
+  const set=(id,v)=>{const e=document.getElementById(id); if(e && v!=null && v!=='') e.value=v;};
+  set('aa-n', p.frames_per_average);
+  set('aa-interval', p.interval);
+  set('aa-i0', p.i0_filter_pct);
+  const kwEl=document.getElementById('aa-keywords');
+  if(kwEl){ if(Array.isArray(p.keywords)) kwEl.value=p.keywords.join(', ');
+            else if(p.keywords!=null) kwEl.value=p.keywords; }
+  const hasQ=(p.q_min!=null&&p.q_min!=='')||(p.q_max!=null&&p.q_max!=='');
+  const qt=document.getElementById('aa-qtrim-on'); if(qt) qt.checked=!!hasQ;
+  set('aa-qmin', p.q_min); set('aa-qmax', p.q_max);
+}
+async function showRestartNotice(){
+  try{
+    const n=await (await fetch('/api/restart_notice')).json();
+    if(!n||!n.level||n.level==='none') return;   // fresh start → stay quiet
+    const b=document.getElementById('restartBanner');
+    b.className='restart-banner show '+n.level;   // .restored (calm) | .lost (loud)
+    let msg=n.message||'';
+    if(n.params&&n.params.length) msg+=' ('+n.params.join(', ')+')';
+    document.getElementById('restartBannerMsg').textContent=(n.level==='lost'?'⚠ ':'♻ ')+msg;
+  }catch(_){}
+}
 async function aaPollStatus(){
   try{
     const s=await api('/api/monitor/status');
+    // Reflect the effective settings into the fields ONCE on load: the running
+    // monitor's params if it's live, else the operator's last saved settings.
+    if(!window._aaInit){
+      window._aaInit=true;
+      if(s.monitoring) aaFillFields(s);
+      else if(s.last_settings && Object.keys(s.last_settings).length) aaFillFields(s.last_settings);
+    }
     const cnt=document.getElementById('aa-count');
     if(s.monitoring){
       cnt.textContent=`${s.batches} batch${s.batches===1?'':'es'} written`
@@ -2031,8 +2075,9 @@ async function aaPollStatus(){
     }
   }catch(_){ setTimeout(aaPollStatus,5000); }
 }
-// On load, reflect a monitor that may already be running (e.g. after reload).
-window.addEventListener('DOMContentLoaded',()=>{ try{ aaPollStatus(); }catch(_){} });
+// On load, reflect a monitor that may already be running (e.g. after reload),
+// and surface the two-tier restart notice.
+window.addEventListener('DOMContentLoaded',()=>{ try{ aaPollStatus(); }catch(_){} try{ showRestartNotice(); }catch(_){} });
 
 /* ═══════════════════════════════════════════════════
    Plot helpers
