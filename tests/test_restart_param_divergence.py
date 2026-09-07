@@ -265,3 +265,105 @@ def test_average_stopped_monitor_no_banner(tmp_path, monkeypatch):
     m = _load("avpd_stopped", "average/app.py")
     assert m._AVG_NOTICE["level"] == "none"
     assert m._LAST_SETTINGS == {}
+
+
+# ══ QUALITY (scoring params already persist; make the restore VISIBLE) ═══════
+def test_quality_restored_params_and_notice(tmp_path, monkeypatch):
+    """Saved scoring overrides come back on restart (already unconditional) AND the
+    calm banner announces it; grading uses exactly the restored pass threshold."""
+    monkeypatch.setenv("SWAXS_PROJECT", str(tmp_path))
+    (tmp_path / "quality_config.json").write_text(
+        json.dumps({"params": {"score_pass": 75, "w_snr": 2.0}}))
+
+    m = _load("qpd_restored", "quality/app.py")   # import runs _load_params()
+    assert m._params.get("score_pass") == 75
+    assert m._active_thresholds("saxs")["score_pass"] == 75, \
+        "grading would not use the restored pass threshold"
+    assert m._QUALITY_NOTICE["level"] == "restored"
+    assert "score_pass" in m._QUALITY_NOTICE["params"]
+    n = m.app.test_client().get("/api/restart_notice").get_json()
+    assert n["level"] == "restored"
+
+
+def test_quality_unreadable_config_shouts_not_silent_default(tmp_path, monkeypatch):
+    """The flagged MED hazard: quality_config.json present but unreadable → grading
+    silently falls to the DEFAULT pass threshold. It must NOT be silent — loud banner,
+    and the threshold is indeed the default (so the banner is telling the truth)."""
+    monkeypatch.setenv("SWAXS_PROJECT", str(tmp_path))
+    (tmp_path / "quality_config.json").write_text("{ not valid json")
+
+    m = _load("qpd_lost", "quality/app.py")
+    assert m._QUALITY_NOTICE["level"] == "lost"
+    assert m._QUALITY_NOTICE["params"]
+    assert m._pass_threshold() == m.DEFAULT_THRESHOLDS["score_pass"], \
+        "unreadable config should leave grading on the visible default threshold"
+
+
+def test_quality_no_config_no_banner(tmp_path, monkeypatch):
+    """No saved config → defaults, which the slider already shows → displayed ==
+    executed. No banner (so a real loss stays meaningful)."""
+    monkeypatch.setenv("SWAXS_PROJECT", str(tmp_path))
+    m = _load("qpd_fresh", "quality/app.py")
+    assert m._QUALITY_NOTICE["level"] == "none"
+    assert m._pass_threshold() == m.DEFAULT_THRESHOLDS["score_pass"]
+
+
+# ══ ANALYZER (campaign drives the reactor → NOT auto-resumed, but surfaced) ═══
+def test_analyzer_interrupted_campaign_warns_not_resumed(tmp_path, monkeypatch):
+    """A running campaign interrupted by a restart must NOT silently look idle: it
+    is deliberately not auto-resumed (it moves the reactor), and the loud banner
+    tells the operator to press Start, naming the target."""
+    pytest.importorskip("scipy")
+    (tmp_path / "1D" / "SAXS" / "Conditions").mkdir(parents=True)
+    monkeypatch.setenv("SWAXS_PROJECT", str(tmp_path))
+    a1 = _load("azpd_1", "analyzer/app.py")
+    a1.app.test_client().post("/api/campaign/start", json={
+        "target_size": 5.0, "tolerance": 0.3, "pdi_cap": 0.15, "budget": 25, "n_init": 6})
+    rid = list(a1._pending)[0]
+    a1._feed_campaign(f"{rid}_sample_SAXS_subtracted.dat",
+                      {"size": {"radius": 9.0}, "pdi": 0.4, "confidence": 0.9})
+    assert a1._campaign.status_str == "running"
+
+    a2 = _load("azpd_2", "analyzer/app.py")   # resume OFF (fixture)
+    a2._restore_campaign()
+    assert a2._campaign is None, "a campaign that drives the reactor must not auto-resume"
+    assert a2._CAMPAIGN_NOTICE["level"] == "lost"
+    n = a2.app.test_client().get("/api/restart_notice").get_json()
+    assert n["level"] == "lost" and "5.0" in n["message"]
+
+
+def test_analyzer_converged_campaign_no_warning(tmp_path, monkeypatch):
+    """A campaign that had already ended (converged) must not raise a banner."""
+    pytest.importorskip("scipy")
+    (tmp_path / "1D" / "SAXS" / "Conditions").mkdir(parents=True)
+    monkeypatch.setenv("SWAXS_PROJECT", str(tmp_path))
+    a1 = _load("azpd_c1", "analyzer/app.py")
+    a1.app.test_client().post("/api/campaign/start", json={
+        "target_size": 4.0, "tolerance": 0.3, "pdi_cap": 0.15, "budget": 25, "n_init": 6})
+    rid = list(a1._pending)[0]
+    a1._feed_campaign(f"{rid}_sample_SAXS_subtracted.dat",
+                      {"size": {"radius": 4.05}, "pdi": 0.02, "confidence": 0.9})
+    assert a1._campaign.status_str == "converged"
+
+    a2 = _load("azpd_c2", "analyzer/app.py")
+    a2._restore_campaign()
+    assert a2._CAMPAIGN_NOTICE["level"] == "none"
+
+
+def test_analyzer_opt_in_resume_gives_calm_notice(tmp_path, monkeypatch):
+    """With SWAXS_RESUME=1 the campaign IS rebuilt (opt-in) and the notice is calm."""
+    pytest.importorskip("scipy")
+    (tmp_path / "1D" / "SAXS" / "Conditions").mkdir(parents=True)
+    monkeypatch.setenv("SWAXS_PROJECT", str(tmp_path))
+    monkeypatch.setenv("SWAXS_RESUME", "1")            # opt in (overrides fixture)
+    a1 = _load("azpd_r1", "analyzer/app.py")
+    a1.app.test_client().post("/api/campaign/start", json={
+        "target_size": 6.0, "tolerance": 0.3, "pdi_cap": 0.15, "budget": 25, "n_init": 6})
+    rid = list(a1._pending)[0]
+    a1._feed_campaign(f"{rid}_sample_SAXS_subtracted.dat",
+                      {"size": {"radius": 9.0}, "pdi": 0.4, "confidence": 0.9})
+
+    a2 = _load("azpd_r2", "analyzer/app.py")
+    a2._restore_campaign()
+    assert a2._campaign is not None, "opt-in resume should rebuild the campaign"
+    assert a2._CAMPAIGN_NOTICE["level"] == "restored"

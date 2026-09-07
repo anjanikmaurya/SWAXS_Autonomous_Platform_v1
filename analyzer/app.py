@@ -44,7 +44,7 @@ from src.optimizer import ParameterSpace, CampaignController             # noqa:
 from src.optimizer.io import (to_param_file, match_recipe_id,           # noqa: E402
                               recipe_id_from_filename)
 from src.runstate import (save_state, load_state, clear_state,             # noqa: E402
-                          save_monitor, load_monitor)
+                          save_monitor, load_monitor, resume_disabled)
 
 # ── Event bus (graceful degradation) ─────────────────────────────────────────
 # Used to publish `fit.complete` so downstream apps (e.g. the reactor's
@@ -316,6 +316,12 @@ def _last_loss_for(recipe_id: str):
 # reactor idled until somebody noticed in the morning. Persist enough to rebuild
 # the controller and keep going.
 _CAMPAIGN_STATE = "campaign"
+#: Two-tier restart notice (see reactor/background/average/quality). Unlike the data
+#: apps, an interrupted campaign is NOT auto-resumed — it drives the reactor, so like
+#: reactor auto-run it stays opt-in. "lost" (loud) tells the operator a running
+#: campaign was interrupted and needs a manual Start; "restored" (calm) is the opt-in
+#: SWAXS_RESUME path; "none" = nothing running / a campaign that had already ended.
+_CAMPAIGN_NOTICE: dict = {"level": "none", "message": "", "params": []}
 _campaign_cfg: dict = {}        # the hyperparameters the campaign was created with
 #: Identifies THIS campaign in the durable records below. The optimisation
 #: target used to exist only in _campaign_cfg (overwritten by the next
@@ -478,12 +484,32 @@ def _restore_campaign() -> None:
     instead.
     """
     global _campaign, _campaign_cfg, _campaign_id, _campaign_meta, _run_tag, _run_seq
+    global _CAMPAIGN_NOTICE
     # NEVER clobber a live campaign. _boot_resume runs on a timer ~1 s after
     # import, so an operator (or a test) who starts a campaign inside that window
     # would have their running campaign silently replaced by the rebuilt one from
     # disk — losing its history and resetting its status to "running", including
     # after it had already converged.
     if _campaign is not None:
+        return
+    # Peek unconditionally (independent of the resume gate) so we can WARN when a
+    # running campaign will NOT be auto-resumed. The campaign drives the reactor via
+    # condition files, so — exactly like reactor auto-run — it stays opt-in: a power
+    # blip must not restart reagent flow with nobody in the hutch. But it must not
+    # silently look idle either.
+    peek = load_state(_project_root, _CAMPAIGN_STATE, max_age_s=7 * 24 * 3600,
+                      honour_no_resume=False)
+    if (peek and peek.get("cfg") and str(peek.get("status")) == "running"
+            and resume_disabled()):
+        _tgt = (peek.get("cfg") or {}).get("target_size")
+        _CAMPAIGN_NOTICE = {
+            "level": "lost",
+            "message": (f"A campaign toward {_tgt} nm was interrupted by a restart "
+                        "and is NOT auto-resumed (it drives the reactor). Press "
+                        "Start to continue it, or start a new campaign."),
+            "params": ["target_size"]}
+        _emit("⚠ a running campaign was interrupted and is NOT auto-resumed "
+              "(it moves the reactor) — press Start to continue it", "warn")
         return
     st = load_state(_project_root, _CAMPAIGN_STATE, max_age_s=7 * 24 * 3600)
     if not st or not st.get("cfg"):
@@ -531,6 +557,12 @@ def _restore_campaign() -> None:
                         _handled[k] = tuple(v)
                     except Exception:
                         pass
+        _CAMPAIGN_NOTICE = {
+            "level": "restored",
+            "message": (f"Campaign toward {cfg.get('target_size')} nm was resumed "
+                        f"({len(hist)} run(s) replayed). Review the target before it "
+                        "proposes the next condition."),
+            "params": ["target_size"]}
         _emit(f"♻ campaign RESUMED from disk — {len(hist)} result(s) replayed, "
               f"{len(_pending)} condition(s) still pending, target "
               f"R={cfg.get('target_size')}±{cfg.get('tolerance')} nm", "ok")
@@ -967,6 +999,14 @@ def health():
 @app.route("/api/project")
 def api_project():
     return jsonify({"project_root": _project_root, "watching": str(_resolve_sub())})
+
+
+@app.route("/api/restart_notice")
+def api_restart_notice():
+    """Whether an interrupted campaign is awaiting a manual Start (loud), was resumed
+    under the opt-in flag (calm), or there is nothing to report — so a stopped
+    campaign never silently looks idle after a restart."""
+    return jsonify(_CAMPAIGN_NOTICE)
 
 
 @app.route("/api/set_project", methods=["POST"])

@@ -72,6 +72,11 @@ _overrides: dict = {}                 # path -> {"verdict": str, "note": str}
 # Sparse user overrides for ANY scoring parameter (weights, thresholds, score_pass,
 # borderline).  Empty = use the per-detector defaults.  Persisted to a config file.
 _params: dict = {}
+#: Two-tier restart notice (see reactor/background/average). "restored" = saved
+#: scoring overrides came back (calm); "lost" = quality_config.json exists but could
+#: NOT be read, so grading runs on DEFAULT thresholds incl. pass≥60 (loud); "none" =
+#: no saved config → defaults, which the slider already shows → displayed==executed.
+_QUALITY_NOTICE: dict = {"level": "none", "message": "", "params": []}
 _llm_enabled: bool = True              # use LLM to adjudicate borderline scores
 _llm_model: str = os.environ.get("SWAXS_LLM_MODEL", "claude-sonnet-4-6")
 _watch: list = []                     # [(detector, folder)] currently watched
@@ -126,7 +131,10 @@ def _band() -> float:
 
 
 def _config_path() -> Path | None:
-    return Path(_project_root) / "quality_config.json" if _project_root else None
+    # Fall back to the env var the hub also sets, so the config (and the restart
+    # notice) can be resolved at import, before the hub POSTs the project folder.
+    root = _project_root or os.environ.get("SWAXS_PROJECT", "")
+    return Path(root) / "quality_config.json" if root else None
 
 
 def _save_params() -> None:
@@ -140,9 +148,10 @@ def _save_params() -> None:
 
 
 def _load_params() -> None:
+    global _QUALITY_NOTICE
     p = _config_path()
     if p is None or not p.is_file():
-        return
+        return                       # no saved config → defaults; slider shows them
     try:
         data = json.loads(p.read_text(encoding="utf-8") or "{}")
         saved = data.get("params", {})
@@ -151,8 +160,24 @@ def _load_params() -> None:
             _params.update({k: float(v) for k, v in saved.items()
                             if k in DEFAULT_THRESHOLDS})
             _emit(f"loaded {len(_params)} saved scoring parameter override(s)", "info")
+            if _params:              # only announce actual overrides, not bare defaults
+                _QUALITY_NOTICE = {
+                    "level": "restored",
+                    "message": "Saved scoring parameters were restored from "
+                               "quality_config.json. Review the pass threshold and "
+                               "weights before grading.",
+                    "params": sorted(_params.keys())}
     except Exception as exc:
+        # The file is there but unreadable — grading would silently fall back to the
+        # DEFAULT thresholds (pass≥60). Do NOT let that pass without a loud warning.
         _emit(f"⚠  could not load quality_config.json: {exc}", "warn")
+        _QUALITY_NOTICE = {
+            "level": "lost",
+            "message": "quality_config.json exists but could NOT be read — grading "
+                       f"will use DEFAULT thresholds (pass ≥ "
+                       f"{DEFAULT_THRESHOLDS['score_pass']:g}). Set your thresholds "
+                       "before grading.",
+            "params": ["score_pass", "weights"]}
 
 
 def _emit(msg: str, tag: str = "info") -> None:
@@ -876,6 +901,14 @@ def monitor_status():
                     "monitoring": monitor_alive(_grading, _grader_thread)})
 
 
+@app.route("/api/restart_notice")
+def api_restart_notice():
+    """Whether saved scoring params were restored, could not be read (grading on
+    defaults), or none were saved — the UI renders a two-tier banner so the operator
+    is never grading against a silently-default pass threshold."""
+    return jsonify(_QUALITY_NOTICE)
+
+
 @app.route("/api/monitor/stream")
 def monitor_stream():
     def _generate():
@@ -955,6 +988,12 @@ def _boot_resume_monitor() -> None:
     except Exception as exc:
         _emit(f"⚠  auto-processing resume failed: {exc}", "warn")
 
+
+# Load saved scoring overrides at import (the hub sets SWAXS_PROJECT in our env), so
+# the fields and the restart notice are correct before the first request. set_project
+# reloads them once the project folder is confirmed. This restore was already
+# unconditional (not resume-gated); the notice just makes its outcome visible.
+_load_params()
 
 if os.environ.get("SWAXS_NO_WATCH", "").strip().lower() not in ("1", "true", "yes"):
     threading.Thread(target=_boot_resume_monitor, daemon=True).start()

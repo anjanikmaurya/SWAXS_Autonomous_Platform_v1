@@ -78,6 +78,12 @@ select{background:var(--surface2);border:1px solid var(--border-strong);border-r
 .consensus{font-size:var(--fs-xs);margin-top:6px}
 .consensus b{color:var(--accent)}
 .empty{color:var(--muted);font-size:var(--fs-sm);padding:30px;text-align:center;grid-column:1/-1}
+/* Restart notice — two visually distinct tiers so a genuine loss stays loud */
+.restart-banner{display:none;margin:12px 16px 0;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);line-height:1.4;font-size:var(--fs-sm)}
+.restart-banner.show{display:block}
+.restart-banner.restored{background:var(--surface2);color:var(--text);border-color:var(--accent)}
+.restart-banner.lost{background:var(--err-lt);color:var(--err);font-weight:700;border:2px solid var(--err)}
+.restart-banner .rb-x{float:right;cursor:pointer;opacity:.6;font-weight:700;margin-left:12px}
 </style>
 </head>
 <body>
@@ -87,6 +93,11 @@ select{background:var(--surface2);border:1px solid var(--border-strong);border-r
   <span class="proj" id="proj"></span>
   <button class="theme-toggle" id="themeBtn" onclick="toggleTheme()">☾</button>
   <span class="sub">Port 5105 · <a href="http://localhost:5100">← Hub</a></span>
+</div>
+
+<div class="restart-banner" id="restartBanner">
+  <span class="rb-x" onclick="this.parentElement.classList.remove('show')">✕</span>
+  <span id="restartBannerMsg"></span>
 </div>
 
 <div class="wrap">
@@ -388,7 +399,23 @@ async function exportReport(){const r=await api('/api/report');
 
 function esc(s){return (s+'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
 
+async function showRestartNotice(){
+  try{
+    const n=await (await fetch('/api/restart_notice')).json();
+    if(!n||!n.level||n.level==='none') return;   // fresh start → stay quiet
+    const b=$('restartBanner');
+    b.className='restart-banner show '+n.level;   // .restored (calm) | .lost (loud)
+    let msg=n.message||'';
+    if(n.params&&n.params.length) msg+=' ('+n.params.join(', ')+')';
+    $('restartBannerMsg').textContent=(n.level==='lost'?'⚠ ':'♻ ')+msg;
+  }catch(_){}
+}
+
 refresh();
+// Populate the scoring params on load (not only when the editor is opened) so the
+// weights shown always match what grading uses; then surface the restart notice.
+loadParams().catch(()=>{});
+showRestartNotice();
 </script>
 </body>
 </html>

@@ -159,6 +159,12 @@ td.name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   justify-content:center;cursor:zoom-out}
 #lightbox.open{display:flex}
 #lightbox img{max-width:100%;height:auto;border-radius:10px;background:#fff}
+/* Restart notice — two visually distinct tiers so a genuine loss stays loud */
+.restart-banner{display:none;margin:10px 32px 0;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);line-height:1.4;font-size:var(--fs-sm)}
+.restart-banner.show{display:block}
+.restart-banner.restored{background:var(--surface2);color:var(--info);border-color:var(--info)}
+.restart-banner.lost{background:var(--surface2);color:var(--err);font-weight:700;border:2px solid var(--err)}
+.restart-banner .rb-x{float:right;cursor:pointer;opacity:.6;font-weight:700;margin-left:12px}
 </style></head>
 <body>
 <div class="topbar">
@@ -167,6 +173,11 @@ td.name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   <span class="hd-right" style="margin-left:auto">
     <button class="theme-toggle" id="themeBtn" onclick="toggleTheme()" title="Toggle light / dark">☾</button>
   </span>
+</div>
+
+<div class="restart-banner" id="restartBanner">
+  <span class="rb-x" onclick="this.parentElement.classList.remove('show')">✕</span>
+  <span id="restartBannerMsg"></span>
 </div>
 
 <!-- The whole state of the loop in one strip. Before this you had to read four
@@ -1019,6 +1030,17 @@ function connect(){
   };
 }
 connect();
+
+async function showRestartNotice(){
+  try{
+    const n=await (await fetch('/api/restart_notice')).json();
+    if(!n||!n.level||n.level==='none') return;   // nothing to report → stay quiet
+    const b=document.getElementById('restartBanner');
+    b.className='restart-banner show '+n.level;   // .restored (calm) | .lost (loud)
+    document.getElementById('restartBannerMsg').textContent=(n.level==='lost'?'⚠ ':'♻ ')+(n.message||'');
+  }catch(_){}
+}
+showRestartNotice();
 
 /* a stream that is open but silent is also a failure — say so after 8 s */
 setInterval(()=>{
