@@ -1346,6 +1346,21 @@ class ReactorController:
                 "elapsed_s": elapsed, "duration_s": dur,
                 "run_duration_setting": self.live_duration or self.default_duration,
                 "flush_pump": self._flush_pump,
+                # Effective run settings (live value if the operator set one, else
+                # the config default). The UI reflects these on load so the fields
+                # ALWAYS show what a run would actually use — never a stale value
+                # or an HTML default that diverges from the server.
+                "run_settings": {
+                    "arm_mode":       self.live_arm_mode or self.default_arm_mode,
+                    "arm_wait_s":     (self.live_arm_wait if self.live_arm_wait is not None
+                                       else self.default_arm_wait),
+                    "run_duration":   self.live_duration or self.default_duration,
+                    "flush_rate":     (self.live_flush_rate if self.live_flush_rate is not None
+                                       else self.flush_rate),
+                    "flush_duration": (self.live_flush_duration if self.live_flush_duration is not None
+                                       else self.flush_duration),
+                    "flush_pump":     self._flush_pump,
+                },
                 "flush_remaining_s": flush_left,
                 "queue": [r.recipe_id for r, _ in self.queue],
                 "queue_len": len(self.queue),

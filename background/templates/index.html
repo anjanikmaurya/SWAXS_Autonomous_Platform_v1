@@ -142,6 +142,12 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{ou
 .nav .lbl{font-size:var(--fs-sm)}
 .navtab{font-size:var(--fs-base)}
 .navtab .ic{font-size:16px}
+/* Restart notice — two visually distinct tiers so a genuine loss stays loud */
+.restart-banner{display:none;padding:10px 20px;border-bottom:1px solid var(--border);line-height:1.4;font-size:var(--fs-sm)}
+.restart-banner.show{display:block}
+.restart-banner.restored{background:var(--accent-lt);color:var(--info-text);border-bottom-color:var(--info-text)}
+.restart-banner.lost{background:#fde8e8;color:var(--err-text);font-weight:700;border-bottom:2px solid var(--err-text)}
+.restart-banner .rb-x{float:right;cursor:pointer;opacity:.6;font-weight:700;margin-left:12px}
 </style>
 </head>
 <body>
@@ -153,6 +159,11 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{ou
     <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" title="Toggle light / dark">☾</button>
     <span class="topbar-sub">Port 5104 · <a href="http://localhost:5100" style="color:var(--accent);text-decoration:none">← Hub</a></span>
   </header>
+
+  <div class="restart-banner" id="restartBanner">
+    <span class="rb-x" onclick="this.parentElement.classList.remove('show')">✕</span>
+    <span id="restartBannerMsg"></span>
+  </div>
 
   <div class="body">
     <!-- Left nav -->
@@ -1104,7 +1115,18 @@ async function autoPollStatus(){
     }
   }catch(_){ setTimeout(autoPollStatus,5000); }
 }
-window.addEventListener('DOMContentLoaded',()=>{ try{ autoPollStatus(); }catch(_){ } try{ initTrunc(); }catch(_){ } });
+async function showRestartNotice(){
+  try{
+    const n=await (await fetch('/api/restart_notice')).json();
+    if(!n||!n.level||n.level==='none') return;   // fresh start → stay quiet
+    const b=document.getElementById('restartBanner');
+    b.className='restart-banner show '+n.level;   // .restored (calm) | .lost (loud)
+    let msg=n.message||'';
+    if(n.params&&n.params.length) msg+=' ('+n.params.join(', ')+')';
+    document.getElementById('restartBannerMsg').textContent=(n.level==='lost'?'⚠ ':'♻ ')+msg;
+  }catch(_){}
+}
+window.addEventListener('DOMContentLoaded',()=>{ try{ autoPollStatus(); }catch(_){ } try{ initTrunc(); }catch(_){ } try{ showRestartNotice(); }catch(_){ } });
 </script>
 
 <script>
