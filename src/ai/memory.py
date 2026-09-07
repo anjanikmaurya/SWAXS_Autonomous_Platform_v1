@@ -95,6 +95,10 @@ class LayeredMemory:
         self._group_dir = self._kb_dir / "group"
         self._group_dir.mkdir(parents=True, exist_ok=True)
         self._group_sops_path = self._group_dir / "sops.json"
+        # Change 4: durable, AUTHORITATIVE operator corrections. Repo-level (git-
+        # visible, like group SOPs), injected into the STATIC cached prefix, and
+        # ranked above package `documented` knowledge and any knowledge.md.
+        self._corrections_path = self._kb_dir / "corrections.json"
 
     # ── Context assembly ───────────────────────────────────────────────────────
 
@@ -237,6 +241,121 @@ class LayeredMemory:
 
     def _save_group_sops(self, sops: list[dict]) -> None:
         _atomic_write_text(self._group_sops_path, json.dumps(sops, indent=2))
+
+    # ── Authoritative corrections channel (Change 4) ───────────────────────────
+    # A durable, operator-curated store that OUTRANKS package `documented`
+    # knowledge and any knowledge.md. Distinct from `save_correction` below (which
+    # rides the dynamic/uncached half as auto-captured chat corrections): these are
+    # explicit, scoped, timestamped, attributed, and injected into the STATIC cached
+    # prefix. The assistant may PROPOSE (quarantined until confirmed); only the
+    # operator authors an `active` correction.
+
+    def _load_corrections_raw(self) -> list[dict]:
+        if not self._corrections_path.exists():
+            return []
+        try:
+            data = json.loads(self._corrections_path.read_text(encoding="utf-8"))
+            return data if isinstance(data, list) else []
+        except Exception as exc:
+            logger.debug("[Memory] Could not read corrections.json: %s", exc)
+            return []
+
+    def _save_corrections(self, rows: list[dict]) -> None:
+        _atomic_write_text(self._corrections_path, json.dumps(rows, indent=2))
+
+    @staticmethod
+    def _normalize_scope(scope: str | None) -> str:
+        """Accept 'global', 'app:<id>', 'entry:<id>', 'doc:<name>'. Anything else
+        collapses to 'global' (a correction with an unparseable scope should still
+        apply, not silently vanish)."""
+        s = (scope or "global").strip()
+        if s == "global":
+            return "global"
+        pre = s.split(":", 1)[0]
+        return s if pre in ("app", "entry", "doc") and ":" in s else "global"
+
+    @staticmethod
+    def _next_correction_id(rows: list[dict]) -> str:
+        n = 0
+        for r in rows:
+            cid = str(r.get("id", ""))
+            if cid.startswith("corr_"):
+                try:
+                    n = max(n, int(cid[5:]))
+                except ValueError:
+                    pass
+        return f"corr_{n + 1:04d}"
+
+    def load_authoritative_corrections(self, include_proposed: bool = True,
+                                       include_archived: bool = False) -> list[dict]:
+        """Return corrections, newest-first. `active` are authoritative; `proposed`
+        are quarantined (assistant-suggested, awaiting operator confirmation)."""
+        rows = self._load_corrections_raw()
+        out = []
+        for r in rows:
+            st = r.get("status", "active")
+            if st == "archived" and not include_archived:
+                continue
+            if st == "proposed" and not include_proposed:
+                continue
+            out.append(r)
+        out.sort(key=lambda r: r.get("ts", ""), reverse=True)
+        return out
+
+    def add_correction(self, wrong: str, right: str, scope: str = "global",
+                       overrides: list | None = None, author: str | None = None,
+                       proposed: bool = False) -> dict:
+        """Append a correction. `proposed=True` writes an assistant-suggested,
+        quarantined entry (status='proposed'); the default is an operator-authored
+        authoritative entry (status='active')."""
+        entry = {
+            "id":     None,
+            "ts":     _now(),
+            "author": (author or self._user_id),
+            "scope":  self._normalize_scope(scope),
+            "wrong":  (wrong or "").strip(),
+            "right":  (right or "").strip(),
+            "overrides": [str(o).strip() for o in (overrides or []) if str(o).strip()],
+            "status": "proposed" if proposed else "active",
+            "proposed_by_assistant": bool(proposed),
+        }
+        with _WRITE_LOCK:
+            rows = self._load_corrections_raw()
+            entry["id"] = self._next_correction_id(rows)
+            rows.append(entry)
+            self._save_corrections(rows)
+        return entry
+
+    def confirm_correction(self, ident: str) -> dict | None:
+        """Promote a proposed correction to active (operator confirmation only)."""
+        key = str(ident).strip().lower()
+        with _WRITE_LOCK:
+            rows = self._load_corrections_raw()
+            hit = None
+            for r in rows:
+                if str(r.get("id", "")).lower() == key and r.get("status") == "proposed":
+                    r["status"] = "active"
+                    r["proposed_by_assistant"] = False
+                    r["confirmed_at"] = _now()
+                    hit = r
+            if hit:
+                self._save_corrections(rows)
+            return hit
+
+    def remove_correction(self, ident: str) -> bool:
+        """Archive (soft-delete) a correction by id; keeps the audit trail."""
+        key = str(ident).strip().lower()
+        with _WRITE_LOCK:
+            rows = self._load_corrections_raw()
+            changed = False
+            for r in rows:
+                if str(r.get("id", "")).lower() == key and r.get("status") != "archived":
+                    r["status"] = "archived"
+                    r["archived_at"] = _now()
+                    changed = True
+            if changed:
+                self._save_corrections(rows)
+            return changed
 
     # ── User corrections ───────────────────────────────────────────────────────
 

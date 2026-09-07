@@ -84,6 +84,202 @@ modality: saxs
 
 entries:
 
+  # ---- Tier -1 — PRE-FLIGHT (Change 4) --------------------------------------
+  # Reflexive checks that must PASS (or be explicitly flagged unverifiable) before
+  # ANY plot, number, interpretation, or model suggestion. Passing checks are
+  # SILENT; only refusals surface, each with a named remedy (the `hint`). Flags are
+  # computed locally where possible (units/geometry/subtraction/uncertainties/high-q
+  # tail) or affirmed by the operator; the two caveat commitments
+  # (monodispersity, plotting) default satisfied so they never wall the answer.
+  - id: pf_q_convention
+    tier: -1
+    modality: saxs
+    package: "local:.poni + Reduction app output"
+    observes:
+      - "q units (A^-1 vs nm^-1, factor 10) and the 2*pi convention are unconfirmed"
+    requires:
+      - {key: q_convention_settled, hint: "settle BOTH q ambiguities before any plot/number/convert: (a) units A^-1 vs nm^-1 (factor 10), (b) the 2*pi — q=4*pi*sin(theta)/lambda vs the crystallographic q=1/d (no 2*pi). Read them from the .poni / Reduction output, not a default; sanity-check the range (a value of 5 is nonsense in A^-1, ordinary in nm^-1)"}
+    inapplicable_when: []
+    provides: [q_convention_verified]
+    consumes: []
+    initial_guesses: {}
+    my_notes: ""
+    confidence: documented
+    cost: free_local
+    invocable: false
+
+  - id: pf_geometry_provenance
+    tier: -1
+    modality: saxs
+    package: "local:.poni + Reduction app output"
+    observes:
+      - "energy/wavelength, distance, beam center, detector geometry unverified"
+    requires:
+      - {key: geometry_ok, hint: "read energy/wavelength, distance, beam center and detector geometry from the .poni files and the Reduction app as the LIVE source of truth; treat any beamline knowledge doc as a stale hint. If the doc and the .poni disagree, SURFACE the disagreement — do not pick one"}
+    inapplicable_when: []
+    provides: [geometry_verified]
+    consumes: []
+    initial_guesses: {}
+    my_notes: ""
+    confidence: documented
+    cost: free_local
+    invocable: false
+
+  - id: pf_subtraction_sanity
+    tier: -1
+    modality: saxs
+    package: "local:src.analysis.guidelines.subtraction_sanity"
+    observes:
+      - "over-subtraction drives I(q) negative but a log axis hides it as a spurious upturn"
+    requires:
+      - {key: subtraction_sane, hint: "check the LINEAR values (never the log plot) — no extensive negative region; the curve should tend to zero at high q; before subtraction the sample must sit slightly ABOVE the buffer at high q or the scale is wrong"}
+    inapplicable_when: []
+    provides: [subtraction_verified]
+    consumes: []
+    initial_guesses: {}
+    my_notes: ""
+    confidence: documented
+    cost: free_local
+    invocable: false
+
+  - id: pf_radiation_damage
+    tier: -1
+    modality: saxs
+    package: "local:frame-to-frame comparison"
+    observes:
+      - "frames averaged across radiation damage give a clean-looking curve with a wrong Rg"
+    requires:
+      - {key: damage_checked, hint: "compare frames pairwise BEFORE averaging (rising low-q / falling I(0) = damage); confirm frames are stable, then average only the undamaged ones"}
+    inapplicable_when: []
+    provides: [damage_verified]
+    consumes: []
+    initial_guesses: {}
+    my_notes: ""
+    confidence: documented
+    cost: free_local
+    invocable: false
+
+  - id: pf_low_q_triage
+    tier: -1
+    modality: saxs
+    package: "local:geometry + data"
+    observes:
+      - "beamstop shadow, parasitic scattering and vignetting corrupt the lowest q"
+    requires:
+      - {key: low_q_triaged, hint: "a fit to corrupted low-q STILL succeeds and returns plausible-but-wrong parameters. Set q_usable_min from the data/geometry and triage any low-q upturn as aggregation vs beamstop artifact vs parasitic scattering BEFORE interpreting it"}
+    inapplicable_when: []
+    provides: [low_q_verified]
+    consumes: []
+    initial_guesses: {}
+    my_notes: ""
+    confidence: documented
+    cost: free_local
+    invocable: false
+
+  - id: pf_high_q_tail
+    tier: -1
+    modality: saxs
+    package: "local:src.analysis.guidelines.classify_tail_peak"
+    observes:
+      - "noise-dominated tail points; a one/two-point 'peak' in the SAXS tail"
+    requires:
+      - {key: high_q_tail_excluded, hint: "exclude noise-dominated high-q points before ANY power-law fit. A 'peak' in the SAXS tail is NOISE until proven: require multiple points above local noise, a width consistent with the instrumental resolution, and a sensible d-spacing. Do NOT report a Bragg peak from one or two tail points"}
+    inapplicable_when: []
+    provides: [high_q_verified]
+    consumes: []
+    initial_guesses: {}
+    my_notes: ""
+    confidence: documented
+    cost: free_local
+    invocable: false
+
+  - id: pf_detector_gaps
+    tier: -1
+    modality: saxs
+    package: "local:detector geometry"
+    observes:
+      - "module gaps (Pilatus) and SAXS<->WAXS q-gaps/overlaps leave discontinuities"
+    requires:
+      - {key: detector_gaps_checked, hint: "never interpret a gap-edge feature as structure; on simultaneous SAXS/WAXS there can be a genuine q GAP (e.g. SAXS to ~0.5 A^-1, WAXS from ~0.8 A^-1) or an overlap — never merge across a q gap without saying so"}
+    inapplicable_when: []
+    provides: [detector_gaps_verified]
+    consumes: []
+    initial_guesses: {}
+    my_notes: ""
+    confidence: documented
+    cost: free_local
+    invocable: false
+
+  - id: pf_concentration_effects
+    tier: -1
+    modality: saxs
+    package: "local:concentration-series comparison"
+    observes:
+      - "interparticle/structure-factor effects alter the curve at HIGH q as well as low q"
+    requires:
+      - {key: conc_effects_considered, hint: "structure-factor effects change Porod-region curvature too, so 'only matters at low q' is wrong; remedy is Rg/I(0) extrapolation to c->0 (Jacques & Trewhella 2010). Across a concentration series the Kratky peak positions must be identical — if they shift, the dominant species differs and the curves must not be merged/co-analyzed"}
+    inapplicable_when: []
+    provides: [conc_effects_verified]
+    consumes: []
+    initial_guesses: {}
+    my_notes: ""
+    confidence: documented
+    cost: free_local
+    invocable: false
+
+  - id: pf_uncertainties
+    tier: -1
+    modality: saxs
+    package: "local:data columns"
+    observes:
+      - "a fit without propagated uncertainties is not a result"
+    requires:
+      - {key: uncertainties_present, hint: "carry sigma(q) through; report the fitted window and R^2 with every fitted quantity, never a bare number. If the .dat has no sigma column, say so and treat fitted values as uncertain"}
+    inapplicable_when: []
+    provides: [uncertainties_verified]
+    consumes: []
+    initial_guesses: {}
+    my_notes: ""
+    confidence: documented
+    cost: free_local
+    invocable: false
+
+  # Caveat commitments — checkable state keys with a remedy, but default satisfied
+  # (the assistant always honours them), so they document the rule without walling.
+  - id: pf_monodispersity_caveat
+    tier: -1
+    modality: saxs
+    package: "local:reporting rule"
+    observes:
+      - "most tools assume a monomodal, monodisperse, non-flexible system"
+    requires:
+      - {key: monodispersity_acknowledged, hint: "state the monodispersity/monomodality assumption as a caveat on every tier-2+ result rather than asserting it; if the data show flexibility or multiple species, say the standard tools are inapplicable and name the alternative class (ensemble / deconvolution methods)"}
+    inapplicable_when: []
+    provides: [monodispersity_verified]
+    consumes: []
+    initial_guesses: {}
+    my_notes: ""
+    confidence: documented
+    cost: free_local
+    invocable: false
+
+  - id: pf_plot_conventions
+    tier: -1
+    modality: saxs
+    package: "local:plotting rule"
+    observes:
+      - "Kratky y-axis not starting at zero misleads; log axes silently drop non-positive points"
+    requires:
+      - {key: plot_conventions_ok, hint: "Kratky y-axis must start at zero; log axes silently drop non-positive points; state the axis conventions on every plot"}
+    inapplicable_when: []
+    provides: [plot_conventions_verified]
+    consumes: []
+    initial_guesses: {}
+    my_notes: ""
+    confidence: documented
+    cost: free_local
+    invocable: false
+
   # ---- Tier 0 — is the data fittable at all --------------------------------
   - id: t0_radiation_damage
     tier: 0

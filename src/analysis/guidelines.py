@@ -46,6 +46,14 @@ _VALID_COST = {"free_local", "cheap", "expensive"}
 EXTERNAL_STATE_KEYS = {
     "bragg_present", "bragg_dominates", "n_frames_ge_2", "has_conc_series",
     "is_subtracted", "has_peaks",
+    # Tier -1 PRE-FLIGHT inputs (Change 4). Computed locally in the tool ctx
+    # (units/geometry/subtraction/uncertainties/high-q tail) or affirmed by the
+    # operator (damage/low-q/detector-gaps/concentration); the caveat commitments
+    # (monodispersity/plotting) default satisfied. Each gates a tier -1 entry.
+    "q_convention_settled", "geometry_ok", "subtraction_sane", "damage_checked",
+    "low_q_triaged", "high_q_tail_excluded", "detector_gaps_checked",
+    "conc_effects_considered", "monodispersity_acknowledged", "plot_conventions_ok",
+    "uncertainties_present",
 }
 
 
@@ -106,8 +114,8 @@ def validate_guideline(doc: dict, modality: str) -> None:
         if e["id"] in ids:
             raise ValueError(f"duplicate entry id {e['id']!r}")
         ids.add(e["id"])
-        if not isinstance(e["tier"], int) or not (0 <= e["tier"] <= 5):
-            raise ValueError(f"{e['id']}: tier must be 0..5")
+        if not isinstance(e["tier"], int) or not (-1 <= e["tier"] <= 5):
+            raise ValueError(f"{e['id']}: tier must be -1..5")
         if e["confidence"] not in _VALID_CONFIDENCE:
             raise ValueError(f"{e['id']}: bad confidence {e['confidence']!r}")
         if e["cost"] not in _VALID_COST:
@@ -431,6 +439,105 @@ def _structure_factor_hint(q, I) -> bool | None:
     if slope < -0.05:
         return False
     return None
+
+
+# ── Tier -1 PRE-FLIGHT local checks (Change 4) ─────────────────────────────────
+def subtraction_sanity(q, I, neg_tol: float = 0.05) -> dict:
+    """Judge a background-subtracted curve from its LINEAR values, never the log
+    plot — over-subtraction drives I(q) negative, but a log axis silently drops
+    those points and only shows a spurious sharp upturn, so the eye (and most
+    plotting code) misses it. Checks: (1) fraction of NEGATIVE linear points is
+    small; (2) the high-q tail tends toward zero (no residual offset / upturn).
+
+    Returns {sane, neg_fraction_linear, high_q_tends_to_zero, reason}. Deterministic.
+    """
+    q = np.asarray(q, float); I = np.asarray(I, float)
+    m = np.isfinite(q) & np.isfinite(I) & (q > 0)
+    q, I = q[m], I[m]
+    if q.size < 8:
+        return {"sane": None, "neg_fraction_linear": None,
+                "high_q_tends_to_zero": None, "reason": "too few points to judge"}
+    order = np.argsort(q); q, I = q[order], I[order]
+    neg_frac = float(np.mean(I < 0))
+    # high-q tail: last ~15% of points should sit near/below the curve's own scale,
+    # i.e. small relative to the low-q signal — not offset high (under-sub) or
+    # swinging negative (over-sub).
+    n_tail = max(3, q.size // 7)
+    tail = I[-n_tail:]
+    lowq_scale = float(np.nanmedian(np.abs(I[: max(3, q.size // 5)]))) or 1.0
+    tail_med = float(np.nanmedian(tail))
+    tends_zero = bool(abs(tail_med) <= 0.15 * lowq_scale)
+    sane = bool(neg_frac <= neg_tol and tends_zero)
+    reason = []
+    if neg_frac > neg_tol:
+        reason.append(f"{neg_frac*100:.0f}% of LINEAR points are negative "
+                      "(over-subtraction — hidden on a log axis)")
+    if not tends_zero:
+        reason.append("high-q tail does not tend to zero "
+                      "(mis-scaled subtraction / residual background)")
+    return {"sane": sane, "neg_fraction_linear": neg_frac,
+            "high_q_tends_to_zero": tends_zero,
+            "reason": "; ".join(reason) or "linear values sane, tail → 0"}
+
+
+def classify_tail_peak(q, I, sigma=None, tail_frac: float = 0.35,
+                       resolution_rel: float = _SHARP_REL_WIDTH,
+                       min_points_above_noise: int = 3) -> dict:
+    """Is an apparent 'peak' in the HIGH-q tail of a SAXS curve real, or noise?
+    Default to NOISE. A feature is only a candidate if MULTIPLE points sit above
+    the local noise level AND its relative width is consistent with the
+    instrumental resolution. One or two high points are noise until proven
+    otherwise — never report a Bragg peak from the SAXS tail on that basis.
+
+    Returns {classification: 'noise'|'candidate_peak', n_points_above_noise,
+             rel_width, reason}.
+    """
+    q = np.asarray(q, float); I = np.asarray(I, float)
+    m = np.isfinite(q) & np.isfinite(I) & (q > 0)
+    q, I = q[m], I[m]
+    if q.size < 8:
+        return {"classification": "noise", "n_points_above_noise": 0,
+                "rel_width": None, "reason": "too few points"}
+    order = np.argsort(q); q, I = q[order], I[order]
+    sig = None
+    if sigma is not None:
+        sig = np.asarray(sigma, float)[m][order]
+    n_tail = max(5, int(q.size * tail_frac))
+    qt, It = q[-n_tail:], I[-n_tail:]
+    # local noise level in the tail: sigma if available, else robust MAD of It.
+    if sig is not None and np.all(np.isfinite(sig[-n_tail:])) and np.any(sig[-n_tail:] > 0):
+        noise = sig[-n_tail:]
+    else:
+        med = float(np.nanmedian(It))
+        mad = float(np.nanmedian(np.abs(It - med))) or (np.nanstd(It) or 1.0)
+        noise = np.full_like(It, 1.4826 * mad)
+    baseline = float(np.nanmedian(It))
+    above = It - baseline > 2.0 * noise
+    n_above = int(np.sum(above))
+    if n_above < min_points_above_noise:
+        return {"classification": "noise", "n_points_above_noise": n_above,
+                "rel_width": None,
+                "reason": (f"only {n_above} point(s) above 2σ local noise "
+                           f"(need ≥{min_points_above_noise}) — noise until proven")}
+    # contiguous run around the max defines a width; check it against resolution.
+    pk = int(np.argmax(It))
+    lo = pk
+    while lo - 1 >= 0 and (It[lo - 1] - baseline) > noise[lo - 1]:
+        lo -= 1
+    hi = pk
+    while hi + 1 < It.size and (It[hi + 1] - baseline) > noise[hi + 1]:
+        hi += 1
+    rel_w = float((qt[hi] - qt[lo]) / max(qt[pk], 1e-12))
+    if rel_w < resolution_rel * 0.3:
+        return {"classification": "noise", "n_points_above_noise": n_above,
+                "rel_width": rel_w,
+                "reason": (f"feature width rel {rel_w:.3f} is far below the "
+                           f"instrumental resolution (~{resolution_rel}) — a spike, "
+                           "not a resolved peak")}
+    return {"classification": "candidate_peak", "n_points_above_noise": n_above,
+            "rel_width": rel_w,
+            "reason": (f"{n_above} points above noise, width rel {rel_w:.3f} — a "
+                       "candidate; still verify a physically sensible d-spacing")}
 
 
 # ── The applicability + dependency gate ────────────────────────────────────────
