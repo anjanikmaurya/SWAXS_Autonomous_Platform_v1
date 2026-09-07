@@ -43,7 +43,7 @@ from src.manifest import (                                             # noqa: E
     add_file_entry, make_provenance,
 )
 from src.runstate import (save_monitor, load_monitor, monitor_alive,      # noqa: E402
-                          save_state, load_state)
+                          save_state, load_state, state_path)
 
 # ── Event bus (graceful degradation) ─────────────────────────────────────────
 try:
@@ -156,6 +156,13 @@ def _load_batch_state() -> None:
 _avg_pending: dict = {}
 _avg_status: dict = {"monitoring": False, "batches": 0, "last": None,
                      "frames_per_average": None, "interval": None}
+#: The operator's LAST auto-average settings, restored on a restart so the UI can
+#: show what a run would use (the aa-* fields otherwise revert to HTML defaults
+#: while a resumed monitor runs the saved values — displayed != executed).
+_LAST_SETTINGS: dict = {}
+#: Two-tier restart notice (see reactor/background). "restored" = calm, "lost" =
+#: loud (stale/unreadable), "none" = fresh start / monitor was stopped → no banner.
+_AVG_NOTICE: dict = {"level": "none", "message": "", "params": []}
 
 
 _FRAMES_RE = __import__("re").compile(r"_(\d+)files_")
@@ -304,6 +311,7 @@ def set_project():
         import os
         os.environ["SWAXS_PROJECT"] = project
         _project_root = project
+        _restore_settings()      # project root now known → restore last settings
     return jsonify({"ok": True})
 
 
@@ -874,7 +882,12 @@ def monitor_start():
         _save_batch_state()
     _avg_pending.clear()
     _avg_status.update({"monitoring": True, "batches": 0, "last": None,
-                        "frames_per_average": n_per_batch, "interval": interval})
+                        "frames_per_average": n_per_batch, "interval": interval,
+                        # full param set so the UI reflects EXACTLY what a running
+                        # monitor uses — not just batch size / interval.
+                        "i0_filter_pct": i0_filter_pct, "n_pts": n_pts,
+                        "keywords": keywords, "label_suffix": label_suffix,
+                        "q_min": q_min, "q_max": q_max})
     _avg_monitoring = True
 
     _avg_monitor_thread = threading.Thread(
@@ -897,9 +910,19 @@ def monitor_stop():
 @app.route("/api/monitor/status")
 def monitor_status():
     # Report the THREAD, not the flag: a dead worker used to read as healthy.
+    # last_settings lets the UI pre-fill the fields to what a run would use when
+    # no monitor is running, so displayed == executed after a restart.
     return jsonify({**_avg_status,
                     "monitoring": monitor_alive(_avg_monitoring,
-                                                _avg_monitor_thread)})
+                                                _avg_monitor_thread),
+                    "last_settings": _LAST_SETTINGS})
+
+
+@app.route("/api/restart_notice")
+def api_restart_notice():
+    """Whether the auto-average settings were restored, lost, or this is a fresh
+    start — the UI renders a two-tier banner so displayed never silently != executed."""
+    return jsonify(_AVG_NOTICE)
 
 
 @app.route("/api/monitor/stream")
@@ -1114,6 +1137,41 @@ def _state_root() -> str:
     return (_project_root or os.environ.get("SWAXS_PROJECT", "") or "").strip()
 
 
+def _restore_settings() -> None:
+    """Load the operator's LAST auto-average settings unconditionally so the UI can
+    show what a run would use after a restart. This restores VALUES only — resuming
+    the monitor loop stays behind the resume policy (SWAXS_RESUME). Sets the two-tier
+    restart notice. Idempotent — safe to call from import, set_project and the boot."""
+    global _LAST_SETTINGS, _AVG_NOTICE
+    root = _state_root()
+    if not root:
+        return
+    try:
+        # No age cap here: we want to SEE a stale file so we can warn about it
+        # rather than silently ignore it (load_monitor would just return None).
+        st = load_state(root, f"{_MON_APP}_monitor", honour_no_resume=False)
+        if not st or not st.get("running"):
+            return          # nothing saved, or the monitor was stopped → no banner
+        params = st.get("params") or {}
+        age_h = (time.time() - float(st.get("_saved_at", 0) or 0)) / 3600.0
+        if params and age_h <= 48.0:
+            _LAST_SETTINGS = dict(params)
+            _AVG_NOTICE = {
+                "level": "restored",
+                "message": "Auto-average settings were restored from your last "
+                           "session. Review them before starting.",
+                "params": ["frames/batch", "interval", "keywords", "q-range"]}
+        else:
+            _AVG_NOTICE = {
+                "level": "lost",
+                "message": "Saved auto-average settings could NOT be restored (too "
+                           "old or unreadable). The fields show DEFAULTS — set "
+                           "frames/batch, interval and keywords before starting.",
+                "params": ["frames/batch", "interval", "keywords", "q-range"]}
+    except Exception:
+        pass
+
+
 @app.after_request
 def _persist_monitor_state(resp):
     try:
@@ -1130,6 +1188,9 @@ def _persist_monitor_state(resp):
 
 def _boot_resume_monitor() -> None:
     time.sleep(2.0)                      # let the hub push the project folder first
+    # Restore the displayed settings regardless of whether the loop resumes, so the
+    # UI shows what a run would use even when auto-resume is off (the default).
+    _restore_settings()
     try:
         params = load_monitor(_state_root(), _MON_APP)
         if not params:
@@ -1153,6 +1214,11 @@ def _boot_resume_monitor() -> None:
     except Exception as exc:
         _avg_emit(f"⚠  auto-processing resume failed: {exc}", "warn")
 
+
+# Restore the displayed settings at import (the hub sets SWAXS_PROJECT in our env),
+# so the fields are correct before the first request — a VALUE restore, deliberately
+# NOT gated by the monitor-resume policy. set_project / the boot thread refresh it.
+_restore_settings()
 
 if os.environ.get("SWAXS_NO_WATCH", "").strip().lower() not in ("1", "true", "yes"):
     threading.Thread(target=_boot_resume_monitor, daemon=True).start()
