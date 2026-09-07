@@ -1048,9 +1048,13 @@ class SWAXSAssistant:
             dynamic_sys = (dynamic_sys + _eff_nudge
                            if dynamic_sys.strip() else _eff_nudge.strip())
 
-        messages = _trim_history(history or []) + [
+        # Repair the tool_use/tool_result contract on the way IN: a history that was
+        # persisted with a dangling tool_use (a max_tokens cutoff mid-call, a crash,
+        # or an older corrupt session) would otherwise 400 every request this session
+        # ("tool_use ids were found without tool_result blocks immediately after").
+        messages = _sanitize_messages(_trim_history(history or []) + [
             {"role": "user", "content": message}
-        ]
+        ])
 
         result_text    = ""
         result_plot    = None
@@ -1231,8 +1235,13 @@ class SWAXSAssistant:
                 continue
 
             # Normal end — no more tool calls. THIS round's text is the answer.
+            # Drop any tool_use blocks before persisting: a non-"tool_use" stop
+            # reason (e.g. max_tokens cutting the model off mid tool-call) can still
+            # carry a tool_use block we will never answer — saving it dangling is
+            # exactly what corrupts the next request.
             result_text += round_text
-            history_delta.append({"role": "assistant", "content": _clean_content(response.content)})
+            history_delta.append({"role": "assistant",
+                                  "content": _drop_tool_use(_clean_content(response.content))})
             break
         else:
             # Loop exhausted while Claude still wanted to use tools. Make one
@@ -1243,13 +1252,13 @@ class SWAXSAssistant:
                     model      = model_id,
                     max_tokens = max_toks,
                     system     = system_param,
-                    messages   = messages,
+                    messages   = _sanitize_messages(messages),
                 )
                 for block in response.content:
                     if getattr(block, "type", None) == "text":
                         result_text += block.text
                 history_delta.append({"role": "assistant",
-                                      "content": _clean_content(response.content)})
+                                      "content": _drop_tool_use(_clean_content(response.content))})
             except Exception as exc:
                 logger.warning("[Assistant] Final wrap-up call failed: %s", exc)
                 if not result_text:
@@ -2900,6 +2909,90 @@ def _delta_is_balanced(delta: list[dict]) -> bool:
         if not tool_ids.issubset(answered):
             return False
     return True
+
+
+def _block_type(b):
+    return getattr(b, "type", None) or (b.get("type") if isinstance(b, dict) else None)
+
+
+def _tool_use_ids(content) -> list[str]:
+    """Ordered, de-duplicated tool_use ids in an assistant message's content
+    (handles both SDK block objects and plain dicts)."""
+    if not isinstance(content, list):
+        return []
+    ids = []
+    for b in content:
+        if _block_type(b) == "tool_use":
+            bid = getattr(b, "id", None) or (b.get("id") if isinstance(b, dict) else None)
+            if bid:
+                ids.append(bid)
+    return list(dict.fromkeys(ids))
+
+
+def _tool_result_ids(content) -> set:
+    if not isinstance(content, list):
+        return set()
+    return {b.get("tool_use_id") for b in content
+            if isinstance(b, dict) and b.get("type") == "tool_result" and b.get("tool_use_id")}
+
+
+def _drop_tool_use(content):
+    """Remove tool_use blocks from an assistant message we are about to persist as
+    a FINAL (unanswered) turn — e.g. a response cut off by max_tokens that emitted
+    a tool_use we will never send results for. Leaving it in makes the NEXT request
+    invalid ("tool_use ids were found without tool_result blocks immediately after").
+    Falls back to a single space if nothing else remains."""
+    if not isinstance(content, list):
+        return content
+    kept = [b for b in content if _block_type(b) != "tool_use"]
+    return kept or [{"type": "text", "text": " "}]
+
+
+def _sanitize_messages(messages: list[dict]) -> list[dict]:
+    """Guarantee the Anthropic tool-use contract on the OUTGOING request, no matter
+    how the history got here (a max_tokens cutoff mid tool_use, a crash between the
+    tool_use turn and its results, an older corrupt session file). For every
+    assistant `tool_use` block whose id is NOT answered by the immediately following
+    user turn, synthesise an error `tool_result` so the contract holds and the model
+    simply sees that the tool did not return — instead of the whole request 400-ing.
+    This is idempotent: a well-formed history passes through unchanged."""
+    out: list[dict] = []
+    i, n = 0, len(messages)
+    while i < n:
+        m = messages[i]
+        out.append(m)
+        ids = _tool_use_ids(m.get("content")) if m.get("role") == "assistant" else []
+        if ids:
+            nxt = messages[i + 1] if i + 1 < n else None
+            answered = (_tool_result_ids(nxt.get("content"))
+                        if (nxt and nxt.get("role") == "user") else set())
+            missing = [x for x in ids if x not in answered]
+            if missing:
+                synth = [{"type": "tool_result", "tool_use_id": x,
+                          "content": "[tool result unavailable — a previous turn was "
+                                     "interrupted before this tool returned]",
+                          "is_error": True} for x in missing]
+                if nxt is not None and nxt.get("role") == "user":
+                    # Merge the synthetic results INTO the following user turn so they
+                    # sit immediately after the tool_use and we never create two
+                    # consecutive user messages.
+                    nc = nxt.get("content")
+                    if isinstance(nc, list):
+                        merged = synth + list(nc)
+                    elif isinstance(nc, str) and nc.strip():
+                        merged = synth + [{"type": "text", "text": nc}]
+                    else:
+                        merged = synth
+                    out.append({**nxt, "content": merged})
+                    i += 2
+                    continue
+                # Next turn is an assistant message or the end of the list — insert a
+                # fresh user turn carrying just the synthetic results.
+                out.append({"role": "user", "content": synth})
+                i += 1
+                continue
+        i += 1
+    return out
 
 
 def _load_dat(file_path: str):
