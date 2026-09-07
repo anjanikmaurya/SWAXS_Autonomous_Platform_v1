@@ -231,9 +231,11 @@ model fitting, not a politeness ordering. Follow it mechanically:
    (e.g. sphere R ~ Rg*sqrt(5/3); lamellar d = 2*pi/q*).
 3. Present tier 4+ as a NUMBERED MENU of what each option would DISTINGUISH — not
    a single recommendation.
-4. Label every suggestion's source: my tested notes > package docs > ingested
-   paper (cited) > unaided reasoning. Say which. If nothing matches, say so
-   rather than inventing a recommendation.
+4. Label every suggestion's source, HIGHEST authority first: operator corrections
+   (the "Operator corrections" block) > my tested notes > package docs > ingested
+   paper (cited) > unaided reasoning. An operator correction WINS over a stale doc
+   or knowledge.md every time — apply it and say what it overrides. If nothing
+   matches, say so rather than inventing a recommendation.
 5. Only propose an entry whose `consumes` are satisfied by quantities actually
    produced earlier in THIS conversation (the tool reports the gated set).
 6. If tiers 0-2 already answer the question, ANSWER AND STOP, then offer the
@@ -262,6 +264,118 @@ def _resolve_guideline_block(modality: str) -> str | None:
     return "\n\n".join(parts) if parts else None
 
 
+# ── Authoritative operator corrections (Change 4, Part B) ──────────────────────
+# Injected into the STATIC cached prefix FIRST (before app knowledge and the
+# guideline ladder), so they OUTRANK package docs and any knowledge.md. Read from
+# `ai_knowledge/corrections.json` and mtime-cached exactly like the app-knowledge
+# block — an operator edit (or a tool write) lands next turn with no re-ingest and
+# no ChromaDB write. Proposed (assistant-suggested) corrections render in a
+# separate, explicitly non-authoritative section until the operator confirms.
+_corr_cache: dict = {}
+_corr_cache_lock = _threading.Lock()
+
+
+_STATIC_PREFIX_WARN_TOKENS = 30_000   # flag when the cached prefix approaches this
+
+
+def _estimate_tokens(text: str) -> int:
+    """Cheap, dependency-free token estimate (~4 chars/token). Used only to report
+    and warn on the static-prefix size — not for budgeting a request."""
+    return max(0, len(text or "") // 4)
+
+
+def _usage_dict(response) -> dict:
+    """Pull prompt-cache accounting off a Messages response, tolerating a gateway
+    that omits the cache fields. Change 4: the 'report cache read/write' behaviour
+    specified for Change 3 was never actually implemented — this adds it."""
+    u = getattr(response, "usage", None)
+    if u is None:
+        return {}
+    def _g(name):
+        v = getattr(u, name, None)
+        return int(v) if isinstance(v, (int, float)) else None
+    return {k: v for k, v in {
+        "input_tokens":                _g("input_tokens"),
+        "output_tokens":               _g("output_tokens"),
+        "cache_read_input_tokens":     _g("cache_read_input_tokens"),
+        "cache_creation_input_tokens": _g("cache_creation_input_tokens"),
+    }.items() if v is not None}
+
+
+def _correction_in_scope(row: dict, app_id: str) -> bool:
+    s = str(row.get("scope", "global"))
+    if s == "global":
+        return True
+    if s.startswith("app:"):
+        return s.split(":", 1)[1] == (app_id or "")
+    return True   # entry:<id> / doc:<name> — specific; relevant wherever analysis happens
+
+
+def _resolve_corrections_block(kb_dir, app_id: str) -> str | None:
+    from pathlib import Path as _P
+    try:
+        p = _P(kb_dir) / "corrections.json"
+        st = p.stat()
+        key = (str(p), st.st_mtime_ns, st.st_size, app_id or "")
+    except OSError:
+        return None
+    with _corr_cache_lock:
+        hit = _corr_cache.get(key)
+    if hit is not None:
+        return hit or None            # "" is a cached miss
+    import json as _json
+    try:
+        rows = _json.loads(p.read_text(encoding="utf-8", errors="replace"))
+        if not isinstance(rows, list):
+            rows = []
+    except Exception:
+        rows = []
+    active   = [r for r in rows if r.get("status") == "active"
+                and _correction_in_scope(r, app_id)]
+    proposed = [r for r in rows if r.get("status") == "proposed"
+                and _correction_in_scope(r, app_id)]
+    active.sort(key=lambda r: r.get("ts", ""), reverse=True)
+    proposed.sort(key=lambda r: r.get("ts", ""), reverse=True)
+    if not active and not proposed:
+        with _corr_cache_lock:
+            _corr_cache[key] = ""     # cache the miss too
+        return None
+
+    lines = [
+        "## Operator corrections — AUTHORITATIVE (override everything below)",
+        "These are the operator's explicit, durable corrections. They OUTRANK "
+        "package documentation, ANY knowledge.md, ingested papers, and your own "
+        "reasoning. When a correction contradicts another in-context source, APPLY "
+        "the correction and SAY SO (e.g. \"per your correction, overriding "
+        "beamline_1_5/knowledge.md\") — never apply it silently.",
+    ]
+    for r in active:
+        line = (f"- [{r.get('id')}] scope={r.get('scope','global')} — "
+                f"WRONG: {r.get('wrong','')}  →  RIGHT: {r.get('right','')}")
+        if r.get("overrides"):
+            line += f"   ⚠ OVERRIDES: {', '.join(r['overrides'])}"
+        line += f"   (— {r.get('author','?')}, {r.get('ts','')})"
+        lines.append(line)
+    if proposed:
+        lines += [
+            "",
+            "### Proposed corrections — NOT yet authoritative",
+            "(You proposed these on noticing a conflict; they are awaiting the "
+            "operator's confirmation. Do NOT apply them as fact — only remind the "
+            "operator they are pending.)",
+        ]
+        for r in proposed:
+            lines.append(f"- [{r.get('id')}] scope={r.get('scope','global')} — "
+                         f"{r.get('wrong','')} → {r.get('right','')}")
+    text = "\n".join(lines)
+    with _corr_cache_lock:
+        _corr_cache[key] = text
+        if len(_corr_cache) > 12:
+            for k in list(_corr_cache)[:-12]:
+                _corr_cache.pop(k, None)
+    return text
+
+
 # ── Tool definitions for Claude API ──────────────────────────────────────────
 _TOOLS: list[dict] = [
     {
@@ -276,7 +390,12 @@ _TOOLS: list[dict] = [
             "concentration is known); and (3) returns the GATED set of which "
             "higher-tier steps are applicable vs refused (with the failed "
             "precondition + remedy). ALWAYS call this BEFORE proposing any "
-            "specific model or ATSAS/P(r) step. Locate the curve by `keyword`."
+            "specific model or ATSAS/P(r) step. Locate the curve by `keyword`. It "
+            "also runs the tier -1 PRE-FLIGHT gate (q convention, geometry "
+            "provenance, subtraction sanity, damage, low/high-q artifacts, detector "
+            "gaps, concentration, uncertainties); refusals name a remedy — relay "
+            "them and settle the check before interpreting. Pass the *_confirmed / "
+            "*_ok booleans ONLY after the operator affirms that check."
         ),
         "input_schema": {
             "type": "object",
@@ -290,10 +409,25 @@ _TOOLS: list[dict] = [
                                             "pattern that the sample is isotropic (not oriented). "
                                             "Cannot be measured from the 1D curve."},
                 "known_dilute": {"type": "boolean",
-                             "description": "Set true ONLY if the user has confirmed the dilute limit "
-                                            "(a dilution series ruled out interparticle effects)."},
+                             "description": "Set true ONLY if the user confirmed the dilute limit "
+                                            "(a dilution series ruled out interparticle effects). "
+                                            "Also satisfies the pre-flight concentration-effects check."},
                 "frames_stable": {"type": "boolean",
-                             "description": "Set true ONLY if radiation-damage frame comparison passed."},
+                             "description": "Set true ONLY if radiation-damage frame comparison passed "
+                                            "(also satisfies the pre-flight damage check)."},
+                "q_units_confirmed": {"type": "boolean",
+                             "description": "Pre-flight: set true ONLY if the operator confirmed the q "
+                                            "convention (units A^-1 vs nm^-1 AND the 2*pi). Otherwise it "
+                                            "is inferred from config.yml + the numeric range."},
+                "geometry_confirmed": {"type": "boolean",
+                             "description": "Pre-flight: set true ONLY if the operator confirmed geometry "
+                                            "(energy/wavelength/distance/beam center) against the .poni."},
+                "low_q_triaged": {"type": "boolean",
+                             "description": "Pre-flight: set true ONLY once any low-q upturn has been "
+                                            "triaged as aggregation vs beamstop artifact vs parasitic."},
+                "detector_gaps_ok": {"type": "boolean",
+                             "description": "Pre-flight: set true ONLY once detector module gaps / the "
+                                            "SAXS<->WAXS q-gap have been accounted for."},
             },
             "required": ["keyword"],
         },
@@ -711,6 +845,45 @@ _TOOLS: list[dict] = [
                 "title":  {"type": "string", "description": "Short label (add) or title to remove."},
                 "text":   {"type": "string", "description": "The convention/SOP text (add)."},
                 "id":     {"type": "string", "description": "SOP id to remove (alternative to title)."},
+            },
+            "required": ["action"],
+        },
+    },
+    {
+        "name":        "manage_corrections",
+        "description": (
+            "Durable, AUTHORITATIVE operator corrections that OUTRANK package "
+            "documentation and any knowledge.md, and persist across sessions "
+            "(they ride the cached system prefix, effective next turn). Use this "
+            "when the operator says something is wrong and to record it — e.g. "
+            "'the beamline 1-5 knowledge file is outdated, read geometry from the "
+            ".poni files instead'. Actions:\n"
+            "  • 'add' — record a correction the OPERATOR stated. Call this ONLY on "
+            "the operator's explicit instruction, never on your own initiative. "
+            "Provide `wrong`, `right`, `scope` (global | app:<id> | entry:<id> | "
+            "doc:<name>), and optional `overrides` (docs/entries it supersedes).\n"
+            "  • 'propose' — YOU may suggest a correction when you notice a conflict "
+            "(e.g. a knowledge.md contradicts the .poni). It is QUARANTINED (not "
+            "authoritative) until the operator confirms it.\n"
+            "  • 'confirm' — promote a proposed correction to authoritative. Call "
+            "ONLY when the operator explicitly confirms it, by `id`.\n"
+            "  • 'list' — show corrections (active + proposed).\n"
+            "  • 'remove' — archive a correction by `id`.\n"
+            "If a correction conflicts with an injected knowledge.md or guideline "
+            "entry, SURFACE the conflict to the operator rather than applying silently."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "action":    {"type": "string",
+                              "enum": ["list", "add", "propose", "confirm", "remove"]},
+                "wrong":     {"type": "string", "description": "What is wrong / the stale claim (add/propose)."},
+                "right":     {"type": "string", "description": "What is correct instead (add/propose)."},
+                "scope":     {"type": "string",
+                              "description": "global | app:<id> | entry:<id> | doc:<name> (default global)."},
+                "overrides": {"type": "array", "items": {"type": "string"},
+                              "description": "Docs/entries this supersedes, e.g. ['beamline_1_5/knowledge.md']."},
+                "id":        {"type": "string", "description": "Correction id (confirm/remove)."},
             },
             "required": ["action"],
         },
@@ -1148,6 +1321,18 @@ class SWAXSAssistant:
                          "cache_control": {"type": "ephemeral"}}]
         if dynamic_sys.strip():
             system_param.append({"type": "text", "text": dynamic_sys})
+
+        # Report the cached static-prefix size (Change 4) and warn as it approaches
+        # the budget — the corrections + pre-flight blocks grow this prefix.
+        static_tokens = _estimate_tokens(static_sys)
+        if static_tokens >= _STATIC_PREFIX_WARN_TOKENS:
+            logger.warning("[Assistant] static prefix ~%d tokens (>= %d budget) — "
+                           "prune corrections / knowledge.md to stay cache-efficient",
+                           static_tokens, _STATIC_PREFIX_WARN_TOKENS)
+        else:
+            logger.info("[Assistant] static prefix ~%d tokens (cached)", static_tokens)
+        usage_rounds: list[dict] = []
+
         for _round in range(_MAX_TOOL_ROUNDS):
             try:
                 response = client.messages.create(
@@ -1159,6 +1344,15 @@ class SWAXSAssistant:
                 )
             except Exception as exc:
                 return _api_error(exc)
+
+            _u = _usage_dict(response)
+            if _u:
+                usage_rounds.append(_u)
+                logger.info("[Assistant] round %d usage: cache read %s / write %s, "
+                            "in %s / out %s", _round,
+                            _u.get("cache_read_input_tokens", "?"),
+                            _u.get("cache_creation_input_tokens", "?"),
+                            _u.get("input_tokens", "?"), _u.get("output_tokens", "?"))
 
             # Collect text blocks from this response
             round_text = ""
@@ -1254,6 +1448,9 @@ class SWAXSAssistant:
                     system     = system_param,
                     messages   = _sanitize_messages(messages),
                 )
+                _u = _usage_dict(response)
+                if _u:
+                    usage_rounds.append(_u)
                 for block in response.content:
                     if getattr(block, "type", None) == "text":
                         result_text += block.text
@@ -1285,6 +1482,8 @@ class SWAXSAssistant:
             "tool_calls":       tool_calls_log,
             "hints":            hints,
             "_history_delta":   history_delta,
+            "usage":            {"static_prefix_tokens": static_tokens,
+                                 "rounds": usage_rounds},
         }
 
     # ── System prompt builder ─────────────────────────────────────────────────
@@ -1313,6 +1512,13 @@ class SWAXSAssistant:
         # parse as replacement fields and crash on.
         static_parts:  list[str] = [_SYSTEM_BASE.replace("{app_id}", app_id)]
         dynamic_parts: list[str] = []
+
+        # STATIC: operator corrections FIRST (Change 4) — authoritative, so they
+        # outrank the app knowledge and guideline ladder that follow. Read from
+        # ai_knowledge/corrections.json + mtime-cached; None → skip.
+        corr_block = _resolve_corrections_block(self._kb_dir, app_id)
+        if corr_block:
+            static_parts.append(corr_block)
 
         # STATIC: inject the in-scope app's knowledge.md directly (replaces RAG
         # over the `apps` collection). Read from disk + mtime-cached; None → skip
@@ -1470,6 +1676,9 @@ class SWAXSAssistant:
 
             if name == "group_sops":
                 return self._tool_group_sops(inputs, user_id)
+
+            if name == "manage_corrections":
+                return self._tool_manage_corrections(inputs, user_id)
 
             if name == "set_preferences":
                 return self._tool_set_preferences(inputs, user_id)
@@ -2052,6 +2261,128 @@ Experiment data was not modified.</p></body></html>"""
             "models": curated,
         }, indent=2), None
 
+    def _read_reduction_geometry(self, project_root) -> dict:
+        """Read the q-unit + energy from <project>/config.yml and lightly parse the
+        .poni (plain `key: value`; no pyFAI dep) for wavelength — so the PRE-FLIGHT
+        gate can treat the .poni / Reduction output as the LIVE source of truth and
+        SURFACE any config-vs-poni disagreement rather than assume. Best-effort;
+        returns {} on any failure. Nothing else in src/ai reads config.yml today."""
+        out: dict = {}
+        try:
+            from pathlib import Path as _P
+            if not project_root:
+                return out
+            root = _P(project_root)
+            cfg_p = root / "config.yml"
+            if not cfg_p.is_file():
+                return out
+            import yaml as _yaml
+            cfg = _yaml.safe_load(cfg_p.read_text(encoding="utf-8")) or {}
+            if cfg.get("unit"):
+                out["unit"] = str(cfg["unit"])
+            energy = cfg.get("energy_keV")
+            if energy:
+                out["energy_keV"] = float(energy)
+            poni_files = cfg.get("poni_files") or {}
+            poni_dir = root / "poni"
+            wl_nm = None
+            poni_present = False
+            if isinstance(poni_files, dict):
+                for _det, fname in poni_files.items():
+                    if not fname:
+                        continue
+                    pth = poni_dir / str(fname)
+                    if not pth.is_file():
+                        continue
+                    poni_present = True
+                    for line in pth.read_text(encoding="utf-8", errors="replace").splitlines():
+                        if line.lower().startswith("wavelength:"):
+                            try:                       # .poni wavelength is in metres
+                                wl_nm = float(line.split(":", 1)[1].strip()) * 1e9
+                            except ValueError:
+                                pass
+            out["poni_present"] = poni_present
+            if energy and wl_nm:
+                e_from_wl = 1.23984198 / wl_nm         # E(keV) = hc / lambda(nm)
+                out["poni_energy_keV"] = round(e_from_wl, 4)
+                if abs(e_from_wl - float(energy)) / float(energy) > 0.02:
+                    out["disagreement"] = (
+                        f"config energy {float(energy):.4g} keV vs .poni wavelength "
+                        f"implies {e_from_wl:.4g} keV — reconcile before trusting q")
+        except Exception:
+            pass
+        return out
+
+    def _preflight_state(self, q, I, sigma, cand, geo: dict, inp: dict) -> dict:
+        """Compute the tier -1 PRE-FLIGHT flags: local computation where possible
+        (subtraction sanity from LINEAR values, uncertainties, high-q tail, q
+        convention from config + range, geometry provenance), operator affirmation
+        for the rest. Unknown => omit => the gate refuses with the named remedy."""
+        import numpy as _np
+        from src.analysis import guidelines as _G
+        pf: dict = {}
+        qn = _np.asarray(q, float)
+
+        # subtraction sanity — LINEAR negatives + high-q -> 0 (only once subtracted)
+        if cand.get("stage") == "subtracted":
+            ss = _G.subtraction_sanity(q, I)
+            if ss.get("sane") is not None:
+                pf["subtraction_sane"] = bool(ss["sane"])
+
+        # uncertainties present?
+        if sigma is not None:
+            s = _np.asarray(sigma, float)
+            pf["uncertainties_present"] = bool(_np.any(_np.isfinite(s) & (s > 0)))
+        else:
+            pf["uncertainties_present"] = False
+
+        # high-q noise tail excluded? true iff compute_q_usable trimmed the tail
+        try:
+            qu_min, qu_max = _G.compute_q_usable(qn, _np.asarray(I, float), sigma)
+            valid = qn[_np.isfinite(qn) & (qn > 0)]
+            if valid.size:
+                pf["high_q_tail_excluded"] = bool(qu_max < float(_np.nanmax(valid)) * 0.999)
+        except Exception:
+            pass
+
+        # q convention: operator-confirmed, else inferred from config unit + range
+        if inp.get("q_units_confirmed") is True:
+            pf["q_convention_settled"] = True
+        elif geo.get("unit"):
+            try:
+                valid = qn[_np.isfinite(qn) & (qn > 0)]
+                qmax = float(_np.nanmax(valid)) if valid.size else 0.0
+                if "nm" in geo["unit"].lower():
+                    pf["q_convention_settled"] = bool(0.05 <= qmax <= 100.0)
+                else:                                   # A^-1
+                    pf["q_convention_settled"] = bool(0.005 <= qmax <= 10.0)
+            except Exception:
+                pass
+
+        # geometry provenance: operator-confirmed, else config+poni agree (and no disagreement)
+        if inp.get("geometry_confirmed") is True:
+            pf["geometry_ok"] = True
+        elif geo.get("disagreement"):
+            pf["geometry_ok"] = False
+        elif geo.get("energy_keV") and geo.get("poni_present"):
+            pf["geometry_ok"] = True
+
+        # operator-affirmation checks
+        if inp.get("frames_stable") is True:
+            pf["damage_checked"] = True
+        if inp.get("low_q_triaged") is True:
+            pf["low_q_triaged"] = True
+        if inp.get("detector_gaps_ok") is True:
+            pf["detector_gaps_checked"] = True
+        if inp.get("known_dilute") is True:
+            pf["conc_effects_considered"] = True
+
+        # caveat commitments: the assistant always honours these, so they pass
+        # silently (documented in the ladder, never wall the answer).
+        pf["monodispersity_acknowledged"] = True
+        pf["plot_conventions_ok"] = True
+        return pf
+
     def _tool_analysis_tier1(
         self, inp: dict, project_root: str | Path | None, user_id: str,
     ) -> tuple[str, None]:
@@ -2130,6 +2461,12 @@ Experiment data was not modified.</p></body></html>"""
             if inp.get(flag) is True:
                 ctx[key] = True
 
+        # tier -1 PRE-FLIGHT (Change 4): compute local flags + read geometry, and
+        # fold them into ctx so BOTH the SAXS and WAXS gates surface refusals with
+        # named remedies. Unknown -> the gate refuses ("measured, not assumed").
+        geo = self._read_reduction_geometry(project_root)
+        ctx.update(self._preflight_state(q, I, sigma, cand, geo, inp))
+
         # `detector` = which file to load; `modality` = which analysis applies.
         # They are INDEPENDENT: a SAXS detector routinely records Bragg peaks, so
         # detector=SAXS -> modality=waxs/both is correct, not a bug. Name both.
@@ -2155,9 +2492,17 @@ Experiment data was not modified.</p></body></html>"""
             return json.dumps(payload, indent=2)[:_MAX_TOOL_RESULT_CHARS], None
 
         # SAXS or BOTH: run the SAXS model-free pass; gate the SAXS ladder.
+        # run_tier1 only carries a fixed set of ctx keys into its state, so merge the
+        # tier -1 pre-flight flags back in for the gate (they don't affect the math).
         t1 = _G.run_tier1(q, I, sigma, context=ctx)
+        _pf_keys = ("q_convention_settled", "geometry_ok", "subtraction_sane",
+                    "damage_checked", "low_q_triaged", "high_q_tail_excluded",
+                    "detector_gaps_checked", "conc_effects_considered",
+                    "monodispersity_acknowledged", "plot_conventions_ok",
+                    "uncertainties_present")
+        gate_state = {**t1["state"], **{k: ctx[k] for k in _pf_keys if k in ctx}}
         entries = _G.load_guideline("saxs")["doc"]["entries"]
-        gated = _G.gate_entries(entries, t1["state"])
+        gated = _G.gate_entries(entries, gate_state)
         payload = {
             "file": Path(cand["path"]).name,
             "detector": det,
@@ -2169,6 +2514,8 @@ Experiment data was not modified.</p></body></html>"""
             "gated": {"proposable": gated["proposable"],
                       "refused": gated["refused"]},
         }
+        if geo:
+            payload["geometry"] = geo   # surfaces any config-vs-poni disagreement
         if detected == "both":
             payload["note"] = ("SWAXS: sharp Bragg peaks are also present — treat "
                                "the high-q peak region as WAXS separately; the SAXS "
@@ -2624,6 +2971,68 @@ Experiment data was not modified.</p></body></html>"""
             return f"Unknown action: {action}", None
         except Exception as exc:
             return f"group_sops failed: {exc}", None
+
+    def _tool_manage_corrections(self, inp: dict, user_id: str) -> tuple[str, None]:
+        """Durable authoritative corrections (Change 4). add/propose/confirm/list/remove.
+        Effective NEXT turn (they ride the mtime-cached static prefix)."""
+        mem = self._get_memory(user_id)
+        if mem is None:
+            return "Memory system unavailable — cannot manage corrections.", None
+        action = (inp.get("action") or "list").lower()
+        try:
+            if action == "list":
+                rows = mem.load_authoritative_corrections(include_archived=False)
+                if not rows:
+                    return "No corrections recorded yet.", None
+                return json.dumps([{
+                    "id": r.get("id"), "status": r.get("status"),
+                    "scope": r.get("scope"), "wrong": r.get("wrong"),
+                    "right": r.get("right"), "overrides": r.get("overrides", []),
+                    "author": r.get("author"), "ts": r.get("ts"),
+                } for r in rows], indent=2), None
+
+            if action in ("add", "propose"):
+                wrong = (inp.get("wrong") or "").strip()
+                right = (inp.get("right") or "").strip()
+                if not (wrong and right):
+                    return "Provide both `wrong` and `right` for the correction.", None
+                e = mem.add_correction(
+                    wrong=wrong, right=right,
+                    scope=inp.get("scope", "global"),
+                    overrides=inp.get("overrides") or [],
+                    author=user_id,
+                    proposed=(action == "propose"),
+                )
+                if action == "propose":
+                    return (f"Proposed correction {e['id']} (scope {e['scope']}). It is "
+                            "NOT authoritative yet — the operator must confirm it "
+                            f"(manage_corrections confirm id={e['id']})."), None
+                over = (f" It overrides {', '.join(e['overrides'])}."
+                        if e.get("overrides") else "")
+                return (f"Recorded authoritative correction {e['id']} (scope "
+                        f"{e['scope']}).{over} It takes effect next turn and outranks "
+                        "package docs and knowledge.md."), None
+
+            if action == "confirm":
+                ident = (inp.get("id") or "").strip()
+                if not ident:
+                    return "Provide the correction `id` to confirm.", None
+                r = mem.confirm_correction(ident)
+                return ((f"Confirmed {ident} — now authoritative from next turn."
+                         if r else
+                         f"No PROPOSED correction with id '{ident}' to confirm.")), None
+
+            if action == "remove":
+                ident = (inp.get("id") or "").strip()
+                if not ident:
+                    return "Provide the correction `id` to remove.", None
+                ok = mem.remove_correction(ident)
+                return ((f"Archived correction {ident}." if ok else
+                         f"No active correction with id '{ident}'.")), None
+
+            return f"Unknown action: {action}", None
+        except Exception as exc:
+            return f"manage_corrections failed: {exc}", None
 
     # ── Proactive hints ───────────────────────────────────────────────────────
 
