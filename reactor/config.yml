@@ -349,7 +349,9 @@ spec:
 #                 regardless of temperature. Use when no thermocouple is
 #                 connected to this machine.
 arming:
-  default_mode:   "timed"     # "temperature" or "timed"
+  default_mode:   "temperature"  # "temperature" or "timed" — default is temperature-gated
+                                 # (matches the UI default and controller._arm_mode); use
+                                 # "timed" only when no thermocouple is wired to this machine
   default_wait_s: 120.0       # s: wait in timed mode when a recipe omits arm_wait_s
 
 # ── Run lifecycle ────────────────────────────────────────────────────────────

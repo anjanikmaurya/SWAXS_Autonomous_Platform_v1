@@ -39,7 +39,7 @@ from src.manifest import (                                        # noqa: E402
     manifest_path_for, make_provenance,
 )
 from src.runstate import (save_monitor, load_monitor, monitor_alive,      # noqa: E402
-                          save_state, load_state)
+                          save_state, load_state, state_path)
 
 # ── Event bus (graceful degradation) ─────────────────────────────────────────
 try:
@@ -193,6 +193,64 @@ _TRUNC = {
     "spacing":  "linear",    # "linear" | "log"
     "q_unit":   "A",         # "A" (Å⁻¹) | "nm" (nm⁻¹)
 }
+
+
+# _TRUNC used to be pure in-memory session state (reset to defaults on every
+# restart), yet it shapes EVERY subtracted .dat. A restart silently reverted the
+# grid while the panel still showed the operator's values → wrong q-window/unit
+# (radius 10× off, PDI ~2× biased) with nothing on screen to say so. So persist it,
+# and RESTORE it unconditionally (honour_no_resume=False) — restoring VALUES is
+# decoupled from resuming the monitor loop (which stays behind the resume policy).
+_TRUNC_STATE = "background_truncation"
+#: Two-tier restart notice for the UI banner. "restored" = grid came back (calm);
+#: "lost" = a saved grid could not be restored so files write on defaults (loud);
+#: "none" = fresh start (the module defaults are what the panel already shows) → no banner.
+_TRUNC_NOTICE = {"level": "none", "message": "", "params": []}
+
+
+def _save_trunc() -> None:
+    """Persist the ML truncation grid so it is not silently reset on restart. Never raises."""
+    root = _state_root()
+    if not root:
+        return
+    try:
+        save_state(root, _TRUNC_STATE, dict(_TRUNC))
+    except Exception:
+        pass
+
+
+def _restore_trunc() -> None:
+    """Restore the truncation grid unconditionally and set the restart notice.
+    Idempotent — safe to call from both set_project and the boot thread."""
+    global _TRUNC_NOTICE
+    root = _state_root()
+    if not root:
+        return
+    try:
+        p = state_path(root, _TRUNC_STATE)
+        existed = bool(p and p.is_file())
+        st = load_state(root, _TRUNC_STATE, max_age_s=48 * 3600, honour_no_resume=False)
+        if st:
+            for k in ("enabled", "q_min", "q_max", "n_points", "spacing", "q_unit"):
+                if k in st and st[k] is not None:
+                    _TRUNC[k] = st[k]
+            _TRUNC_NOTICE = {
+                "level": "restored",
+                "message": "The ML truncation grid was restored from your last "
+                           "session. Review it before subtracting.",
+                "params": ["truncation grid"]}
+        elif existed:
+            _TRUNC_NOTICE = {
+                "level": "lost",
+                "message": "The saved ML truncation grid could NOT be restored (too "
+                           "old or unreadable). Every subtracted file will be written "
+                           "on the DEFAULT grid (0.03–0.6 Å⁻¹, 549 pts, linear) — set "
+                           "it before subtracting.",
+                "params": ["q-range / points / unit"]}
+        # else: nothing saved — a fresh start. The module defaults ARE what the
+        # panel shows via initTrunc, so displayed==written already; no banner.
+    except Exception:
+        pass
 
 
 def _trunc_q_label() -> str:
@@ -599,6 +657,7 @@ def api_truncation():
         if str(d.get("q_unit", "")).strip():
             u = "A" if str(d["q_unit"]).lower().startswith("a") else "nm"
             _TRUNC["q_unit"] = u
+        _save_trunc()          # persist so a restart restores it, never silently resets
     return jsonify(dict(_TRUNC))
 
 
@@ -609,7 +668,16 @@ def set_project():
     path = body.get("path", "").strip()
     if path and Path(path).is_dir():
         _project_root = path
+        _restore_trunc()      # project root now known → restore the persisted grid
     return jsonify({"ok": True})
+
+
+@app.route("/api/restart_notice")
+def api_restart_notice():
+    """Whether the truncation grid was restored, lost, or this is a fresh start —
+    the UI renders a two-tier banner so the written grid never silently diverges
+    from what the panel shows."""
+    return jsonify(_TRUNC_NOTICE)
 
 
 @app.route("/api/project")
@@ -1602,6 +1670,9 @@ def _persist_monitor_state(resp):
 
 def _boot_resume_monitor() -> None:
     time.sleep(2.0)                      # let the hub push the project folder first
+    # Restore the truncation grid regardless of whether the monitor resumes — the
+    # grid shapes every written file and must not silently revert to defaults.
+    _restore_trunc()
     try:
         params = load_monitor(_state_root(), _MON_APP)
         if not params:
@@ -1624,6 +1695,12 @@ def _boot_resume_monitor() -> None:
     except Exception as exc:
         _sub_emit(f"⚠  auto-processing resume failed: {exc}", "warn")
 
+
+# Restore the persisted truncation grid at import, so it is ready before the first
+# request (the hub sets SWAXS_PROJECT in our env). set_project and the boot thread
+# call it again idempotently once the project folder is confirmed. This is a VALUE
+# restore, deliberately NOT gated by the monitor-resume policy.
+_restore_trunc()
 
 if os.environ.get("SWAXS_NO_WATCH", "").strip().lower() not in ("1", "true", "yes"):
     threading.Thread(target=_boot_resume_monitor, daemon=True).start()

@@ -100,6 +100,12 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
 .arm-opt input[type=number]{width:72px}
 .arm-unit{font-size:var(--fs-xs);color:var(--muted)}
 .tstep{font-size:var(--fs-xs);font-weight:700;color:var(--accent);letter-spacing:.02em;margin-bottom:6px}
+/* Restart notice — two visually distinct tiers so a genuine loss stays loud */
+.restart-banner{display:none;padding:10px 16px;border-bottom:1px solid var(--border);line-height:1.4}
+.restart-banner.show{display:block}
+.restart-banner.restored{background:rgba(56,132,255,.12);color:var(--accent);border-bottom-color:var(--accent)}
+.restart-banner.lost{background:rgba(220,60,60,.15);color:var(--err);font-weight:700;border-bottom:2px solid var(--err)}
+.restart-banner .rb-x{float:right;cursor:pointer;opacity:.6;font-weight:700;margin-left:12px}
 </style>
 </head>
 <body>
@@ -114,6 +120,11 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
       <button type="button" id="bk-mock" onclick="setBackend('mock')">Mock</button>
       <button type="button" id="bk-real" onclick="setBackend('real')">Real</button>
     </span></span>
+</div>
+
+<div class="restart-banner" id="restartBanner">
+  <span class="rb-x" onclick="this.parentElement.classList.remove('show')">✕</span>
+  <span id="restartBannerMsg"></span>
 </div>
 
 <div class="wrap">
@@ -155,12 +166,12 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
       <div class="tstep">1 · Start the pumps</div>
       <label style="display:block;margin-bottom:4px">Start pumps when…</label>
       <div class="arm-opt">
-        <label class="toggle"><input type="radio" name="arm_mode" value="timed" checked onchange="armModeChange()"> after a fixed wait of</label>
+        <label class="toggle"><input type="radio" name="arm_mode" value="timed" onchange="armModeChange()"> after a fixed wait of</label>
         <input type="number" id="arm_wait_s" value="120" step="1" min="0" onchange="pushRunSettings()">
         <span class="arm-unit">s</span>
       </div>
       <div class="arm-opt">
-        <label class="toggle"><input type="radio" name="arm_mode" value="temperature" onchange="armModeChange()"> reactor reaches temperature</label>
+        <label class="toggle"><input type="radio" name="arm_mode" value="temperature" checked onchange="armModeChange()"> reactor reaches temperature</label>
       </div>
       <div class="muted" id="arm-hint" style="font-size:var(--fs-xs);margin-top:4px"></div>
 
@@ -402,6 +413,10 @@ let _autoOn=false, _uiState='';
 async function toggleAuto(){await api('/api/auto_run',{on:!_autoOn});}
 function startClicked(){ post(_uiState==='arming' ? '/api/start_now' : '/api/start'); }
 async function pushRunSettings(){
+  // Don't push until the fields have been reflected from server truth on load,
+  // otherwise the initial armModeChange() would overwrite RESTORED values with
+  // the HTML defaults before the operator has seen them.
+  if(!window._rsInit) return;
   const mode=document.querySelector('input[name="arm_mode"]:checked');
   await api('/api/run_settings',{
     arm_mode: mode?mode.value:'',
@@ -703,11 +718,22 @@ function render(st){
   const _ab=$('autoBtn');
   if(_ab){_ab.textContent=st.auto_run?'⏸ Stop autonomous':'▶ Run autonomously';
           _ab.className='btn '+(st.auto_run?'btn-warn':'btn-ok');}
-  // populate the duration field once from the current setting (don't clobber edits)
-  if(!window._durInit){ window._durInit=true;
-    if($('run_duration').value.trim()==='' && st.run_duration_setting!=null)
-      $('run_duration').value=Math.round(st.run_duration_setting);
-    if(st.flush_pump) $('flush_pump').value=st.flush_pump; }
+  // Reflect the EFFECTIVE run settings from the server ONCE on load, so every
+  // field shows what a run would actually use (restored value or config default)
+  // — never a stale value or an HTML default that silently diverges. After this
+  // the operator's edits push normally and reflection won't re-clobber them.
+  if(!window._rsInit && st.run_settings){
+    const rs=st.run_settings;
+    const r=document.querySelector('input[name="arm_mode"][value="'+rs.arm_mode+'"]');
+    if(r) r.checked=true;
+    if(rs.arm_wait_s!=null)     $('arm_wait_s').value=Math.round(rs.arm_wait_s);
+    if(rs.run_duration!=null)   $('run_duration').value=Math.round(rs.run_duration);
+    if(rs.flush_rate!=null)     $('flush_rate').value=rs.flush_rate;
+    if(rs.flush_duration!=null) $('flush_duration').value=Math.round(rs.flush_duration);
+    if(rs.flush_pump)           $('flush_pump').value=rs.flush_pump;
+    armModeChange();            // sync disabled+hint (push suppressed: _rsInit still false)
+    window._rsInit=true;        // reflection done — edits now push; reflect won't run again
+  }
   // populate the data-collection fields once from config
   if(!window._specInit && st.spec){ window._specInit=true; const sp=st.spec;
     $('spec_exposure').value=sp.exposure_s; $('spec_frames').value=sp.frames;
@@ -791,6 +817,18 @@ const es=new EventSource('/api/stream');
 es.onmessage=e=>{try{const d=JSON.parse(e.data);if(d.status)render(d.status);if(d.logs&&d.logs.length)logLines(d.logs);}catch(_){}};
 armModeChange();
 loadCondFolder();
+async function showRestartNotice(){
+  try{
+    const n=await (await fetch('/api/restart_notice')).json();
+    if(!n||!n.level||n.level==='none') return;   // fresh start → stay quiet
+    const b=$('restartBanner');
+    b.className='restart-banner show '+n.level;   // .restored (calm) | .lost (loud)
+    let msg=n.message||'';
+    if(n.params&&n.params.length) msg+=' ('+n.params.join(', ')+')';
+    $('restartBannerMsg').textContent=(n.level==='lost'?'⚠ ':'♻ ')+msg;
+  }catch(_){}
+}
+showRestartNotice();
 </script>
 </body>
 </html>

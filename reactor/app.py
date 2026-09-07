@@ -271,20 +271,56 @@ def _save_run_settings(d: dict) -> None:
         pass
 
 
+#: Restart notice for the UI banner. Two tiers, deliberately distinct:
+#:   "restored" — last session's values came back; a calm "review before running".
+#:   "lost"     — a saved file existed but could NOT be restored (too old/unreadable),
+#:                so a run would use CONFIG DEFAULTS; a loud warning naming what reset.
+#: "none" = genuine fresh start (nothing saved) — no banner, so the banner stays
+#: meaningful instead of firing on every restart.
+_RESTART_NOTICE: dict = {"level": "none", "message": "", "params": []}
+
+
 def _restore_run_settings() -> None:
-    """Re-apply the operator's own run settings after a restart."""
+    """Re-apply the operator's own run settings after a restart.
+
+    RESTORING VALUES is decoupled from RESUMING the loop: settings are read
+    unconditionally (``honour_no_resume=False``) so the displayed/executed values
+    match after any restart, while AUTO-RUN stays behind the resume policy and the
+    human Start (see ``_restore_auto_run``). Without this the restore code ran
+    only under SWAXS_RESUME=1 and was inert on a normal restart — the reactor
+    silently reverted to config defaults while the UI showed the old values."""
+    global _RESTART_NOTICE
     try:
-        from src.runstate import load_state
-        st = load_state(_project_root, _RUN_SETTINGS_STATE, max_age_s=48 * 3600)
-        if not st:
-            return
+        from src.runstate import load_state, state_path
+        p = state_path(_project_root, _RUN_SETTINGS_STATE)
+        existed = bool(p and p.is_file())
+        st = load_state(_project_root, _RUN_SETTINGS_STATE, max_age_s=48 * 3600,
+                        honour_no_resume=False)
         # drop runstate's own bookkeeping keys (_saved_at) before replaying
-        st = {k: v for k, v in st.items() if not k.startswith("_") and v is not None}
-        if not st:
-            return
-        _ctrl.set_run_settings(st)
-        _emit("♻  run settings restored: "
-              + ", ".join(f"{k}={v}" for k, v in sorted(st.items())), "ok")
+        if st:
+            st = {k: v for k, v in st.items()
+                  if not k.startswith("_") and v is not None}
+        if st:
+            _ctrl.set_run_settings(st)
+            _RESTART_NOTICE = {
+                "level": "restored",
+                "message": "Run settings were restored from your last session. "
+                           "Review arm mode, run duration and flush before starting.",
+                "params": sorted(st.keys())}
+            _emit("♻  run settings restored: "
+                  + ", ".join(f"{k}={v}" for k, v in sorted(st.items())), "ok")
+        elif existed:
+            # A saved file was there but load_state refused it (stale >48 h or
+            # unreadable). Do NOT silently run on defaults — shout, and name it.
+            _RESTART_NOTICE = {
+                "level": "lost",
+                "message": "Saved run settings could NOT be restored (too old or "
+                           "unreadable). The reactor is on CONFIG DEFAULTS — set "
+                           "arm mode, run duration and flush before starting.",
+                "params": ["arm_mode", "run_duration", "flush_rate", "flush_duration"]}
+            _emit("⚠ saved run settings could not be restored — running on config "
+                  "defaults; set them before starting", "warn")
+        # else: nothing was ever saved — a genuine fresh start, no banner.
     except Exception as exc:
         _emit(f"⚠ could not restore the run settings: {exc}", "warn")
 
@@ -747,6 +783,13 @@ def api_tare():
 @app.route("/api/status")
 def api_status():
     return jsonify(_ctrl.status())
+
+
+@app.route("/api/restart_notice")
+def api_restart_notice():
+    """Whether run settings were restored, lost, or this is a fresh start — the
+    UI renders a two-tier banner from this so displayed never silently != executed."""
+    return jsonify(_RESTART_NOTICE)
 
 
 @app.route("/api/stream")
