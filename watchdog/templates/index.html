@@ -633,22 +633,30 @@ html,body {
 
     <div class="charts-grid">
       <div class="card">
-        <div class="card-hd">📈 Throughput — reduced frames, last 24 h</div>
+        <div class="card-hd">📈 Throughput
+          <span class="hd-note">frames reduced per hour (count/h) vs. hour of day, last 24 h</span>
+        </div>
         <div class="chart-area" id="plot-throughput"></div>
       </div>
       <div class="card">
-        <div class="card-hd">⏱ Stage latency — polling wait vs. compute (collect excluded)</div>
+        <div class="card-hd">⏱ Slowest step in the loop
+          <span class="hd-note">median seconds a file spends in each stage, last 6 h — longest bar is the bottleneck</span>
+        </div>
         <div class="chart-area" id="plot-stage-duration"></div>
       </div>
     </div>
 
     <div class="charts-grid">
       <div class="card">
-        <div class="card-hd">📦 Pipeline funnel — files per stage</div>
+        <div class="card-hd">📦 Pipeline funnel
+          <span class="hd-note">files produced (cumulative count) per stage, in pipeline order</span>
+        </div>
         <div class="chart-area" id="plot-queue-bar"></div>
       </div>
       <div class="card">
-        <div class="card-hd">🎯 Run outcomes — size vs confidence</div>
+        <div class="card-hd">🎯 Run outcomes
+          <span class="hd-note">particle diameter (nm) vs. fit number — colour = confidence (0–1), size ∝ PDI</span>
+        </div>
         <div class="chart-area" id="plot-run-scatter"></div>
       </div>
     </div>
@@ -777,6 +785,14 @@ const PLOT_CFG = {responsive: true, displaylogo: false, displayModeBar: false};
 // all four in sequence with no guard, so a single bad trace (an unexpected
 // null, a missing div) threw and every chart after it in the function was
 // never drawn — which is why plots failed in groups rather than individually.
+// Seconds, but readable at a glance: 47s / 3m 20s / 1h 04m.
+function _fmtSecs(s) {
+  if (s == null) return '—';
+  if (s < 90) return `${s.toFixed(s < 10 ? 1 : 0)}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ${String(Math.round(s % 60)).padStart(2, '0')}s`;
+  return `${Math.floor(s / 3600)}h ${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}m`;
+}
+
 function safeReact(id, traces, layout) {
   const el = document.getElementById(id);
   if (!el) return;
@@ -1008,48 +1024,67 @@ function updateCharts() {
     type: 'scatter', mode: 'lines', fill: 'tozeroy',
     line: {color: P.primary, width: 3, shape: 'spline', smoothing: 1.1},
     fillcolor: P.fill,
-    hovertemplate: '%{y} files at %{x}<extra></extra>',
-  }], themedLayout({}));
+    hovertemplate: '%{x} — %{y} frames reduced<extra></extra>',
+  }], themedLayout({
+    margin: {t: 12, l: 58, r: 12, b: 48},
+    xaxis: {title: {text: 'hour of day (local, last 24 h)', font: {size: 11, color: P.fg}}},
+    yaxis: {title: {text: 'frames reduced (count / h)', font: {size: 11, color: P.fg}}},
+  }));
 
   // collect is deliberately excluded — its duration is exposure time, not
   // pipeline overhead, and mixing it in makes the real waste look normal.
+  // One bar per stage: the MEDIAN seconds one file spends in that stage,
+  // measured input-ready → output-written, over the last 6 h. Median (not
+  // mean) and a 6 h window because the mean was dominated by files processed
+  // hours after they were created — a monitor started late, a re-run batch,
+  // a restart — which is not the pipeline being slow. p90 rides in the hover.
+  // The longest bar is the slowest step in the loop; that is the whole point.
   const sl = (_metrics.pipeline && _metrics.pipeline.stage_latency) || {};
-  const waitX = [], computeX = [], latAnnotations = [];
+  const STAGE_LABEL = {
+    reduce: 'reduce  (2D→1D)', average: 'average  (scans)',
+    subtract: 'subtract  (bkg)', fit: 'fit  (analyzer)',
+  };
+  const latY = [], latX = [], latHover = [], latColor = [], latAnnotations = [];
+  const latMax = Math.max(...STAGE_LATENCY_NAMES
+    .map(s => (sl[s] && sl[s].latency_s) || 0), 1);
   STAGE_LATENCY_NAMES.forEach(s => {
     const d = sl[s] || {};
+    const label = STAGE_LABEL[s] || s;
+    latY.push(label);
     if (d.latency_s == null) {
-      // Genuinely no completed sample yet — never draw a zero bar for this.
-      waitX.push(null); computeX.push(null);
-      latAnnotations.push({x: 0, y: s, xanchor: 'left', showarrow: false,
-                            text: 'no data yet', font: {size: 11, color: P.fg}});
+      // No completed file in the window — never draw a zero bar for this.
+      latX.push(null);
+      latColor.push(P.warning);
+      latHover.push('');
+      latAnnotations.push({x: 0, y: label, xanchor: 'left', showarrow: false,
+                            text: '  no file completed in the last 6 h',
+                            font: {size: 11, color: P.fg}, opacity: 0.8});
       return;
     }
-    waitX.push(d.wait_s || 0);
-    if (d.compute_s == null) {
-      computeX.push(null);
-      latAnnotations.push({x: d.wait_s || 0, y: s, xanchor: 'left', showarrow: false,
-                            text: '  compute not reported', font: {size: 11, color: P.fg}});
-    } else {
-      computeX.push(d.compute_s);
-    }
+    latX.push(d.latency_s);
+    // Colour the slowest step so it reads at a glance from across the hutch.
+    latColor.push(d.latency_s >= latMax ? P.secondary : P.warning);
+    const compute = d.compute_s == null
+      ? 'compute: not reported by the stage'
+      : `of which compute: ${d.compute_s}s`;
+    latHover.push(`median ${d.latency_s}s · p90 ${d.p90_s}s · n=${d.n}<br>${compute}`);
+    latAnnotations.push({x: d.latency_s, y: label, xanchor: 'left', showarrow: false,
+                          text: `  ${_fmtSecs(d.latency_s)}  (n=${d.n})`,
+                          font: {size: 11, color: P.fg}});
   });
-  safeReact('plot-stage-duration', [
-    {
-      x: waitX, y: STAGE_LATENCY_NAMES, name: 'polling wait',
-      type: 'bar', orientation: 'h',
-      marker: {color: P.warning, line: {color: P.barEdge, width: 1}},
-      hovertemplate: '%{y} wait: %{x:.1f}s<extra></extra>',
-    },
-    {
-      x: computeX, y: STAGE_LATENCY_NAMES, name: 'compute',
-      type: 'bar', orientation: 'h',
-      marker: {color: P.success, line: {color: P.barEdge, width: 1}},
-      hovertemplate: '%{y} compute: %{x:.2f}s<extra></extra>',
-    },
-  ], themedLayout({
-    barmode: 'stack', showlegend: true,
-    legend: {orientation: 'h', y: 1.18, font: {size: 10, color: P.fg}},
+  safeReact('plot-stage-duration', [{
+    x: latX, y: latY,
+    type: 'bar', orientation: 'h',
+    marker: {color: latColor, line: {color: P.barEdge, width: 1}},
+    customdata: latHover,
+    hovertemplate: '%{y}<br>%{customdata}<extra></extra>',
+  }], themedLayout({
+    margin: {t: 12, l: 118, r: 120, b: 48},
     annotations: latAnnotations,
+    xaxis: {title: {text: 'median time per file (seconds)', font: {size: 11, color: P.fg}},
+            rangemode: 'tozero', range: [0, latMax * 1.45]},
+    yaxis: {title: {text: 'pipeline stage', font: {size: 11, color: P.fg}},
+            autorange: 'reversed'},
   }));
 
   // Pipeline funnel: how many files have reached each stage (cumulative — each
@@ -1064,8 +1099,13 @@ function updateCharts() {
              line: {color: P.barEdge, width: 1}},
     text: funnelY.map(String), textposition: 'outside',
     textfont: {size: 12, color: P.fg}, cliponaxis: false,
-    hovertemplate: '%{x}: %{y}<extra></extra>',
-  }], themedLayout({margin: {t: 20, l: 44, r: 12, b: 34}, yaxis: {rangemode: 'tozero'}}));
+    hovertemplate: '%{x}: %{y} files<extra></extra>',
+  }], themedLayout({
+    margin: {t: 24, l: 58, r: 12, b: 48},
+    xaxis: {title: {text: 'pipeline stage (in order)', font: {size: 11, color: P.fg}}},
+    yaxis: {title: {text: 'files produced (cumulative count)', font: {size: 11, color: P.fg}},
+            rangemode: 'tozero'},
+  }));
 
   // Runs arrive ordered by the manifest's updated_at, and fits with no size are
   // omitted server-side rather than sent as 0 nm (which drew a row of points on
@@ -1095,9 +1135,14 @@ function updateCharts() {
         line: {color: P.surface, width: 1.5}, opacity: 0.9,
       },
       hovertemplate: '%{customdata[2]}<br>%{y:.2f} nm diameter'
-                     + '<br>PDI %{customdata[0]:.3f} · conf %{customdata[1]:.2f}<extra></extra>',
-    }], themedLayout({margin: {t: 12, l: 44, r: 70, b: 34},
-                      yaxis: {title: {text: 'diameter (nm)', font: {size: 11, color: P.fg}}}}));
+                     + '<br>PDI %{customdata[0]:.3f} · conf %{customdata[1]:.2f}'
+                     + '<br>marker size ∝ PDI<extra></extra>',
+    }], themedLayout({
+      margin: {t: 12, l: 58, r: 76, b: 48},
+      xaxis: {title: {text: 'fit number (chronological, oldest → newest)',
+                      font: {size: 11, color: P.fg}}},
+      yaxis: {title: {text: 'particle diameter (nm)', font: {size: 11, color: P.fg}}},
+    }));
   }
 
   ['cpu', 'mem', 'disk'].forEach(key => {

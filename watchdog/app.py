@@ -188,24 +188,46 @@ def _input_mtime(path, before: float) -> float | None:
     return newest
 
 
+def _median(xs: list[float]) -> float:
+    s = sorted(xs)
+    n = len(s)
+    return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2.0
+
+
+def _pct(xs: list[float], p: float) -> float:
+    s = sorted(xs)
+    return s[min(len(s) - 1, max(0, int(round(p * (len(s) - 1)))))]
+
+
 def _summarize_latency(latencies: list[float], computes: list[float]) -> dict:
-    """latency_s=None means genuinely no completed sample yet — the caller
-    must render that as "no data yet", never as a zero-height bar.
-    compute_s=None means latency IS known but no stage reported duration_ms —
-    render as a wait-only bar labeled "compute not reported", again never 0.
+    """Per-file handoff time for one stage, in SECONDS.
+
+    Reports the MEDIAN, not the mean. The mean was dominated by outliers that
+    are not the pipeline being slow at all: a file subtracted hours after it
+    was averaged because the operator started the monitor late, re-ran a
+    batch, or restarted the app. One of those turned the subtract bar into
+    ~10 000 s and made the chart unreadable and untrue. The median over recent
+    files answers the question the chart is for — which step is slowest —
+    and p90_s carries the tail so a real slowdown is still visible.
+
+    latency_s=None means genuinely no completed file yet: the caller must
+    render "no data yet", never a zero-height bar.
+    compute_s=None means the time IS known but no stage reported duration_ms,
+    so the whole bar is wait.
     """
     if not latencies:
-        return {"latency_s": None, "compute_s": None, "wait_s": None, "n": 0}
-    n = len(latencies)
-    avg_latency = sum(latencies) / n
+        return {"latency_s": None, "compute_s": None, "wait_s": None,
+                "p90_s": None, "n": 0}
+    med = _median(latencies)
+    p90 = _pct(latencies, 0.90)
     if computes:
-        avg_compute = round(sum(computes) / len(computes), 2)
-        avg_wait = round(max(avg_latency - avg_compute, 0.0), 1)
+        med_compute = round(_median(computes), 2)
+        med_wait = round(max(med - med_compute, 0.0), 1)
     else:
-        avg_compute = None
-        avg_wait = round(avg_latency, 1)
-    return {"latency_s": round(avg_latency, 1), "compute_s": avg_compute,
-            "wait_s": avg_wait, "n": n}
+        med_compute = None
+        med_wait = round(med, 1)
+    return {"latency_s": round(med, 1), "compute_s": med_compute,
+            "wait_s": med_wait, "p90_s": round(p90, 1), "n": len(latencies)}
 
 
 #: manifest["files"] stage name for each pipeline stage this chart covers.
@@ -218,6 +240,12 @@ _LATENCY_FILE_STAGE = {"reduce": "reduced", "average": "averaged", "subtract": "
 #: so an overnight manifest must not dilute it with thousands of old files —
 #: and the scan costs a stat() per entry, which is why it is bounded.
 _LATENCY_SAMPLE_N = 60
+
+#: Only outputs written within this many hours count. Without it the chart
+#: mixes "the pipeline waited" with "this file was processed long after it was
+#: created" — a monitor started late, a re-run batch, an app restart — and
+#: those gaps are hours, so they swamped the real per-file times.
+_LATENCY_WINDOW_H = 6.0
 
 
 def _nanoparticle_analyses(manifest: dict) -> list:
@@ -250,6 +278,7 @@ def _stage_latency(manifest: dict) -> dict:
     """
     result: dict = {}
     durations = _duration_index()
+    cutoff = _time.time() - _LATENCY_WINDOW_H * 3600.0
 
     # Newest entries first, then bounded: the chart wants the CURRENT wait, and
     # an all-night manifest otherwise buries today's numbers under thousands of
@@ -262,7 +291,7 @@ def _stage_latency(manifest: dict) -> dict:
             if entry.get("stage") != file_stage:
                 continue
             out_mtime = _mtime(entry.get("path"))
-            if out_mtime is None:
+            if out_mtime is None or out_mtime < cutoff:
                 continue
             inputs = (entry.get("provenance") or {}).get("input_files") or []
             in_mtimes = [t for t in (_input_mtime(p, out_mtime) for p in inputs)
@@ -285,6 +314,8 @@ def _stage_latency(manifest: dict) -> dict:
         try:
             out_ts = datetime.fromisoformat(entry.get("updated_at", "")).timestamp()
         except (ValueError, TypeError):
+            continue
+        if out_ts < cutoff:
             continue
         in_mtime = _mtime(entry.get("file_path"))
         if in_mtime is None:
