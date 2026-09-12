@@ -52,6 +52,13 @@ SRC_MODULES = {
     "src.reduction.core":           "src/reduction/core.py",
     "src.reduction.process_metadata": "src/reduction/process_metadata.py",
     "src.reduction.read_raw_file":  "src/reduction/read_raw_file.py",
+    "src.watchdog.settings":        "src/watchdog/settings.py",
+    "src.watchdog.transport":       "src/watchdog/transport.py",
+    "src.watchdog.policy":          "src/watchdog/policy.py",
+    "src.watchdog.messages":        "src/watchdog/messages.py",
+    "src.watchdog.expectations":    "src/watchdog/expectations.py",
+    "src.watchdog.probes":          "src/watchdog/probes.py",
+    "src.watchdog.diagnose":        "src/watchdog/diagnose.py",
 }
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -717,7 +717,13 @@ def _avg_monitor_loop(dets, n_per_batch, interval, i0_filter_pct,
                 # subtracted profile, and the only symptom is "averaging seems
                 # slow". It was not slow; it was deadlocked.
                 have = len(todo)
-                if have < n_per_batch:
+                # Only 0 < have < n_per_batch is a genuine "partial batch, waiting
+                # for more" state. have == 0 means either nothing has arrived yet
+                # or a prior batch already consumed everything this group will
+                # ever produce (e.g. a finished recipe) — either way there is no
+                # partial progress to report, so don't leave a have:0 entry
+                # sitting in _avg_pending forever once that becomes true.
+                if 0 < have < n_per_batch:
                     if _avg_pending.get(key) != have:
                         _avg_pending[key] = have
                         _avg_emit(f"…  {kw} [{det}]: {have}/{n_per_batch} frames — "
@@ -907,6 +913,24 @@ def monitor_stop():
     return jsonify({"ok": True})
 
 
+def _gate_snapshot() -> dict:
+    """What every waiting group is still short of, for external monitors.
+
+    The averaging gate ("wait until the group has a full batch") is the single
+    most common place the autonomous loop parks, and from the outside it is
+    indistinguishable from a crash. `_avg_pending` already holds `have` for
+    every group below the threshold — publish it, rather than let a dashboard
+    re-derive the count from the folder and disagree with the app that gates.
+
+    Snapshot the dict: the monitor thread mutates it while this request runs.
+    """
+    return {
+        "expected": _avg_status.get("frames_per_average"),
+        "waiting": [{"detector": det, "keyword": kw, "have": have}
+                    for (det, kw), have in list(_avg_pending.items())],
+    }
+
+
 @app.route("/api/monitor/status")
 def monitor_status():
     # Report the THREAD, not the flag: a dead worker used to read as healthy.
@@ -915,6 +939,7 @@ def monitor_status():
     return jsonify({**_avg_status,
                     "monitoring": monitor_alive(_avg_monitoring,
                                                 _avg_monitor_thread),
+                    "gate": _gate_snapshot(),
                     "last_settings": _LAST_SETTINGS})
 
 

@@ -27,17 +27,16 @@ Every `app.py` does exactly three things:
 
 If you find yourself writing science or data logic directly in `app.py`, move it to `src/` first.
 
-Known standing violation: the subtraction science still lives in
-`background/app.py` (`_subtract`, `_interpolate_onto`, `_auto_scale`,
-`_qc_metrics`, `truncate_rebin`, `_write_dat`). Tracked as **D3** in
-`docs/audits/OPEN_DEFECTS.md`; the write-up is
-`docs/design/AUTOPILOT_PIPELINE_DESIGN.md` §4.
+The subtraction science (`_subtract`, `_interpolate_onto`, `_auto_scale`,
+`_qc_metrics`, `truncate_rebin`) lives in `src/background/core.py` since
+September 2026 (was defect **D3**). Only `_write_dat` remains in
+`background/app.py`, because it depends on the app's truncation state.
 
 ---
 
 ## Architecture Overview
 
-Hub-and-spoke: one central hub (port 5100) launches and monitors **nine**
+Hub-and-spoke: one central hub (port 5100) launches and monitors **ten**
 independent Flask apps as subprocesses. Every app follows the same pattern —
 `app.py` handles routing, `templates/index.html` is the UI, `knowledge.md` is
 indexed by the AI assistant, and all science/data logic lives in the shared
@@ -56,6 +55,7 @@ SWAXS_Autonomous_Platform_v1/
 ├── analyzer/               # Nanoparticle fit + Bayesian optimizer (5107)
 ├── reactor/                # Flow-synthesis reactor + SPEC/beamline control (5108)
 ├── assistant/              # AI assistant (5109)
+├── watchdog/               # Loop liveness monitor + all platform notifications (5110)
 │       └── each of the above: app.py · templates/index.html · knowledge.md
 │
 ├── src/                    # Shared logic — all apps import from here
@@ -78,7 +78,11 @@ SWAXS_Autonomous_Platform_v1/
 │   ├── beamline/driver.py      # SPEC bServer HTTP + EPICS reads
 │   ├── simulator/              # Mock-only synthetic 2D data: ground_truth · pattern
 │   │                           #   · writer · collector
-│   ├── notify/                 # slack.py · email_notify.py · multi.py
+│   ├── notify/                 # slack.py · email_notify.py · multi.py — legacy,
+│   │                           #   no app imports this since notifications moved
+│   │                           #   to watchdog; kept for tests/tools/notify_test.py
+│   ├── watchdog/               # policy.py · settings.py · transport.py · messages.py
+│   │                           #   · expectations.py · probes.py · diagnose.py
 │   └── ai/                     # assistant.py · knowledge.py · memory.py · hints.py
 │                               #   · plots.py · code_exec.py · loop_advice.py
 │
@@ -97,7 +101,7 @@ SWAXS_Autonomous_Platform_v1/
 
 Ports, in pipeline order: hub 5100 · calibration 5101 · reduction 5102 ·
 average 5103 · background 5104 · quality 5105 · analysis 5106 · analyzer 5107 ·
-reactor 5108 · assistant 5109.
+reactor 5108 · assistant 5109 · watchdog 5110.
 
 The platform moved off the 5000–5009 block in September 2026: on macOS
 Monterey and later, AirPlay Receiver holds port 5000, so the hub could not
@@ -116,12 +120,13 @@ Every app also imports `src.events` (bus) and, if it runs a monitor loop,
 | `calibration` | `src.preprocess` (calib, raw_convert, sftp_sync) |
 | `reduction` | `src.reduction.core` (Experiment, run_pipeline, find_new_raw_files), `src.manifest` |
 | `average` | `src.plot_reduction` (read_folder, average_and_save, average_batch), `src.utils.read_dat_metadata`, `src.loop_naming`, `src.manifest`, `src.reactor.load_config` |
-| `background` | `src.manifest`, `src.utils.read_dat_metadata`, `src.reactor.intake` (decide_intake), `src.loop_naming` |
+| `background` | `src.background.core` (subtraction maths), `src.manifest`, `src.utils.read_dat_metadata`, `src.reactor.intake` (decide_intake), `src.loop_naming` |
 | `quality` | `src.quality` (grade_profile, score_metrics), `src.manifest`, `src.utils.read_dat_metadata` |
 | `analysis` | `src.analysis.core`, `src.analysis.io`, `src.analysis.atsas`, `src.manifest`, `src.utils.read_dat_metadata` |
 | `analyzer` | `src.analysis.nanoparticle`, `src.optimizer` (campaign, io, diagnostics, plots), `src.ai.loop_advice`, `src.reactor.intake`, `src.simulator.ground_truth`, `src.manifest` |
-| `reactor` | `src.reactor` (ReactorController, Recipe, load_config, intake), `src.notify`, `src.manifest` — `src.beamline` only indirectly, via `src/reactor/controller.py` |
+| `reactor` | `src.reactor` (ReactorController, Recipe, load_config, intake), `src.manifest` — `src.beamline` only indirectly, via `src/reactor/controller.py`; no longer imports `src.notify` (moved to watchdog) |
 | `assistant` | `src.ai.assistant`, `src.ai.hints` |
+| `watchdog` | `src.watchdog` (policy, settings, transport, messages, expectations, probes, diagnose), `src.manifest` |
 | `hub` | `src.proc_lifecycle`, `src.manifest`, `yaml`, Flask, optional `flask_sock` |
 
 ---
@@ -139,7 +144,8 @@ python hub/app.py
 
 # Start a single app directly (for development)
 python reduction/app.py             # or average / background / quality / analysis
-                                    #  / analyzer / reactor / assistant / calibration
+                                    #  / analyzer / reactor / assistant / watchdog
+                                    #  / calibration
 ```
 
 Full install instructions for all platforms: [QUICKSTART.md](QUICKSTART.md).
@@ -288,7 +294,7 @@ under `# METADATA INFORMATION (YML FORMAT)` and nothing else.
 
 | Package | Purpose |
 |---|---|
-| `flask` | Web framework for the hub and all nine apps |
+| `flask` | Web framework for the hub and all ten apps |
 | `flask-sock`, `simple-websocket`, `websocket-client` | WebSocket event bus (hub `:5100/ws`) |
 | `pyFAI` | Detector calibration and azimuthal integration |
 | `fabio` | Scientific image I/O (.raw, .edf, .cbf) |
@@ -361,7 +367,7 @@ Encoding failures drop the single event, not the connection.
 | `docs/audits/BEAMLINE_SAFETY_AUDIT.md` | Every SPEC command the platform issues |
 | `docs/REACTOR_SETUP.md`, `_HARDWARE_SETUP.md`, `_MAP.md` | Reactor software, rig, code map |
 | `tools/BEAMLINE_TESTING.md` | Bench-test the beamline before a run |
-| `docs/NOTIFICATIONS.md` | Slack + email run notifications |
+| `docs/NOTIFICATIONS.md` | Watchdog notifications — Slack setup, master switch, message categories |
 | `docs/DESIGN_SYSTEM.md` | Shared UI tokens and per-app conformance |
 | `docs/PARAMETER_SPACE_AND_CONVERGENCE.md` | Optimizer parameter space and convergence |
 | `docs/ERROR_PROPAGATION.md` | How σ(q) is estimated and propagated through reduction, averaging, subtraction and fitting, checked against the SAXS literature |

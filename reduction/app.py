@@ -214,6 +214,13 @@ def _invalidate_experiment():
 _processed_files: set = set()
 _monitoring           = False
 _monitor_thread       = None
+# Guards the check-then-set in monitor_start(): two concurrent POSTs (a UI
+# click racing the boot-time auto-resume, say) could otherwise both pass the
+# "already monitoring" guard before either flips _monitoring, each starting
+# its own _loop() thread — two monitors racing over the same _processed_files
+# set, each seeing files the other hasn't marked yet and reducing (and
+# emitting file.reduced for) the same .raw file twice.
+_monitor_start_lock   = threading.Lock()
 
 # ── N1: the processed set must survive a restart ─────────────────────────────
 # It used to be memory-only, and find_new_raw_files() filters on nothing else,
@@ -269,6 +276,32 @@ def _load_processed() -> None:
                   f"from the previous session", "info")
     except Exception as exc:
         _emit(f"  [state] could not load the processed list: {exc}", "warn")
+
+
+# A .raw that is still being written by the detector must not be reduced (a
+# truncated frame either raises or, worse, integrates to garbage); wait until
+# its mtime has been stable for a moment. A file that keeps failing must not
+# be retried every poll for the rest of the beamtime — give up after a few
+# tries and say so once. Counts are in-memory: a restart gets a fresh chance.
+_SETTLE_S      = 2.0
+_MAX_FAILURES  = 3
+_fail_counts: dict[str, int] = {}
+
+
+def _ready_to_reduce(raw: Path) -> bool:
+    if _fail_counts.get(str(raw), 0) >= _MAX_FAILURES:
+        return False
+    try:
+        return (time.time() - raw.stat().st_mtime) >= _SETTLE_S
+    except OSError:
+        return False        # vanished between glob and stat — pick it up next cycle
+
+
+def _note_failure(raw: Path) -> None:
+    n = _fail_counts.get(str(raw), 0) + 1
+    _fail_counts[str(raw)] = n
+    if n == _MAX_FAILURES:
+        _emit(f"  ⏭  {raw.name}: failed {n}× — skipping until restart or /api/reset", "warn")
 
 
 def _already_reduced(raw_path, out_root) -> bool:
@@ -632,139 +665,152 @@ def _stale_monitor_notice() -> None:
 @app.route("/api/monitor/start", methods=["POST"])
 def monitor_start():
     global _monitoring, _monitor_thread
-    # Refuse only if the worker is ACTUALLY alive. A bare flag check meant that a
-    # monitor whose thread had died reported "Already monitoring" forever, so the
-    # app could never be restarted from the UI (src/runstate.monitor_alive).
-    if monitor_alive(_monitoring, _monitor_thread):
-        return jsonify({"ok": False, "error": "Already monitoring"})
-    if _monitoring:
-        _stale_monitor_notice()
+    # The alive-check, the _monitoring flag, and starting the thread must be
+    # one atomic step — two concurrent POSTs (e.g. a UI click racing the
+    # boot-time auto-resume) could otherwise both see "not running" and each
+    # start its own _loop() thread, both racing over _processed_files.
+    if not _monitor_start_lock.acquire(timeout=5):
+        return jsonify({"ok": False, "error": "Monitor start already in progress"}), 409
+    try:
+        # Refuse only if the worker is ACTUALLY alive. A bare flag check meant
+        # that a monitor whose thread had died reported "Already monitoring"
+        # forever, so the app could never be restarted from the UI
+        # (src/runstate.monitor_alive).
+        if monitor_alive(_monitoring, _monitor_thread):
+            return jsonify({"ok": False, "error": "Already monitoring"})
+        if _monitoring:
+            _stale_monitor_notice()
 
-    data     = request.json or {}
-    config   = data.get("config", {})
-    interval = max(int(data.get("interval", 10)), 1)
-    operator = _current_user(data.get("operator") or config.pop("operator", None))
+        data     = request.json or {}
+        config   = data.get("config", {})
+        interval = max(int(data.get("interval", 10)), 1)
+        operator = _current_user(data.get("operator") or config.pop("operator", None))
 
-    if not config:
-        return jsonify({"ok": False, "error": "No config provided"}), 400
+        if not config:
+            return jsonify({"ok": False, "error": "No config provided"}), 400
 
-    _monitoring = True
-    _emit(f"👁  Monitoring started — checking every {interval} s  ·  Operator: {operator}", "ok")
+        _monitoring = True
+        _emit(f"👁  Monitoring started — checking every {interval} s  ·  Operator: {operator}", "ok")
 
-    def _loop():
-        """
-        Continuous monitor loop designed to run for days without crashing.
+        def _loop():
+            """
+            Continuous monitor loop designed to run for days without crashing.
 
-        Key properties:
-        - Experiment created ONCE at loop start, reused every poll cycle.
-        - Files processed strictly one at a time.
-        - Per-file exceptions are caught and logged; the loop continues.
-        - If the Experiment itself fails, it is recreated on the next cycle
-          (with exponential back-off to avoid rapid retry storms).
-        - gc.collect() is called after every file and every poll cycle.
-        """
-        experiment    = None
-        backoff       = interval   # seconds to wait after a setup error
-        MAX_BACKOFF   = 300        # cap at 5 minutes
+            Key properties:
+            - Experiment created ONCE at loop start, reused every poll cycle.
+            - Files processed strictly one at a time.
+            - Per-file exceptions are caught and logged; the loop continues.
+            - If the Experiment itself fails, it is recreated on the next cycle
+              (with exponential back-off to avoid rapid retry storms).
+            - gc.collect() is called after every file and every poll cycle.
+            """
+            experiment    = None
+            backoff       = interval   # seconds to wait after a setup error
+            MAX_BACKOFF   = 300        # cap at 5 minutes
 
-        while _monitoring:
-            # ── Ensure we have a working Experiment ──────────────────────
-            if experiment is None:
+            while _monitoring:
+                # ── Ensure we have a working Experiment ──────────────────────
+                if experiment is None:
+                    try:
+                        experiment = _get_experiment(config)
+                        backoff = interval   # reset back-off on success
+                        _record_run_meta(experiment.data_directory.parent, operator, "monitor")
+                    except Exception as e:
+                        _emit(f"⚠  Cannot load integrators: {e}", "error")
+                        _emit(f"   Retrying in {backoff} s…", "warn")
+                        time.sleep(backoff)
+                        backoff = min(backoff * 2, MAX_BACKOFF)
+                        continue
+
+                # ── Scan for new files ────────────────────────────────────────
                 try:
-                    experiment = _get_experiment(config)
-                    backoff = interval   # reset back-off on success
-                    _record_run_meta(experiment.data_directory.parent, operator, "monitor")
+                    saxs_new, waxs_new = reduction_core.find_new_raw_files(
+                        config, _processed_files
+                    )
                 except Exception as e:
-                    _emit(f"⚠  Cannot load integrators: {e}", "error")
-                    _emit(f"   Retrying in {backoff} s…", "warn")
-                    time.sleep(backoff)
-                    backoff = min(backoff * 2, MAX_BACKOFF)
+                    _emit(f"⚠  File scan error: {e}", "error")
+                    time.sleep(interval)
                     continue
 
-            # ── Scan for new files ────────────────────────────────────────
-            try:
-                saxs_new, waxs_new = reduction_core.find_new_raw_files(
-                    config, _processed_files
-                )
-            except Exception as e:
-                _emit(f"⚠  File scan error: {e}", "error")
+                # Second defence against re-reducing the whole experiment when the
+                # persisted processed-set is missing/unreadable at boot (fresh clone,
+                # two-laptop move, deleted state dir): skip any .raw whose .dat is
+                # already newer on disk. `_already_reduced` existed and was unit-tested
+                # but was never wired into the live pipeline.
+                _out_root = experiment.output_dir_1d
+                saxs_new = [f for f in saxs_new
+                            if not _already_reduced(f, _out_root) and _ready_to_reduce(f)]
+                waxs_new = [f for f in waxs_new
+                            if not _already_reduced(f, _out_root) and _ready_to_reduce(f)]
+
+                if not saxs_new and not waxs_new:
+                    _emit("  (no new files)", "info")
+                else:
+                    _emit(
+                        f"  New: {len(saxs_new)} SAXS + {len(waxs_new)} WAXS — processing…",
+                        "ok",
+                    )
+                    # Notify event bus of newly discovered raw files
+                    if _bus is not None:
+                        for f in saxs_new:
+                            try:
+                                _bus.emit_watch_new_raw(str(f), "saxs")
+                            except Exception:
+                                pass
+                        for f in waxs_new:
+                            try:
+                                _bus.emit_watch_new_raw(str(f), "waxs")
+                            except Exception:
+                                pass
+
+                # ── Process SAXS files — one at a time ────────────────────────
+                for f in saxs_new:
+                    if not _monitoring:
+                        break
+                    _emit(f"  SAXS  {f.name}", "info")
+                    try:
+                        result = experiment.process_saxs_file(f)   # frees arrays inside
+                        with _processed_lock:
+                            _processed_files.add(str(f))
+                        _emit(reduction_core._fmt_result_line(result), "ok")
+                        _register_reduced(result, f, "saxs", experiment, config, operator)
+                    except Exception as e:
+                        _emit(f"  ✗  {f.name}: {e}", "error")
+                        _note_failure(f)   # single bad file — log, continue, give up after N tries
+                    gc.collect()
+
+                # ── Process WAXS files — one at a time ────────────────────────
+                for f in waxs_new:
+                    if not _monitoring:
+                        break
+                    _emit(f"  WAXS  {f.name}", "info")
+                    try:
+                        result = experiment.process_waxs_file(f)
+                        with _processed_lock:
+                            _processed_files.add(str(f))
+                        _emit(reduction_core._fmt_result_line(result), "ok")
+                        _register_reduced(result, f, "waxs", experiment, config, operator)
+                    except Exception as e:
+                        _emit(f"  ✗  {f.name}: {e}", "error")
+                        _note_failure(f)
+                    gc.collect()
+
+                # ── End-of-cycle cleanup ──────────────────────────────────────
+                # N1: persist the processed set once per CYCLE, not per file — a
+                # restart then resumes where the last completed cycle left off
+                # instead of re-reducing the whole experiment.
+                if saxs_new or waxs_new:
+                    _save_processed()
+                gc.collect()
                 time.sleep(interval)
-                continue
 
-            # Second defence against re-reducing the whole experiment when the
-            # persisted processed-set is missing/unreadable at boot (fresh clone,
-            # two-laptop move, deleted state dir): skip any .raw whose .dat is
-            # already newer on disk. `_already_reduced` existed and was unit-tested
-            # but was never wired into the live pipeline.
-            _out_root = experiment.output_dir_1d
-            saxs_new = [f for f in saxs_new if not _already_reduced(f, _out_root)]
-            waxs_new = [f for f in waxs_new if not _already_reduced(f, _out_root)]
+            _emit("⏹  Monitoring stopped", "warn")
 
-            if not saxs_new and not waxs_new:
-                _emit("  (no new files)", "info")
-            else:
-                _emit(
-                    f"  New: {len(saxs_new)} SAXS + {len(waxs_new)} WAXS — processing…",
-                    "ok",
-                )
-                # Notify event bus of newly discovered raw files
-                if _bus is not None:
-                    for f in saxs_new:
-                        try:
-                            _bus.emit_watch_new_raw(str(f), "saxs")
-                        except Exception:
-                            pass
-                    for f in waxs_new:
-                        try:
-                            _bus.emit_watch_new_raw(str(f), "waxs")
-                        except Exception:
-                            pass
-
-            # ── Process SAXS files — one at a time ────────────────────────
-            for f in saxs_new:
-                if not _monitoring:
-                    break
-                _emit(f"  SAXS  {f.name}", "info")
-                try:
-                    result = experiment.process_saxs_file(f)   # frees arrays inside
-                    with _processed_lock:
-                        _processed_files.add(str(f))
-                    _emit(reduction_core._fmt_result_line(result), "ok")
-                    _register_reduced(result, f, "saxs", experiment, config, operator)
-                except Exception as e:
-                    _emit(f"  ✗  {f.name}: {e}", "error")
-                    # Single bad file — log and continue; don't kill the loop
-                gc.collect()
-
-            # ── Process WAXS files — one at a time ────────────────────────
-            for f in waxs_new:
-                if not _monitoring:
-                    break
-                _emit(f"  WAXS  {f.name}", "info")
-                try:
-                    result = experiment.process_waxs_file(f)
-                    with _processed_lock:
-                        _processed_files.add(str(f))
-                    _emit(reduction_core._fmt_result_line(result), "ok")
-                    _register_reduced(result, f, "waxs", experiment, config, operator)
-                except Exception as e:
-                    _emit(f"  ✗  {f.name}: {e}", "error")
-                gc.collect()
-
-            # ── End-of-cycle cleanup ──────────────────────────────────────
-            # N1: persist the processed set once per CYCLE, not per file — a
-            # restart then resumes where the last completed cycle left off
-            # instead of re-reducing the whole experiment.
-            if saxs_new or waxs_new:
-                _save_processed()
-            gc.collect()
-            time.sleep(interval)
-
-        _emit("⏹  Monitoring stopped", "warn")
-
-    _monitor_thread = threading.Thread(target=_loop, daemon=True)
-    _monitor_thread.start()
-    return jsonify({"ok": True})
+        _monitor_thread = threading.Thread(target=_loop, daemon=True)
+        _monitor_thread.start()
+        return jsonify({"ok": True})
+    finally:
+        _monitor_start_lock.release()
 
 
 @app.route("/api/monitor/stop", methods=["POST"])
@@ -784,6 +830,7 @@ def monitor_status():
 def reset_processed():
     with _processed_lock:
         _processed_files.clear()
+    _fail_counts.clear()
     _save_processed()          # N1: clear the PERSISTED copy too, or a restart
                                # would silently restore what the operator just reset
     _emit("♻  Processed-files list cleared — all files will reprocess on next run", "warn")

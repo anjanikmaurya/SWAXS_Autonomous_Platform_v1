@@ -300,6 +300,7 @@ green, then **↗ Open**. Work left to right:
 | 7 | Auto-Fit & Optimiser | 5107 | automatic size + PDI, closed-loop optimiser |
 | 8 | Autonomous Synthesis | 5108 | the 5-pump reactor (mock by default) |
 | 9 | Tassone Group | 5109 | the AI assistant — answers questions about the experiment |
+| 10 | Watchdog | 5110 | monitoring and notifications to Slack |
 
 **3. Stop.** Press **■ Stop** on a card, or `Ctrl-C` in the terminal to close the
 hub — which closes every app with it.

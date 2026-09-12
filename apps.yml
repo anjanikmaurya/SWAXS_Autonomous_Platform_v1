@@ -110,3 +110,12 @@ apps:
     icon:         "🤖"
     icon_image:   "/static/saxs_smiley.png"
     color:        "#455A64"
+
+  - id:           watchdog
+    name:         "Watchdog"
+    description:  "Loop liveness monitoring and all platform notifications"
+    port:         5110
+    entry:        "watchdog/app.py"
+    knowledge:    "watchdog/knowledge.md"
+    icon:         "🐕"
+    color:        "#D32F2F"
