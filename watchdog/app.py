@@ -15,12 +15,14 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
 import time as _time
 import psutil
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-from flask import Flask, jsonify, request, render_template, Response
+from flask import (Flask, jsonify, request, render_template, Response,
+                   send_from_directory, redirect)
 
 # Load .env if it exists (only SWAXS_SLACK_WEBHOOK_URL lives there; no dotenv dep needed)
 _env_file = Path(__file__).parent.parent / ".env"
@@ -70,6 +72,19 @@ _last_averaged: dict = {"background": None, "sample": None}  # {recipe_id, times
 _PROBE_TTL_S = 5.0
 _probe_cache: dict = {"ts": 0.0, "data": {}}
 
+# One shared metrics snapshot, refreshed by a single background thread.
+#
+# _compute_metrics() re-reads and re-parses the whole manifest, stats every
+# manifest file entry and its inputs, and globs + stats every .dat in both
+# Reduction folders. It used to run once per SSE tick, PER CONNECTED CLIENT —
+# 1 Hz x every open browser tab. On an overnight run that is tens of thousands
+# of stat() calls a second, which made Auto Watch the heaviest process on the
+# machine it exists to monitor and starved the apps it was watching. Now it is
+# computed once every _METRICS_TTL_S regardless of how many dashboards are
+# open, and every reader gets the same snapshot.
+_METRICS_TTL_S = 3.0
+_metrics_cache: dict = {"ts": 0.0, "data": None}
+
 
 def _emit(msg: str, level: str = "info") -> None:
     """Log to stdout in the style of the hub."""
@@ -117,19 +132,60 @@ def _mtime(path) -> float | None:
         return None
 
 
-def _duration_ms_for(output_path: str) -> float | None:
-    """A stage's own self-measured compute time for one output file, read
-    from its bus event — the stage's own report, not a reconstruction. No
-    stage currently publishes ``duration_ms``; once one does, this starts
-    picking it up with no further change here.
+def _duration_index() -> dict:
+    """{output_path: duration_ms} built from the event window in ONE pass.
+
+    Was a per-entry scan of the whole window, called once for every manifest
+    file entry — O(entries x 100) with a fresh list copy each time, on every
+    dashboard tick. Built once per snapshot instead.
+
+    A stage's own self-measured compute time is its own report, not a
+    reconstruction. No stage currently publishes ``duration_ms``; once one
+    does, this starts picking it up with no further change here.
     """
+    index: dict = {}
     for event in list(_recent_events):
         data = event.get("data") or {}
-        if str(data.get("file_path", "")) == str(output_path):
-            ms = data.get("duration_ms")
-            if isinstance(ms, (int, float)):
-                return float(ms)
-    return None
+        ms = data.get("duration_ms")
+        path = str(data.get("file_path", ""))
+        if path and isinstance(ms, (int, float)):
+            index.setdefault(path, float(ms))
+    return index
+
+
+def _input_mtime(path, before: float) -> float | None:
+    """mtime of one recorded provenance input, resolving a DIRECTORY input to
+    the newest ``.dat`` inside it that predates ``before``.
+
+    The average app records ``input_files=[folder]`` — the Reduction folder it
+    read, not the frames it consumed (``average/app.py`` line ~621). A
+    directory's own mtime changes every time any file lands in it, so using it
+    directly gave the average stage a latency of roughly zero (or negative,
+    when a later frame arrived after the averaged file was written), which the
+    sanity window then discarded — the averaging bar read "no data yet" for
+    the whole run even though averaging was working. The newest input frame
+    written before the output is the frame whose arrival completed the batch,
+    which is the timestamp the wait is actually measured from.
+    """
+    p = Path(path)
+    try:
+        st = p.stat()
+    except (OSError, TypeError, ValueError):
+        return None
+    if not p.is_dir():
+        return st.st_mtime
+    newest = None
+    try:
+        for child in p.glob("*.dat"):
+            try:
+                m = child.stat().st_mtime
+            except OSError:
+                continue
+            if m <= before and (newest is None or m > newest):
+                newest = m
+    except OSError:
+        return None
+    return newest
 
 
 def _summarize_latency(latencies: list[float], computes: list[float]) -> dict:
@@ -157,6 +213,26 @@ def _summarize_latency(latencies: list[float], computes: list[float]) -> dict:
 #: pipeline overhead, and mixing it in makes the real waste look normal.
 _LATENCY_FILE_STAGE = {"reduce": "reduced", "average": "averaged", "subtract": "subtracted"}
 
+#: How many of the most recent outputs per stage the wait/compute average is
+#: taken over. The chart answers "how long is the pipeline waiting RIGHT NOW",
+#: so an overnight manifest must not dilute it with thousands of old files —
+#: and the scan costs a stat() per entry, which is why it is bounded.
+_LATENCY_SAMPLE_N = 60
+
+
+def _nanoparticle_analyses(manifest: dict) -> list:
+    """Every nanoparticle fit record in the manifest, oldest first.
+
+    `analyses` also holds the Data Analysis app's guinier/porod/peak/model
+    records; only the analyzer's `nanoparticle` records carry a size, a PDI
+    and a confidence, so everything that counts or plots FITS has to filter
+    here rather than take len(analyses).
+    """
+    out = [e for e in (manifest.get("analyses", {}) or {}).values()
+           if isinstance(e, dict) and e.get("type") == "nanoparticle"]
+    out.sort(key=lambda e: str(e.get("updated_at") or ""))
+    return out
+
 
 def _stage_latency(manifest: dict) -> dict:
     """Per-stage POLLING WAIT + COMPUTE, from durable disk/manifest state —
@@ -173,32 +249,39 @@ def _stage_latency(manifest: dict) -> dict:
     "output mtime" instead of a file mtime.
     """
     result: dict = {}
+    durations = _duration_index()
+
+    # Newest entries first, then bounded: the chart wants the CURRENT wait, and
+    # an all-night manifest otherwise buries today's numbers under thousands of
+    # old ones (and cost one stat() per entry per tick to do it).
+    files = [e for e in (manifest.get("files", {}) or {}).values() if isinstance(e, dict)]
 
     for stage, file_stage in _LATENCY_FILE_STAGE.items():
         latencies, computes = [], []
-        for entry in (manifest.get("files", {}) or {}).values():
-            if not isinstance(entry, dict) or entry.get("stage") != file_stage:
+        for entry in reversed(files):
+            if entry.get("stage") != file_stage:
                 continue
             out_mtime = _mtime(entry.get("path"))
             if out_mtime is None:
                 continue
             inputs = (entry.get("provenance") or {}).get("input_files") or []
-            in_mtimes = [t for t in (_mtime(p) for p in inputs) if t is not None]
+            in_mtimes = [t for t in (_input_mtime(p, out_mtime) for p in inputs)
+                         if t is not None]
             if not in_mtimes:
                 continue
             latency = out_mtime - max(in_mtimes)
             if not (0 <= latency < 24 * 3600):  # ignore clock skew / stale gaps
                 continue
             latencies.append(latency)
-            ms = _duration_ms_for(entry.get("path"))
+            ms = durations.get(str(entry.get("path")))
             if ms is not None:
                 computes.append(min(ms / 1000.0, latency))
+            if len(latencies) >= _LATENCY_SAMPLE_N:
+                break
         result[stage] = _summarize_latency(latencies, computes)
 
     latencies, computes = [], []
-    for entry in (manifest.get("analyses", {}) or {}).values():
-        if not isinstance(entry, dict) or entry.get("type") != "nanoparticle":
-            continue
+    for entry in reversed(_nanoparticle_analyses(manifest)):
         try:
             out_ts = datetime.fromisoformat(entry.get("updated_at", "")).timestamp()
         except (ValueError, TypeError):
@@ -210,9 +293,11 @@ def _stage_latency(manifest: dict) -> dict:
         if not (0 <= latency < 24 * 3600):
             continue
         latencies.append(latency)
-        ms = _duration_ms_for(entry.get("file_path"))
+        ms = durations.get(str(entry.get("file_path")))
         if ms is not None:
             computes.append(min(ms / 1000.0, latency))
+        if len(latencies) >= _LATENCY_SAMPLE_N:
+            break
     result["fit"] = _summarize_latency(latencies, computes)
 
     return result
@@ -798,25 +883,36 @@ def _compute_metrics() -> dict:
             _emit(f"files parse error: {exc}", "warn")
 
         # Analysed profiles aren't tagged as a file stage — they live in the
-        # analyses section — so count them there for the pipeline funnel.
-        analysed_count = len(manifest.get("analyses", {}) or {})
+        # analyses section. Count only the analyzer's nanoparticle fits: the
+        # Data Analysis app also writes guinier/porod/peak/model records there,
+        # and len(analyses) counted those too, so the funnel's last bar could
+        # exceed the number of subtracted files it is drawn from.
+        fits = _nanoparticle_analyses(manifest)
+        analysed_count = len({e.get("file_path") for e in fits})
 
         # Run outcomes come from the nanoparticle fits in the analyses section
         # (reactor.runs only holds recipe/flow/timing — no size/pdi/confidence).
+        # Already ordered by updated_at: the old sort key was results["seq"],
+        # which the analyzer never writes (see its summary dict), so every run
+        # sorted equal and the scatter's x-axis order was whatever order the
+        # manifest dict happened to be in.
         runs = []
         try:
-            for entry in (manifest.get("analyses", {}) or {}).values():
-                if not isinstance(entry, dict) or entry.get("type") != "nanoparticle":
-                    continue
+            for entry in fits:
                 res = entry.get("results", {}) or {}
+                diameter = res.get("diameter")
+                if not isinstance(diameter, (int, float)):
+                    # A fit that produced no size (failed/abandoned) must be
+                    # OMITTED, not plotted as 0 nm — a row of points on the
+                    # axis reads as "the loop is making 0 nm particles".
+                    continue
                 runs.append({
                     "recipe_id": res.get("name", entry.get("id", "")),
-                    "size": res.get("diameter", 0) or 0,   # nm
+                    "size": float(diameter),                       # nm
+                    "radius": res.get("radius"),
                     "pdi": res.get("pdi", 0) or 0,
                     "confidence": res.get("confidence", 0) or 0,
-                    "seq": res.get("seq", 0) or 0,
                 })
-            runs.sort(key=lambda r: r.get("seq", 0))
         except Exception as exc:
             _emit(f"runs parse error: {exc}", "warn")
 
@@ -871,33 +967,122 @@ def _compute_metrics() -> dict:
         }
 
 
+def _metrics_snapshot() -> dict:
+    """The shared metrics snapshot. Computes it inline only on the very first
+    call (before the refresh thread has produced one), so a dashboard opened
+    the instant the app starts still gets real numbers rather than blank
+    plots — every later read is free."""
+    data = _metrics_cache["data"]
+    if data is None:
+        data = _compute_metrics()
+        _metrics_cache["data"] = data
+        _metrics_cache["ts"] = _time.monotonic()
+    return data
+
+
+def _metrics_refresh_loop() -> None:
+    """Background thread: the ONLY caller of _compute_metrics in steady state."""
+    while True:
+        try:
+            data = _compute_metrics()
+            _metrics_cache["data"] = data
+            _metrics_cache["ts"] = _time.monotonic()
+        except Exception as exc:
+            _emit(f"metrics refresh error: {exc}", "warn")
+        _time.sleep(_METRICS_TTL_S)
+
+
 def _config_path() -> Path:
-    """Where this project's watchdog/config.yml lives, falling back to the
-    app's own default when no project is set (or it has none of its own)."""
+    """Where this project's Auto Watch config lives, falling back to the app's
+    own default when the project has none of its own.
+
+    The per-project override is `<project_root>/watchdog_config.yml` — INSIDE
+    the selected folder, alongside config.yml and manifest.json, the same
+    convention every other app uses (`Path(_project_root) / "config.yml"`,
+    e.g. calibration/app.py). It previously looked in
+    `Path(_project_root).parent / "watchdog" / "config.yml"` — a sibling *of*
+    the project folder, which is nothing in the documented layout, so the
+    override never resolved and the Alerts page always wrote into the repo's
+    own tracked watchdog/config.yml instead.
+    """
     if _project_root:
-        candidate = Path(_project_root).parent / "watchdog" / "config.yml"
+        candidate = Path(_project_root) / "watchdog_config.yml"
         if candidate.is_file():
             return candidate
     return _HERE / "config.yml"
 
 
-def _load_config(project_root: str) -> dict:
-    """Load config.yml, logging errors but never raising into the app."""
-    if not project_root:
-        _emit("no project set", "warn")
-        return {}
+#: Set when the last config load failed, so the UI can say so instead of the
+#: operator discovering it from the absence of messages.
+_config_error: str = ""
+
+
+def _load_config(project_root: str = "") -> dict:
+    """Load config.yml, logging errors but never raising into the app.
+
+    Loads unconditionally — a project root is NOT required. Auto Watch needs no
+    project folder to probe apps or detect stalls, and _config_path() already
+    falls back to the app's own config.yml. Returning {} when no project was
+    set meant should_send() ran on its defaults instead: master switch on, all
+    five categories on, quiet hours off. An operator who never picked a folder
+    had their `slack_enabled: false` silently ignored.
+
+    A malformed config FAILS CLOSED. It used to fall back to slack_enabled
+    True with every category on, so a typo in config.yml overrode the
+    operator's Stop and flooded Slack — the opposite of what a master off
+    switch must do when it cannot be read.
+    """
+    global _config_error
     try:
-        return load_settings(_config_path())
+        cfg = load_settings(_config_path())
+        _config_error = ""
+        return cfg
     except ValidationError as exc:
-        _emit(f"config error: {exc}", "error")
+        _config_error = str(exc)
+        _emit(f"config error — NOT sending until this is fixed: {exc}", "error")
         return {
             "quiet_hours": None,
             "summary": "off",
             "snooze_default_min": 30,
             "min_interval_s": 3,
-            "slack_enabled": True,
-            "categories": {c: True for c in CATEGORIES},
+            "slack_enabled": False,
+            "categories": {c: False for c in CATEGORIES},
+            "ai_fallback_enabled": False,
         }
+
+
+#: Bus events survive a restart in manifest["events"] (a rolling 100-event
+#: window, src/manifest.py). Stall detection reads _recent_events, which is
+#: memory-only and empty at boot — so a restarted Auto Watch could not see a
+#: stall that began BEFORE it started, which is the one case an operator
+#: restarts it for: a stalled pipeline emits nothing, so the window never
+#: refilled and the stall was never reported. Seed from the durable copy.
+def _seed_recent_events() -> int:
+    """Fill _recent_events from manifest["events"], oldest first. Returns how
+    many were seeded. Only events the detector understands are kept."""
+    events = _read_manifest().get("events") or []
+    if not isinstance(events, list):
+        return 0
+    seeded = []
+    for event in events[-100:]:
+        if not isinstance(event, dict) or not event.get("timestamp"):
+            continue
+        data = event.get("data") or {}
+        seeded.append({
+            "type": event.get("type", ""),
+            "timestamp": event.get("timestamp", ""),
+            "data": {k: data[k] for k in _KEEP_DATA
+                     if isinstance(data, dict) and k in data},
+        })
+    if not seeded:
+        return 0
+    # Prepend: anything the live bus already delivered is newer than the file.
+    live = list(_recent_events)
+    known = {(e.get("type"), e.get("timestamp")) for e in live}
+    merged = [e for e in seeded if (e.get("type"), e.get("timestamp")) not in known] + live
+    del _recent_events[:]
+    _recent_events.extend(merged[-100:])
+    return len(merged) - len(live)
 
 
 # Initialize on startup
@@ -1028,16 +1213,34 @@ def _stall_check_loop() -> None:
 
 _stall_thread: threading.Thread | None = None
 _probe_thread: threading.Thread | None = None
-try:
-    import threading
-    _stall_thread = threading.Thread(target=_stall_check_loop, daemon=True,
-                                     name="watchdog-stall-check")
-    _stall_thread.start()
-    _probe_thread = threading.Thread(target=_probe_refresh_loop, daemon=True,
-                                     name="watchdog-probe-refresh")
-    _probe_thread.start()
-except Exception as exc:
-    _emit(f"could not start background threads: {exc}", "warn")
+_metrics_thread: threading.Thread | None = None
+
+# Same guard every other app's monitor honours (see conftest.py): importing this
+# module in a test must not spawn three loops that poll folders, probe six HTTP
+# endpoints and render nothing anyone reads. Tests call _watch/_compute helpers
+# directly; the daemons add only scheduling jitter and flakiness.
+_NO_WATCH = os.environ.get("SWAXS_NO_WATCH", "").strip().lower() in ("1", "true", "yes")
+
+if not _NO_WATCH:
+    try:
+        # Recover the event window BEFORE stall detection starts, so a stall
+        # already in progress is visible on the first tick (_seed_recent_events).
+        _n_seeded = _seed_recent_events()
+        if _n_seeded:
+            _emit(f"recovered {_n_seeded} bus event(s) from manifest.json — stall "
+                  f"detection can see a stall that started before this restart", "ok")
+
+        _stall_thread = threading.Thread(target=_stall_check_loop, daemon=True,
+                                         name="watchdog-stall-check")
+        _stall_thread.start()
+        _probe_thread = threading.Thread(target=_probe_refresh_loop, daemon=True,
+                                         name="watchdog-probe-refresh")
+        _probe_thread.start()
+        _metrics_thread = threading.Thread(target=_metrics_refresh_loop, daemon=True,
+                                           name="watchdog-metrics-refresh")
+        _metrics_thread.start()
+    except Exception as exc:
+        _emit(f"could not start background threads: {exc}", "warn")
 
 
 # ── Flask routes ──────────────────────────────────────────────────────────────
@@ -1051,6 +1254,44 @@ def index():
 @app.route("/api/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok"})
+
+
+#: Where a local plotly.min.js may already live. The analysis and assistant
+#: apps vendor their own copy; Auto Watch serves whichever it finds instead of
+#: adding a third 4.4 MB duplicate to the repo.
+_VENDOR_DIRS = (
+    _ROOT / "analysis" / "static" / "vendor",
+    _ROOT / "assistant" / "static" / "vendor",
+)
+_VENDOR_CDN = {
+    "plotly.min.js": "https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.26.0/plotly.min.js",
+}
+
+
+@app.route("/vendor/<path:name>", methods=["GET"])
+def vendor(name: str):
+    """Serve a vendored JS library from disk, falling back to the CDN.
+
+    The dashboard used to load Plotly straight from cdnjs. On a beamline
+    control PC with no outbound internet — or behind a proxy that blocks it —
+    `Plotly` was simply undefined, every Plotly.react() call threw, and all
+    four charts rendered blank while the rest of the page worked. Which is
+    exactly what "some of the plots are not working" looks like.
+
+    Serving the copy that is already in the repo makes the charts work
+    offline; the redirect keeps today's behaviour on a machine that has
+    internet but no vendored file.
+    """
+    safe = Path(name).name          # no traversal: basename only
+    for d in _VENDOR_DIRS:
+        candidate = d / safe
+        if candidate.is_file():
+            return send_from_directory(str(d), safe, max_age=86400)
+    url = _VENDOR_CDN.get(safe)
+    if url:
+        _emit(f"no local {safe} — falling back to the CDN (charts need internet)", "warn")
+        return redirect(url, code=302)
+    return jsonify({"error": f"no vendored copy of {safe}"}), 404
 
 
 @app.route("/api/settings", methods=["GET"])
@@ -1071,6 +1312,12 @@ def get_settings():
         "sent_messages": _sent_messages[-20:],  # Last 20 for the status page
         "slack_enabled": _settings.get("slack_enabled", True),
         "categories": _settings.get("categories", {c: True for c in CATEGORIES}),
+        # Non-empty means config.yml could not be parsed and sending is held
+        # OFF until it is fixed. The UI must show this — the symptom is
+        # otherwise just an absence of messages, which looks like a quiet run.
+        "config_error": _config_error,
+        "delivery_error": (_transport.last_error if _transport else ""),
+        "delivery_failures": (_transport.n_failed if _transport else 0),
     })
 
 
@@ -1155,30 +1402,47 @@ def set_project():
     os.environ["SWAXS_PROJECT"] = project
     _settings = _load_config(_project_root)
     clear_snooze(_state)
-    return jsonify({"ok": True, "project": project})
+    # The manifest just became readable (or changed): recover its event window
+    # so stall detection isn't blind until the pipeline next emits, and drop the
+    # stale metrics snapshot so the dashboard doesn't show the old project's.
+    n_seeded = _seed_recent_events()
+    _metrics_cache["data"] = None
+    _metrics_cache["ts"] = 0.0
+    return jsonify({"ok": True, "project": project, "events_recovered": n_seeded})
 
 
 @app.route("/api/metrics", methods=["GET"])
 def metrics():
-    """Return live metrics snapshot."""
-    return jsonify(_compute_metrics())
+    """Return the live metrics snapshot (shared, refreshed in the background)."""
+    return jsonify(_metrics_snapshot())
 
 
 @app.route("/api/stream", methods=["GET"])
 def stream_metrics():
-    """Server-Sent Events stream of live metrics (1 Hz)."""
-    import time
+    """Server-Sent Events stream of live metrics (1 Hz).
 
+    Reads the shared snapshot rather than recomputing: the tick rate is a UI
+    choice and must not multiply the cost of the underlying disk scan by the
+    number of open tabs (see _metrics_cache).
+    """
     def generate():
         try:
+            last_sent = None
             while True:
                 try:
-                    metrics_data = _compute_metrics()
-                    yield f"data: {json.dumps(metrics_data)}\n\n"
+                    snap = _metrics_snapshot()
+                    stamp = _metrics_cache["ts"]
+                    # Re-send only when the snapshot actually changed; a
+                    # reconnecting client still gets one immediately.
+                    if stamp != last_sent:
+                        last_sent = stamp
+                        yield f"data: {json.dumps(snap)}\n\n"
+                    else:
+                        yield ": keep-alive\n\n"
                 except Exception as exc:
                     _emit(f"SSE tick error: {exc}", "warn")
                     yield f"data: {{}}\n\n"  # Send empty data on error
-                time.sleep(1.0)
+                _time.sleep(1.0)
         except GeneratorExit:
             pass
         except Exception as exc:

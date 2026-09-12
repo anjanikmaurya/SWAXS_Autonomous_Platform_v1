@@ -4,7 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Auto Watch — Autonomous Loop Monitor</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.26.0/plotly.min.js"></script>
+    <!-- Served from the copy already vendored in the repo, so the charts work
+         on a beamline PC with no internet; /vendor/ redirects to the CDN only
+         if no local copy is found. See watchdog/app.py::vendor. -->
+    <script src="/vendor/plotly.min.js"></script>
     <style>
 /* ── Design tokens ─────────────────────────────────────────────────────────
    The canonical block, copied from reduction/templates/index.html: light values
@@ -188,6 +191,9 @@ html,body {
   margin-left:auto; text-transform:none; letter-spacing:0;
   font-size:13px; font-weight:500; color:var(--faint);
 }
+/* A held-off config or a webhook Slack is rejecting both present as "no
+   messages arrive", so the note has to be unmissable when either is true. */
+.card-hd .hd-note.err { color:var(--err); font-weight:600 }
 
 /* ── Stall banner ───────────────────────────────────── */
 #stall-banner {
@@ -758,7 +764,42 @@ function themedLayout(extra) {
   if (extra && extra.font) out.font = Object.assign({}, base.font, extra.font);
   return out;
 }
-const PLOT_CFG = {responsive: false, displaylogo: false, displayModeBar: false};
+// responsive:true so a plot tracks its container. The charts grid drops from
+// two columns to one at 1400px; with responsive:false a plot kept the width it
+// was first drawn at, so crossing that breakpoint (or any window resize, or
+// being first drawn while its tab was hidden) left it clipped or blank with
+// nothing to recover it.
+const PLOT_CFG = {responsive: true, displaylogo: false, displayModeBar: false};
+
+// If Plotly did not load, say so in the chart areas instead of leaving four
+// silent blank boxes — the failure is otherwise invisible except in the console.
+// One plot failing must not take the other three with it. updateCharts() drew
+// all four in sequence with no guard, so a single bad trace (an unexpected
+// null, a missing div) threw and every chart after it in the function was
+// never drawn — which is why plots failed in groups rather than individually.
+function safeReact(id, traces, layout) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  try {
+    Plotly.react(el, traces, layout, PLOT_CFG);
+  } catch (err) {
+    console.warn('chart ' + id + ' failed to render:', err);
+  }
+}
+
+function plotlyMissingNotice() {
+  ['plot-throughput', 'plot-stage-duration', 'plot-queue-bar', 'plot-run-scatter']
+    .forEach(id => {
+      const el = document.getElementById(id);
+      if (el && !el.dataset.notice) {
+        el.dataset.notice = '1';
+        el.innerHTML = '<div style="display:flex;height:100%;align-items:center;'
+          + 'justify-content:center;text-align:center;font-size:12.5px;opacity:.75;'
+          + 'padding:0 18px">Charts unavailable — the plotting library did not load.'
+          + '<br>No vendored copy was found and the CDN is unreachable.</div>';
+      }
+    });
+}
 
 function switchView(name) {
   const content = document.getElementById('content');
@@ -957,17 +998,18 @@ function updateLoop() {
 
 function updateCharts() {
   if (!_metrics) return;
+  if (typeof Plotly === 'undefined') { plotlyMissingNotice(); return; }
   const P = palette();
 
   const tp = _metrics.throughput || [];
-  Plotly.react('plot-throughput', [{
+  safeReact('plot-throughput', [{
     x: tp.map(d => d.hour),
     y: tp.map(d => d.count),
     type: 'scatter', mode: 'lines', fill: 'tozeroy',
     line: {color: P.primary, width: 3, shape: 'spline', smoothing: 1.1},
     fillcolor: P.fill,
     hovertemplate: '%{y} files at %{x}<extra></extra>',
-  }], themedLayout({}), PLOT_CFG);
+  }], themedLayout({}));
 
   // collect is deliberately excluded — its duration is exposure time, not
   // pipeline overhead, and mixing it in makes the real waste look normal.
@@ -991,7 +1033,7 @@ function updateCharts() {
       computeX.push(d.compute_s);
     }
   });
-  Plotly.react('plot-stage-duration', [
+  safeReact('plot-stage-duration', [
     {
       x: waitX, y: STAGE_LATENCY_NAMES, name: 'polling wait',
       type: 'bar', orientation: 'h',
@@ -1008,13 +1050,13 @@ function updateCharts() {
     barmode: 'stack', showlegend: true,
     legend: {orientation: 'h', y: 1.18, font: {size: 10, color: P.fg}},
     annotations: latAnnotations,
-  }), PLOT_CFG);
+  }));
 
   // Pipeline funnel: how many files have reached each stage (cumulative — each
   // stage should be <= the previous one as files move down the pipeline).
   const f = _metrics.files || {};
   const funnelY = [f.reduced || 0, f.averaged || 0, f.subtracted || 0, f.analysed || 0];
-  Plotly.react('plot-queue-bar', [{
+  safeReact('plot-queue-bar', [{
     x: ['Reduced', 'Averaged', 'Subtracted', 'Analysed'],
     y: funnelY,
     type: 'bar',
@@ -1023,24 +1065,40 @@ function updateCharts() {
     text: funnelY.map(String), textposition: 'outside',
     textfont: {size: 12, color: P.fg}, cliponaxis: false,
     hovertemplate: '%{x}: %{y}<extra></extra>',
-  }], themedLayout({margin: {t: 20, l: 44, r: 12, b: 34}, yaxis: {rangemode: 'tozero'}}), PLOT_CFG);
+  }], themedLayout({margin: {t: 20, l: 44, r: 12, b: 34}, yaxis: {rangemode: 'tozero'}}));
 
+  // Runs arrive ordered by the manifest's updated_at, and fits with no size are
+  // omitted server-side rather than sent as 0 nm (which drew a row of points on
+  // the axis that read as "the loop is making 0 nm particles").
   const runs = _metrics.runs || [];
-  Plotly.react('plot-run-scatter', [{
-    x: runs.map((_, i) => i + 1),
-    y: runs.map(r => r.size || 0),
-    mode: 'markers', type: 'scatter',
-    marker: {
-      size: runs.map(r => Math.max(9, Math.min(20, (r.pdi || 0.2) * 45))),
-      color: runs.map(r => r.confidence || 0),
-      colorscale: [[0, P.secondary], [0.5, P.warning], [1, P.success]],
-      cmin: 0, cmax: 1, showscale: true,
-      colorbar: {title: {text: 'Conf.', font: {size: 11, color: P.fg}},
-                 tickfont: {size: 10, color: P.fg}, thickness: 12, len: 0.9, outlinewidth: 0},
-      line: {color: P.surface, width: 1.5}, opacity: 0.9,
-    },
-    hovertemplate: 'run %{x}: %{y:.1f} nm<extra></extra>',
-  }], themedLayout({margin: {t: 12, l: 44, r: 70, b: 34}}), PLOT_CFG);
+  if (!runs.length) {
+    safeReact('plot-run-scatter', [], themedLayout({
+      margin: {t: 12, l: 44, r: 70, b: 34},
+      xaxis: {visible: false}, yaxis: {visible: false},
+      annotations: [{text: 'no completed fits yet', showarrow: false,
+                     x: 0.5, y: 0.5, xref: 'paper', yref: 'paper',
+                     font: {size: 12, color: P.fg}, opacity: 0.75}],
+    }));
+  } else {
+    safeReact('plot-run-scatter', [{
+      x: runs.map((_, i) => i + 1),
+      y: runs.map(r => r.size),
+      customdata: runs.map(r => [r.pdi || 0, r.confidence || 0, r.recipe_id || '']),
+      mode: 'markers', type: 'scatter',
+      marker: {
+        size: runs.map(r => Math.max(9, Math.min(20, (r.pdi || 0.2) * 45))),
+        color: runs.map(r => r.confidence || 0),
+        colorscale: [[0, P.secondary], [0.5, P.warning], [1, P.success]],
+        cmin: 0, cmax: 1, showscale: true,
+        colorbar: {title: {text: 'Conf.', font: {size: 11, color: P.fg}},
+                   tickfont: {size: 10, color: P.fg}, thickness: 12, len: 0.9, outlinewidth: 0},
+        line: {color: P.surface, width: 1.5}, opacity: 0.9,
+      },
+      hovertemplate: '%{customdata[2]}<br>%{y:.2f} nm diameter'
+                     + '<br>PDI %{customdata[0]:.3f} · conf %{customdata[1]:.2f}<extra></extra>',
+    }], themedLayout({margin: {t: 12, l: 44, r: 70, b: 34},
+                      yaxis: {title: {text: 'diameter (nm)', font: {size: 11, color: P.fg}}}}));
+  }
 
   ['cpu', 'mem', 'disk'].forEach(key => {
     const val = (_metrics.resources && _metrics.resources[key]) || 0;
@@ -1063,6 +1121,7 @@ const CATEGORY_INFO = {
 let _alertsState = {
   slack_enabled: true,
   categories: {safety: true, stalls: true, results: true, progress: true, campaign: true},
+  config_error: '', delivery_error: '', delivery_failures: 0,
 };
 
 function renderAlerts() {
@@ -1080,9 +1139,22 @@ function renderAlerts() {
   }
   if (note) {
     const active = CATEGORY_ORDER.filter(c => s.categories[c]);
-    note.textContent = s.slack_enabled
-      ? (active.length ? `sending: ${active.join(', ')}` : 'sending on, no categories active')
-      : 'sending is OFF — nothing is sent, including safety';
+    // A held-off config error and a failing webhook both look identical from
+    // the outside — no messages arrive — so both have to be said out loud here.
+    if (s.config_error) {
+      note.textContent = 'config.yml could not be read, so sending is held OFF: '
+        + s.config_error;
+      note.className = 'hd-note err';
+    } else if (s.delivery_error) {
+      note.textContent = `Slack is rejecting messages (${s.delivery_failures} failed): `
+        + s.delivery_error;
+      note.className = 'hd-note err';
+    } else {
+      note.textContent = s.slack_enabled
+        ? (active.length ? `sending: ${active.join(', ')}` : 'sending on, no categories active')
+        : 'sending is OFF — nothing is sent, including safety';
+      note.className = 'hd-note';
+    }
   }
 
   const catsEl = document.getElementById('alerts-cats');
@@ -1153,11 +1225,15 @@ function pollMessages() {
   fetch('/api/settings')
     .then(r => r.json())
     .then(data => {
-      const alertsSig = JSON.stringify([data.slack_enabled, data.categories]);
+      const alertsSig = JSON.stringify([data.slack_enabled, data.categories,
+                                        data.config_error, data.delivery_error]);
       if (alertsSig !== _lastAlertsSig) {
         _lastAlertsSig = alertsSig;
         _alertsState.slack_enabled = !!data.slack_enabled;
         _alertsState.categories = data.categories || {};
+        _alertsState.config_error = data.config_error || '';
+        _alertsState.delivery_error = data.delivery_error || '';
+        _alertsState.delivery_failures = data.delivery_failures || 0;
         renderAlerts();
       }
 
@@ -1191,9 +1267,18 @@ function pollMessages() {
 }
 
 function redrawCharts() {
+  if (typeof Plotly === 'undefined') return;
   ['plot-throughput', 'plot-stage-duration', 'plot-queue-bar', 'plot-run-scatter']
     .forEach(id => { try { Plotly.Plots.resize(id); } catch(e) {} });
 }
+
+// redrawCharts was only wired to switchView, so a window resize (or crossing
+// the 1400px one-column breakpoint) left every chart at its old width.
+let _resizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(_resizeTimer);
+  _resizeTimer = setTimeout(redrawCharts, 150);
+});
 
 applyThemeIcon();
 startSSE();

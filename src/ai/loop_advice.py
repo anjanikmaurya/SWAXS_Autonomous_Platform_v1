@@ -43,17 +43,27 @@ def _get_client():
         return None
 
 
-def _ask_json(system: str, user: str, max_tokens: int = _MAX_TOKENS) -> dict | None:
-    """One-shot, JSON-only LLM call. Returns a parsed dict or None (never raises)."""
+def _ask_json(system: str, user: str, max_tokens: int = _MAX_TOKENS,
+              timeout_s: float | None = None) -> dict | None:
+    """One-shot, JSON-only LLM call. Returns a parsed dict or None (never raises).
+
+    ``timeout_s`` bounds the call. The SDK's own default is 10 minutes, which is
+    fine for an interactive answer and wrong for anything on a monitoring path —
+    Auto Watch's stall diagnosis runs inline in its 5-minute check loop, so an
+    unresponsive gateway would delay the very alert it is annotating, and the
+    next check with it. Callers on a timed loop must pass a short value.
+    """
     client = _get_client()
     if client is None:
         return None
     try:
         model = os.environ.get("ANTHROPIC_MODEL", "").strip() or "claude-sonnet-5"
+        kwargs = {} if timeout_s is None else {"timeout": float(timeout_s)}
         resp = client.messages.create(
             model=model, max_tokens=max_tokens,
             system=system + "\n\nRespond with ONLY a single valid JSON object, no prose, no code fences.",
             messages=[{"role": "user", "content": user}],
+            **kwargs,
         )
         text = "".join(getattr(b, "text", "") for b in resp.content).strip()
         if text.startswith("```"):

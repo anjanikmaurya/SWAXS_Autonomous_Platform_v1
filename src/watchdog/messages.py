@@ -124,6 +124,25 @@ def format_fit_complete(data: dict) -> tuple[str, str, str]:
     return title, text, level
 
 
+#: Events whose message must go out even if formatting it fails. These are the
+#: reactor's safety events; a formatting bug must never be the reason an
+#: operator is not told the rig tripped.
+NEVER_DROP = ("reactor.estop", "reactor.safety")
+
+
+def _degraded(event_type: str, data: dict, exc: Exception) -> tuple[str, str, str]:
+    """A crude but complete fault message for a safety event whose formatter
+    raised — the raw payload beats silence."""
+    try:
+        raw = repr(data)[:600]
+    except Exception:
+        raw = "<unrepresentable payload>"
+    title = f"SAFETY EVENT — {event_type} (message could not be formatted)"
+    text = (f"Auto Watch could not format this event ({type(exc).__name__}: {exc}). "
+            f"Raw payload below — treat it as a fault and check the reactor.\n\n{raw}")
+    return title, text, "fault"
+
+
 def event_to_message(event_type: str, data: dict) -> tuple[str, str, str] | None:
     """
     Convert a bus event to (title, text, level) or None if not a notification event.
@@ -132,7 +151,12 @@ def event_to_message(event_type: str, data: dict) -> tuple[str, str, str] | None
     - reactor.run_start, reactor.run_complete, reactor.estop, reactor.safety, reactor.backend
     - fit.complete
 
-    Returns None for events that should not generate a notification.
+    Returns None for events that should not generate a notification — but NEVER
+    for an event in NEVER_DROP. Swallowing a formatter exception into None meant
+    a `reactor.estop` whose payload had an unexpected shape (say `failed_to_idle`
+    arriving as a string, so `", ".join(...)` raised) produced no Slack message
+    at all: the single most important message the platform sends, lost to a
+    formatting bug. Those now degrade to the raw payload instead.
     """
     formatters = {
         "reactor.run_start": format_reactor_run_start,
@@ -145,7 +169,14 @@ def event_to_message(event_type: str, data: dict) -> tuple[str, str, str] | None
     formatter = formatters.get(event_type)
     if formatter:
         try:
-            return formatter(data)
-        except Exception:
+            out = formatter(data if isinstance(data, dict) else {})
+        except Exception as exc:
+            return _degraded(event_type, data, exc) if event_type in NEVER_DROP else None
+        # A formatter that returns something unusable is the same failure.
+        if not (isinstance(out, tuple) and len(out) == 3):
+            if event_type in NEVER_DROP:
+                return _degraded(event_type, data, ValueError("formatter returned "
+                                                               f"{type(out).__name__}"))
             return None
+        return out
     return None

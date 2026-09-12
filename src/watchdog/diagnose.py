@@ -27,6 +27,10 @@ from src.watchdog.probes import MONITOR_APPS, ANALYZER_PORT, REACTOR_PORT
 # repo_root/src/watchdog/diagnose.py, so parents[2] is the repo root.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
+#: Hard bound on the Layer-2 LLM call. It runs on Auto Watch's stall-check
+#: loop, so it must fail fast rather than delay the alert (see _ai_log_reading).
+_AI_TIMEOUT_S = 15.0
+
 # Which app produces the event a given overdue stage is waiting for.
 _STAGE_PRODUCERS = {
     "reduce": ("reduction", MONITOR_APPS["reduction"], "2D → 1D reduction"),
@@ -107,6 +111,12 @@ def _ai_log_reading(app: str, stage: str, facts_text: str) -> dict | None:
         user=json.dumps({"stalled_stage": stage, "app": app, "facts": facts_text,
                           "log_tail": log_tail[-8000:]}, default=str),
         max_tokens=400,
+        # Bounded hard: this runs inline in Auto Watch's 5-minute stall-check
+        # loop, so an unresponsive gateway must not hold up the alert it is
+        # annotating (the SDK's own default is 10 minutes). On timeout
+        # _ask_json returns None and the message goes out without the
+        # paragraph — which is exactly the advisory-only contract.
+        timeout_s=_AI_TIMEOUT_S,
     )
     if not isinstance(out, dict):
         return None
