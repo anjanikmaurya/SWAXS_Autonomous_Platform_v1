@@ -1,0 +1,1173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Watchdog — Autonomous Loop Monitor</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.26.0/plotly.min.js"></script>
+    <style>
+/* ── Design tokens ─────────────────────────────────────────────────────────
+   The canonical block, copied from reduction/templates/index.html: light values
+   in :root, dark values in the [data-theme="dark"] override, same token names.
+   This page DEFAULTS to dark (it is usually a wall display) and remembers the
+   operator's choice in localStorage under the shared `swaxs_theme` key, so the
+   toggle here and in every other app agree.
+   ─────────────────────────────────────────────────────────────────────────── */
+:root {
+  /* ── SWAXS shared design system — Light theme ───────── */
+  --bg:         #f5f7fa;
+  --surface:    #ffffff;
+  --surface2:   #f0f2f5;
+  --sidebar:    #eef1f5;   /* light rail (matches content by day) */
+  --sidebar-h:  #e3e7ed;
+  --sf:         31,41,55;   /* sidebar foreground RGB (dark text by day) */
+  --sidebar-active-bg:rgba(177,4,14,.10);
+  --sidebar-active-fg:#8C1515;
+  --accent:     #B1040E;   /* bright cardinal (primary) */
+  --accent-d:   #8C1515;   /* deep cardinal (hover) */
+  --accent-lt:  #fee2e2;
+  --teal:       #B83A4B;
+  --teal-lt:    #fee2e2;
+  /* Semantic — fills / dots / borders */
+  --ok:         #16a34a;  --ok-lt:   #dcfce7;
+  --warn:       #d97706;  --warn-lt: #fef3c7;
+  --err:        #dc2626;  --err-lt:  #fee2e2;
+  /* Semantic — accessible text (≥4.5:1 on white) */
+  --ok-text:    #15803d;
+  --warn-text:  #b45309;
+  --err-text:   #b91c1c;
+  --info-text:  #1d4ed8;
+  /* Text & lines */
+  --txt:        #1f2937;   /* primary  14.7:1 */
+  --txt-strong: #111827;
+  --muted:      #4b5563;   /* secondary 7.6:1 */
+  --faint:      #6b7280;   /* tertiary  4.8:1 */
+  --disabled:   #9ca3af;   /* decoration/disabled only */
+  --border:     #e5e7eb;
+  --border-strong:#c3c9d1; /* softened control outlines */
+  /* Typography scale (shared across all SWAXS apps) */
+  --font:       'Inter','Segoe UI',system-ui,-apple-system,sans-serif;
+  --mono:       "JetBrains Mono","Fira Code","Courier New",monospace;
+  --fs-2xs:.6875rem; --fs-xs:.75rem; --fs-sm:.8125rem; --fs-md:.875rem;
+  --fs-base:1rem;    --fs-lg:1.125rem; --fs-xl:1.375rem; --fs-2xl:1.75rem;
+  --fw-regular:400; --fw-medium:500; --fw-semibold:600; --fw-bold:700;
+  --lh-tight:1.25; --lh-snug:1.4; --lh-normal:1.5; --ls-label:.06em;
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:24px; --sp-6:32px;
+  --radius:     8px;
+  --label-w:    190px;
+}
+
+/* ── Dark theme ────────────────────────────────────────────────────────────
+   reduction's dark block, plus the four semantic TEXT tokens it leaves at their
+   light values (--ok-text/--warn-text/--err-text/--info-text are dark greens,
+   ambers and reds meant for white; on a dark surface they fail contrast). The
+   state fills are lightened for the same reason — this page carries far more
+   ok/warn/err surface than reduction does.
+   ─────────────────────────────────────────────────────────────────────────── */
+:root[data-theme="dark"]{
+  --bg:#15161a;--surface:#1f2126;--surface2:#272a31;--border:#343842;--border-strong:#4c515c;
+  --txt:#e7e9ee;--txt-strong:#f5f7fa;--muted:#a4abb6;--faint:#7d848f;--disabled:#5a606b;
+  --accent:#d44a55;--accent-d:#b1040e;--accent-lt:#3a2023;--teal:#d44a55;--teal-lt:#3a2023;
+  --sidebar:#1f2126;--sidebar-h:#2a2d34;--sf:231,233,238;
+  --sidebar-active-bg:rgba(212,74,85,.22);--sidebar-active-fg:#f0a6ab;
+  --ok:#22c55e;--ok-lt:#12301f;--warn:#f59e0b;--warn-lt:#35260b;--err:#ef4444;--err-lt:#3a1719;
+  --ok-text:#4ade80;--warn-text:#fbbf24;--err-text:#f87171;--info-text:#93b4fd;
+}
+
+*,*::before,*::after { box-sizing:border-box; margin:0; padding:0 }
+html,body {
+  height:100%;
+  font-family:var(--font);
+  /* 17px root, not 16 — the whole page has to be legible from two metres */
+  font-size:17px; line-height:var(--lh-normal); color:var(--txt); background:var(--bg);
+}
+
+#app { display:flex; height:100vh; overflow:hidden }
+
+/* ── Sidebar ────────────────────────────────────────── */
+#sidebar {
+  width:230px; flex-shrink:0;
+  background:var(--sidebar);
+  display:flex; flex-direction:column;
+  border-right:1px solid var(--border);
+}
+#logo {
+  padding:16px 20px;
+  border-bottom:1px solid var(--border);
+}
+#logo-badge { font-size:13px; font-weight:700; letter-spacing:.16em;
+              text-transform:uppercase; color:var(--accent); margin-bottom:4px; line-height:1 }
+#logo-name  { font-size:24px; font-weight:800; color:var(--txt-strong); line-height:1.1 }
+#logo-sub   { font-size:13px; color:var(--muted); margin-top:4px; font-weight:500 }
+
+.nav-section-label {
+  padding:18px 20px 8px;
+  font-size:12px; font-weight:700; letter-spacing:.13em;
+  text-transform:uppercase; color:var(--muted);
+}
+.nav-btn {
+  display:flex; align-items:center; gap:12px;
+  padding:13px 18px; border:none; background:transparent;
+  color:var(--muted); font-size:17px; font-weight:600;
+  text-align:left; width:100%; cursor:pointer;
+  border-radius:8px; margin:0 8px; transition:all .2s ease;
+}
+.nav-btn:hover   { background:var(--sidebar-h); color:var(--txt-strong) }
+.nav-btn.active  { background:var(--sidebar-active-bg); color:var(--sidebar-active-fg);
+                   font-weight:700; box-shadow:inset 0 0 0 2px var(--accent) }
+.nav-icon { font-size:20px; width:24px; text-align:center; flex-shrink:0 }
+
+#sidebar-foot {
+  margin-top:auto; padding:16px 20px;
+  border-top:1px solid var(--border);
+  font-size:13px; color:var(--muted); line-height:1.6; text-align:center;
+}
+#sb-status {
+  padding:8px 12px; border-radius:8px; margin-bottom:8px;
+  font-size:15px; font-weight:700; word-break:break-word; line-height:1.4;
+}
+#sb-status.ok   { background:var(--ok-lt);  color:var(--ok-text) }
+#sb-status.err  { background:var(--err-lt); color:var(--err-text) }
+
+/* ── Main area ──────────────────────────────────────── */
+#main { flex:1; display:flex; flex-direction:column; overflow:hidden; min-width:0 }
+
+/* Topbar: title, then the health dots and the resource numbers on ONE line. */
+#topbar {
+  min-height:60px; flex-shrink:0;
+  background:var(--surface);
+  border-bottom:1px solid var(--border);
+  display:flex; align-items:center; padding:0 20px; gap:22px;
+}
+#tb-title  { font-weight:800; color:var(--txt-strong); font-size:19px; flex-shrink:0 }
+
+/* Health — big blinking dots, one per ACTIVE loop app. Read from across the room. */
+#tb-health { display:flex; align-items:center; gap:20px; flex-wrap:wrap; min-width:0 }
+.health-item { display:flex; align-items:center; gap:9px }
+.health-dot {
+  width:20px; height:20px; border-radius:50%; flex-shrink:0;
+  animation:health-blink 1.5s ease-in-out infinite;
+}
+.health-dot.ok  { background:var(--ok);  box-shadow:0 0 12px rgba(34,197,94,.85) }
+.health-dot.err { background:var(--err); box-shadow:0 0 12px rgba(239,68,68,.9);
+                  animation-duration:.7s }
+@keyframes health-blink { 0%,100%{opacity:1} 50%{opacity:.2} }
+.health-name {
+  text-transform:uppercase; letter-spacing:var(--ls-label);
+  font-size:14px; font-weight:700; color:var(--txt-strong);
+}
+#tb-health .health-none { font-size:14px; color:var(--faint); font-style:italic }
+
+#tb-resources { display:flex; align-items:center; gap:18px; margin-left:auto; flex-shrink:0 }
+.res-stat { display:flex; align-items:baseline; gap:6px }
+.res-stat .res-label {
+  font-size:12px; font-weight:700; letter-spacing:var(--ls-label);
+  text-transform:uppercase; color:var(--muted);
+}
+.res-stat .res-val { font-size:19px; font-weight:700; color:var(--txt-strong);
+                     font-family:var(--mono) }
+.res-stat .res-val.warn { color:var(--warn-text) }
+.res-stat .res-val.err  { color:var(--err-text) }
+
+#content { flex:1; overflow-y:auto; padding:14px 16px; display:block }
+#messages-only { display:none; padding:14px 16px; overflow-y:auto; flex:1 }
+
+/* Card */
+.card {
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:var(--radius); padding:12px 14px; margin-bottom:12px;
+}
+.card-hd {
+  font-size:14px; font-weight:700; letter-spacing:.05em;
+  text-transform:uppercase; color:var(--accent);
+  margin-bottom:10px; padding-bottom:6px;
+  border-bottom:1px solid var(--accent-lt);
+  display:flex; align-items:center; gap:10px;
+}
+.card-hd .hd-note {
+  margin-left:auto; text-transform:none; letter-spacing:0;
+  font-size:13px; font-weight:500; color:var(--faint);
+}
+
+/* ── Stall banner ───────────────────────────────────── */
+#stall-banner {
+  display:none; align-items:center; gap:14px;
+  background:var(--err-lt); border:2px solid var(--err);
+  border-radius:var(--radius); padding:12px 16px; margin-bottom:12px;
+  color:var(--err-text); font-size:19px; font-weight:800;
+  animation:stall-pulse 1.2s ease-in-out infinite;
+}
+#stall-banner.on { display:flex }
+#stall-banner .stall-sub { font-size:15px; font-weight:600; color:var(--txt) }
+@keyframes stall-pulse { 0%,100%{border-color:var(--err)} 50%{border-color:var(--err-lt)} }
+
+/* ── The cycle ──────────────────────────────────────────────────────────────
+   Three columns — reactor · the single reduce/average chain · the join — with
+   a return row underneath that carries the arrow back to the reactor, so the
+   picture closes into a loop instead of ending on the right.
+
+   Reduce and average are each ONE app, not one per lane — the reactor
+   collects background first, then sample, and the same pipeline processes
+   whichever lane is currently flowing through it. The phase split lives on
+   the reactor node (.phase-track below); the chain itself is drawn once.
+   ─────────────────────────────────────────────────────────────────────────── */
+.cycle {
+  display:grid;
+  grid-template-columns:230px minmax(0,1fr) 250px;
+  grid-template-rows:auto auto;
+  gap:0 10px; align-items:stretch;
+}
+.cycle-reactor { grid-column:1; grid-row:1; display:flex; flex-direction:column; gap:6px }
+.cycle-chain   { grid-column:2; grid-row:1; display:flex; align-items:stretch; min-width:0 }
+.cycle-join    { grid-column:3; grid-row:1; display:flex; flex-direction:column;
+                 align-items:stretch; gap:0 }
+.cycle-return  { grid-column:1 / -1; grid-row:2; margin-top:10px }
+
+.chain { flex:1; display:flex; align-items:stretch; gap:0; min-width:0 }
+
+/* Phase tracker — inside the reactor node: which of the two sequential
+   collections (background, then sample) the current recipe is in. */
+.phase-track { display:flex; align-items:center; gap:6px; margin:2px 0; flex-wrap:wrap }
+.phase-chip {
+  font-size:12px; font-weight:800; letter-spacing:.03em;
+  padding:3px 9px; border-radius:999px; border:1px solid var(--border-strong);
+  color:var(--faint); background:var(--surface2); white-space:nowrap;
+}
+.phase-chip[data-state="active"] {
+  color:var(--accent); border-color:var(--accent); background:var(--accent-lt);
+  animation:wait-pulse 1.8s ease-in-out infinite;
+}
+.phase-chip[data-state="done"]  { color:var(--ok-text); border-color:var(--ok); background:var(--ok-lt) }
+.phase-arrow { font-size:13px; color:var(--faint); flex-shrink:0 }
+
+/* Lane tag — on the (single) Reduce/Average nodes, which phase is flowing
+   through them right now. */
+.lane-tag {
+  font-size:11px; font-weight:800; letter-spacing:.04em; text-transform:uppercase;
+  padding:2px 7px; border-radius:999px; white-space:nowrap; flex-shrink:0;
+  color:var(--faint); background:var(--surface2);
+}
+.lane-tag.background { color:var(--info-text); background:rgba(99,140,235,.16) }
+.lane-tag.sample      { color:var(--accent);    background:var(--accent-lt) }
+
+/* Arrow between two nodes, with its label sitting on the shaft */
+.arrow {
+  flex:0 0 auto; min-width:74px; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; padding:0 4px; position:relative;
+}
+.arrow-label {
+  font-size:12px; font-weight:700; color:var(--muted);
+  text-transform:uppercase; letter-spacing:.04em; text-align:center;
+  line-height:1.2; margin-bottom:3px; white-space:nowrap;
+}
+.arrow-shaft {
+  width:100%; height:0; border-top:2px solid var(--border-strong); position:relative;
+}
+.arrow-shaft::after {
+  content:''; position:absolute; right:-1px; top:-6px;
+  border-left:9px solid var(--border-strong);
+  border-top:6px solid transparent; border-bottom:6px solid transparent;
+}
+.arrow-sub { font-size:11px; color:var(--faint); margin-top:3px; white-space:nowrap }
+.arrow.wide { flex:1 1 auto }
+
+/* ── Node ───────────────────────────────────────────── */
+.node {
+  flex:1 1 0; min-width:0;
+  border:2px solid var(--border); border-radius:var(--radius);
+  background:var(--surface); padding:8px 10px 9px;
+  display:flex; flex-direction:column; gap:4px;
+}
+.node-top { display:flex; align-items:center; gap:8px }
+.node-name {
+  font-size:15px; font-weight:800; letter-spacing:var(--ls-label);
+  text-transform:uppercase; color:var(--txt-strong);
+}
+.chip {
+  margin-left:auto; flex-shrink:0;
+  font-size:12px; font-weight:800; letter-spacing:.06em; text-transform:uppercase;
+  padding:2px 8px; border-radius:999px; border:1px solid var(--border-strong);
+  color:var(--muted); background:transparent; white-space:nowrap;
+}
+.node-detail {
+  font-size:20px; font-weight:700; color:var(--txt-strong);
+  font-family:var(--mono); line-height:1.2; word-break:break-word;
+}
+.node-why { font-size:13px; color:var(--muted); line-height:1.3 }
+.node-rid {
+  font-size:12px; font-family:var(--mono); color:var(--faint);
+  border-top:1px dashed var(--border); padding-top:4px; margin-top:auto;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.node-rid b { color:var(--txt); font-weight:700 }
+
+/* State — colour AND a word, never colour alone */
+.node[data-state="idle"]     { border-color:var(--border) }
+.node[data-state="idle"]     .chip { color:var(--faint) }
+.node[data-state="running"]  { border-color:var(--accent); background:var(--accent-lt) }
+.node[data-state="running"]  .chip { color:var(--accent); border-color:var(--accent) }
+.node[data-state="waiting"]  { border-color:var(--warn); background:var(--warn-lt);
+                               animation:wait-pulse 1.8s ease-in-out infinite }
+.node[data-state="waiting"]  .chip { color:var(--warn-text); border-color:var(--warn) }
+.node[data-state="done"]     { border-color:var(--ok) }
+.node[data-state="done"]     .chip { color:var(--ok-text); border-color:var(--ok) }
+.node[data-state="stalled"]  { border-color:var(--err); background:var(--err-lt);
+                               animation:stall-pulse .9s ease-in-out infinite }
+.node[data-state="stalled"]  .chip { color:var(--err-text); border-color:var(--err) }
+.node[data-state="unknown"]  { border-style:dashed; border-color:var(--border-strong) }
+.node[data-state="unknown"]  .chip { color:var(--faint) }
+@keyframes wait-pulse { 0%,100%{border-color:var(--warn)} 50%{border-color:var(--warn-lt)} }
+
+.node-reactor { flex:1 1 auto; justify-content:flex-start }
+.node-reactor .node-name { font-size:17px }
+.node-reactor .node-detail { font-size:21px }
+
+/* Gate meter — the frames-to-go bar under AVERAGE */
+.gate { height:12px; border-radius:6px; background:var(--surface2);
+        border:1px solid var(--border-strong); overflow:hidden; display:flex }
+.gate-fill { background:var(--warn); height:100% }
+.node[data-state="done"] .gate-fill { background:var(--ok) }
+.gate-ticks { display:flex; gap:3px; align-items:center }
+
+/* Join column: subtract → fit, stacked, with a down arrow between */
+.arrow-down { display:flex; flex-direction:column; align-items:center; padding:4px 0 }
+.arrow-down .arrow-label { margin-bottom:2px }
+.arrow-down .shaft-v { width:0; height:16px; border-left:2px solid var(--border-strong);
+                       position:relative }
+.arrow-down .shaft-v::after {
+  content:''; position:absolute; left:-6px; bottom:-8px;
+  border-top:9px solid var(--border-strong);
+  border-left:6px solid transparent; border-right:6px solid transparent;
+}
+
+/* Both-lanes-arrived gate on SUBTRACT */
+.pairs { display:flex; flex-direction:column; gap:3px }
+.pair {
+  display:flex; align-items:center; gap:7px;
+  font-size:13px; font-weight:700; color:var(--muted);
+}
+.pair .box {
+  width:17px; height:17px; border-radius:4px; flex-shrink:0;
+  border:2px solid var(--border-strong); display:flex;
+  align-items:center; justify-content:center; font-size:12px; font-weight:800;
+}
+.pair.have          { color:var(--ok-text) }
+.pair.have .box     { border-color:var(--ok); background:var(--ok-lt); color:var(--ok-text) }
+.pair.missing       { color:var(--warn-text) }
+.pair.missing .box  { border-color:var(--warn); background:var(--warn-lt); color:var(--warn-text) }
+
+/* Return path — closes the cycle back to the reactor */
+.return-bar {
+  display:flex; align-items:center; gap:12px;
+  border:2px dashed var(--accent); border-radius:var(--radius);
+  background:var(--accent-lt); padding:8px 14px;
+}
+.return-arrow { font-size:22px; color:var(--accent); line-height:1; flex-shrink:0 }
+.return-text  { font-size:15px; font-weight:700; color:var(--txt-strong) }
+.return-text small { display:block; font-size:13px; font-weight:500; color:var(--muted) }
+.return-pending {
+  margin-left:auto; font-size:14px; font-family:var(--mono); color:var(--txt);
+  text-align:right; flex-shrink:0;
+}
+.return-pending span { color:var(--faint) }
+
+/* ── Plots ──────────────────────────────────────────── */
+.chart-area  { height:230px; width:100% }
+.charts-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:12px }
+@media (max-width:1400px) { .charts-grid { grid-template-columns:1fr } }
+@media (max-width:1250px) {
+  .cycle { grid-template-columns:1fr }
+  .cycle-reactor, .cycle-chain, .cycle-join { grid-column:1; grid-row:auto }
+}
+
+/* ── Messages ───────────────────────────────────────── */
+.messages-list { display:flex; flex-direction:column; gap:10px }
+.message {
+  background:var(--surface2); padding:12px 14px; border-radius:10px;
+  border:1px solid var(--border); border-left:6px solid var(--border-strong);
+  display:flex; align-items:flex-start; gap:12px;
+}
+.message-badge {
+  flex-shrink:0; width:34px; height:34px; border-radius:8px;
+  display:flex; align-items:center; justify-content:center; font-size:17px;
+}
+.message.info  { border-left-color:var(--info-text) }
+.message.warn  { border-left-color:var(--warn) }
+.message.fault { border-left-color:var(--err) }
+/* 16% tint reads on both a white and a #1f2126 surface — no per-theme rule */
+.message.info  .message-badge { background:rgba(99,140,235,.16) }
+.message.warn  .message-badge { background:var(--warn-lt) }
+.message.fault .message-badge { background:var(--err-lt) }
+.message-content { flex:1; min-width:0 }
+.message-time {
+  color:var(--faint); font-size:12px; margin-bottom:3px; font-weight:700;
+  text-transform:uppercase; letter-spacing:.5px;
+}
+.message-title { font-weight:700; color:var(--txt-strong); margin-bottom:4px; font-size:16px }
+.message.info  .message-title { color:var(--info-text) }
+.message.warn  .message-title { color:var(--warn-text) }
+.message.fault .message-title { color:var(--err-text) }
+.message-text { color:var(--muted); font-size:14px; white-space:pre-wrap;
+                word-break:break-word; font-family:var(--mono) }
+
+/* ── Alerts (Slack controls) ───────────────────────── */
+.alerts-master {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:10px 12px; margin-bottom:14px; border-radius:var(--radius);
+  background:var(--surface2); border:1px solid var(--border);
+}
+.alerts-master-label { font-size:12px; font-weight:700; letter-spacing:.06em;
+  text-transform:uppercase; color:var(--muted) }
+.alerts-master-val { font-size:19px; font-weight:800; color:var(--txt-strong) }
+.alerts-master-val.on  { color:var(--ok-text) }
+.alerts-master-val.off { color:var(--err-text) }
+.alert-btn {
+  padding:9px 20px; border-radius:8px; border:1px solid var(--border-strong);
+  font-size:15px; font-weight:700; cursor:pointer; background:var(--surface);
+  color:var(--txt-strong);
+}
+.alert-btn.stop  { background:var(--err); border-color:var(--err); color:#fff }
+.alert-btn.start { background:var(--ok);  border-color:var(--ok);  color:#fff }
+.alerts-cats-hd {
+  display:flex; align-items:center; gap:10px; margin-bottom:8px;
+  font-size:13px; font-weight:700; letter-spacing:.05em; text-transform:uppercase;
+  color:var(--muted);
+}
+.alerts-shortcuts { margin-left:auto; display:flex; gap:12px; text-transform:none;
+  letter-spacing:0; font-weight:600 }
+.alerts-shortcuts a { color:var(--accent); cursor:pointer; text-decoration:none }
+.alerts-shortcuts a:hover { text-decoration:underline }
+.alerts-cats { display:flex; flex-direction:column; gap:8px }
+.cat-row {
+  display:flex; align-items:center; gap:12px; padding:9px 12px;
+  border:1px solid var(--border); border-radius:8px; background:var(--surface);
+}
+.cat-row input[type="checkbox"] { width:19px; height:19px; flex-shrink:0; cursor:pointer }
+.cat-row input[type="checkbox"]:disabled { cursor:not-allowed }
+.cat-name { font-size:15px; font-weight:700; color:var(--txt-strong); width:110px; flex-shrink:0 }
+.cat-desc { font-size:13px; color:var(--muted); flex:1 }
+.cat-lock { font-size:12px; color:var(--faint); font-style:italic; flex-shrink:0 }
+
+/* Theme toggle — same control as every other app, sized for this page */
+.theme-toggle{
+  display:inline-flex; align-items:center; justify-content:center;
+  width:40px; height:34px; flex-shrink:0;
+  border:1px solid var(--border-strong); border-radius:8px;
+  background:var(--surface); color:var(--txt);
+  cursor:pointer; font-size:17px; line-height:1;
+}
+.theme-toggle:hover{ background:var(--surface2); border-color:var(--accent) }
+
+::-webkit-scrollbar { width:9px; height:9px }
+::-webkit-scrollbar-track { background:transparent }
+::-webkit-scrollbar-thumb { background:var(--border-strong); border-radius:5px }
+::-webkit-scrollbar-thumb:hover { background:var(--accent) }
+    </style>
+</head>
+<body>
+<div id="app">
+
+<!-- SIDEBAR -->
+<nav id="sidebar">
+  <div id="logo">
+    <div id="logo-badge">SLAC / SSRL</div>
+    <div id="logo-name">Watchdog</div>
+    <div id="logo-sub">Autonomous loop monitor</div>
+  </div>
+
+  <div class="nav-section-label">Dashboard</div>
+  <button class="nav-btn active" data-view="overview" onclick="switchView('overview')">
+    <span class="nav-icon">🔄</span> The Loop
+  </button>
+  <button class="nav-btn" data-view="messages" onclick="switchView('messages')">
+    <span class="nav-icon">💬</span> Messages
+  </button>
+  <button class="nav-btn" data-view="alerts" onclick="switchView('alerts')">
+    <span class="nav-icon">🔔</span> Alerts
+  </button>
+
+  <div id="sidebar-foot">
+    <div id="sb-status" class="ok">✓ Connected</div>
+    Watchdog · port 5110
+  </div>
+</nav>
+
+<!-- MAIN -->
+<div id="main">
+  <div id="topbar">
+    <span id="tb-title">⚛️ SWAXS Autonomous Loop</span>
+    <div id="tb-health" title="Loop apps that are active right now">
+      <span class="health-none">probing…</span>
+    </div>
+    <div id="tb-resources" title="System resources">
+      <div class="res-stat"><span class="res-label">CPU</span><span class="res-val" id="val-cpu">—</span></div>
+      <div class="res-stat"><span class="res-label">Mem</span><span class="res-val" id="val-mem">—</span></div>
+      <div class="res-stat"><span class="res-label">Disk</span><span class="res-val" id="val-disk">—</span></div>
+    </div>
+    <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()"
+            title="Toggle light / dark">☀</button>
+  </div>
+
+  <!-- THE LOOP -->
+  <div id="content">
+
+    <div id="stall-banner">
+      <span>⚠</span>
+      <span id="stall-text">—</span>
+      <span class="stall-sub" id="stall-sub"></span>
+    </div>
+
+    <div class="card">
+      <div class="card-hd">
+        🔄 One condition, start to finish
+        <span class="hd-note">background is measured first, then the sample; both averages must
+          exist before subtraction can run</span>
+      </div>
+
+      <div class="cycle">
+
+        <!-- ── reactor ────────────────────────────────────────────────── -->
+        <div class="cycle-reactor">
+          <div class="node node-reactor" id="n-reactor" data-state="unknown">
+            <div class="node-top">
+              <span class="node-name">Reactor</span>
+              <span class="chip" id="n-reactor-chip">—</span>
+            </div>
+            <div class="node-detail" id="n-reactor-detail">—</div>
+            <div class="phase-track" id="n-reactor-phases">
+              <span class="phase-chip" data-lane="background" data-state="idle">① Background</span>
+              <span class="phase-arrow">→</span>
+              <span class="phase-chip" data-lane="sample" data-state="idle">② Sample</span>
+            </div>
+            <div class="node-why">background is measured first, on the clean capillary —
+              reduced and averaged — then the sample follows the same steps</div>
+            <div class="node-rid" id="n-reactor-rid">recipe —</div>
+          </div>
+        </div>
+
+        <!-- ── reduce → average — ONE app each, one lane at a time ─────── -->
+        <div class="cycle-chain">
+          <div class="chain">
+            <div class="arrow">
+              <div class="arrow-label">collect</div>
+              <div class="arrow-shaft"></div>
+            </div>
+            <div class="node" id="n-reduce" data-state="idle">
+              <div class="node-top"><span class="node-name">Reduce</span>
+                <span class="lane-tag" id="n-reduce-lane">—</span>
+                <span class="chip" id="n-reduce-chip">—</span></div>
+              <div class="node-detail" id="n-reduce-detail">—</div>
+              <div class="node-why">one .dat per frame, as each file lands —
+                background frames first, then sample</div>
+              <div class="node-rid" id="n-reduce-rid">recipe —</div>
+            </div>
+            <div class="arrow">
+              <div class="arrow-label">when full</div>
+              <div class="arrow-shaft"></div>
+              <div class="arrow-sub">gated</div>
+            </div>
+            <div class="node" id="n-average" data-state="idle">
+              <div class="node-top"><span class="node-name">Average</span>
+                <span class="lane-tag" id="n-average-lane">—</span>
+                <span class="chip" id="n-average-chip">—</span></div>
+              <div class="node-detail" id="n-average-detail">—</div>
+              <div class="gate"><div class="gate-fill" id="n-average-gate" style="width:0"></div></div>
+              <div class="node-why" id="n-average-why">averages only when the frame
+                count matches the expected number</div>
+              <div class="node-rid" id="n-average-rid">recipe —</div>
+            </div>
+            <div class="arrow">
+              <div class="arrow-label">feeds</div>
+              <div class="arrow-shaft"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── join: subtract → fit ───────────────────────────────────── -->
+        <div class="cycle-join">
+          <div class="node" id="n-subtract" data-state="idle">
+            <div class="node-top"><span class="node-name">Subtract</span>
+              <span class="chip" id="n-subtract-chip">—</span></div>
+            <div class="node-detail" id="n-subtract-detail">—</div>
+            <div class="pairs">
+              <div class="pair missing" id="p-bkg"><span class="box">·</span> background average</div>
+              <div class="pair missing" id="p-smp"><span class="box">·</span> sample average</div>
+            </div>
+            <div class="node-why">runs only when BOTH are ticked</div>
+            <div class="node-rid" id="n-subtract-rid">recipe —</div>
+          </div>
+
+          <div class="arrow-down">
+            <div class="arrow-label">subtracted curve</div>
+            <div class="shaft-v"></div>
+          </div>
+
+          <div class="node" id="n-fit" data-state="idle">
+            <div class="node-top"><span class="node-name">Fit + Predict</span>
+              <span class="chip" id="n-fit-chip">—</span></div>
+            <div class="node-detail" id="n-fit-detail">—</div>
+            <div class="node-why">one app: fits the subtracted curve, then writes
+              the next condition</div>
+            <div class="node-rid" id="n-fit-rid">recipe —</div>
+          </div>
+        </div>
+
+        <!-- ── return path: the loop closes ───────────────────────────── -->
+        <div class="cycle-return">
+          <div class="return-bar">
+            <span class="return-arrow">↰</span>
+            <span class="return-text">Next condition goes back to the Reactor
+              <small>which collects background, then sample again — the loop repeats</small></span>
+            <span class="return-pending" id="return-pending"><span>campaign</span> —</span>
+          </div>
+        </div>
+
+      </div><!-- .cycle -->
+    </div><!-- .card -->
+
+    <div class="charts-grid">
+      <div class="card">
+        <div class="card-hd">📈 Throughput — reduced frames, last 24 h</div>
+        <div class="chart-area" id="plot-throughput"></div>
+      </div>
+      <div class="card">
+        <div class="card-hd">⏱ Stage duration — average seconds</div>
+        <div class="chart-area" id="plot-stage-duration"></div>
+      </div>
+    </div>
+
+    <div class="charts-grid">
+      <div class="card">
+        <div class="card-hd">📦 Pipeline funnel — files per stage</div>
+        <div class="chart-area" id="plot-queue-bar"></div>
+      </div>
+      <div class="card">
+        <div class="card-hd">🎯 Run outcomes — size vs confidence</div>
+        <div class="chart-area" id="plot-run-scatter"></div>
+      </div>
+    </div>
+
+  </div><!-- #content -->
+
+  <!-- MESSAGES VIEW -->
+  <div id="messages-only">
+    <div class="card">
+      <div class="card-hd">📜 Recent messages</div>
+      <div class="messages-list" id="messages-list">
+        <div class="message info">
+          <div class="message-badge">ℹ️</div>
+          <div class="message-content">
+            <div class="message-time">--:--:--</div>
+            <div class="message-title">Waiting for events…</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ALERTS VIEW -->
+  <div id="alerts-only">
+    <div class="card">
+      <div class="card-hd">
+        🔔 Slack alerts
+        <span class="hd-note" id="alerts-state-note">—</span>
+      </div>
+
+      <div class="alerts-master">
+        <div>
+          <div class="alerts-master-label">Sending</div>
+          <div class="alerts-master-val" id="alerts-master-val">—</div>
+        </div>
+        <button id="alerts-master-btn" class="alert-btn" onclick="toggleMasterSwitch()">—</button>
+      </div>
+
+      <div class="alerts-cats-hd">
+        Categories
+        <span class="alerts-shortcuts">
+          <a href="#" onclick="setAllCategories(true); return false;">All</a>
+          <a href="#" onclick="setAllCategories(false); return false;">None</a>
+        </span>
+      </div>
+      <div class="alerts-cats" id="alerts-cats"></div>
+    </div>
+  </div>
+
+</div><!-- #main -->
+
+</div><!-- #app -->
+
+<script>
+let _sse = null;
+let _metrics = null;
+const STAGE_NAMES = ['collect', 'reduce', 'average', 'subtract', 'fit'];
+
+// ── Theme ───────────────────────────────────────────────────────────────────
+// Dark is the default here (wall display), but the choice is shared with every
+// other app through the same localStorage key.
+function isDark() {
+  return (document.documentElement.getAttribute('data-theme') || 'dark') === 'dark';
+}
+function applyThemeIcon() {
+  const btn = document.getElementById('themeToggle');
+  if (btn) btn.textContent = isDark() ? '☀' : '☾';
+}
+function toggleTheme() {
+  const next = isDark() ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  try { localStorage.setItem('swaxs_theme', next); } catch(e) {}
+  applyThemeIcon();
+  if (_metrics) updateCharts();   // re-render plots in the new palette
+}
+try {
+  document.documentElement.setAttribute(
+    'data-theme', localStorage.getItem('swaxs_theme') || 'dark');
+} catch(e) { document.documentElement.setAttribute('data-theme', 'dark'); }
+
+// Plot palette — the series colours differ per theme so they stay legible on
+// both a white and a #1f2126 canvas.
+function palette() {
+  return isDark()
+    ? {primary:'#7aa2f7', secondary:'#ef4444', success:'#22c55e',
+       warning:'#f59e0b', accent:'#c084fc', info:'#22d3ee',
+       fg:'#a4abb6', grid:'rgba(255,255,255,0.07)', surface:'#1f2126',
+       fill:'rgba(122,162,247,0.18)', barEdge:'rgba(255,255,255,0.12)'}
+    : {primary:'#3b82f6', secondary:'#ef4444', success:'#22c55e',
+       warning:'#f59e0b', accent:'#a855f7', info:'#06b6d4',
+       fg:'#6b7280', grid:'rgba(0,0,0,0.06)', surface:'#ffffff',
+       fill:'rgba(59,130,246,0.12)', barEdge:'#ffffff'};
+}
+
+function themedLayout(extra) {
+  const P = palette();
+  const base = {
+    paper_bgcolor: 'rgba(0,0,0,0)',
+    plot_bgcolor:  'rgba(0,0,0,0)',
+    font:   {family: 'Inter, sans-serif', size: 12, color: P.fg},
+    margin: {t: 12, l: 44, r: 12, b: 34},
+    height: 230,
+    showlegend: false,
+    xaxis: {tickfont: {size: 11, color: P.fg}, gridcolor: P.grid,
+            zerolinecolor: P.grid, linecolor: P.grid, showgrid: false},
+    yaxis: {tickfont: {size: 11, color: P.fg}, gridcolor: P.grid,
+            zerolinecolor: P.grid, linecolor: P.grid},
+  };
+  const out = Object.assign({}, base, extra || {});
+  out.xaxis = Object.assign({}, base.xaxis, (extra && extra.xaxis) || {});
+  out.yaxis = Object.assign({}, base.yaxis, (extra && extra.yaxis) || {});
+  if (extra && extra.font) out.font = Object.assign({}, base.font, extra.font);
+  return out;
+}
+const PLOT_CFG = {responsive: false, displaylogo: false, displayModeBar: false};
+
+function switchView(name) {
+  const content = document.getElementById('content');
+  const messagesOnly = document.getElementById('messages-only');
+  const alertsOnly = document.getElementById('alerts-only');
+  document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
+  document.querySelector(`[data-view="${name}"]`).classList.add('active');
+  content.style.display = 'none';
+  messagesOnly.style.display = 'none';
+  alertsOnly.style.display = 'none';
+  if (name === 'messages') {
+    messagesOnly.style.display = 'block';
+  } else if (name === 'alerts') {
+    alertsOnly.style.display = 'block';
+  } else {
+    content.style.display = 'block';
+    setTimeout(() => redrawCharts(), 300);
+  }
+}
+
+let _sseRetries = 0;
+const _MAX_SSE_RETRIES = 10;
+
+function startSSE() {
+  if (_sse) _sse.close();
+  _sse = new EventSource('/api/stream');
+  _sse.onmessage = (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      if (data && Object.keys(data).length > 0) {
+        _metrics = data;
+        updateLoop();
+        updateHealth();
+        updateCharts();
+        updateSSEStatus('ok');
+        _sseRetries = 0;
+      }
+    } catch(err) {
+      console.warn('SSE parse error (non-fatal):', err);
+    }
+  };
+  _sse.onerror = (err) => {
+    console.error('SSE error:', err);
+    updateSSEStatus('err');
+    _sse.close();
+    _sseRetries++;
+    if (_sseRetries < _MAX_SSE_RETRIES) {
+      const delay = Math.min(1000 * Math.pow(1.5, _sseRetries), 30000);
+      setTimeout(startSSE, delay);
+    }
+  };
+}
+
+function updateSSEStatus(status) {
+  const sb = document.getElementById('sb-status');
+  sb.className = status === 'ok' ? 'ok' : 'err';
+  sb.textContent = status === 'ok' ? '✓ Connected' : '✗ Disconnected';
+}
+
+// ── Health row — only the loop apps that are active right now ───────────────
+function updateHealth() {
+  const row = document.getElementById('tb-health');
+  const items = (_metrics && _metrics.health) || [];
+  if (!items.length) {
+    const probing = !_metrics || !_metrics.probe || _metrics.probe.age_s === null;
+    row.innerHTML = `<span class="health-none">${probing ? 'probing…'
+      : 'no loop app active'}</span>`;
+    return;
+  }
+  row.innerHTML = items.map(h => {
+    const port = h.port ? ` :${h.port}` : '';
+    const title = `${h.app}${port} — ${h.ok ? 'active' : 'PROBLEM'}${h.note ? ' · ' + h.note : ''}`;
+    return `<span class="health-item" title="${esc(title)}">
+      <span class="health-dot ${h.ok ? 'ok' : 'err'}"></span>
+      <span class="health-name">${esc(h.app)}</span></span>`;
+  }).join('');
+}
+
+// ── The cycle ───────────────────────────────────────────────────────────────
+const CHIP = {
+  idle:    '○ idle',
+  running: '▶ running',
+  waiting: '⏳ waiting',
+  done:    '✓ done',
+  stalled: '! stalled',
+  unknown: '? no data',
+};
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+
+function setNode(id, node) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const state = (node && node.state) || 'unknown';
+  el.setAttribute('data-state', state);
+  const chip = document.getElementById(id + '-chip');
+  if (chip) chip.textContent = CHIP[state] || state;
+  const detail = document.getElementById(id + '-detail');
+  if (detail) detail.textContent = (node && node.detail) || '—';
+  const rid = document.getElementById(id + '-rid');
+  if (rid) {
+    const value = (node && node.recipe_id) || '';
+    rid.innerHTML = value ? `recipe <b>${esc(value)}</b>` : 'recipe —';
+  }
+}
+
+function updateLoop() {
+  const loop = (_metrics && _metrics.loop) || {};
+
+  // Stall banner — the one thing that must be readable without looking for it.
+  const banner = document.getElementById('stall-banner');
+  if (loop.overdue && loop.overdue.stage) {
+    const mins = Math.floor((loop.overdue.seconds || 0) / 60);
+    document.getElementById('stall-text').textContent =
+      `STALLED — waiting on ${loop.overdue.stage}`;
+    document.getElementById('stall-sub').textContent =
+      `${mins} min past the expected time · the node below is outlined in red`;
+    banner.classList.add('on');
+  } else {
+    banner.classList.remove('on');
+  }
+
+  // Reactor — plus its two-step phase tracker (background, then sample; one
+  // recipe, two sequential collections through the same reduce/average).
+  const reactor = loop.reactor || {};
+  setNode('n-reactor', reactor);
+  const phases = reactor.phases || [];
+  document.querySelectorAll('#n-reactor-phases .phase-chip').forEach(el => {
+    const p = phases.find(x => x.lane === el.getAttribute('data-lane'));
+    el.setAttribute('data-state', (p && p.state) || 'idle');
+  });
+
+  // Reduce → Average — ONE app each; the lane tag says which phase is
+  // currently flowing through them, it does not duplicate the boxes.
+  const reduce = loop.reduce || {};
+  const average = loop.average || {};
+  setNode('n-reduce', reduce);
+  setNode('n-average', average);
+  [['n-reduce-lane', reduce.lane], ['n-average-lane', average.lane]].forEach(([id, lane]) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = lane || '—';
+    el.className = 'lane-tag' + (lane ? ' ' + lane : '');
+  });
+
+  // Gate meter + the explicit "waiting, not broken" wording.
+  const have = average.have, expected = average.expected;
+  const pct = (expected && have != null)
+    ? Math.max(0, Math.min(100, Math.round(100 * have / expected))) : 0;
+  const fill = document.getElementById('n-average-gate');
+  if (fill) fill.style.width = (average.state === 'done' ? 100 : pct) + '%';
+  const why = document.getElementById('n-average-why');
+  if (why) {
+    if (average.state === 'waiting' && expected && have != null) {
+      why.textContent = `waiting for ${Math.max(0, expected - have)} more frame(s) `
+        + `— nothing is wrong, the gate holds until ${expected} arrive`;
+    } else if (average.state === 'done') {
+      why.textContent = `averaged ${expected || ''} frames into one curve`.trim();
+    } else if (average.state === 'stalled') {
+      why.textContent = 'frames stopped arriving — the gate can never fill';
+    } else {
+      why.textContent = 'averages only when the frame count matches the expected number';
+    }
+  }
+
+  // Subtract — the both-lanes gate, spelled out
+  const sub = loop.subtract || {};
+  setNode('n-subtract', sub);
+  [['p-bkg', sub.have_background, 'background average'],
+   ['p-smp', sub.have_sample, 'sample average']].forEach(([id, have, label]) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.className = 'pair ' + (have ? 'have' : 'missing');
+    el.innerHTML = `<span class="box">${have ? '✓' : '·'}</span> ${label}`
+      + (have ? '' : ' — not yet');
+  });
+
+  // Fit + predict
+  setNode('n-fit', loop.fit || {});
+
+  // Return path — what the analyzer is about to hand back
+  const next = loop.next_condition || {};
+  const pendingEl = document.getElementById('return-pending');
+  if (pendingEl) {
+    const bits = [];
+    if (next.campaign) bits.push(esc(next.campaign));
+    if (next.n_evaluations != null && next.budget)
+      bits.push(`${next.n_evaluations}/${next.budget} runs`);
+    if (next.n_pending) bits.push(`${next.n_pending} queued`);
+    pendingEl.innerHTML = '<span>campaign</span> ' + (bits.length ? bits.join(' · ') : '—');
+  }
+}
+
+function updateCharts() {
+  if (!_metrics) return;
+  const P = palette();
+
+  const tp = _metrics.throughput || [];
+  Plotly.react('plot-throughput', [{
+    x: tp.map(d => d.hour),
+    y: tp.map(d => d.count),
+    type: 'scatter', mode: 'lines', fill: 'tozeroy',
+    line: {color: P.primary, width: 3, shape: 'spline', smoothing: 1.1},
+    fillcolor: P.fill,
+    hovertemplate: '%{y} files at %{x}<extra></extra>',
+  }], themedLayout({}), PLOT_CFG);
+
+  const stageTimes = (_metrics.pipeline && _metrics.pipeline.stage_times) || {};
+  Plotly.react('plot-stage-duration', [{
+    x: STAGE_NAMES,
+    y: STAGE_NAMES.map(s => stageTimes[s] || 0),
+    type: 'bar',
+    marker: {color: [P.primary, P.info, P.success, P.warning, P.accent],
+             line: {color: P.barEdge, width: 1}},
+    hovertemplate: '%{x}: %{y}s<extra></extra>',
+  }], themedLayout({}), PLOT_CFG);
+
+  // Pipeline funnel: how many files have reached each stage (cumulative — each
+  // stage should be <= the previous one as files move down the pipeline).
+  const f = _metrics.files || {};
+  const funnelY = [f.reduced || 0, f.averaged || 0, f.subtracted || 0, f.analysed || 0];
+  Plotly.react('plot-queue-bar', [{
+    x: ['Reduced', 'Averaged', 'Subtracted', 'Analysed'],
+    y: funnelY,
+    type: 'bar',
+    marker: {color: [P.primary, P.success, P.warning, P.accent],
+             line: {color: P.barEdge, width: 1}},
+    text: funnelY.map(String), textposition: 'outside',
+    textfont: {size: 12, color: P.fg}, cliponaxis: false,
+    hovertemplate: '%{x}: %{y}<extra></extra>',
+  }], themedLayout({margin: {t: 20, l: 44, r: 12, b: 34}, yaxis: {rangemode: 'tozero'}}), PLOT_CFG);
+
+  const runs = _metrics.runs || [];
+  Plotly.react('plot-run-scatter', [{
+    x: runs.map((_, i) => i + 1),
+    y: runs.map(r => r.size || 0),
+    mode: 'markers', type: 'scatter',
+    marker: {
+      size: runs.map(r => Math.max(9, Math.min(20, (r.pdi || 0.2) * 45))),
+      color: runs.map(r => r.confidence || 0),
+      colorscale: [[0, P.secondary], [0.5, P.warning], [1, P.success]],
+      cmin: 0, cmax: 1, showscale: true,
+      colorbar: {title: {text: 'Conf.', font: {size: 11, color: P.fg}},
+                 tickfont: {size: 10, color: P.fg}, thickness: 12, len: 0.9, outlinewidth: 0},
+      line: {color: P.surface, width: 1.5}, opacity: 0.9,
+    },
+    hovertemplate: 'run %{x}: %{y:.1f} nm<extra></extra>',
+  }], themedLayout({margin: {t: 12, l: 44, r: 70, b: 34}}), PLOT_CFG);
+
+  ['cpu', 'mem', 'disk'].forEach(key => {
+    const val = (_metrics.resources && _metrics.resources[key]) || 0;
+    const el = document.getElementById('val-' + key);
+    if (!el) return;
+    el.textContent = Math.round(val) + '%';
+    el.className = 'res-val' + (val >= 90 ? ' err' : val >= 70 ? ' warn' : '');
+  });
+}
+
+// ── Alerts (Slack master switch + category toggles) ────────────────────────
+const CATEGORY_ORDER = ['safety', 'stalls', 'results', 'progress', 'campaign'];
+const CATEGORY_INFO = {
+  safety:   'E-stop, safety trips, pump faults',
+  stalls:   'loop stalled, with the diagnosis',
+  results:  'fit results, low-confidence fits',
+  progress: 'recipe started, run complete',
+  campaign: 'converged, budget exhausted, hourly summary',
+};
+let _alertsState = {
+  slack_enabled: true,
+  categories: {safety: true, stalls: true, results: true, progress: true, campaign: true},
+};
+
+function renderAlerts() {
+  const s = _alertsState;
+  const masterVal = document.getElementById('alerts-master-val');
+  const masterBtn = document.getElementById('alerts-master-btn');
+  const note = document.getElementById('alerts-state-note');
+  if (masterVal) {
+    masterVal.textContent = s.slack_enabled ? 'ON' : 'OFF';
+    masterVal.className = 'alerts-master-val ' + (s.slack_enabled ? 'on' : 'off');
+  }
+  if (masterBtn) {
+    masterBtn.textContent = s.slack_enabled ? 'Stop sending' : 'Start sending';
+    masterBtn.className = 'alert-btn ' + (s.slack_enabled ? 'stop' : 'start');
+  }
+  if (note) {
+    const active = CATEGORY_ORDER.filter(c => s.categories[c]);
+    note.textContent = s.slack_enabled
+      ? (active.length ? `sending: ${active.join(', ')}` : 'sending on, no categories active')
+      : 'sending is OFF — nothing is sent, including safety';
+  }
+
+  const catsEl = document.getElementById('alerts-cats');
+  if (!catsEl) return;
+  catsEl.innerHTML = '';
+  CATEGORY_ORDER.forEach(cat => {
+    const checked = !!s.categories[cat];
+    const lockedOn = cat === 'safety' && s.slack_enabled;
+    const row = document.createElement('div');
+    row.className = 'cat-row';
+    row.innerHTML = `<input type="checkbox" id="cat-${cat}" ${checked ? 'checked' : ''} ${lockedOn ? 'disabled' : ''}>`
+      + `<span class="cat-name">${esc(cat)}</span>`
+      + `<span class="cat-desc">${esc(CATEGORY_INFO[cat])}</span>`
+      + (lockedOn ? '<span class="cat-lock">Stop sending to silence</span>' : '');
+    catsEl.appendChild(row);
+    row.querySelector('input').addEventListener('change', (e) => setCategory(cat, e.target.checked));
+  });
+}
+
+function applySettingsResult(data) {
+  if (!data || !data.ok) { console.warn('settings update failed:', data && data.error); return; }
+  _alertsState.slack_enabled = !!data.slack_enabled;
+  _alertsState.categories = data.categories || {};
+  renderAlerts();
+}
+
+function toggleMasterSwitch() {
+  fetch('/api/settings', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({slack_enabled: !_alertsState.slack_enabled}),
+  })
+    .then(r => r.json())
+    .then(applySettingsResult)
+    .catch(err => console.warn('settings update failed (non-fatal):', err));
+}
+
+function setCategory(cat, val) {
+  fetch('/api/settings', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({categories: {[cat]: val}}),
+  })
+    .then(r => r.json())
+    .then(applySettingsResult)
+    .catch(err => console.warn('settings update failed (non-fatal):', err));
+}
+
+function setAllCategories(val) {
+  const categories = {};
+  CATEGORY_ORDER.forEach(c => { categories[c] = val; });
+  fetch('/api/settings', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({categories}),
+  })
+    .then(r => r.json())
+    .then(applySettingsResult)
+    .catch(err => console.warn('settings update failed (non-fatal):', err));
+}
+
+// Message + alerts-state polling is decoupled from the 1 Hz metrics stream:
+// both change rarely, so we fetch /api/settings every 5 s and only rebuild
+// the DOM when something actually changed — no per-second flicker.
+let _lastMsgSig = null;
+let _lastAlertsSig = null;
+
+function pollMessages() {
+  const msgList = document.getElementById('messages-list');
+
+  fetch('/api/settings')
+    .then(r => r.json())
+    .then(data => {
+      const alertsSig = JSON.stringify([data.slack_enabled, data.categories]);
+      if (alertsSig !== _lastAlertsSig) {
+        _lastAlertsSig = alertsSig;
+        _alertsState.slack_enabled = !!data.slack_enabled;
+        _alertsState.categories = data.categories || {};
+        renderAlerts();
+      }
+
+      if (!msgList) return;
+      const msgs = data.sent_messages || [];
+      const sig = JSON.stringify(msgs.map(m => m.timestamp + m.level));
+      if (sig === _lastMsgSig) return;  // nothing changed → don't touch the DOM
+      _lastMsgSig = sig;
+
+      msgList.innerHTML = '';
+      if (msgs.length === 0) {
+        msgList.innerHTML = '<div class="message info"><div class="message-badge">ℹ️</div>'
+          + '<div class="message-content"><div class="message-time">--:--:--</div>'
+          + '<div class="message-title">No messages yet</div></div></div>';
+        return;
+      }
+      msgs.slice().reverse().forEach(msg => {
+        const time = new Date(msg.timestamp).toLocaleTimeString();
+        const level = msg.level || 'info';
+        const badge = level === 'warn' ? '⚠️' : level === 'fault' ? '❌' : 'ℹ️';
+        const div = document.createElement('div');
+        div.className = `message ${level}`;
+        div.innerHTML = `<div class="message-badge">${badge}</div><div class="message-content">`
+          + `<div class="message-time">${esc(time)}</div>`
+          + `<div class="message-title">${esc(msg.title)}</div>`
+          + `<div class="message-text">${esc(msg.text)}</div></div>`;
+        msgList.appendChild(div);
+      });
+    })
+    .catch(err => console.warn('message poll failed (non-fatal):', err));
+}
+
+function redrawCharts() {
+  ['plot-throughput', 'plot-stage-duration', 'plot-queue-bar', 'plot-run-scatter']
+    .forEach(id => { try { Plotly.Plots.resize(id); } catch(e) {} });
+}
+
+applyThemeIcon();
+startSSE();
+renderAlerts();                    // initial render from defaults, refined by first poll
+pollMessages();                    // initial message load
+setInterval(pollMessages, 5000);   // refresh messages every 5s (decoupled from metrics)
+</script>
+</body>
+</html>

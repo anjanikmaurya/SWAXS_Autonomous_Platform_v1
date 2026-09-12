@@ -1,302 +1,156 @@
-# Notifications for Unattended Runs — Slack and Email
+# Notifications — Watchdog App
 
-The reactor app reports while the platform runs unattended: each recipe it applies,
-the fitted result, and immediately any fault. Two transports sit behind one object
-— `MultiNotifier` (`src/notify/multi.py`, built at `reactor/app.py:121-124`) — and
-one button arms both.
+**The watchdog app (port 5110) is the sole place the platform sends notifications.** It subscribes to the event bus, applies policy (quiet hours, snooze, throttle), and sends to Slack via a Workflow Builder webhook.
 
-**Email needs no approval and works today**; Slack needs a workspace-app credential
-an admin usually must approve. Setting up for a beamtime tonight? Do the email
-section and stop there. Either way, notifications **cannot affect the run**: every
-send is fire-and-forget on a worker thread with a timeout, all errors swallowed.
+## Setup
 
-## Blocked on Slack app approval? Use email (5 minutes, no permission)
+### 1. Create a Slack Workflow (one-time, by any workspace member)
 
-If Slack says *"You'll need approval from someone who manages apps on your
-workspace"*, click **Request to Add New Webhook** and use email meanwhile. Same
-tiers, same isolation, pushes to your phone — and it can deliver **into Slack**
-later via a channel-email address.
+1. Go to [Slack Workflow Builder](https://slack.com/intl/en-gb/features/workflow-automation)
+2. Click **Create New** → **From Scratch**
+3. Name it `auto-run`
+4. Select **Webhook** as the trigger
+5. Copy the webhook URL
+6. **Set up the posting step:**
+   - Add a **Send a message** action
+   - Post to channel: `#autoq` (create the channel if needed)
+   - Message text: 
+     ```
+     :title: {{trigger.title}}
+     {{trigger.text}}
+     [{{trigger.level}}]
+     ```
+7. **Publish** the workflow
+8. Save the webhook URL (looks like `https://hooks.slack.com/triggers/...`)
+
+### 2. Set the webhook URL in `.env`
 
 ```bash
 # .env in the project root (git-ignored, sourced by start_platform.sh)
-SWAXS_SMTP_HOST=smtp.stanford.edu
-SWAXS_SMTP_PORT=587                    # optional; inferred from the mode
-SWAXS_SMTP_USER=you@stanford.edu       # omit if your relay needs no auth
-SWAXS_SMTP_PASSWORD=your-app-password
-SWAXS_SMTP_FROM=you@stanford.edu       # optional; defaults to the user
-SWAXS_NOTIFY_EMAIL=you@stanford.edu    # comma-separate for several people
+SWAXS_SLACK_WEBHOOK_URL=https://hooks.slack.com/triggers/T.../...
 ```
 
-`.env.example` ships **only the two Slack variables** — there is no SMTP template
-in it, so add the block above by hand. Then verify: `python tools/notify_test.py
---check` connection-tests ports 587/465/25 from that machine, so you don't have to
-guess which one your network permits.
+If the URL is ever rotated, re-run the Workflow Builder and update `.env`.
 
-```
-   probing SMTP options from THIS machine (a few seconds)…
-   ✓ smtp.stanford.edu:587 starttls (auth required)
-   ✗ smtp.stanford.edu:465 ssl  ConnectionRefusedError
-   ✓ at least one option works — put that host/port in .env
-```
-
-`python tools/notify_test.py --ping` then sends one real message, and the app's
-**🔔 Notify me when I leave** button arms email exactly as it would Slack.
-
-**Into Slack without app approval:** in the channel choose **Settings → Integrations
-→ Send emails to this channel** and put the generated address in
-`SWAXS_NOTIFY_EMAIL`. Ordinary members can often do this, bypassing the queue.
-
-**Text messages:** most carriers accept email-to-SMS (`+15551234567@txt.att.net`,
-`@vtext.com`, …). Add one to `SWAXS_NOTIFY_EMAIL` and set
-`notify.email.tiers: ["alert"]` so only genuine faults buzz your phone.
-
-## Slack — for when approval lands
-
-### Step 1 — Create the channel
-
-In Slack: **+ → Create a channel** → e.g. `#swaxs-autorun`. Use a **dedicated**
-channel: a 24 h campaign posts one thread per condition, and mixed into a busy
-channel that becomes noise people mute — which defeats the purpose. Invite whoever
-needs to be woken up.
-
-### Step 2 — Pick a transport
-
-| | Incoming webhook | Bot token |
-|---|---|---|
-| Setup time | ~2 min | ~5 min |
-| Threading (one thread per recipe) | ✗ flat messages | ✓ |
-| QC plot attached on a bad fit | ✗ | ✓ |
-| Needs workspace admin approval | sometimes | usually |
-
-**Start with the webhook** if you just want alerts tonight. Use the **bot token**
-for the threaded view — at ~70 messages a day, threading is what keeps the channel
-readable.
-
-> ⚠ At SLAC/Stanford, installing a Slack app often needs workspace-admin approval.
-> A greyed-out Install button, or one saying "request approval", is exactly that.
-> The webhook route sometimes goes through more easily.
-
-### Step 3a — Incoming webhook (simpler)
-
-1. https://api.slack.com/apps → **Create New App** → **From scratch**
-   (name `SWAXS Reactor`, your workspace)
-2. **Incoming Webhooks** → toggle **On** → **Add New Webhook to Workspace** →
-   choose `#swaxs-autorun` → **Allow**, then copy the URL Slack generates
+### 3. Test it
 
 ```bash
-# .env in the project root
-SWAXS_SLACK_WEBHOOK=https://hooks.slack.com/services/PASTE-YOUR-WEBHOOK-PATH
+# From the watchdog UI at http://localhost:5110, click "Test"
+# Or from the command line:
+curl -X POST http://localhost:5110/api/test
 ```
 
-Nothing else. The channel is baked into the URL, so `notify.slack.channel` is
-ignored here and `thread_per_recipe` is forced off (webhooks cannot thread).
+You should see a test message in `#autoq`.
 
-### Step 3b — Bot token (threading + plots)
+## How It Works
 
-1. https://api.slack.com/apps → **Create New App** → **From scratch**
-2. **OAuth & Permissions** → **Bot Token Scopes**: `chat:write` *(required)*,
-   `files:write` *(optional — the QC plot upload)*
-3. **Install to Workspace** → **Allow**, then copy the **Bot User OAuth Token**
-   (starts `xoxb-`)
-4. **In Slack**, in the channel: `/invite @SWAXS Reactor`
-   *(a bot cannot post to a channel it isn't in — easy step to miss)*
+### Events from the Bus
 
-```bash
-# .env in the project root
-SWAXS_SLACK_BOT_TOKEN=xoxb-PASTE-YOUR-BOT-TOKEN-HERE
-```
+The watchdog subscribes to platform events:
+- **reactor.run_start** — recipe applied to the reactor
+- **reactor.run_complete** — synthesis run finished
+- **reactor.estop** — emergency stop triggered
+- **reactor.safety** — safety violation (pump, temperature, etc.)
+- **reactor.backend** — backend switched (mock ↔ real)
+- **fit.complete** — auto-fit result available
 
-```yaml
-# reactor/config.yml
-notify:
-  slack:
-    enabled: false            # leave false — arm it from the app's button
-    channel: "#swaxs-autorun" # ← the channel you created
-```
+Each is translated to `{title, text, level}` and sent via webhook.
 
-`.env` is the primary home for credentials because it survives opening a new
-terminal, and `start_platform.sh:17-22` sources it (so does `start_platform.bat`;
-`start_platform.bat` does **not** — on that path export the variables yourself).
-A plain `export SWAXS_SLACK_BOT_TOKEN=…` in the shell also works, for a one-off.
+### Policy
 
-## Step 4 — Verify before you rely on it
+Before sending:
+- **Master switch** (`config.yml:notify.slack_enabled`) — when off, nothing is sent at all, checked before everything else below
+- **Category filter** (`config.yml:notify.categories`) — each message belongs to one of five categories (below); a category that's off is silently dropped
+- **Quiet hours** (`config.yml:notify.quiet_hours`, e.g. `23:00-07:00`) suppress progress messages, never faults
+- **Snooze** (`POST /api/snooze {minutes}`) silences progress messages
+- **Throttle** (`config.yml:notify.min_interval_s`) ensures Slack isn't rate-limited
+- **Faults always send** regardless of quiet hours/snooze, but still respect the master switch and category filter
 
-`tools/notify_test.py` checks both channels without waiting for a beamtime run. It
-defaults to `--check`, so running it bare never sends anything.
+All of this is resolved in one place — `should_send()` in `src/watchdog/policy.py`, a pure function with no I/O — so the Flask routes never make policy decisions themselves.
 
-```bash
-python tools/notify_test.py --check              # config + env only, sends NOTHING
-python tools/notify_test.py --check --no-probe   # same, minus the SMTP probe (faster)
-python tools/notify_test.py --demo --dry-run     # print the messages, no network
-python tools/notify_test.py --ping               # ONE real message
-python tools/notify_test.py --demo               # simulated 2-condition campaign: threaded
-                                                 #   fits, low-confidence fit + QC plot, faults
-python tools/notify_test.py --fault              # only what would wake you at 3 a.m.
-```
+### Message Categories
 
-**Every** mode runs both checks first (`notify_test.py:267-268`), so `--ping` and
-`--demo` are slow until you add `--no-probe`. `--check` always prints two sections
-— Slack, then **Email notifications** with the SMTP probe — and says what is missing:
+Every message is tagged with exactly one category. The watchdog UI's **Alerts** page has an independent checkbox per category — any combination, including all or none:
 
-```
-── Slack notification check ─────────────────────────────────
-✗ reactor/config.yml → notify.slack.enabled: False   → set it to true
-✓ SWAXS_SLACK_BOT_TOKEN is set (xoxb-1234…abcd) → bot mode (threading + plot uploads)
-! SWAXS_SLACK_WEBHOOK not set
-✓ channel: #swaxs-autorun    ✓ tiers: alert, progress, session
-✓ notifier would be ACTIVE at reactor startup
-── Email notifications ──────────────────────────────────────
-! config notify.email.enabled: False   (the app's button can arm it anyway)
-✓ would send as you@stanford.edu via smtp.stanford.edu:587 (starttls)
-   …then the SMTP probe rows shown above…
-✓ at least one channel is usable
-```
+| Category | Covers |
+|---|---|
+| `safety` | E-stop, safety trips, pump faults |
+| `stalls` | loop stalled, with the diagnosis |
+| `results` | fit results, low-confidence fits |
+| `progress` | recipe started, run complete |
+| `campaign` | converged, budget exhausted, hourly summary |
 
-That last line is what matters — the script exits non-zero only when *neither*
-channel is usable. "would be ACTIVE" reflects the credentials, not
-`notify.slack.enabled`: the check forces `enabled: True` to isolate the credential
-question, and the button is what actually arms it. The demo posts under
-`slacktest_*` recipe ids, so it cannot be confused with real data.
+`safety` cannot be unchecked while the master switch is on — `should_send()` refuses to let the category filter block it. The only way to silence safety messages is to stop sending entirely, so nobody quietly disables the E-stop alert while trimming noise. Turning the master switch off silences `safety` too, along with everything else.
 
-**Offline unit tests** (no network): `python -m pytest tests/test_slack_notify.py
-tests/test_email_notify.py -v` — 31 Slack tests and 20 email/multi tests, covering
-the isolation guarantees (hangs, exceptions, full queue, rejected auth, an
-unreachable SMTP server), tier filtering, threading in both transports, fan-out
-when one channel is broken, and that credentials never reach a payload.
+Bus events map to a category via `category_for_event()` in `src/watchdog/policy.py`; anything not explicitly mapped defaults to `progress` rather than being unfilterable. Stall diagnoses (which aren't built from a bus event) are always tagged `stalls`.
 
-**End to end:** with a credential in `.env`, start the platform in mock mode and
-queue two conditions — the simulator produces frames, the analyzer fits them, the
-results arrive threaded. Same code path beamtime will use.
+### Stall Detection
 
-## Step 5 — Arming from the app: "Leaving the beamline"
+Every 5 minutes, the watchdog checks if any pipeline stage is overdue:
+- Expected events: `file.reduced`, `file.averaged`, `file.subtracted`, `fit.complete`
+- Timeout per stage: 1–3 hours depending on stage
+- If a stage is overdue, watchdog probes the next app (`/api/monitor/status`) and sends a fault message naming the dead stage
 
-The intended workflow is: set everything up, start the measurement, confirm the
-first condition looks right, **then** arm notifications on your way out. The card
-bottom-left in the reactor app (under E-STOP) does exactly that. So: run
-`./start_platform.sh` (it sources `.env`), start the measurement, check the first
-condition, then → **🔔 Leaving the beamline** → **Send test message**, then
-**🔔 Notify me when I leave**. It turns green (**🔔 Notifications ARMED — click to
-stop**) and posts a confirmation, so you know it works *before* you go.
+## Configuration
 
-With no credentials the button is disabled and reads **🔔 Notifications not
-configured**, naming the variables in its hint — it cannot silently do nothing.
-`notify.slack.enabled` / `notify.email.enabled` in `config.yml` are only STARTUP
-defaults; the button overrides them at runtime, no restart needed.
-
-Routes: `GET /api/slack` (status for both channels); `POST /api/slack` (`{}`
-toggles, or `{"enabled": true|false}`, plus optional
-`{"channel": "slack"|"email"|"all"}` to arm one transport only —
-`reactor/app.py:624` → `MultiNotifier.enable(which)`); `POST /api/slack/test`.
-
-## What gets posted
-
-Three tiers, selected independently by `notify.slack.tiers` and
-`notify.email.tiers`:
-
-| Tier | Events | Volume |
-|---|---|---|
-| `alert` | E-stop, over-temperature, over-pressure, pump setpoint over limit, pump fault/lost, stale temperature reading, low-confidence fit | rare — someone should go to the hutch |
-| `progress` | recipe applied (conditions), run complete (reason, duration), fitted size/PDI/confidence/loss | 2–3 per condition |
-| `session` | autonomous session start / finish summary, backend switched | a few per campaign |
-
-`mention_on_alert: "<!channel>"` adds a mention to Slack alerts only; email marks
-the alert tier in the subject line instead. With a bot token each recipe gets **one
-parent message** and everything else is threaded under it, so a 24 h campaign reads
-as one line per condition; email mirrors this with mail-thread headers.
-
-```
-▶ Autonomous session started (backend mock)
-🧪 Recipe applied — r1
-   • T_reac: 240   • F_tot: 80   • x_TOP: 0.15   • run duration: 10m 0s
-   ↳ ✅ Run complete — r1
-        • stopped by: duration elapsed   • ran: 10m 1s
-   ↳ 📊 Fit result — r1
-        • size (nm): 4.123   • PDI: 0.0234   • confidence: 0.91   • loss: 0.115
-🧪 Recipe applied — r2   …
-🚨 EMERGENCY STOP
-   pumps that did NOT idle: top — check them immediately
-```
-
-The fit result is posted by `_slack_analysis` (`reactor/app.py:319-341`) when the
-analyzer publishes `fit.complete` (not `analysis.complete` — that name belongs
-to the Data Analysis app's Guinier/Porod/etc. events, a different shape); it
-forwards size, PDI, confidence, loss,
-distribution and phase into that recipe's thread. When the fit is flagged
-`suspect` the message escalates to the `alert` tier and the QC plot is attached via
-`upload_png` (`reactor/app.py:337-341`; bot token + `files:write` required).
-
-## Configuration reference
+`watchdog/config.yml`:
 
 ```yaml
 notify:
-  slack:
-    enabled:  false            # startup default; the app's button arms it
-    channel:  "#swaxs-autorun" # bot-token mode only
-    tiers:    ["alert", "progress", "session"]
-    thread_per_recipe: true    # auto-disabled on webhook transport
-    mention_on_alert: ""       # "<!channel>" / "<@U012ABC>"
-    timeout_s: 6.0             # per request
-    min_interval_s: 0.4        # throttle against Slack's rate limit
-  email:
-    enabled:  false            # startup default; the app's button arms it
-    mode:     ""               # "" = infer (starttls with auth, plain without);
-                               # or force "starttls" | "ssl" | "plain"
-    tiers:    ["alert", "progress", "session"]
-    subject_prefix: "[SWAXS]"
-    timeout_s: 15.0
-    min_interval_s: 1.0        # email is slower than Slack — throttle harder
+  quiet_hours: "23:00-07:00"    # suppress progress, never faults
+  summary: "off"                 # off | hourly (hourly for later)
+  snooze_default_min: 30         # default when you press Snooze
+  min_interval_s: 3              # throttle between sends
+
+  slack_enabled: true            # master switch — false sends nothing at all
+  categories:                    # independent per-category toggles
+    safety: true
+    stalls: true
+    results: true
+    progress: true
+    campaign: true
 ```
 
-Channel name, tiers and timeouts belong in `reactor/config.yml`; on/off belongs to
-the button. **Never** put the Slack bot token, the webhook URL, or the SMTP
-username/password there — `reactor/config.yml` is committed to git. Those, plus the
-recipient list, live in **`.env`** only (git-ignored). The code reads credentials
-solely from the environment and **ignores** a token placed in the config;
-`tests/test_slack_notify.py:240-242` asserts that a `bot_token:` in the config
-leaves the notifier disabled.
+The master switch and categories persist here, so they survive a restart. The
+webhook URL is never in this file — it's a secret and lives in `.env`
+(`SWAXS_SLACK_WEBHOOK_URL`).
 
-## Isolation guarantees (all tested — and they apply to email too)
+Both can also be changed live from the watchdog UI's **Alerts** page (or via
+`POST /api/settings`), which writes straight back to this file.
 
-- `notify()` returns in **< 0.2 s even if the transport hangs for 5 s** — it only enqueues.
-- A transport exception does not propagate and does not kill the worker thread.
-- A full queue (200 items) **drops** notifications rather than blocking the caller.
-- Slack rejections (`invalid_auth`, rate limits) and unreachable SMTP servers are
-  logged to the reactor log, never raised.
-- One broken channel cannot stop the other: each forward in `MultiNotifier` is
-  individually guarded (`src/notify/multi.py:102-112`).
-- The notifier is driven from the controller's `event_cb`, which runs **outside** the
-  controller lock — so it can never add latency to an E-stop.
-- Credentials are never included in a message payload.
+## Routes
 
-## Architecture
-
-```
-ReactorController._event("reactor.run_start", …)
-        │
-reactor/app.py::_event_cb          ← also publishes to the hub event bus
-        │  try/except (cannot raise)
-src/notify/multi.py::MultiNotifier.notify()
-        ├── SlackNotifier.notify()  → queue.put_nowait (never blocks)
-        │      worker thread → urllib POST, timeout, errors swallowed
-        └── EmailNotifier.notify()  → queue.put_nowait (never blocks)
-               worker thread → smtplib send, timeout, errors swallowed
-```
-
-Only stdlib is used (`urllib`, `smtplib`, `queue`, `threading`) — no new dependency.
-
-Events consumed from the controller (`reactor/app.py:130-154`):
-`reactor.run_start`, `reactor.run_complete`, `reactor.estop`, `reactor.safety`
-(carries `check` + `detail`), `reactor.backend`. Events consumed from the hub bus
-(`reactor/app.py:304-316`): `file.averaged`, `fit.complete`.
+- `GET /api/health` — status (always `{"status": "ok"}`)
+- `GET /api/settings` — current policy (including `slack_enabled` and `categories`) and recent messages
+- `POST /api/settings {slack_enabled?, categories?}` — update the master switch and/or one or more categories; either key is optional, `categories` may be a partial dict (only the keys you send change); the `safety` exception is enforced server-side regardless of what's sent
+- `POST /api/test` — send a test message to Slack
+- `POST /api/snooze {minutes}` — snooze progress messages
+- `POST /api/set_project {path}` — set project root
 
 ## Troubleshooting
 
-| Symptom | Cause |
-|---|---|
-| Button says "Notifications not configured" | `.env` not loaded — did you start via `start_platform.sh`? Check `python tools/notify_test.py --check` |
-| `not_in_channel` in the reactor log | The bot wasn't invited: `/invite @SWAXS Reactor` |
-| `invalid_auth` | Token copied wrong, or the app was reinstalled (token changes) |
-| `channel_not_found` | `notify.slack.channel` typo, or a private channel the bot isn't in |
-| Messages arrive but aren't threaded | Webhook mode — webhooks cannot thread. Use a bot token |
-| No SMTP option worked in the probe | Outbound mail is blocked from that host — ask IT which relay/port is permitted |
-| Nothing arrives, no errors | Notifications not armed. Click the button (or set `enabled: true`) |
+### No messages appear in #autoq
+
+1. Check the **Alerts** page — sending must be **ON**, and the category the message belongs to must be checked
+2. Check `SWAXS_SLACK_WEBHOOK_URL` is set in `.env` and the platform is restarted
+3. Test with `curl -X POST http://localhost:5110/api/test` — this bypasses the master switch and category filter entirely (it's a webhook wiring check, not a policy check), so it succeeding doesn't mean real messages will send too
+4. Check that `#autoq` exists and the watchdog app has permission to post there
+5. Look at the watchdog console for errors
+
+### Messages are being snoozed
+
+Check the watchdog UI (`http://localhost:5110`). If **Snoozed** is on, progress messages won't send. Click **Snooze** again with `0` to clear it.
+
+### Platform stalls but watchdog doesn't send a stall message
+
+Stall detection looks for missing events. If no events have arrived at all (idle platform), no stall is detected. Only active campaigns generate stall alerts.
+
+## Design Notes
+
+- **Fire-and-forget**: sends are on a background thread, never block the reactor or any app
+- **No secrets in git**: webhook URL lives in `.env` (git-ignored)
+- **Webhook only**: uses Slack Workflow Builder (zero setup, no app approval needed), not a bot token
+- **No file uploads**: PNG plots are mentioned in message text instead
+- **No email**: Slack-only for now (email support is out of scope)
+- **Category resolution is pure**: the master switch and category filter are both resolved inside `should_send()` (`src/watchdog/policy.py`), not in the Flask route — the same function the quiet-hours/snooze logic already lived in
+- **Defense in depth on the safety exception**: "safety cannot be silenced while sending is on" is enforced in three places — `load_settings()` and `save_notify_settings()` in `src/watchdog/settings.py` (load/save time), and `should_send()` itself (send time) — so no single code path can regress it

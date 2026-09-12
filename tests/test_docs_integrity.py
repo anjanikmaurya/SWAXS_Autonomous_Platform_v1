@@ -92,7 +92,7 @@ def test_docs_do_not_reference_source_files_that_do_not_exist():
 # ── the registry is the single source of truth for ports and apps ────────────
 def test_no_doc_claims_a_wrong_number_of_apps(apps):
     n = len(apps)
-    assert n == 9, f"apps.yml now has {n} apps - update the docs and this test"
+    assert n == 10, f"apps.yml now has {n} apps - update the docs and this test"
     wrong = []
     for md in _docs():
         txt = md.read_text(errors="ignore")

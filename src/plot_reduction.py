@@ -151,7 +151,10 @@ def _average_group(
     used_files: list[dict] = []
 
     for fd in kw_files:
-        valid = (fd["q"] > 0) & (fd["I"] > 0)
+        # One NaN/inf in I or sigma would otherwise propagate through np.interp
+        # and poison every averaged q-bin it touches.
+        valid = ((fd["q"] > 0) & (fd["I"] > 0)
+                 & np.isfinite(fd["q"]) & np.isfinite(fd["I"]) & np.isfinite(fd["sigma"]))
         if valid.sum() < 3:
             logger.warning(
                 "[_average_group] skipping %s (<3 valid points)",
@@ -236,6 +239,15 @@ def _truncate_q(q: np.ndarray, I: np.ndarray, sigma: np.ndarray,
 
 # ── Public API ─────────────────────────────────────────────────────────────────
 
+# The average monitor calls read_folder() on the whole Reduction folder every
+# poll cycle. Without a cache that is O(N) file parses per cycle, so CPU per
+# cycle grows for the entire beamtime. Entries are keyed on (path, mtime, size)
+# so a rewritten file is re-read; bounded so memory cannot grow without limit.
+# Callers receive the SAME dict objects across calls and must not mutate them.
+_READ_CACHE_MAX = 20000
+_read_cache: dict = {}
+
+
 def read_folder(
     folder: str | Path,
     keywords: list[str] | None = None,
@@ -283,6 +295,15 @@ def read_folder(
     results = []
     for path in dat_files:
         try:
+            try:
+                st = path.stat()
+                ckey = (str(path), st.st_mtime_ns, st.st_size)
+            except OSError:
+                continue                       # vanished between glob and stat
+            cached = _read_cache.get(ckey)
+            if cached is not None:
+                results.append(cached)
+                continue
             _, q, I, sigma, meta = read_dat_data_metadata(path)
 
             # Extract scan index from filename
@@ -295,7 +316,7 @@ def read_folder(
             keyword = path.name[: path.name.index(m.group(0))] if m else path.stem
             keyword = _LABEL_RE.sub("", keyword)
 
-            results.append({
+            entry = {
                 "filename": path.name,
                 "keyword":  keyword,
                 "scan_idx": scan_idx,
@@ -303,7 +324,11 @@ def read_folder(
                 "I":        I,
                 "sigma":    sigma,
                 "metadata": meta,
-            })
+            }
+            if len(_read_cache) >= _READ_CACHE_MAX:
+                _read_cache.pop(next(iter(_read_cache)))   # drop oldest
+            _read_cache[ckey] = entry
+            results.append(entry)
             logger.debug("[read_folder] %s: loaded %d points", path.name, len(q))
         except Exception as exc:
             logger.warning("[read_folder] WARNING — could not read %s: %s",

@@ -79,53 +79,6 @@ pumps:
     #   - [20, 18.1]
     #   - [40, 38.8]
 
-# ── Slack notifications (unattended / overnight operation) ───────────────────
-# CREDENTIALS COME FROM THE ENVIRONMENT — never put them here, this file is in git:
-#   export SWAXS_SLACK_BOT_TOKEN=xoxb-…   → threaded updates + plot uploads (preferred)
-#   export SWAXS_SLACK_WEBHOOK=https://hooks.slack.com/services/…  → flat messages, zero setup
-# If neither is set, notifications are silently OFF.
-#
-# Every send is fire-and-forget on a worker thread with a timeout, and all errors
-# are swallowed: a Slack outage or rate limit can NEVER delay or break a run.
-notify:
-  slack:
-    enabled:  false           # ← turn on once a token/webhook is exported
-    channel:  "#swaxs-autorun"   # bot-token mode only (webhooks carry their own channel)
-    # Which tiers to send:
-    #   alert    — E-stop, safety trips, pump/temperature faults (actionable)
-    #   progress — recipe applied + run complete with the fitted result
-    #   session  — autonomous session start / finish summary
-    tiers:    ["alert", "progress", "session"]
-    thread_per_recipe: true   # one parent message per recipe, updates threaded under it
-    mention_on_alert: ""      # e.g. "<!channel>" or "<@U012ABC>" — only on alerts
-    timeout_s: 6.0            # per-request timeout
-    min_interval_s: 0.4       # throttle so a burst can't hit Slack's rate limit
-
-  # ── Email — needs NO workspace approval ─────────────────────────────────────
-  # Works when a Slack app install is still pending, pushes to a phone, and can
-  # ALSO deliver into Slack: in the channel choose
-  #   Settings → Integrations → "Send emails to this channel"
-  # and put the generated address in SWAXS_NOTIFY_EMAIL.
-  #
-  # Credentials/recipients live in .env (git-ignored, sourced by start_platform.sh):
-  #   SWAXS_SMTP_HOST=smtp.stanford.edu
-  #   SWAXS_SMTP_PORT=587            # optional; inferred from the mode
-  #   SWAXS_SMTP_USER=you@stanford.edu     # omit for an unauthenticated relay
-  #   SWAXS_SMTP_PASSWORD=app-password
-  #   SWAXS_SMTP_FROM=you@stanford.edu     # optional; defaults to the user
-  #   SWAXS_NOTIFY_EMAIL=you@stanford.edu,+15551234567@txt.example.net
-  #
-  # Run `python tools/notify_test.py --check` — it PROBES which SMTP options
-  # actually work from this machine instead of making you guess.
-  email:
-    enabled: false            # startup default; the app's button arms it
-    mode: ""                  # "" = infer (starttls with auth, plain without);
-                              # or force "starttls" | "ssl" | "plain"
-    tiers: ["alert", "progress", "session"]
-    subject_prefix: "[SWAXS]"
-    timeout_s: 15.0
-    min_interval_s: 1.0       # email is slower than Slack — throttle harder
-
 # ── Recipe validation bounds (editable) ──────────────────────────────────────
 bounds:
   T_reac:  [180.0, 300.0]     # °C

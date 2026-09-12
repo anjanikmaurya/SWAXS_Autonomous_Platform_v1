@@ -1,0 +1,32 @@
+# Watchdog configuration — non-secret policy
+# The webhook URL is a secret and goes in .env: SWAXS_SLACK_WEBHOOK_URL
+
+notify:
+  # Suppress progress messages during these hours (faults always send)
+  # Format: "HH:MM-HH:MM" or null to disable
+  quiet_hours: "23:00-07:00"
+
+  # Batch progress messages: "off" | "hourly"
+  # off: one message per event
+  # hourly: one digest per hour per recipe (placeholder for later)
+  summary: "off"
+
+  # Default snooze duration when POST /api/snooze {minutes} is called
+  snooze_default_min: 30
+
+  # Minimum time (seconds) between webhook POSTs
+  min_interval_s: 3
+
+  # Master switch for Slack sending. When false, nothing is sent at all —
+  # checked before quiet hours, snooze, and the category filters below.
+  slack_enabled: true
+
+  # Independent category toggles — any combination, including all or none.
+  # 'safety' cannot be false while slack_enabled is true: the only way to
+  # silence safety alerts is to turn slack_enabled off entirely.
+  categories:
+    safety: true
+    stalls: false
+    results: false
+    progress: false
+    campaign: true

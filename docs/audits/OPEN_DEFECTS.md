@@ -414,7 +414,7 @@ honoured (`quality/app.py:216-222`) and there is a graded-file cache (`:481`).
 | U5 | LOW | The metadata tab shows the sample only; the background's metadata is not viewable. |
 | U6 | LOW | A `keyword` subtraction mode exists in the backend (`background/app.py:859`) and is not surfaced in the UI. |
 | D1 | LOW | `check_imports.py:28-35` `SRC_MODULES` omits `src.analysis.core`, `src.events` and `src.ai.*`, so the import check passes over them. |
-| D3 | **MED** | **Background subtraction science still lives in `background/app.py`** (`_subtract`, `_interpolate_onto`, `_auto_scale`, `_qc_metrics`, `truncate_rebin`, `_write_dat`) with no `src/background/`. The one standing violation of the project's "all logic in `src/`" rule. `docs/design/AUTOPILOT_PIPELINE_DESIGN.md` §4 is the write-up. |
+| D3 | ~~MED~~ **FIXED 2026-09-11** | Background subtraction science moved to `src/background/core.py` (`_subtract`, `_interpolate_onto`, `_interpolate_onto_signed`, `_auto_scale`, `_qc_metrics`, `truncate_rebin`); `background/app.py` imports them. `_write_dat` stays in the app — it is I/O bound to the app's truncation state, not science. |
 | D4 | LOW | Scan averaging is unweighted (`src/plot_reduction.py:183`); inverse-variance or I0 weighting would be statistically optimal. `np.interp` also clamps to edge values outside a file's q-range. |
 
 (D2 — CLAUDE.md's stale import table — was fixed in this documentation pass.)
@@ -444,7 +444,7 @@ honoured (`quality/app.py:216-222`) and there is a graded-file cache (`:481`).
 4. **O7, O14, O16** — what the optimizer is actually trained on.
 5. **N16** — drive the stages off the event bus instead of four 10 s pollers in
    series. Largest latency win (264 s → seconds) and the most invasive.
-6. **D3** — move the subtraction science into `src/`.
+6. ~~**D3** — move the subtraction science into `src/`.~~ Done 2026-09-11.
 
 
 ## What I checked and found sound

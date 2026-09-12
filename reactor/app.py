@@ -115,45 +115,7 @@ def _resolve(folder_key: str) -> Path:
     return p
 
 
-# ── Slack notifications (unattended operation) ────────────────────────────────
-# Credentials come from the environment, never config.yml (which is in git):
-#   SWAXS_SLACK_BOT_TOKEN  — threaded updates + plot uploads
-#   SWAXS_SLACK_WEBHOOK    — flat messages, zero setup
-try:
-    from src.notify import MultiNotifier                            # noqa: E402
-    # One object, both transports (Slack + email). Email needs no workspace
-    # approval, so it works when a Slack app install is still pending.
-    _slack = MultiNotifier(_CFG.get("notify", {}) or {}, log=_emit)
-except Exception as _exc:                                            # pragma: no cover
-    _slack = None
-    print(f"[Autonomous Synthesis] notifier unavailable: {_exc}", file=sys.stderr)
 
-
-def _slack_event(etype: str, data: dict) -> None:
-    """Translate reactor events into Slack messages. Wrapped by the caller so a
-    failure here can never reach the control loop."""
-    if _slack is None or not _slack.enabled:
-        return
-    rid = str(data.get("recipe_id") or "")
-    if etype == "reactor.run_start":
-        _slack.recipe_applied(rid, data.get("recipe") or {},
-                              float(data.get("duration_s") or 0.0))
-    elif etype == "reactor.run_complete":
-        _slack.run_complete(rid, str(data.get("reason") or "?"),
-                            float(data.get("duration_s") or 0.0),
-                            result=data.get("analysis"))
-    elif etype == "reactor.estop":
-        failed = data.get("failed_to_idle") or []
-        _slack.fault("EMERGENCY STOP",
-                     (f"pumps that did NOT idle: {', '.join(failed)} — check them "
-                      f"immediately") if failed else "all pumps idle",
-                     recipe_id=rid)
-    elif etype == "reactor.safety":
-        _slack.fault(f"SAFETY: {data.get('check', 'fault')}",
-                     str(data.get("detail") or ""), recipe_id=rid)
-    elif etype == "reactor.backend":
-        _slack.notify(f":gear: backend switched to *{data.get('backend')}*",
-                      tier="session")
 
 
 # ── controller callbacks ──────────────────────────────────────────────────────
@@ -163,10 +125,6 @@ def _event_cb(etype: str, data: dict) -> None:
             _bus.publish(etype, data)
         except Exception:
             pass
-    try:
-        _slack_event(etype, data)
-    except Exception:
-        pass          # notifications must never disturb the reactor
 
 
 def _feedback_cb(recipe_id: str, payload: dict) -> None:
@@ -217,10 +175,6 @@ _emit(f"Autonomous Synthesis ready — backend={_BACKEND}", "ok")
 # On exit, hand the rig back: idle pumps, close shutter, release SPEC control.
 import atexit as _atexit                                             # noqa: E402
 _atexit.register(lambda: _ctrl.shutdown())
-if _slack is not None and _slack.enabled:
-    _emit(f"🔔 notifications ON ({_slack.mode})", "ok")
-    _slack.session_start(_BACKEND, _project_root)
-    _atexit.register(lambda: (_slack.session_end(len(_ctrl.history)), _slack.close()))
 # Point the SPEC save folder at the hub's project folder at startup (translated
 # Windows→Linux via spec.hub_path_map). The user can still override in the app.
 # ── restart recovery (platform audit O1) ─────────────────────────────────────
@@ -354,41 +308,7 @@ def _on_bus_event(event: dict) -> None:
             return
         _ctrl.signal_measurement_complete(fp, recipe_id=rid or "")
     elif etype == "fit.complete":
-        # The analyzer's answer — the message actually worth reading at 3 a.m.
-        # Posted into this recipe's Slack thread, with the QC plot attached when
-        # the fit is suspect. NOT "analysis.complete" — that name belongs to the
-        # Data Analysis app's Guinier/Porod/etc. events, a different payload
-        # shape entirely; listening for it here used to fire this handler (and
-        # a garbage Slack message) on every one of THOSE results too.
-        try:
-            _slack_analysis(data)
-        except Exception:
-            pass
-
-
-def _slack_analysis(data: dict) -> None:
-    if _slack is None or not _slack.enabled:
-        return
-    rid = str(data.get("recipe_id") or "")
-    size, pdi = data.get("size"), data.get("pdi")
-    conf = data.get("confidence")
-    suspect = bool(data.get("suspect"))
-    fields = {}
-    for label, key in (("size (nm)", "size"), ("PDI", "pdi"),
-                       ("confidence", "confidence"), ("loss", "loss"),
-                       ("distribution", "distribution"), ("phase", "phase")):
-        if data.get(key) is not None:
-            fields[label] = data[key]
-    fields["file"] = data.get("file", "")
-    head = (":mag: *Fit LOW CONFIDENCE*" if suspect else ":bar_chart: *Fit result*")
-    _slack.notify(f"{head} — `{rid or data.get('file', '?')}`",
-                  tier=("alert" if suspect else "progress"),
-                  recipe_id=rid, fields=fields)
-    png = str(data.get("plot_png") or "")
-    if suspect and png:
-        _slack.upload_png(png, title=f"{rid} I(q) + fit", recipe_id=rid,
-                          comment=(f"low-confidence fit ({conf}) — R={size} nm, "
-                                   f"PDI={pdi}"))
+        pass
 
 
 if _bus is not None:
@@ -651,66 +571,6 @@ def api_vent():    _ctrl.vent_all(); return jsonify({"ok": True})
 
 
 # ── Slack notifications: arm on the way out of the hutch ──────────────────────
-def _slack_status() -> dict:
-    if _slack is None:
-        return {"enabled": False, "configured": False, "mode": "",
-                "error": "notifier unavailable"}
-    return _slack.status()
-
-
-@app.route("/api/slack")
-def api_slack():
-    return jsonify(_slack_status())
-
-
-@app.route("/api/slack", methods=["POST"])
-def api_slack_set():
-    """Toggle notifications while the platform is running — the point is to arm
-    them AFTER the measurement is started and you're about to walk away."""
-    if _slack is None:
-        return jsonify({"ok": False, "error": "notifier unavailable"}), 400
-    body = request.get_json(silent=True) or {}
-    want = body.get("enabled")
-    which = str(body.get("channel", "all") or "all")
-    want = (not _slack.enabled) if want is None else bool(want)   # None = toggle
-    ok, msg = _slack.enable(which) if want else _slack.disable(which)
-    if ok:
-        _emit(f"🔔 {msg}", "ok" if want else "info")
-        if want:
-            # Confirm in the channel itself, so you know it works before leaving.
-            _slack.notify(
-                f":bell: *Notifications armed* — the reactor will report from here "
-                f"(backend `{_ctrl.backend}`, state `{_ctrl.state}`)",
-                tier="session")
-    else:
-        _emit(f"⚠ Slack: {msg}", "warn")
-    return jsonify({"ok": ok, "error": None if ok else msg, **_slack_status()})
-
-
-@app.route("/api/slack/test", methods=["POST"])
-def api_slack_test():
-    """Send one message now, so the channel can be verified before walking away."""
-    if _slack is None or not _slack.configured:
-        return jsonify({"ok": False,
-                        "error": "no notification channel configured — set a Slack "
-                                 "credential, or SWAXS_SMTP_HOST + "
-                                 "SWAXS_NOTIFY_EMAIL in .env"}), 400
-    was = _slack.enabled
-    for ch in _slack.channels.values():        # a test must not be silenced
-        if ch.configured:
-            ch.enabled = True
-            ch._ensure_worker()
-    _slack.notify(":wave: *Test from the reactor app* — notifications are working.",
-                  tier="session")
-    if not was:
-        # leave it as we found it; the queued messages still go out
-        def _restore():
-            for ch in _slack.channels.values():
-                ch.enabled = False
-        threading.Timer(3.0, _restore).start()
-    _emit(f"🔔 test message queued ({_slack.mode or 'no channel'})", "info")
-    return jsonify({"ok": True, **_slack_status()})
-
 
 @app.route("/api/backend", methods=["POST"])
 def api_backend():
