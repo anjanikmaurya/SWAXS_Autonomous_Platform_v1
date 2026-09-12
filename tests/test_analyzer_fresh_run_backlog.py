@@ -27,6 +27,7 @@ Two layers are tested here:
 """
 from __future__ import annotations
 
+import json
 import re
 import sys
 import time
@@ -225,3 +226,82 @@ def test_one_poll_after_an_abort_fits_only_the_fresh_runs_data(tmp_path, monkeyp
     az._watch_once()        # second poll: stable -> fit
     assert fitted == [live.name], \
         f"expected only the fresh run's profile to be fit, got {len(fitted)}"
+
+
+# ── Continue offers the LATEST run, or nothing ──────────────────────────────
+def _campaign_rec(tmp_path, *, cid: str, run_no: int, started: str,
+                   outcome: str | None = None) -> Path:
+    d = tmp_path / "1D" / "SAXS" / "Results"
+    d.mkdir(parents=True, exist_ok=True)
+    rec = {"campaign_id": cid, "run_no": run_no, "run_tag": f"Run{run_no}",
+           "target_size": 5.0, "tolerance": 0.3, "pdi_cap": 0.15,
+           "budget": 25, "n_init": 10, "started_at": started, "status": "running"}
+    if outcome:
+        rec["outcome"] = outcome
+    p = d / f"campaign_{cid}.json"
+    p.write_text(json.dumps(rec), encoding="utf-8")
+    return p
+
+
+def test_a_stale_unfinished_run_is_not_offered_once_a_later_run_exists(tmp_path):
+    """The reported bug, exactly: Continue was stuck on Run9.
+
+    Run9 ended without its record being finalised (a crash, a kill -9), so it
+    had no "outcome" key. The old rule — highest run_no with no outcome — made
+    it the Continue candidate forever, even after Run10/11/12 had been and
+    gone, because those DID record an outcome. Continuing it would rebuild a
+    campaign from weeks-old records and propose conditions tagged Run9."""
+    _campaign_rec(tmp_path, cid="c9",  run_no=9,  started="2026-09-01T00:00:00")
+    _campaign_rec(tmp_path, cid="c10", run_no=10, started="2026-09-02T00:00:00",
+                  outcome="converged")
+    _campaign_rec(tmp_path, cid="c11", run_no=11, started="2026-09-03T00:00:00",
+                  outcome="aborted")
+
+    assert az._latest_run_record()["run_no"] == 11
+    assert az._latest_incomplete_run() is None, \
+        "the latest run finished — there is nothing to continue, Start fresh"
+
+
+def test_the_latest_run_is_offered_while_it_is_unfinished(tmp_path):
+    _campaign_rec(tmp_path, cid="c9",  run_no=9,  started="2026-09-01T00:00:00")
+    _campaign_rec(tmp_path, cid="c12", run_no=12, started="2026-09-04T00:00:00")
+
+    rec = az._latest_incomplete_run()
+    assert rec is not None and rec["run_no"] == 12, \
+        "the run just interrupted is the one to continue, not the oldest stale one"
+
+
+def test_the_latest_run_is_decided_by_run_no_then_start_time(tmp_path):
+    """Two records can share a run_no if one was written before the number was
+    derived; started_at breaks the tie."""
+    _campaign_rec(tmp_path, cid="a", run_no=7, started="2026-09-01T00:00:00",
+                  outcome="converged")
+    _campaign_rec(tmp_path, cid="b", run_no=7, started="2026-09-05T00:00:00")
+    rec = az._latest_incomplete_run()
+    assert rec is not None and rec["campaign_id"] == "b"
+
+
+def test_no_records_at_all_means_nothing_to_continue(tmp_path):
+    assert az._latest_run_record() is None
+    assert az._latest_incomplete_run() is None
+
+
+def test_the_route_says_why_continue_is_unavailable(tmp_path, monkeypatch):
+    """An empty response reads as "the button is broken" — which is how a
+    stale Run9 offer went unquestioned. The reason reads as "Start a new one"."""
+    monkeypatch.setattr(az, "_campaign", None)
+    client = az.app.test_client()
+
+    r = client.get("/api/campaign/incomplete").get_json()
+    assert "no previous run" in r["reason"], r
+
+    _campaign_rec(tmp_path, cid="c11", run_no=11, started="2026-09-03T00:00:00",
+                  outcome="converged")
+    r = client.get("/api/campaign/incomplete").get_json()
+    assert r.get("run_tag") is None
+    assert "Run11" in r["reason"] and "converged" in r["reason"], r
+    assert r["latest_run_tag"] == "Run11"
+
+    _campaign_rec(tmp_path, cid="c12", run_no=12, started="2026-09-04T00:00:00")
+    r = client.get("/api/campaign/incomplete").get_json()
+    assert r["run_tag"] == "Run12" and "reason" not in r, r

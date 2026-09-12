@@ -224,10 +224,12 @@ def _next_run_no() -> int:
     return hi + 1
 
 
-def _latest_incomplete_run() -> dict | None:
-    """The highest-run_no Results/campaign_<id>.json with no "outcome" key —
-    i.e. a Target Run that was started but never converged/exhausted/aborted.
-    Detected from the record, never from the files on disk."""
+def _latest_run_record() -> dict | None:
+    """The record of the LATEST Target Run on disk, complete or not.
+
+    Ordered by run_no, then by started_at as a tie-break (two records can
+    share a run_no if one was written before the number was derived).
+    """
     best = None
     try:
         for rec_path in _resolve_results().glob("campaign_*.json"):
@@ -235,14 +237,36 @@ def _latest_incomplete_run() -> dict | None:
                 rec = json.loads(rec_path.read_text(encoding="utf-8"))
             except Exception:
                 continue
-            if "outcome" in rec:
-                continue
-            run_no = int(rec.get("run_no") or 0)
-            if best is None or run_no > best["run_no"]:
-                best = {**rec, "_path": str(rec_path), "run_no": run_no}
+            key = (int(rec.get("run_no") or 0), str(rec.get("started_at") or ""))
+            if best is None or key > best["_key"]:
+                best = {**rec, "_path": str(rec_path),
+                        "run_no": key[0], "_key": key}
     except Exception:
         pass
     return best
+
+
+def _latest_incomplete_run() -> dict | None:
+    """The LATEST Target Run, but only if it is still incomplete.
+
+    Was: the highest-numbered run with no "outcome" key, anywhere in the
+    folder. That meant one run that ended without its record being finalised —
+    a crash, a kill -9, a power cut — became the Continue candidate FOREVER.
+    Run9 was offered for continuation after Run10, Run11, Run12 had been and
+    gone, because they had outcomes and it did not. Continuing it would rebuild
+    a campaign from weeks-old records and then propose conditions tagged Run9
+    alongside whatever is current.
+
+    There are only two sensible things to do with a stale run: continue the one
+    you just interrupted, or start fresh. So Continue is now offered for the
+    latest run and nothing else — if that run finished, there is nothing to
+    continue and the answer is Start. An older unfinished run stays on disk with
+    all its records; it simply is not something this button will resume.
+    """
+    rec = _latest_run_record()
+    if rec is None or "outcome" in rec:
+        return None
+    return rec
 
 
 def _new_rid() -> str:
@@ -1406,13 +1430,26 @@ def api_campaign():
 
 @app.route("/api/campaign/incomplete")
 def api_campaign_incomplete():
-    """{} if there's nothing to continue, else {run_tag, used, budget,
-    best_size} for the "Continue RunN — X of Y used" button label."""
+    """{run_tag, used, budget, best_size} for the "Continue RunN — X of Y
+    used" button, or {"reason": ...} when there is nothing to continue.
+
+    Only ever describes the LATEST run (see _latest_incomplete_run). `reason`
+    exists so the UI can say *why* Continue is unavailable — an empty response
+    reads as "the button is broken", which is how a stale Run9 offer went
+    unquestioned for so long.
+    """
     if _campaign is not None:
-        return jsonify({})
+        return jsonify({"reason": "a campaign is already running"})
     rec = _latest_incomplete_run()
     if rec is None:
-        return jsonify({})
+        latest = _latest_run_record()
+        if latest is None:
+            return jsonify({"reason": "no previous run in this project — Start a new one"})
+        tag = latest.get("run_tag") or f"Run{latest.get('run_no')}"
+        return jsonify({"reason": f"the latest run ({tag}) finished "
+                                  f"({latest.get('outcome')}) — Start a new one",
+                        "latest_run_tag": tag,
+                        "latest_outcome": latest.get("outcome")})
     campaign_id = str(rec.get("campaign_id") or "")
     fit_recs = _load_fit_records_for_campaign(campaign_id)
     sized = [r for r in fit_recs if r.get("size") is not None]

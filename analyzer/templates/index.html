@@ -42,6 +42,8 @@ input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 
 .btn:hover:not(:disabled){filter:brightness(1.12)}
 .btn-row,.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:flex-end}
 .sub{font-size:var(--fs-xs);color:var(--muted)}
+/* Sits in .btn-row where the Continue button would be, saying why it is not. */
+.hint{font-size:var(--fs-xs);color:var(--muted);align-self:center;line-height:1.4}
 .log{max-height:170px;overflow-y:auto;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 11px;font-family:var(--mono);font-size:var(--fs-xs);line-height:1.55}
 
 /* ── status strip: the whole state of the loop, at a glance ───────────────── */
@@ -224,6 +226,9 @@ td.name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
         <button class="btn btn-accent" id="c_start" onclick="startCampaign()">▶ Start campaign</button>
         <button class="btn btn-ghost" id="c_continue" onclick="continueCampaign()" style="display:none"></button>
         <button class="btn btn-ghost" id="c_abort" onclick="abortCampaign()" disabled>⏹ Abort</button>
+        <!-- Why Continue is unavailable. A blank space where a button was
+             reads as "broken"; the reason reads as "Start a new one". -->
+        <span class="hint" id="c_continue_hint"></span>
       </div>
       <div class="bar" id="c_bar"><i></i></div>
       <div class="sub" id="c_status">idle — set a target and start</div>
@@ -823,17 +828,33 @@ async function abortCampaign(){
 }
 
 /* ── Continue a stopped Target Run ──────────────────────────────────────── */
-/* Offers only the MOST RECENT incomplete run (no incomplete run -> the button
-   stays hidden). Sourced from durable records only — no re-fitting, so this
-   is fast even for a long-since-stopped run. */
+/* Offers the LATEST run, and only while it is still unfinished. It used to
+   offer the highest-numbered run with no recorded outcome anywhere in the
+   folder, so one run that ended without its record being finalised stayed the
+   candidate forever — Run9 was still on offer after Run10, 11 and 12 had been
+   and gone. Two sensible choices remain: continue the run you just
+   interrupted, or Start fresh.
+
+   Sourced from durable records only — no re-fitting, so this is fast even for
+   a long-since-stopped run. When there is nothing to continue the reason is
+   shown as a hint rather than leaving a blank space where a button was. */
 async function refreshContinueButton(){
   const btn=$('c_continue');
+  const hint=$('c_continue_hint');
   try{
     const r=await (await fetch('/api/campaign/incomplete')).json();
-    if(!r || !r.run_tag){ btn.style.display='none'; return; }
+    if(!r || !r.run_tag){
+      btn.style.display='none';
+      if(hint) hint.textContent = r && r.reason ? r.reason : '';
+      return;
+    }
     btn.textContent=`Continue ${r.run_tag} — ${r.used} of ${r.budget} used`;
     btn.style.display='inline-block';
-  }catch(e){ btn.style.display='none'; }
+    if(hint) hint.textContent='';
+  }catch(e){
+    btn.style.display='none';
+    if(hint) hint.textContent='';
+  }
 }
 
 async function continueCampaign(){
