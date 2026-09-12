@@ -1068,61 +1068,114 @@ const REACTOR_PHASE_BLURB = {
   estop:        'the rig was stopped — check the reactor app',
 };
 
+// What the PIPELINE is doing right now, or '' when it is only holding results.
+// Only `running` and `waiting` count: `done` means a stage finished and is
+// sitting on its output, which is precisely the state that used to keep the
+// banner reading FITTING long after the fit was over.
+// [gerund, infinitive] — "averaging Run11_r003" but "waiting to average …".
+const PIPE_VERB = {
+  reduce:   ['reducing', 'reduce'],
+  average:  ['averaging', 'average'],
+  subtract: ['subtracting', 'subtract'],
+  fit:      ['fitting', 'fit'],
+};
+
+function pipelineBusyNote(loop) {
+  // Latest stage first: if several are live, the furthest along is the one
+  // worth naming.
+  for (const key of ['fit', 'subtract', 'average', 'reduce']) {
+    const n = (loop && loop[key]) || {};
+    if (n.state !== 'running' && n.state !== 'waiting') continue;
+    const [gerund, infinitive] = PIPE_VERB[key];
+    const rid = n.recipe_id ? ` <b>${esc(n.recipe_id)}</b>` : '';
+    const what = n.state === 'waiting' ? `waiting to ${infinitive}` : gerund;
+    return `${what}${rid}${n.detail ? ' — ' + esc(n.detail) : ''}`;
+  }
+  return '';
+}
+
 function updateStageBanner(loop) {
   const banner = document.getElementById('stage-banner');
   if (!banner) return;
   const stage = ((_metrics && _metrics.pipeline && _metrics.pipeline.current_stage)
                  || 'idle');
-  const [label, blurb] = STAGE_BANNER[stage] || [String(stage).toUpperCase(), ''];
+  // `stage` is only used for the stall message now — see the note below on why
+  // it must not drive a "what is happening now" banner.
 
   // A stall outranks whatever stage we are nominally in — that is the thing
   // the operator has to act on, so it takes the banner.
   const overdue = (loop && loop.overdue) || {};
-  let state = 'idle', sub = blurb;
-  let shown = label;
+  let state = 'idle', sub = '';
 
-  // Before any data exists, the PIPELINE stage is 'collect' or 'idle' and has
-  // nothing to say — but the reactor does, and it is the longest part of a
-  // cycle (a 20-minute flush, then ramping to temperature). Show the reactor's
-  // own phase there, so a working rig stops looking like a stopped one.
+  // THE REACTOR PHASE OUTRANKS THE PIPELINE STAGE.
+  //
+  // `current_stage` is the last stage that EMITTED an event — a historical
+  // marker, not a statement about now. So once a fit completed, the banner
+  // read FITTING and stayed there for the whole 20-minute flush of the next
+  // condition: nothing was stuck, the label was just describing the past.
+  // Restricting the reactor override to stage 'idle'/'collect' (the first
+  // attempt) did not help, because after a fit the stage is 'fit'.
+  //
+  // The reactor is what drives the loop, and its phase IS about now. So
+  // whenever it reports one, it is the headline; the pipeline's concurrent
+  // work — genuinely concurrent, since the reactor flushes for the next
+  // condition while the pipeline processes the last — moves to the sub-line
+  // so nothing is lost.
   const rx = (loop && loop.reactor) || {};
-  const preData = (stage === 'idle' || stage === 'collect');
-  if (!overdue.stage && preData && rx.phase_label) {
-    shown = rx.phase_label;
+  const rxActive = rx.phase && !['idle', 'ready'].includes(rx.phase);
+  if (!overdue.stage && rxActive) {
+    const busy = pipelineBusyNote(loop);
     sub = rx.phase_detail || REACTOR_PHASE_BLURB[rx.phase] || '';
-    document.getElementById('stage-banner-name').textContent = shown;
+    if (busy) sub += (sub ? '<br>' : '') + `<b>meanwhile</b> ${busy}`;
+    document.getElementById('stage-banner-name').textContent = rx.phase_label;
     document.getElementById('stage-banner-sub').innerHTML = sub;
     banner.setAttribute('data-state',
       rx.phase === 'estop' ? 'stalled'
-      : (rx.phase === 'ready' || rx.phase === 'idle') ? 'idle'
       : (rx.phase === 'collecting' || rx.phase === 'synthesising') ? 'running'
       : 'waiting');           // flushing / ramping / arming — working, not late
+    // Halo the reactor circle: it is the thing the loop is waiting on.
     document.querySelectorAll('.step').forEach(el => {
       el.classList.toggle('is-current', el.getAttribute('data-stage') === 'collect');
     });
     return;
   }
 
+  // The reactor is idle/ready, so the pipeline is the headline. Take the stage
+  // from a node that is actually LIVE, not from current_stage: that is the
+  // last stage to emit an event, so with nothing running it named whatever
+  // finished last — FITTING, indefinitely, after the loop had gone quiet.
+  let live = '';
+  for (const key of ['fit', 'subtract', 'average', 'reduce']) {
+    const n = (loop && loop[key]) || {};
+    if (n.state === 'running' || n.state === 'waiting') { live = key; break; }
+  }
+  const effective = overdue.stage ? stage : (live || 'idle');
+  const [effLabel, effBlurb] = STAGE_BANNER[effective]
+    || [String(effective).toUpperCase(), ''];
+
   if (overdue.stage) {
     const mins = Math.floor((overdue.seconds || 0) / 60);
     state = 'stalled';
     sub = `<b>${mins} min</b> past the expected time for <b>${esc(overdue.stage)}</b>`;
+  } else if (live) {
+    // Mirror the live node's own state, so the banner colour and the ringed
+    // circle can never disagree.
+    state = ((loop[live] || {}).state === 'waiting') ? 'waiting' : 'running';
+    sub = pipelineBusyNote(loop) || effBlurb;
   } else {
-    // Mirror the state of the node that owns this stage, so the banner colour
-    // and the ringed circle can never disagree.
-    const owner = document.querySelector(`.step[data-stage="${stage}"]`);
-    const owned = owner ? owner.getAttribute('data-state') : null;
-    state = (owned === 'running' || owned === 'waiting') ? owned
-          : (stage === 'idle' ? 'idle' : 'running');
+    state = 'idle';
+    sub = (rx.phase === 'ready')
+      ? 'the reactor is armed and waiting for the next condition'
+      : 'nothing is running — start a run from the reactor, or a campaign from Auto-Fit';
   }
   banner.setAttribute('data-state', state);
   document.getElementById('stage-banner-name').textContent =
-    overdue.stage ? 'STALLED' : label;
+    overdue.stage ? 'STALLED' : effLabel;
   document.getElementById('stage-banner-sub').innerHTML = sub;
 
-  // Halo the circle that owns the current stage.
+  // Halo the circle that owns the stage the banner is naming.
   document.querySelectorAll('.step').forEach(el => {
-    el.classList.toggle('is-current', el.getAttribute('data-stage') === stage);
+    el.classList.toggle('is-current', el.getAttribute('data-stage') === effective);
   });
 }
 
