@@ -219,7 +219,7 @@ html,body {
    ─────────────────────────────────────────────────────────────────────────── */
 /* ── Big live stage banner ───────────────────────────────
    The one thing readable from the far side of the hutch: which stage the loop
-   is in RIGHT NOW. Sits above the ring and drives which circle is ringed. */
+   is in RIGHT NOW. Sits above the ring and drives which step is haloed. */
 #stage-banner {
   display:flex; align-items:baseline; gap:16px; flex-wrap:wrap;
   padding:4px 2px 14px; margin-bottom:4px;
@@ -251,36 +251,52 @@ html,body {
   display:flex; align-items:flex-start; justify-content:space-between;
   gap:0; padding:14px 0 6px; min-width:0;
 }
+/* Rounded RECTANGLES, not circles.
+   A circle's usable text width at the baseline is a fraction of its diameter,
+   so "Fit + Predict" and a monospace detail like "Run11_r003" clipped at every
+   width the ring was tried at. A box gives the full width to the text, which
+   is why this view was rectangles to begin with. The ring layout stays —
+   five steps left to right with connectors, loop closed below — because that
+   part reads correctly. */
+.ring { --box-h:112px }
 .step {
-  display:flex; flex-direction:column; align-items:center; gap:8px;
-  flex:0 1 auto; min-width:0; max-width:210px;
+  display:flex; flex-direction:column; align-items:stretch; gap:8px;
+  flex:1 1 0; min-width:0; max-width:250px;
 }
-/* The circle itself. Sized in one place so the whole ring rescales together. */
-.step-circle {
-  --d:clamp(96px, 10.4vw, 148px);
-  width:var(--d); height:var(--d); border-radius:50%;
-  border:3px solid var(--border); background:var(--surface);
-  display:flex; flex-direction:column; align-items:center; justify-content:center;
-  gap:2px; padding:6px; text-align:center; flex-shrink:0;
-  transition:border-color .25s ease, background .25s ease, transform .25s ease;
+.step-box {
+  min-height:var(--box-h);
+  border:2px solid var(--border); border-radius:12px;
+  background:var(--surface); padding:10px 12px;
+  display:flex; flex-direction:column; align-items:flex-start;
+  justify-content:center; gap:3px; min-width:0;
+  transition:border-color .25s ease, background .25s ease, box-shadow .25s ease;
+}
+/* Name left, state chip right, on one line — so the box spends its height on
+   the detail rather than on three stacked lines. */
+.step-hd {
+  display:flex; align-items:baseline; gap:8px; width:100%; min-width:0;
 }
 .step-name {
-  font-size:clamp(10px, .82vw, 12.5px); font-weight:800; letter-spacing:.07em;
-  text-transform:uppercase; color:var(--muted); line-height:1.1;
+  font-size:12px; font-weight:800; letter-spacing:.06em;
+  text-transform:uppercase; color:var(--muted); line-height:1.15;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
+.step-hd .step-chip { margin-left:auto }
+/* Wraps rather than truncating: the whole point of the box is that the text
+   fits. Two lines is the practical worst case ("Fit + Predict" at 1200px). */
 .step-detail {
-  font-size:clamp(15px, 1.5vw, 23px); font-weight:800; color:var(--txt-strong);
-  font-family:var(--mono); line-height:1.05; max-width:100%;
-  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  font-size:clamp(15px, 1.35vw, 21px); font-weight:800; color:var(--txt-strong);
+  font-family:var(--mono); line-height:1.15; max-width:100%;
+  overflow-wrap:anywhere;
 }
 .step-chip {
-  font-size:10.5px; font-weight:800; letter-spacing:.05em; text-transform:uppercase;
+  font-size:11px; font-weight:800; letter-spacing:.05em; text-transform:uppercase;
   color:var(--muted); line-height:1.1; white-space:nowrap;
 }
-/* Caption under the circle — everything that will not fit inside it. */
+/* Caption under the box — the numbers and the recipe id. */
 .step-cap {
-  display:flex; flex-direction:column; align-items:center; gap:4px;
-  width:100%; min-width:0; text-align:center;
+  display:flex; flex-direction:column; align-items:flex-start; gap:4px;
+  width:100%; min-width:0;
 }
 .step-why { font-size:12px; color:var(--muted); line-height:1.3 }
 .step-rid {
@@ -289,17 +305,17 @@ html,body {
 }
 .step-rid b { color:var(--txt); font-weight:700 }
 
-/* The current stage gets a halo, so the banner and the ring agree. */
-.step.is-current .step-circle {
-  transform:scale(1.06);
-  box-shadow:0 0 0 4px var(--accent-lt), 0 0 22px rgba(177,4,14,.28);
+/* The current stage gets a halo, so the banner and the ring agree. No scale()
+   here: growing a box in a tight flex row pushes its neighbours around. */
+.step.is-current .step-box {
+  box-shadow:0 0 0 3px var(--accent-lt), 0 0 18px rgba(177,4,14,.22);
 }
 
-/* Connector between two circles — sits at circle-centre height. */
+/* Connector between two boxes — sits at box-centre height. */
 .hop {
-  flex:1 1 0; min-width:26px; display:flex; flex-direction:column;
-  align-items:center; gap:3px; padding:0 2px;
-  margin-top:calc(clamp(96px, 10.4vw, 148px) / 2 - 14px);
+  flex:0 0 auto; min-width:52px; display:flex; flex-direction:column;
+  align-items:center; gap:3px; padding:0 4px;
+  margin-top:calc(var(--box-h) / 2 - 14px);
 }
 .hop-label {
   font-size:11px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;
@@ -313,14 +329,26 @@ html,body {
 }
 .hop-sub { font-size:10.5px; color:var(--faint); white-space:nowrap }
 
-@media (max-width:1500px) {
-  .hop-label { font-size:10px }
+/* Boxes flex, so the row holds together far longer than the circles did.
+   Shed the connector text before shedding the layout. */
+@media (max-width:1460px) {
+  .hop { min-width:40px }
   .hop-sub { display:none }
 }
-@media (max-width:1120px) {
-  .ring { flex-wrap:wrap; justify-content:center; gap:14px 10px }
-  .hop { display:none }               /* wrapped: arrows would point nowhere */
-  .step { flex:0 0 auto }
+@media (max-width:1240px) {
+  .hop { min-width:28px }
+  .hop-label { display:none }         /* the arrow alone still reads as flow */
+}
+@media (max-width:1000px) {
+  /* Two rows of boxes rather than five squeezed ones. Arrows are dropped:
+     wrapped, they would point off the end of a row. */
+  .ring { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr));
+          gap:12px; padding-top:12px }
+  .hop { display:none }
+  .step { max-width:none }
+}
+@media (max-width:620px) {
+  .ring { grid-template-columns:1fr }
 }
 
 /* Phase tracker — inside the reactor node: which of the two sequential
@@ -367,21 +395,21 @@ html,body {
 .lane-tag.sample      { color:var(--accent);    background:var(--accent-lt) }
 
 /* State — colour AND a word, never colour alone. Applied to the .step (which
-   carries data-state, so setNode() is unchanged) and painted on its circle. */
-.step[data-state="idle"]    .step-circle { border-color:var(--border) }
+   carries data-state, so setNode() is unchanged) and painted on its box. */
+.step[data-state="idle"]    .step-box { border-color:var(--border) }
 .step[data-state="idle"]    .step-chip   { color:var(--faint) }
-.step[data-state="running"] .step-circle { border-color:var(--accent); background:var(--accent-lt) }
+.step[data-state="running"] .step-box { border-color:var(--accent); background:var(--accent-lt) }
 .step[data-state="running"] .step-chip   { color:var(--accent) }
 .step[data-state="running"] .step-name   { color:var(--accent-d) }
-.step[data-state="waiting"] .step-circle { border-color:var(--warn); background:var(--warn-lt);
+.step[data-state="waiting"] .step-box { border-color:var(--warn); background:var(--warn-lt);
                                            animation:wait-pulse 1.8s ease-in-out infinite }
 .step[data-state="waiting"] .step-chip   { color:var(--warn-text) }
-.step[data-state="done"]    .step-circle { border-color:var(--ok) }
+.step[data-state="done"]    .step-box { border-color:var(--ok) }
 .step[data-state="done"]    .step-chip   { color:var(--ok-text) }
-.step[data-state="stalled"] .step-circle { border-color:var(--err); background:var(--err-lt);
+.step[data-state="stalled"] .step-box { border-color:var(--err); background:var(--err-lt);
                                            animation:stall-pulse .9s ease-in-out infinite }
 .step[data-state="stalled"] .step-chip   { color:var(--err-text) }
-.step[data-state="unknown"] .step-circle { border-style:dashed; border-color:var(--border-strong) }
+.step[data-state="unknown"] .step-box { border-style:dashed; border-color:var(--border-strong) }
 .step[data-state="unknown"] .step-chip   { color:var(--faint) }
 @keyframes wait-pulse { 0%,100%{border-color:var(--warn)} 50%{border-color:var(--warn-lt)} }
 
@@ -392,7 +420,7 @@ html,body {
 .step[data-state="done"] .gate-fill { background:var(--ok) }
 
 /* Both-lanes gate in the SUBTRACT caption — side by side, not stacked, so the
-   caption stays one or two lines tall under a circle. */
+   caption stays one or two lines tall under a box. */
 .pairs { display:flex; justify-content:center; gap:8px; flex-wrap:wrap }
 .pair {
   display:inline-flex; align-items:center; gap:4px;
@@ -603,7 +631,7 @@ html,body {
       <div class="cycle">
 
         <!-- Which stage the loop is in RIGHT NOW, large. Driven by
-             pipeline.current_stage and kept in step with the ringed circle. -->
+             pipeline.current_stage and kept in step with the haloed step. -->
         <div id="stage-banner" data-state="idle">
           <span id="stage-banner-kicker">Now</span>
           <span id="stage-banner-name">—</span>
@@ -614,10 +642,12 @@ html,body {
 
           <!-- ① reactor -->
           <div class="step" id="n-reactor" data-state="unknown" data-stage="collect">
-            <div class="step-circle">
-              <span class="step-name">Reactor</span>
+            <div class="step-box">
+              <div class="step-hd">
+                <span class="step-name">Reactor</span>
+                <span class="step-chip" id="n-reactor-chip">—</span>
+              </div>
               <span class="step-detail" id="n-reactor-detail">—</span>
-              <span class="step-chip" id="n-reactor-chip">—</span>
             </div>
             <div class="step-cap">
               <!-- flush → ramp → synthesise → collect, the part of a cycle that
@@ -645,10 +675,12 @@ html,body {
 
           <!-- ② reduce — ONE app; the lane tag says which phase is flowing -->
           <div class="step" id="n-reduce" data-state="idle" data-stage="reduce">
-            <div class="step-circle">
-              <span class="step-name">Reduce</span>
+            <div class="step-box">
+              <div class="step-hd">
+                <span class="step-name">Reduce</span>
+                <span class="step-chip" id="n-reduce-chip">—</span>
+              </div>
               <span class="step-detail" id="n-reduce-detail">—</span>
-              <span class="step-chip" id="n-reduce-chip">—</span>
             </div>
             <div class="step-cap">
               <span class="lane-tag" id="n-reduce-lane">—</span>
@@ -665,10 +697,12 @@ html,body {
 
           <!-- ③ average -->
           <div class="step" id="n-average" data-state="idle" data-stage="average">
-            <div class="step-circle">
-              <span class="step-name">Average</span>
+            <div class="step-box">
+              <div class="step-hd">
+                <span class="step-name">Average</span>
+                <span class="step-chip" id="n-average-chip">—</span>
+              </div>
               <span class="step-detail" id="n-average-detail">—</span>
-              <span class="step-chip" id="n-average-chip">—</span>
             </div>
             <div class="step-cap">
               <span class="lane-tag" id="n-average-lane">—</span>
@@ -685,10 +719,12 @@ html,body {
 
           <!-- ④ subtract — where the two lanes re-join -->
           <div class="step" id="n-subtract" data-state="idle" data-stage="subtract">
-            <div class="step-circle">
-              <span class="step-name">Subtract</span>
+            <div class="step-box">
+              <div class="step-hd">
+                <span class="step-name">Subtract</span>
+                <span class="step-chip" id="n-subtract-chip">—</span>
+              </div>
               <span class="step-detail" id="n-subtract-detail">—</span>
-              <span class="step-chip" id="n-subtract-chip">—</span>
             </div>
             <div class="step-cap">
               <div class="pairs">
@@ -707,10 +743,12 @@ html,body {
 
           <!-- ⑤ fit + predict — writes the next condition, closing the loop -->
           <div class="step" id="n-fit" data-state="idle" data-stage="fit">
-            <div class="step-circle">
-              <span class="step-name">Fit + Predict</span>
+            <div class="step-box">
+              <div class="step-hd">
+                <span class="step-name">Fit + Predict</span>
+                <span class="step-chip" id="n-fit-chip">—</span>
+              </div>
               <span class="step-detail" id="n-fit-detail">—</span>
-              <span class="step-chip" id="n-fit-chip">—</span>
             </div>
             <div class="step-cap">
               <div class="step-why">fits the curve, then writes the next condition</div>
@@ -1133,7 +1171,7 @@ function updateStageBanner(loop) {
       rx.phase === 'estop' ? 'stalled'
       : (rx.phase === 'collecting' || rx.phase === 'synthesising') ? 'running'
       : 'waiting');           // flushing / ramping / arming — working, not late
-    // Halo the reactor circle: it is the thing the loop is waiting on.
+    // Halo the reactor step: it is the thing the loop is waiting on.
     document.querySelectorAll('.step').forEach(el => {
       el.classList.toggle('is-current', el.getAttribute('data-stage') === 'collect');
     });
@@ -1159,7 +1197,7 @@ function updateStageBanner(loop) {
     sub = `<b>${mins} min</b> past the expected time for <b>${esc(overdue.stage)}</b>`;
   } else if (live) {
     // Mirror the live node's own state, so the banner colour and the ringed
-    // circle can never disagree.
+    // haloed step can never disagree.
     state = ((loop[live] || {}).state === 'waiting') ? 'waiting' : 'running';
     sub = pipelineBusyNote(loop) || effBlurb;
   } else {
