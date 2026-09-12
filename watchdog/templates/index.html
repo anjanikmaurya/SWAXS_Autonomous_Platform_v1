@@ -639,8 +639,8 @@ html,body {
         <div class="chart-area" id="plot-throughput"></div>
       </div>
       <div class="card">
-        <div class="card-hd">⏱ Slowest step in the loop
-          <span class="hd-note">median seconds a file spends in each stage, last 6 h — longest bar is the bottleneck</span>
+        <div class="card-hd">⏱ Time per run of the loop
+          <span class="hd-note" id="cycle-note">—</span>
         </div>
         <div class="chart-area" id="plot-stage-duration"></div>
       </div>
@@ -1033,59 +1033,71 @@ function updateCharts() {
 
   // collect is deliberately excluded — its duration is exposure time, not
   // pipeline overhead, and mixing it in makes the real waste look normal.
-  // One bar per stage: the MEDIAN seconds one file spends in that stage,
-  // measured input-ready → output-written, over the last 6 h. Median (not
-  // mean) and a 6 h window because the mean was dominated by files processed
-  // hours after they were created — a monitor started late, a re-run batch,
-  // a restart — which is not the pipeline being slow. p90 rides in the hover.
-  // The longest bar is the slowest step in the loop; that is the whole point.
-  const sl = (_metrics.pipeline && _metrics.pipeline.stage_latency) || {};
+  // Average time each stage adds to ONE RUN of the loop, over recent runs of
+  // the campaign. A per-FILE elapsed time was meaningless as soon as anything
+  // stalled or was backfilled — it measured the gap between one file's mtime
+  // and its input's, so a sample subtracted hours after it was averaged read
+  // as "subtract takes 5 h", a fact about when the monitor was started. Per
+  // run, every boundary is that run's own stage completion, so the spans are
+  // its real timeline and a stall shows up on one stage instead of wrecking
+  // the axis for all four.
+  const cy = (_metrics.pipeline && _metrics.pipeline.cycle) || {};
   const STAGE_LABEL = {
     reduce: 'reduce  (2D→1D)', average: 'average  (scans)',
     subtract: 'subtract  (bkg)', fit: 'fit  (analyzer)',
   };
-  const latY = [], latX = [], latHover = [], latColor = [], latAnnotations = [];
-  const latMax = Math.max(...STAGE_LATENCY_NAMES
-    .map(s => (sl[s] && sl[s].latency_s) || 0), 1);
+  const cyY = [], cyX = [], cyHover = [], cyColor = [], cyAnnotations = [];
+  const cyMax = Math.max(...STAGE_LATENCY_NAMES
+    .map(s => (cy[s] && cy[s].avg_s) || 0), 1);
   STAGE_LATENCY_NAMES.forEach(s => {
-    const d = sl[s] || {};
+    const d = cy[s] || {};
     const label = STAGE_LABEL[s] || s;
-    latY.push(label);
-    if (d.latency_s == null) {
-      // No completed file in the window — never draw a zero bar for this.
-      latX.push(null);
-      latColor.push(P.warning);
-      latHover.push('');
-      latAnnotations.push({x: 0, y: label, xanchor: 'left', showarrow: false,
-                            text: '  no file completed in the last 6 h',
-                            font: {size: 11, color: P.fg}, opacity: 0.8});
+    cyY.push(label);
+    if (d.avg_s == null) {
+      cyX.push(null);
+      cyColor.push(P.warning);
+      cyHover.push('');
+      cyAnnotations.push({x: 0, y: label, xanchor: 'left', showarrow: false,
+                           text: '  no completed run yet',
+                           font: {size: 11, color: P.fg}, opacity: 0.8});
       return;
     }
-    latX.push(d.latency_s);
-    // Colour the slowest step so it reads at a glance from across the hutch.
-    latColor.push(d.latency_s >= latMax ? P.secondary : P.warning);
-    const compute = d.compute_s == null
-      ? 'compute: not reported by the stage'
-      : `of which compute: ${d.compute_s}s`;
-    latHover.push(`median ${d.latency_s}s · p90 ${d.p90_s}s · n=${d.n}<br>${compute}`);
-    latAnnotations.push({x: d.latency_s, y: label, xanchor: 'left', showarrow: false,
-                          text: `  ${_fmtSecs(d.latency_s)}  (n=${d.n})`,
-                          font: {size: 11, color: P.fg}});
+    cyX.push(d.avg_s);
+    // Red on the stage that costs the run the most time.
+    cyColor.push(d.avg_s >= cyMax ? P.secondary : P.warning);
+    const share = cy._total_s ? Math.round(100 * d.avg_s / cy._total_s) : null;
+    cyHover.push(`${_fmtSecs(d.avg_s)} per run, averaged over ${d.n} run(s)`
+                 + (share == null ? '' : `<br>${share}% of the ${_fmtSecs(cy._total_s)} cycle`));
+    cyAnnotations.push({x: d.avg_s, y: label, xanchor: 'left', showarrow: false,
+                         text: `  ${_fmtSecs(d.avg_s)}`
+                               + (share == null ? '' : `  (${share}%)`),
+                         font: {size: 11, color: P.fg}});
   });
   safeReact('plot-stage-duration', [{
-    x: latX, y: latY,
+    x: cyX, y: cyY,
     type: 'bar', orientation: 'h',
-    marker: {color: latColor, line: {color: P.barEdge, width: 1}},
-    customdata: latHover,
+    marker: {color: cyColor, line: {color: P.barEdge, width: 1}},
+    customdata: cyHover,
     hovertemplate: '%{y}<br>%{customdata}<extra></extra>',
   }], themedLayout({
-    margin: {t: 12, l: 118, r: 120, b: 48},
-    annotations: latAnnotations,
-    xaxis: {title: {text: 'median time per file (seconds)', font: {size: 11, color: P.fg}},
-            rangemode: 'tozero', range: [0, latMax * 1.45]},
+    margin: {t: 12, l: 118, r: 130, b: 48},
+    annotations: cyAnnotations,
+    xaxis: {title: {text: 'average time added to one run (seconds)',
+                    font: {size: 11, color: P.fg}},
+            rangemode: 'tozero', range: [0, cyMax * 1.5]},
     yaxis: {title: {text: 'pipeline stage', font: {size: 11, color: P.fg}},
             autorange: 'reversed'},
   }));
+
+  // The cycle total belongs in the header, where it is the one number an
+  // operator actually plans around: how long one run of the loop takes.
+  const cyNote = document.getElementById('cycle-note');
+  if (cyNote) {
+    cyNote.textContent = cy._total_s
+      ? `${_fmtSecs(cy._total_s)} per run end-to-end, averaged over the last `
+        + `${cy._runs} run${cy._runs === 1 ? '' : 's'} — longest bar is the bottleneck`
+      : 'waiting for a run to complete all four stages';
+  }
 
   // Pipeline funnel: how many files have reached each stage (cumulative — each
   // stage should be <= the previous one as files move down the pipeline).

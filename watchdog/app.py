@@ -132,122 +132,6 @@ def _mtime(path) -> float | None:
         return None
 
 
-def _duration_index() -> dict:
-    """{output_path: duration_ms} built from the event window in ONE pass.
-
-    Was a per-entry scan of the whole window, called once for every manifest
-    file entry — O(entries x 100) with a fresh list copy each time, on every
-    dashboard tick. Built once per snapshot instead.
-
-    A stage's own self-measured compute time is its own report, not a
-    reconstruction. No stage currently publishes ``duration_ms``; once one
-    does, this starts picking it up with no further change here.
-    """
-    index: dict = {}
-    for event in list(_recent_events):
-        data = event.get("data") or {}
-        ms = data.get("duration_ms")
-        path = str(data.get("file_path", ""))
-        if path and isinstance(ms, (int, float)):
-            index.setdefault(path, float(ms))
-    return index
-
-
-def _input_mtime(path, before: float) -> float | None:
-    """mtime of one recorded provenance input, resolving a DIRECTORY input to
-    the newest ``.dat`` inside it that predates ``before``.
-
-    The average app records ``input_files=[folder]`` — the Reduction folder it
-    read, not the frames it consumed (``average/app.py`` line ~621). A
-    directory's own mtime changes every time any file lands in it, so using it
-    directly gave the average stage a latency of roughly zero (or negative,
-    when a later frame arrived after the averaged file was written), which the
-    sanity window then discarded — the averaging bar read "no data yet" for
-    the whole run even though averaging was working. The newest input frame
-    written before the output is the frame whose arrival completed the batch,
-    which is the timestamp the wait is actually measured from.
-    """
-    p = Path(path)
-    try:
-        st = p.stat()
-    except (OSError, TypeError, ValueError):
-        return None
-    if not p.is_dir():
-        return st.st_mtime
-    newest = None
-    try:
-        for child in p.glob("*.dat"):
-            try:
-                m = child.stat().st_mtime
-            except OSError:
-                continue
-            if m <= before and (newest is None or m > newest):
-                newest = m
-    except OSError:
-        return None
-    return newest
-
-
-def _median(xs: list[float]) -> float:
-    s = sorted(xs)
-    n = len(s)
-    return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2.0
-
-
-def _pct(xs: list[float], p: float) -> float:
-    s = sorted(xs)
-    return s[min(len(s) - 1, max(0, int(round(p * (len(s) - 1)))))]
-
-
-def _summarize_latency(latencies: list[float], computes: list[float]) -> dict:
-    """Per-file handoff time for one stage, in SECONDS.
-
-    Reports the MEDIAN, not the mean. The mean was dominated by outliers that
-    are not the pipeline being slow at all: a file subtracted hours after it
-    was averaged because the operator started the monitor late, re-ran a
-    batch, or restarted the app. One of those turned the subtract bar into
-    ~10 000 s and made the chart unreadable and untrue. The median over recent
-    files answers the question the chart is for — which step is slowest —
-    and p90_s carries the tail so a real slowdown is still visible.
-
-    latency_s=None means genuinely no completed file yet: the caller must
-    render "no data yet", never a zero-height bar.
-    compute_s=None means the time IS known but no stage reported duration_ms,
-    so the whole bar is wait.
-    """
-    if not latencies:
-        return {"latency_s": None, "compute_s": None, "wait_s": None,
-                "p90_s": None, "n": 0}
-    med = _median(latencies)
-    p90 = _pct(latencies, 0.90)
-    if computes:
-        med_compute = round(_median(computes), 2)
-        med_wait = round(max(med - med_compute, 0.0), 1)
-    else:
-        med_compute = None
-        med_wait = round(med, 1)
-    return {"latency_s": round(med, 1), "compute_s": med_compute,
-            "wait_s": med_wait, "p90_s": round(p90, 1), "n": len(latencies)}
-
-
-#: manifest["files"] stage name for each pipeline stage this chart covers.
-#: "collect" is deliberately absent — its duration is exposure time, not
-#: pipeline overhead, and mixing it in makes the real waste look normal.
-_LATENCY_FILE_STAGE = {"reduce": "reduced", "average": "averaged", "subtract": "subtracted"}
-
-#: How many of the most recent outputs per stage the wait/compute average is
-#: taken over. The chart answers "how long is the pipeline waiting RIGHT NOW",
-#: so an overnight manifest must not dilute it with thousands of old files —
-#: and the scan costs a stat() per entry, which is why it is bounded.
-_LATENCY_SAMPLE_N = 60
-
-#: Only outputs written within this many hours count. Without it the chart
-#: mixes "the pipeline waited" with "this file was processed long after it was
-#: created" — a monitor started late, a re-run batch, an app restart — and
-#: those gaps are hours, so they swamped the real per-file times.
-_LATENCY_WINDOW_H = 6.0
-
-
 def _nanoparticle_analyses(manifest: dict) -> list:
     """Every nanoparticle fit record in the manifest, oldest first.
 
@@ -262,76 +146,116 @@ def _nanoparticle_analyses(manifest: dict) -> list:
     return out
 
 
-def _stage_latency(manifest: dict) -> dict:
-    """Per-stage POLLING WAIT + COMPUTE, from durable disk/manifest state —
-    not the in-memory event window (capped at 100 entries, empties on
-    restart).
+#: How many of the most recent completed runs the per-run averages cover.
+_CYCLE_RUNS_N = 12
 
-        latency = mtime(this stage's output) - mtime(upstream output)
-        compute = reported by the stage itself in its bus event (duration_ms)
-        wait    = latency - compute
 
-    "collect" is excluded (see _LATENCY_FILE_STAGE). "fit" has no separate
-    output artifact recorded in the manifest (add_analysis_entry stores the
-    INPUT file it analysed) — its own manifest write timestamp stands in for
-    "output mtime" instead of a file mtime.
+def _run_cycle_times(manifest: dict) -> dict:
+    """Average time each stage adds to ONE RUN of the loop, in seconds.
+
+    Replaces the per-file elapsed-time metric, which was meaningless the
+    moment anything stalled or was backfilled: it measured the wall-clock gap
+    between one file's mtime and its input's, so a sample subtracted hours
+    after it was averaged reported "subtract takes 5 h" — a fact about when
+    the operator started the monitor, not about the pipeline.
+
+    A RUN is one recipe_id: the reactor collects a background and a sample
+    under the same id (src/loop_naming.py), the pipeline processes both, and
+    the analyzer fits the result. Every boundary below is the completion of a
+    stage for that one run, so the spans are the run's own timeline:
+
+        reduce    last reduced frame   - first reduced frame  (the acquisition)
+        average   last averaged file   - last reduced frame
+        subtract  the subtracted file  - last averaged file
+        fit       the analysis record  - the subtracted file
+
+    Non-negative by construction — each boundary is downstream of the last —
+    and a stall lands on ONE stage as a large span rather than poisoning the
+    axis for all of them. Averaged over the most recent _CYCLE_RUNS_N runs so
+    the numbers describe the campaign that is running, not the whole folder.
+
+    Returns {stage: {avg_s, n}, ...} plus "_runs" (runs used) and
+    "_total_s" (average end-to-end time for one run).
     """
-    result: dict = {}
-    durations = _duration_index()
-    cutoff = _time.time() - _LATENCY_WINDOW_H * 3600.0
+    # ── group every manifest file by the run it belongs to ───────────────────
+    runs: dict = {}
 
-    # Newest entries first, then bounded: the chart wants the CURRENT wait, and
-    # an all-night manifest otherwise buries today's numbers under thousands of
-    # old ones (and cost one stat() per entry per tick to do it).
-    files = [e for e in (manifest.get("files", {}) or {}).values() if isinstance(e, dict)]
+    def slot(rid: str) -> dict:
+        return runs.setdefault(rid, {"reduced": [], "averaged": [],
+                                      "subtracted": [], "fit": []})
 
-    for stage, file_stage in _LATENCY_FILE_STAGE.items():
-        latencies, computes = [], []
-        for entry in reversed(files):
-            if entry.get("stage") != file_stage:
-                continue
-            out_mtime = _mtime(entry.get("path"))
-            if out_mtime is None or out_mtime < cutoff:
-                continue
-            inputs = (entry.get("provenance") or {}).get("input_files") or []
-            in_mtimes = [t for t in (_input_mtime(p, out_mtime) for p in inputs)
-                         if t is not None]
-            if not in_mtimes:
-                continue
-            latency = out_mtime - max(in_mtimes)
-            if not (0 <= latency < 24 * 3600):  # ignore clock skew / stale gaps
-                continue
-            latencies.append(latency)
-            ms = durations.get(str(entry.get("path")))
-            if ms is not None:
-                computes.append(min(ms / 1000.0, latency))
-            if len(latencies) >= _LATENCY_SAMPLE_N:
-                break
-        result[stage] = _summarize_latency(latencies, computes)
+    for entry in (manifest.get("files", {}) or {}).values():
+        if not isinstance(entry, dict):
+            continue
+        stage = entry.get("stage")
+        if stage not in ("reduced", "averaged", "subtracted"):
+            continue
+        kw = str(entry.get("keyword") or "")
+        rid, role = split_role(kw)
+        if not rid:
+            rid, role = split_role(Path(str(entry.get("path") or "")).name)
+        if not rid:
+            continue
+        # The SAMPLE lane defines the cycle: the background is collected during
+        # the flush that precedes it and would date the run too early.
+        if stage in ("reduced", "averaged") and role in BKG_TAGS:
+            continue
+        t = _mtime(entry.get("path"))
+        if t is not None:
+            slot(rid)[stage].append(t)
 
-    latencies, computes = [], []
-    for entry in reversed(_nanoparticle_analyses(manifest)):
+    for entry in _nanoparticle_analyses(manifest):
+        rid, _role = split_role(Path(str(entry.get("file_path") or "")).name)
+        if not rid:
+            continue
         try:
-            out_ts = datetime.fromisoformat(entry.get("updated_at", "")).timestamp()
+            slot(rid)["fit"].append(
+                datetime.fromisoformat(entry.get("updated_at", "")).timestamp())
         except (ValueError, TypeError):
             continue
-        if out_ts < cutoff:
-            continue
-        in_mtime = _mtime(entry.get("file_path"))
-        if in_mtime is None:
-            continue
-        latency = out_ts - in_mtime
-        if not (0 <= latency < 24 * 3600):
-            continue
-        latencies.append(latency)
-        ms = durations.get(str(entry.get("file_path")))
-        if ms is not None:
-            computes.append(min(ms / 1000.0, latency))
-        if len(latencies) >= _LATENCY_SAMPLE_N:
-            break
-    result["fit"] = _summarize_latency(latencies, computes)
 
-    return result
+    # ── one timeline per run, newest runs last ───────────────────────────────
+    spans: dict = {"reduce": [], "average": [], "subtract": [], "fit": []}
+    totals: list = []
+    complete = []
+    for rid, d in runs.items():
+        if not d["reduced"]:
+            continue
+        complete.append((max(d["reduced"]), rid, d))
+    complete.sort()
+
+    for _t, _rid, d in complete[-_CYCLE_RUNS_N:]:
+        red_first, red_last = min(d["reduced"]), max(d["reduced"])
+        marks = [("reduce", red_first, red_last)]
+        cursor = red_last
+        if d["averaged"]:
+            avg_last = max(d["averaged"])
+            marks.append(("average", cursor, avg_last))
+            cursor = max(cursor, avg_last)
+        if d["subtracted"]:
+            sub = max(d["subtracted"])
+            marks.append(("subtract", cursor, sub))
+            cursor = max(cursor, sub)
+        if d["fit"]:
+            marks.append(("fit", cursor, max(d["fit"])))
+
+        run_total = 0.0
+        for name, a, b in marks:
+            dt = b - a
+            if not (0 <= dt < 24 * 3600):     # clock skew / a run spanning a day
+                continue
+            spans[name].append(dt)
+            run_total += dt
+        if run_total > 0:
+            totals.append(run_total)
+
+    out: dict = {}
+    for name, xs in spans.items():
+        out[name] = ({"avg_s": round(sum(xs) / len(xs), 1), "n": len(xs)}
+                     if xs else {"avg_s": None, "n": 0})
+    out["_runs"] = len(totals)
+    out["_total_s"] = round(sum(totals) / len(totals), 1) if totals else None
+    return out
 
 
 def _probe_age_s() -> float | None:
@@ -861,9 +785,10 @@ def _compute_metrics() -> dict:
         manifest = _read_manifest()
         current_stage, stage_time = _current_stage()
 
-        # Per-stage wait/compute split, from manifest.json + disk mtimes —
-        # durable across a restart, unlike the old event-timeline version.
-        stage_latency = _stage_latency(manifest)
+        # Per-run cycle time: how long each stage adds to ONE run of the loop,
+        # averaged over recent runs. From manifest.json + disk mtimes, so it is
+        # durable across a restart.
+        cycle = _run_cycle_times(manifest)
 
         # App health. probe_all() returns {"monitors": {app: bool}, "analyzer": {...},
         # "reactor": {...}}. The monitor apps report a bool; analyzer/reactor are
@@ -958,7 +883,7 @@ def _compute_metrics() -> dict:
             "pipeline": {
                 "current_stage": current_stage,
                 "stage_entered_at": stage_time.isoformat() if stage_time else None,
-                "stage_latency": stage_latency,
+                "cycle": cycle,
             },
             "loop": loop,
             "health": _health_row(probes),
@@ -985,7 +910,7 @@ def _compute_metrics() -> dict:
     except Exception as exc:
         _emit(f"metrics computation failed: {exc}", "error")
         return {
-            "pipeline": {"current_stage": "error", "stage_entered_at": None, "stage_latency": {}},
+            "pipeline": {"current_stage": "error", "stage_entered_at": None, "cycle": {}},
             "loop": {},
             "health": [],
             "probe": {"age_s": None, "stale": True},

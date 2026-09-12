@@ -11,8 +11,9 @@ tests/test_watchdog_app.py — Auto Watch's app module.
   W3  a malformed config.yml holds sending OFF instead of defaulting it ON
   W4  the config loads with no project folder selected
   W9  the per-project config override lives inside the project folder
-  plots  a directory provenance input resolves to a real frame mtime;
-         sizeless fits are omitted rather than plotted at 0 nm; the
+  cycle  the stage chart is PER RUN (recipe_id), not per file — a per-file
+         elapsed time was meaningless once anything stalled or backfilled
+  plots  sizeless fits are omitted rather than plotted at 0 nm; the
          "Analysed" funnel counts nanoparticle fits only
 """
 from __future__ import annotations
@@ -183,40 +184,118 @@ def test_metrics_snapshot_is_computed_once_and_reused(monkeypatch):
     assert wd._metrics_snapshot() == first
 
 
-# ── plots: a directory provenance input must resolve to a real frame ───────
-def test_directory_input_resolves_to_the_newest_frame_before_the_output(tmp_path):
-    """The average app records input_files=[folder]. A directory's own mtime
-    changes whenever anything lands in it, which gave averaging a latency of
-    ~0 (or negative) and left the bar reading "no data yet" all run."""
-    folder = tmp_path / "Reduction"
-    folder.mkdir()
-    now = time.time()
-    for i, age in enumerate((300, 200, 100)):
-        f = folder / f"frame{i}.dat"
-        f.write_text("x")
-        os.utime(f, (now - age, now - age))
-    later = folder / "frame_after.dat"     # arrived AFTER the averaged output
-    later.write_text("x")
-    os.utime(later, (now, now))
-
-    out_mtime = now - 50                   # the averaged file
-    resolved = wd._input_mtime(folder, before=out_mtime)
-
-    assert resolved == pytest.approx(now - 100, abs=1.0), \
-        "must pick the newest frame that predates the output, not the directory"
-    assert wd._input_mtime(folder, before=out_mtime) < out_mtime
+# ── the per-run cycle chart ────────────────────────────────────────────────
+def _files(entries: list) -> dict:
+    return {"files": {f"k{i}": e for i, e in enumerate(entries)}}
 
 
-def test_plain_file_input_is_unchanged(tmp_path):
-    f = tmp_path / "a.raw"
-    f.write_text("x")
-    assert wd._input_mtime(f, before=time.time() + 10) == pytest.approx(f.stat().st_mtime)
+def _f(stage: str, keyword: str, path: str) -> dict:
+    return {"stage": stage, "keyword": keyword, "path": path}
 
 
-def test_directory_with_no_eligible_frame_returns_none(tmp_path):
-    folder = tmp_path / "empty"
-    folder.mkdir()
-    assert wd._input_mtime(folder, before=time.time()) is None
+def test_cycle_times_are_per_run_and_never_negative(tmp_path, monkeypatch):
+    """The per-FILE metric was meaningless once anything stalled: it measured
+    one file's mtime minus its input's, so a sample subtracted hours after it
+    was averaged read as "subtract takes 5 h". Per run, every boundary is that
+    run's own stage completion, so each span is real and non-negative."""
+    t0 = 1_000_000.0
+    made = {}
+
+    def touch(name: str, at: float) -> str:
+        fp = tmp_path / name
+        fp.write_text("x")
+        os.utime(fp, (at, at))
+        made[name] = at
+        return str(fp)
+
+    manifest = _files([
+        _f("reduced",    "Run9_r001_sample", touch("a1.dat", t0 + 0)),
+        _f("reduced",    "Run9_r001_sample", touch("a2.dat", t0 + 60)),
+        _f("averaged",   "Run9_r001_sample", touch("a3.dat", t0 + 90)),
+        _f("subtracted", "Run9_r001_sample", touch("a4.dat", t0 + 120)),
+    ])
+    manifest["analyses"] = {"x": {
+        "type": "nanoparticle", "file_path": str(tmp_path / "Run9_r001_sample.dat"),
+        "updated_at": __import__("datetime").datetime.fromtimestamp(
+            t0 + 160, __import__("datetime").timezone.utc).isoformat(),
+        "results": {"name": "Run9_r001", "diameter": 9.0}}}
+
+    cy = wd._run_cycle_times(manifest)
+
+    assert cy["reduce"]["avg_s"] == 60.0, "acquisition span: last frame - first frame"
+    assert cy["average"]["avg_s"] == 30.0
+    assert cy["subtract"]["avg_s"] == 30.0
+    assert cy["_runs"] == 1
+    assert all(v["avg_s"] is None or v["avg_s"] >= 0
+               for k, v in cy.items() if not k.startswith("_"))
+
+
+def test_the_background_lane_does_not_date_the_run_early(tmp_path):
+    """The reactor collects background during the flush BEFORE the sample, so
+    counting it would inflate every run's reduce span by the flush time."""
+    t0 = 2_000_000.0
+
+    def touch(name: str, at: float) -> str:
+        fp = tmp_path / name
+        fp.write_text("x")
+        os.utime(fp, (at, at))
+        return str(fp)
+
+    manifest = _files([
+        _f("reduced", "Run9_r002_background", touch("b0.dat", t0 - 1800)),  # flush
+        _f("reduced", "Run9_r002_sample",     touch("b1.dat", t0)),
+        _f("reduced", "Run9_r002_sample",     touch("b2.dat", t0 + 45)),
+    ])
+    cy = wd._run_cycle_times(manifest)
+    assert cy["reduce"]["avg_s"] == 45.0, \
+        "the background lane must not be part of the sample cycle"
+
+
+def test_a_stall_lands_on_one_stage_not_all_of_them(tmp_path):
+    t0 = 3_000_000.0
+
+    def touch(name: str, at: float) -> str:
+        fp = tmp_path / name
+        fp.write_text("x")
+        os.utime(fp, (at, at))
+        return str(fp)
+
+    manifest = _files([
+        _f("reduced",    "Run9_r003_sample", touch("c1.dat", t0)),
+        _f("reduced",    "Run9_r003_sample", touch("c2.dat", t0 + 30)),
+        _f("averaged",   "Run9_r003_sample", touch("c3.dat", t0 + 40)),
+        _f("subtracted", "Run9_r003_sample", touch("c4.dat", t0 + 4000)),  # stalled
+    ])
+    cy = wd._run_cycle_times(manifest)
+    assert cy["reduce"]["avg_s"] == 30.0
+    assert cy["average"]["avg_s"] == 10.0
+    assert cy["subtract"]["avg_s"] == 3960.0, "the stall belongs to subtract alone"
+
+
+def test_an_incomplete_run_contributes_only_the_stages_it_reached(tmp_path):
+    t0 = 4_000_000.0
+
+    def touch(name: str, at: float) -> str:
+        fp = tmp_path / name
+        fp.write_text("x")
+        os.utime(fp, (at, at))
+        return str(fp)
+
+    manifest = _files([
+        _f("reduced",  "Run9_r004_sample", touch("d1.dat", t0)),
+        _f("reduced",  "Run9_r004_sample", touch("d2.dat", t0 + 20)),
+        _f("averaged", "Run9_r004_sample", touch("d3.dat", t0 + 35)),
+    ])
+    cy = wd._run_cycle_times(manifest)
+    assert cy["reduce"]["avg_s"] == 20.0 and cy["average"]["avg_s"] == 15.0
+    assert cy["subtract"]["avg_s"] is None and cy["fit"]["avg_s"] is None, \
+        "a stage the run never reached is 'no data', never a zero bar"
+
+
+def test_no_runs_at_all_reports_no_data_rather_than_zeros():
+    cy = wd._run_cycle_times({})
+    assert cy["_total_s"] is None and cy["_runs"] == 0
+    assert all(cy[s]["avg_s"] is None for s in ("reduce", "average", "subtract", "fit"))
 
 
 # ── plots: only the analyzer's fits are fits ───────────────────────────────
