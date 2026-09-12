@@ -367,7 +367,7 @@ Encoding failures drop the single event, not the connection.
 | `docs/audits/BEAMLINE_SAFETY_AUDIT.md` | Every SPEC command the platform issues |
 | `docs/REACTOR_SETUP.md`, `_HARDWARE_SETUP.md`, `_MAP.md` | Reactor software, rig, code map |
 | `tools/BEAMLINE_TESTING.md` | Bench-test the beamline before a run |
-| `docs/NOTIFICATIONS.md` | Watchdog notifications — Slack setup, master switch, message categories |
+| `docs/NOTIFICATIONS.md` | Auto Watch notifications — Slack setup, master switch, message categories |
 | `docs/DESIGN_SYSTEM.md` | Shared UI tokens and per-app conformance |
 | `docs/PARAMETER_SPACE_AND_CONVERGENCE.md` | Optimizer parameter space and convergence |
 | `docs/ERROR_PROPAGATION.md` | How σ(q) is estimated and propagated through reduction, averaging, subtraction and fitting, checked against the SAXS literature |

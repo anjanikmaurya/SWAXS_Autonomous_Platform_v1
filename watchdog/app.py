@@ -1,5 +1,5 @@
 """
-watchdog/app.py — Watchdog (port 5110)
+watchdog/app.py — Auto Watch (port 5110)
 ========================================
 Platform liveness monitoring and the sole notification gateway to Slack.
 
@@ -74,7 +74,7 @@ _probe_cache: dict = {"ts": 0.0, "data": {}}
 def _emit(msg: str, level: str = "info") -> None:
     """Log to stdout in the style of the hub."""
     prefix = {"ok": "✓", "warn": "⚠", "error": "✗"}.get(level, "ℹ")
-    print(f"[Watchdog] {prefix} {msg}")
+    print(f"[Auto Watch] {prefix} {msg}")
 
 
 def _now() -> datetime:
@@ -994,8 +994,8 @@ def test_notification():
     if not _transport or not _transport.webhook_url:
         return jsonify({"ok": False, "error": "webhook not configured"}), 400
     _transport.send(
-        title="[TEST] Watchdog",
-        text="This is a test message from the Watchdog app.",
+        title="[TEST] Auto Watch",
+        text="This is a test message from the Auto Watch app.",
         level="info",
     )
     return jsonify({"ok": True, "sent": True})

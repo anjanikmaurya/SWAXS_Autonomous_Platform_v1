@@ -1,6 +1,6 @@
-# Notifications — Watchdog App
+# Notifications — Auto Watch App
 
-**The watchdog app (port 5110) is the sole place the platform sends notifications.** It subscribes to the event bus, applies policy (quiet hours, snooze, throttle), and sends to Slack via a Workflow Builder webhook.
+**The Auto Watch app (port 5110) is the sole place the platform sends notifications.** It subscribes to the event bus, applies policy (quiet hours, snooze, throttle), and sends to Slack via a Workflow Builder webhook.
 
 ## Setup
 
@@ -35,7 +35,7 @@ If the URL is ever rotated, re-run the Workflow Builder and update `.env`.
 ### 3. Test it
 
 ```bash
-# From the watchdog UI at http://localhost:5110, click "Test"
+# From the Auto Watch UI at http://localhost:5110, click "Test"
 # Or from the command line:
 curl -X POST http://localhost:5110/api/test
 ```
@@ -46,7 +46,7 @@ You should see a test message in `#autoq`.
 
 ### Events from the Bus
 
-The watchdog subscribes to platform events:
+Auto Watch subscribes to platform events:
 - **reactor.run_start** — recipe applied to the reactor
 - **reactor.run_complete** — synthesis run finished
 - **reactor.estop** — emergency stop triggered
@@ -70,7 +70,7 @@ All of this is resolved in one place — `should_send()` in `src/watchdog/policy
 
 ### Message Categories
 
-Every message is tagged with exactly one category. The watchdog UI's **Alerts** page has an independent checkbox per category — any combination, including all or none:
+Every message is tagged with exactly one category. The Auto Watch UI's **Alerts** page has an independent checkbox per category — any combination, including all or none:
 
 | Category | Covers |
 |---|---|
@@ -86,10 +86,10 @@ Bus events map to a category via `category_for_event()` in `src/watchdog/policy.
 
 ### Stall Detection
 
-Every 5 minutes, the watchdog checks if any pipeline stage is overdue:
+Every 5 minutes, Auto Watch checks if any pipeline stage is overdue:
 - Expected events: `file.reduced`, `file.averaged`, `file.subtracted`, `fit.complete`
 - Timeout per stage: 1–3 hours depending on stage
-- If a stage is overdue, watchdog probes the next app (`/api/monitor/status`) and sends a fault message naming the dead stage
+- If a stage is overdue, Auto Watch probes the next app (`/api/monitor/status`) and sends a fault message naming the dead stage
 
 ## Configuration
 
@@ -115,7 +115,7 @@ The master switch and categories persist here, so they survive a restart. The
 webhook URL is never in this file — it's a secret and lives in `.env`
 (`SWAXS_SLACK_WEBHOOK_URL`).
 
-Both can also be changed live from the watchdog UI's **Alerts** page (or via
+Both can also be changed live from the Auto Watch UI's **Alerts** page (or via
 `POST /api/settings`), which writes straight back to this file.
 
 ## Routes
@@ -134,14 +134,14 @@ Both can also be changed live from the watchdog UI's **Alerts** page (or via
 1. Check the **Alerts** page — sending must be **ON**, and the category the message belongs to must be checked
 2. Check `SWAXS_SLACK_WEBHOOK_URL` is set in `.env` and the platform is restarted
 3. Test with `curl -X POST http://localhost:5110/api/test` — this bypasses the master switch and category filter entirely (it's a webhook wiring check, not a policy check), so it succeeding doesn't mean real messages will send too
-4. Check that `#autoq` exists and the watchdog app has permission to post there
-5. Look at the watchdog console for errors
+4. Check that `#autoq` exists and the Auto Watch app has permission to post there
+5. Look at the Auto Watch console for errors
 
 ### Messages are being snoozed
 
-Check the watchdog UI (`http://localhost:5110`). If **Snoozed** is on, progress messages won't send. Click **Snooze** again with `0` to clear it.
+Check the Auto Watch UI (`http://localhost:5110`). If **Snoozed** is on, progress messages won't send. Click **Snooze** again with `0` to clear it.
 
-### Platform stalls but watchdog doesn't send a stall message
+### Platform stalls but Auto Watch doesn't send a stall message
 
 Stall detection looks for missing events. If no events have arrived at all (idle platform), no stall is detected. Only active campaigns generate stall alerts.
 

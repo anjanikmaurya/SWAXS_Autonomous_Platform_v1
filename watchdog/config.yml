@@ -1,4 +1,4 @@
-# Watchdog configuration — non-secret policy
+# Auto Watch configuration — non-secret policy
 # The webhook URL is a secret and goes in .env: SWAXS_SLACK_WEBHOOK_URL
 
 notify:
@@ -26,7 +26,7 @@ notify:
   # silence safety alerts is to turn slack_enabled off entirely.
   categories:
     safety: true
-    stalls: false
+    stalls: true
     results: false
     progress: false
-    campaign: true
+    campaign: false

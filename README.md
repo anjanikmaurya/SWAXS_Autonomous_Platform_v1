@@ -11,7 +11,7 @@ Works on macOS, Windows (PowerShell, Anaconda Prompt or cmd) and Linux.
 
 ## What it does
 
-The platform is organized as nine small web apps, launched from one central hub. You move through them roughly in order:
+The platform is organized as ten small web apps, launched from one central hub. You move through them roughly in order:
 
 | # | App | Port | What it's for |
 |---|-----|------|---------------|
@@ -24,6 +24,7 @@ The platform is organized as nine small web apps, launched from one central hub.
 | 🧭 | **Auto-Fit & Optimiser** | 5107 | Fits nanoparticle size / PDI / phase from subtracted SAXS and proposes the next synthesis conditions (Bayesian optimization) — the brain of the autonomous loop |
 | 🔁 | **Autonomous Synthesis (reactor)** | 5108 | 5-pump flow reactor **and** beamline control: sets temperature (SPEC `csettemp`) and triggers 2D collection (shutter + a configurable collect command, default `ct`) through the SPEC bServer, plus auto-flush |
 | 🤖 | **Tassone Group** (AI assistant) | 5109 | Ask questions about your data, generate plots, get proactive quality hints |
+| 🐕 | **Auto Watch** | 5110 | Loop-stall detection and the sole gateway for all platform notifications (Slack) |
 
 A typical **data** session: **reduce → view & average → subtract background → quality-gate (optional) → analyze**, with the assistant available throughout.
 
@@ -156,7 +157,7 @@ trace if something is missing.
 <details open>
 <summary>Two things that occasionally get in the way</summary>
 
-- **Port 5100 is busy.** The hub uses 5100 (apps 5101-5109) precisely to dodge
+- **Port 5100 is busy.** The hub uses 5100 (apps 5101-5110) precisely to dodge
   macOS AirPlay Receiver, which owns 5000. If 5100 itself is taken, run
   `SWAXS_HUB_PORT=5200 ./start_platform.sh`, or switch AirPlay Receiver off in
   System Settings → General → AirDrop & Handoff.
@@ -315,7 +316,7 @@ More, with fuller explanations: **[QUICKSTART.md § Troubleshooting](QUICKSTART.
 
 ### Plugging your own program into the pipeline
 
-You are not limited to the nine built-in apps. Every stage hands off through a
+You are not limited to the ten built-in apps. Every stage hands off through a
 **folder of files** plus `manifest.json`, so a program of your own — in any
 language — can read one stage's output and write the next stage's input,
 without touching this codebase and with no plugin API to learn.

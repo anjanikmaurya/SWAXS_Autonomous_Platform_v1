@@ -87,7 +87,7 @@ yellow are normal; red `ERROR:` lines are not — see
 
 Then open **http://localhost:5100** in your browser.
 
-> **If port 5100 is taken:** the hub uses 5100 (and the apps 5101–5109) to stay
+> **If port 5100 is taken:** the hub uses 5100 (and the apps 5101–5110) to stay
 > clear of macOS AirPlay Receiver, which owns 5000. If 5100 itself is busy, run
 > `SWAXS_HUB_PORT=5200 ./start_platform.sh` and use `localhost:5200`. On Windows
 > a port can be blocked with nothing running on it — see the troubleshooting
@@ -268,7 +268,7 @@ Then open **http://localhost:5100**.
 
 ## First run (all platforms)
 
-You should see a banner in the terminal and, at **http://localhost:5100**, nine
+You should see a banner in the terminal and, at **http://localhost:5100**, ten
 app cards.
 
 **1. Choose your project folder.** Top-right of the hub page. This is the folder
@@ -300,7 +300,7 @@ green, then **↗ Open**. Work left to right:
 | 7 | Auto-Fit & Optimiser | 5107 | automatic size + PDI, closed-loop optimiser |
 | 8 | Autonomous Synthesis | 5108 | the 5-pump reactor (mock by default) |
 | 9 | Tassone Group | 5109 | the AI assistant — answers questions about the experiment |
-| 10 | Watchdog | 5110 | monitoring and notifications to Slack |
+| 10 | Auto Watch | 5110 | loop monitoring + all platform notifications to Slack |
 
 **3. Stop.** Press **■ Stop** on a card, or `Ctrl-C` in the terminal to close the
 hub — which closes every app with it.
@@ -337,14 +337,14 @@ get `ModuleNotFoundError: No module named 'flask'`.
 
 ## Recommended compute spec
 
-The platform runs on almost anything — it's nine small Flask apps plus
+The platform runs on almost anything — it's ten small Flask apps plus
 CPU-only pyFAI integration, no GPU anywhere. "Fresh laptop" above is really
 "fresh machine": several groups run it on a beamline control PC or a lab
 desktop instead. What matters is how long and how unattended the run is.
 
 | | Minimum (install, short test runs) | Recommended (multi-day autonomous run) |
 |---|---|---|
-| CPU | 4 cores | 8+ cores — up to 9 apps run as separate processes at once |
+| CPU | 4 cores | 8+ cores — up to 10 apps run as separate processes at once |
 | RAM | 8 GB | 16 GB — headroom for the AI assistant extras (`requirements-ai.txt` pulls torch/chromadb) and for matplotlib figure rendering in Analysis/Analyzer |
 | Disk | 10 GB free, any drive | 50–100 GB free, **SSD** — raw frames plus every derived stage (`Reduction/`, `Averaged/`, `Subtracted/`, `Analysed/`, `Results/`) accumulate for as long as the campaign runs |
 | OS | macOS 12+, Windows 10/11, Ubuntu 20.04+ | same |
@@ -362,7 +362,7 @@ python tools/check_system_spec.py
 ```
 
 It reports CPU/RAM/disk against the table above, flags any of ports
-5100–5109 already in use (the AirPlay/Hyper-V conflicts described in
+5100–5110 already in use (the AirPlay/Hyper-V conflicts described in
 [Troubleshooting](#troubleshooting)), and runs a short repeated numpy
 workload shaped like a SAXS detector frame to estimate frames/sec and check
 memory doesn't grow across iterations (a leak would show up as **RSS**
@@ -382,6 +382,7 @@ them — the app says what's missing and keeps working.
 | AI assistant chat | `pip install anthropic` — plus a token, see `SECURITY.md` |
 | AI searchable knowledge base | `pip install -r requirements-ai.txt` — **pulls torch, ~2 GB** |
 | Model fitting in the analysis app | `pip install sasmodels` |
+| Slack alerts for stalls, faults, fit results (Auto Watch app) | no install — set `SWAXS_SLACK_WEBHOOK_URL` in `.env`, see `docs/NOTIFICATIONS.md` |
 | To run the test suite | `pip install pytest`, then `pytest -q` |
 
 ---
@@ -419,17 +420,20 @@ changed — project folders, `config.yml` and `manifest.json` are all unaffected
 
 | Was | Now | Why |
 |---|---|---|
-| Hub on **5000**, apps 5001–5009 | Hub on **5100**, apps **5101–5109** | macOS AirPlay Receiver owns 5000, so the hub could not bind on a stock Mac |
+| Hub on **5000**, apps 5001–5009 | Hub on **5100**, apps **5101–5110** | macOS AirPlay Receiver owns 5000, so the hub could not bind on a stock Mac |
 | **Data Viewer** (`viewer/`) | **Visualisation & Average** (`average/`) | the folder name said "viewer" while the app's main job is averaging |
 | **Nanoparticle Analyzer** | **Auto-Fit & Optimiser** | the old name hid the Bayesian optimizer half, and read like a sibling of Data Analysis |
 | **Tassone Group Assistant** | **Tassone Group** | shorter |
 | `start_platform.ps1` **and** `.bat` | **`start_platform.bat` only** | a `.bat` runs from PowerShell too and needs no execution-policy change, so the second launcher was upkeep for no gain |
 | **Flow Synthesis** | **Autonomous Synthesis** | the reactor is a fixture — flow rate is one setting, not the point; the point is that it runs the loop unattended |
 | `requirements.txt` present | **removed entirely** | it was a `pip freeze` of one Mac that made numpy try to compile from source on Windows — the single most common install failure |
+| Reactor sent its own Slack messages (`/api/slack*` routes, `src/notify/`) | **Auto Watch** app, its own card, port **5110** | one app now owns every platform notification — loop-stall detection, safety faults, fit results — instead of the logic living inside the reactor; see `docs/NOTIFICATIONS.md` |
 
 The app order also now follows the pipeline everywhere — hub cards, launcher
 banner and docs all read calibration → reduction → average → background →
-quality → analysis → auto-fit → autonomous synthesis → assistant.
+quality → analysis → auto-fit → autonomous synthesis → assistant, with
+**Auto Watch** last since it watches the others rather than sitting in the
+pipeline itself.
 
 What to do:
 
@@ -494,7 +498,7 @@ chmod +x start_platform.sh
 ```
 
 ### “Port 5100 is already in use” / the page won't load
-The platform uses **5100 (hub) and 5101–5109 (apps)**. It moved off 5000–5009 in
+The platform uses **5100 (hub) and 5101–5110 (apps)**. It moved off 5000–5009 in
 September 2026 because macOS AirPlay takes port 5000 for itself (below).
 
 - **macOS:** AirPlay Receiver listens on 5000 and 7000 on Monterey and later, so
@@ -502,7 +506,7 @@ September 2026 because macOS AirPlay takes port 5000 for itself (below).
   hit a clash, check with `lsof -i :5100`, or pick another port:
   `SWAXS_HUB_PORT=5200 ./start_platform.sh`.
 - **Windows:** Hyper-V and WSL2 reserve *random* blocks of ~100 ports, and ranges
-  overlapping 5100–5109 have been seen in the wild. This is the one case where
+  overlapping 5100–5110 have been seen in the wild. This is the one case where
   the port is blocked even though nothing is running on it. Check with:
   ```powershell
   netsh int ipv4 show excludedportrange protocol=tcp
@@ -510,7 +514,7 @@ September 2026 because macOS AirPlay takes port 5000 for itself (below).
   If our range appears there, either start the platform on a free range
   (`$env:SWAXS_HUB_PORT="5200"`) or reserve ours back, as Administrator:
   ```powershell
-  netsh int ipv4 add excludedportrange protocol=tcp startport=5100 numberofports=10
+  netsh int ipv4 add excludedportrange protocol=tcp startport=5100 numberofports=11
   ```
   (run before Hyper-V claims it — i.e. right after a reboot).
 - **Linux:** something else is genuinely on that port; `ss -ltnp | grep 510`
@@ -608,4 +612,5 @@ python -m pip list
 | `docs/AUTONOMOUS_RUN_STEPS.md` | running a full autonomous campaign |
 | `docs/REACTOR_SETUP.md` | wiring the real reactor, pump calibration |
 | `docs/PARAMETER_SPACE_AND_CONVERGENCE.md` | how the optimiser searches and converges |
+| `docs/NOTIFICATIONS.md` | setting up Slack alerts in the Auto Watch app — webhook, master switch, message categories |
 | `SECURITY.md` | tokens, the SLAC AI gateway, what never goes in git |

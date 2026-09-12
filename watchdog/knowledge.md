@@ -1,6 +1,6 @@
-# Watchdog — Platform liveness monitoring and notifications
+# Auto Watch — Platform liveness monitoring and notifications
 
-The Watchdog app (port 5110) is the sole point where platform notifications are sent. It detects when an autonomous loop has stalled and watches for faults, communicating exclusively through Slack.
+The Auto Watch app (port 5110) is the sole point where platform notifications are sent. It detects when an autonomous loop has stalled and watches for faults, communicating exclusively through Slack.
 
 ## What it does
 
@@ -31,7 +31,7 @@ Two orthogonal things gate a message before it reaches Slack, both resolved insi
 - `watchdog/config.yml` holds non-secret policy: quiet hours, snooze defaults, throttle interval, the **master switch** (`notify.slack_enabled` — when `false`, nothing sends at all, checked before every other rule), and the **category toggles** (`notify.categories`)
 - Both the master switch and categories can be changed live from the **Alerts** page or `POST /api/settings`, and persist back to `config.yml`
 - `SWAXS_SLACK_WEBHOOK_URL` environment variable (`.env`, git-ignored) holds the Workflow Builder webhook URL
-- If the webhook is unset, watchdog logs once and keeps running; nothing in the platform is affected
+- If the webhook is unset, Auto Watch logs once and keeps running; nothing in the platform is affected
 
 ## Slack Workflow Builder
 
@@ -80,7 +80,7 @@ decides what is overdue, and the dashboard only renders that verdict.
 
 ## Routes
 
-- `GET /api/health` — watchdog status (always `{"status": "ok"}`)
+- `GET /api/health` — Auto Watch status (always `{"status": "ok"}`)
 - `GET /api/metrics` — one dashboard snapshot; `GET /api/stream` — the same at 1 Hz (SSE).
   Both carry `loop` (per-node state for the cycle), `health` (active loop apps),
   `probe` (snapshot age), plus throughput, stage durations, file counts and run outcomes.

@@ -190,7 +190,7 @@ def save_notify_settings(
         resolved_categories["safety"] = True
 
     lines = [
-        "# Watchdog configuration — non-secret policy",
+        "# Auto Watch configuration — non-secret policy",
         "# The webhook URL is a secret and goes in .env: SWAXS_SLACK_WEBHOOK_URL",
         "",
         "notify:",

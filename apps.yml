@@ -112,7 +112,7 @@ apps:
     color:        "#455A64"
 
   - id:           watchdog
-    name:         "Watchdog"
+    name:         "Auto Watch"
     description:  "Loop liveness monitoring and all platform notifications"
     port:         5110
     entry:        "watchdog/app.py"
