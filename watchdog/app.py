@@ -327,22 +327,65 @@ except Exception:
     pass
 
 
+def _reduction_dirs() -> list[Path]:
+    """Where reduction actually writes its .dat files.
+
+    NOT hardcoded `<project>/1D`: `Experiment.__init__` honours
+    `output_directory` from the project's config.yml
+    (src/reduction/core.py:212) and only falls back to
+    `data_directory.parent / "1D"`. With that key set, globbing
+    `<project>/1D/...` finds nothing and the throughput chart is a flat zero
+    line on a pipeline that is working perfectly.
+    """
+    roots: list[Path] = []
+    if not _project_root:
+        return roots
+    project = Path(_project_root)
+    try:
+        import yaml
+        cfg_path = project / "config.yml"
+        if cfg_path.is_file():
+            cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+            out = str((cfg.get("output_directory") or "")).strip()
+            if out:
+                roots.append(Path(out))
+    except Exception:
+        pass
+    roots.append(project / "1D")
+    seen, uniq = set(), []
+    for r in roots:
+        key = str(r)
+        if key not in seen:
+            seen.add(key)
+            uniq.append(r)
+    return uniq
+
+
 def _throughput_last_24h() -> list[dict]:
     """Hourly count of reduced files over the real last 24 h, from files on
     disk (mtime) — not the in-memory event window, which is capped at 100
     entries and empties on restart (about five recipes, not a day). A count
     from disk is true regardless of when the watchdog process last started,
     and a quiet bucket after a burst reads as missing data, not zero.
+
+    Hours are labelled in the operator's LOCAL time. They were built from
+    `_now()`, which is UTC, while the buckets come from file mtimes — so the
+    counts were right and every label was wrong by the UTC offset (seven hours
+    at SLAC). The current hour's files appeared under a label seven hours away,
+    which is what made the chart look broken rather than merely mislabelled.
     """
-    now_dt = _now()
-    now_ts = now_dt.timestamp()
-    labels = [(now_dt - timedelta(hours=23 - i)).strftime("%H:00") for i in range(24)]
+    now_local = _now().astimezone()
+    now_ts = now_local.timestamp()
+    labels = [(now_local - timedelta(hours=23 - i)).strftime("%H:00")
+              for i in range(24)]
     buckets = [0] * 24
 
-    if _project_root:
-        root = Path(_project_root)
-        for rel in ("1D/SAXS/Reduction/*.dat", "1D/WAXS/Reduction/*.dat"):
-            for fp in root.glob(rel):
+    for root in _reduction_dirs():
+        for det in ("SAXS", "WAXS"):
+            d = root / det / "Reduction"
+            if not d.is_dir():
+                continue
+            for fp in d.glob("*.dat"):
                 try:
                     age_s = now_ts - fp.stat().st_mtime
                 except OSError:

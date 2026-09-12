@@ -621,3 +621,92 @@ def test_every_step_uses_the_same_box_class():
     assert html.count('class="step-hd"') == 5, \
         "name+chip header on every box, or they differ in internal layout"
     assert 'class="step-circle"' not in html, "circles clipped the text"
+
+
+# ── the throughput chart ───────────────────────────────────────────────────
+def _reduced_at(folder: Path, name: str, age_s: float) -> Path:
+    folder.mkdir(parents=True, exist_ok=True)
+    p = folder / name
+    p.write_text("x")
+    t = time.time() - age_s
+    os.utime(p, (t, t))
+    return p
+
+
+def test_throughput_hours_are_labelled_in_local_time(tmp_path, monkeypatch):
+    """The counts were right and every LABEL was wrong by the UTC offset —
+    seven hours at SLAC. Files written in the current hour appeared under a
+    label seven hours away, which is what made the chart look broken rather
+    than merely mislabelled."""
+    import datetime as dt
+    monkeypatch.setattr(wd, "_project_root", str(tmp_path))
+    _reduced_at(tmp_path / "1D" / "SAXS" / "Reduction", "a_0001.dat", 60)
+
+    tp = wd._throughput_last_24h()
+
+    assert len(tp) == 24
+    expect_now = dt.datetime.now().strftime("%H:00")
+    assert tp[-1]["hour"] == expect_now, (
+        f"the last bucket is the CURRENT hour; expected local {expect_now}, "
+        f"got {tp[-1]['hour']}")
+    assert tp[-1]["count"] == 1, "and the file written a minute ago belongs in it"
+
+
+def test_throughput_buckets_by_age_and_ignores_anything_older_than_a_day(tmp_path,
+                                                                          monkeypatch):
+    monkeypatch.setattr(wd, "_project_root", str(tmp_path))
+    red = tmp_path / "1D" / "SAXS" / "Reduction"
+    for i in range(5):
+        _reduced_at(red, f"now_{i}.dat", 60)          # this hour
+    for i in range(3):
+        _reduced_at(red, f"old_{i}.dat", 7200)        # 2 h ago
+    _reduced_at(red, "ancient.dat", 40 * 3600)        # outside the window
+
+    tp = wd._throughput_last_24h()
+
+    assert tp[-1]["count"] == 5
+    assert tp[-3]["count"] == 3
+    assert sum(d["count"] for d in tp) == 8, "the 40 h-old file must not count"
+
+
+def test_throughput_counts_both_detectors(tmp_path, monkeypatch):
+    monkeypatch.setattr(wd, "_project_root", str(tmp_path))
+    _reduced_at(tmp_path / "1D" / "SAXS" / "Reduction", "s.dat", 60)
+    _reduced_at(tmp_path / "1D" / "WAXS" / "Reduction", "w.dat", 60)
+    assert wd._throughput_last_24h()[-1]["count"] == 2
+
+
+def test_throughput_finds_a_configured_output_directory(tmp_path, monkeypatch):
+    """Experiment.__init__ honours config.yml's `output_directory` and only
+    falls back to <project>/1D. Globbing <project>/1D unconditionally made the
+    chart a flat zero line on a pipeline that was working perfectly."""
+    monkeypatch.setattr(wd, "_project_root", str(tmp_path))
+    out = tmp_path / "beamtime_out"
+    (tmp_path / "config.yml").write_text(f"output_directory: {out}\n",
+                                         encoding="utf-8")
+    _reduced_at(out / "SAXS" / "Reduction", "a.dat", 60)
+
+    assert out in wd._reduction_dirs()
+    assert wd._throughput_last_24h()[-1]["count"] == 1, \
+        "the chart must read where reduction actually writes"
+
+
+def test_reduction_dirs_always_includes_the_default(tmp_path, monkeypatch):
+    monkeypatch.setattr(wd, "_project_root", str(tmp_path))
+    assert wd._reduction_dirs() == [tmp_path / "1D"]
+    (tmp_path / "config.yml").write_text("output_directory: ''\n", encoding="utf-8")
+    assert wd._reduction_dirs() == [tmp_path / "1D"], "blank means unset"
+
+
+def test_a_broken_config_does_not_break_the_chart(tmp_path, monkeypatch):
+    monkeypatch.setattr(wd, "_project_root", str(tmp_path))
+    (tmp_path / "config.yml").write_text("this: [is: not: yaml\n", encoding="utf-8")
+    _reduced_at(tmp_path / "1D" / "SAXS" / "Reduction", "a.dat", 60)
+    assert wd._throughput_last_24h()[-1]["count"] == 1
+
+
+def test_no_project_means_an_empty_but_well_formed_series(monkeypatch):
+    monkeypatch.setattr(wd, "_project_root", "")
+    tp = wd._throughput_last_24h()
+    assert len(tp) == 24 and all(d["count"] == 0 for d in tp)
+    assert all(d["hour"] for d in tp), "labels must still be present"
