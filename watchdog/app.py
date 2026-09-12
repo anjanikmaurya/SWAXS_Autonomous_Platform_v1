@@ -110,32 +110,112 @@ def _current_stage() -> tuple[str, datetime | None]:
     return "idle", None
 
 
-def _stage_durations() -> dict:
-    """Average seconds spent in each stage, computed from the event timeline.
+def _mtime(path) -> float | None:
+    try:
+        return Path(path).stat().st_mtime
+    except (OSError, TypeError, ValueError):
+        return None
 
-    A stage's duration is the gap between its trigger event and the next stage
-    event. Returns 0 for stages with no observed data — an honest empty bar
-    rather than a fabricated placeholder.
+
+def _duration_ms_for(output_path: str) -> float | None:
+    """A stage's own self-measured compute time for one output file, read
+    from its bus event — the stage's own report, not a reconstruction. No
+    stage currently publishes ``duration_ms``; once one does, this starts
+    picking it up with no further change here.
     """
-    seq = []
     for event in list(_recent_events):
-        stage = _STAGE_EVENTS.get(event.get("type"))
-        if not stage:
+        data = event.get("data") or {}
+        if str(data.get("file_path", "")) == str(output_path):
+            ms = data.get("duration_ms")
+            if isinstance(ms, (int, float)):
+                return float(ms)
+    return None
+
+
+def _summarize_latency(latencies: list[float], computes: list[float]) -> dict:
+    """latency_s=None means genuinely no completed sample yet — the caller
+    must render that as "no data yet", never as a zero-height bar.
+    compute_s=None means latency IS known but no stage reported duration_ms —
+    render as a wait-only bar labeled "compute not reported", again never 0.
+    """
+    if not latencies:
+        return {"latency_s": None, "compute_s": None, "wait_s": None, "n": 0}
+    n = len(latencies)
+    avg_latency = sum(latencies) / n
+    if computes:
+        avg_compute = round(sum(computes) / len(computes), 2)
+        avg_wait = round(max(avg_latency - avg_compute, 0.0), 1)
+    else:
+        avg_compute = None
+        avg_wait = round(avg_latency, 1)
+    return {"latency_s": round(avg_latency, 1), "compute_s": avg_compute,
+            "wait_s": avg_wait, "n": n}
+
+
+#: manifest["files"] stage name for each pipeline stage this chart covers.
+#: "collect" is deliberately absent — its duration is exposure time, not
+#: pipeline overhead, and mixing it in makes the real waste look normal.
+_LATENCY_FILE_STAGE = {"reduce": "reduced", "average": "averaged", "subtract": "subtracted"}
+
+
+def _stage_latency(manifest: dict) -> dict:
+    """Per-stage POLLING WAIT + COMPUTE, from durable disk/manifest state —
+    not the in-memory event window (capped at 100 entries, empties on
+    restart).
+
+        latency = mtime(this stage's output) - mtime(upstream output)
+        compute = reported by the stage itself in its bus event (duration_ms)
+        wait    = latency - compute
+
+    "collect" is excluded (see _LATENCY_FILE_STAGE). "fit" has no separate
+    output artifact recorded in the manifest (add_analysis_entry stores the
+    INPUT file it analysed) — its own manifest write timestamp stands in for
+    "output mtime" instead of a file mtime.
+    """
+    result: dict = {}
+
+    for stage, file_stage in _LATENCY_FILE_STAGE.items():
+        latencies, computes = [], []
+        for entry in (manifest.get("files", {}) or {}).values():
+            if not isinstance(entry, dict) or entry.get("stage") != file_stage:
+                continue
+            out_mtime = _mtime(entry.get("path"))
+            if out_mtime is None:
+                continue
+            inputs = (entry.get("provenance") or {}).get("input_files") or []
+            in_mtimes = [t for t in (_mtime(p) for p in inputs) if t is not None]
+            if not in_mtimes:
+                continue
+            latency = out_mtime - max(in_mtimes)
+            if not (0 <= latency < 24 * 3600):  # ignore clock skew / stale gaps
+                continue
+            latencies.append(latency)
+            ms = _duration_ms_for(entry.get("path"))
+            if ms is not None:
+                computes.append(min(ms / 1000.0, latency))
+        result[stage] = _summarize_latency(latencies, computes)
+
+    latencies, computes = [], []
+    for entry in (manifest.get("analyses", {}) or {}).values():
+        if not isinstance(entry, dict) or entry.get("type") != "nanoparticle":
             continue
         try:
-            ts = datetime.fromisoformat(event.get("timestamp", ""))
+            out_ts = datetime.fromisoformat(entry.get("updated_at", "")).timestamp()
         except (ValueError, TypeError):
             continue
-        seq.append((stage, ts))
+        in_mtime = _mtime(entry.get("file_path"))
+        if in_mtime is None:
+            continue
+        latency = out_ts - in_mtime
+        if not (0 <= latency < 24 * 3600):
+            continue
+        latencies.append(latency)
+        ms = _duration_ms_for(entry.get("file_path"))
+        if ms is not None:
+            computes.append(min(ms / 1000.0, latency))
+    result["fit"] = _summarize_latency(latencies, computes)
 
-    samples: dict = {s: [] for s in _STAGE_ORDER}
-    for i in range(len(seq) - 1):
-        stage, ts = seq[i]
-        _, ts_next = seq[i + 1]
-        dt = (ts_next - ts).total_seconds()
-        if 0 <= dt < 24 * 3600:  # ignore clock skew / stale gaps
-            samples[stage].append(dt)
-    return {s: round(sum(v) / len(v), 1) if v else 0 for s, v in samples.items()}
+    return result
 
 
 def _probe_age_s() -> float | None:
@@ -207,25 +287,29 @@ except Exception:
 
 
 def _throughput_last_24h() -> list[dict]:
-    """Return hourly file counts for the last 24 hours."""
-    now = _now()
-    hours = {}
-    for i in range(24):
-        hour_start = now - timedelta(hours=24-i)
-        hour_key = hour_start.strftime("%H:00")
-        hours[hour_key] = 0
+    """Hourly count of reduced files over the real last 24 h, from files on
+    disk (mtime) — not the in-memory event window, which is capped at 100
+    entries and empties on restart (about five recipes, not a day). A count
+    from disk is true regardless of when the watchdog process last started,
+    and a quiet bucket after a burst reads as missing data, not zero.
+    """
+    now_dt = _now()
+    now_ts = now_dt.timestamp()
+    labels = [(now_dt - timedelta(hours=23 - i)).strftime("%H:00") for i in range(24)]
+    buckets = [0] * 24
 
-    for event in list(_recent_events):
-        if event.get("type") == "file.reduced":
-            try:
-                ts = datetime.fromisoformat(event.get("timestamp", ""))
-                hour_key = ts.strftime("%H:00")
-                if hour_key in hours:
-                    hours[hour_key] += 1
-            except (ValueError, TypeError):
-                pass
+    if _project_root:
+        root = Path(_project_root)
+        for rel in ("1D/SAXS/Reduction/*.dat", "1D/WAXS/Reduction/*.dat"):
+            for fp in root.glob(rel):
+                try:
+                    age_s = now_ts - fp.stat().st_mtime
+                except OSError:
+                    continue
+                if 0 <= age_s < 24 * 3600:
+                    buckets[23 - int(age_s // 3600)] += 1
 
-    return [{"hour": h, "count": c} for h, c in hours.items()]
+    return [{"hour": labels[i], "count": buckets[i]} for i in range(24)]
 
 
 # ── Cyclic loop view ──────────────────────────────────────────────────────────
@@ -354,6 +438,21 @@ def _loop_state(probes: dict) -> dict:
             det = str((event.get("data") or {}).get("detector") or "?")
             reduced_by_det[lane][det] = reduced_by_det[lane].get(det, 0) + 1
 
+    # file.skipped is not a stage-progress event (see diagnose.py Pattern G) —
+    # counted separately from the _STAGE_EVENTS loop above, same per-lane reset
+    # on recipe change as the reduced count.
+    skipped_by_lane: dict = {"background": 0, "sample": 0}
+    skipped_rid: dict = {"background": None, "sample": None}
+    for event in events:
+        if event.get("type") != "file.skipped":
+            continue
+        lane, rid = _event_lane_rid(event)
+        if not lane:
+            continue
+        if skipped_rid[lane] != rid:
+            skipped_rid[lane], skipped_by_lane[lane] = rid, 0
+        skipped_by_lane[lane] += 1
+
     def _newest(etype: str, lane: str | None = None) -> dict | None:
         if lane is None:
             options = [newest.get((etype, k[1])) for k in newest if k[0] == etype]
@@ -404,7 +503,11 @@ def _loop_state(probes: dict) -> dict:
         # file.reduced events pile up behind its one file.averaged event.
         avg_rec = _last_averaged.get(lane)
         avg_rid = (avg_rec or {}).get("recipe_id")
-        rid = reduced_rid[lane] or avg_rid
+        # Falls back to skipped_rid too: a recipe where every frame is
+        # permanently skipped never fires a single file.reduced, so
+        # reduced_rid/avg_rid alone would leave this lane misattributed to
+        # whatever recipe_id it last saw (or none at all).
+        rid = reduced_rid[lane] or avg_rid or skipped_rid[lane]
         age_red = _event_age_s(ev_red, now) if ev_red else None
         age_avg = (_event_age_s(avg_rec, now) if avg_rec else None)
         gate = _gate_for(avg_status, rid, lane)
@@ -442,11 +545,14 @@ def _loop_state(probes: dict) -> dict:
         have = gate.get("have") if gate else None
         expected = (gate or {}).get("expected") or avg_status.get("frames_per_average")
         already_averaged = bool(avg_rid) and avg_rid == rid
+        # The average app's own gate counter never clears once a batch flushes
+        # (see the comment above) — if the completion event says this batch is
+        # full while the raw gate still reads empty, that mismatch IS the known
+        # ghost-entry bug (src/watchdog/diagnose.py Pattern D), not a stall.
+        ghost_gate = bool(already_averaged and expected and not have)
         if already_averaged and expected:
-            # The completion event says this batch is full; don't let the
-            # gate's stale/ghost counter (see above) draw the meter empty.
             have = expected
-        avg_node = {"have": have, "expected": expected}
+        avg_node = {"have": have, "expected": expected, "ghost_gate": ghost_gate}
         if already_averaged and age_avg is not None and age_avg <= _FRESH_S:
             avg_node.update(state="running", detail="averaging")
         elif already_averaged:
@@ -463,6 +569,12 @@ def _loop_state(probes: dict) -> dict:
                                     else f"{frames} frames in"))
         else:
             avg_node.update(state="idle", detail="no frames yet")
+
+        # Frames reduction has permanently given up on for the CURRENT recipe
+        # (see reduction/app.py::_note_failure) — a definite reason the average
+        # gate for this lane will never fill, not a guess from a timeout. See
+        # diagnose.py Pattern G.
+        red_node["skipped"] = skipped_by_lane[lane] if skipped_rid[lane] == rid else 0
 
         lanes[lane] = {
             "recipe_id": rid or "",
@@ -633,8 +745,9 @@ def _compute_metrics() -> dict:
         manifest = _read_manifest()
         current_stage, stage_time = _current_stage()
 
-        # Real average seconds per stage, from the event timeline (0 if unknown).
-        stage_times = _stage_durations()
+        # Per-stage wait/compute split, from manifest.json + disk mtimes —
+        # durable across a restart, unlike the old event-timeline version.
+        stage_latency = _stage_latency(manifest)
 
         # App health. probe_all() returns {"monitors": {app: bool}, "analyzer": {...},
         # "reactor": {...}}. The monitor apps report a bool; analyzer/reactor are
@@ -718,7 +831,7 @@ def _compute_metrics() -> dict:
             "pipeline": {
                 "current_stage": current_stage,
                 "stage_entered_at": stage_time.isoformat() if stage_time else None,
-                "stage_times": stage_times,
+                "stage_latency": stage_latency,
             },
             "loop": loop,
             "health": _health_row(probes),
@@ -745,7 +858,7 @@ def _compute_metrics() -> dict:
     except Exception as exc:
         _emit(f"metrics computation failed: {exc}", "error")
         return {
-            "pipeline": {"current_stage": "error", "stage_entered_at": None, "stage_times": {}},
+            "pipeline": {"current_stage": "error", "stage_entered_at": None, "stage_latency": {}},
             "loop": {},
             "health": [],
             "probe": {"age_s": None, "stale": True},
@@ -884,7 +997,16 @@ def _stall_check_loop() -> None:
             if n_alerts and time.monotonic() - last_alert_ts < gap:
                 continue
             probes = probe_all()
-            diag_title, diag_text = diagnose_stall(stage, overdue_s, probes)
+            loop = _loop_state(probes)
+            diag_title, diag_text, is_stall = diagnose_stall(
+                stage, overdue_s, probes, loop,
+                ai_fallback_enabled=_settings.get("ai_fallback_enabled", False),
+            )
+            if not is_stall:
+                # A known non-stall shape (e.g. the reactor is still collecting,
+                # or the average app's ghost-gate entry) — nothing to alert on.
+                last_stage, n_alerts = None, 0
+                continue
             if n_alerts:
                 diag_title = f"{diag_title} (still stalled, alert #{n_alerts + 1})"
             n_alerts += 1

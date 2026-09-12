@@ -631,7 +631,7 @@ html,body {
         <div class="chart-area" id="plot-throughput"></div>
       </div>
       <div class="card">
-        <div class="card-hd">⏱ Stage duration — average seconds</div>
+        <div class="card-hd">⏱ Stage latency — polling wait vs. compute (collect excluded)</div>
         <div class="chart-area" id="plot-stage-duration"></div>
       </div>
     </div>
@@ -700,6 +700,7 @@ html,body {
 let _sse = null;
 let _metrics = null;
 const STAGE_NAMES = ['collect', 'reduce', 'average', 'subtract', 'fit'];
+const STAGE_LATENCY_NAMES = ['reduce', 'average', 'subtract', 'fit'];
 
 // ── Theme ───────────────────────────────────────────────────────────────────
 // Dark is the default here (wall display), but the choice is shared with every
@@ -968,15 +969,46 @@ function updateCharts() {
     hovertemplate: '%{y} files at %{x}<extra></extra>',
   }], themedLayout({}), PLOT_CFG);
 
-  const stageTimes = (_metrics.pipeline && _metrics.pipeline.stage_times) || {};
-  Plotly.react('plot-stage-duration', [{
-    x: STAGE_NAMES,
-    y: STAGE_NAMES.map(s => stageTimes[s] || 0),
-    type: 'bar',
-    marker: {color: [P.primary, P.info, P.success, P.warning, P.accent],
-             line: {color: P.barEdge, width: 1}},
-    hovertemplate: '%{x}: %{y}s<extra></extra>',
-  }], themedLayout({}), PLOT_CFG);
+  // collect is deliberately excluded — its duration is exposure time, not
+  // pipeline overhead, and mixing it in makes the real waste look normal.
+  const sl = (_metrics.pipeline && _metrics.pipeline.stage_latency) || {};
+  const waitX = [], computeX = [], latAnnotations = [];
+  STAGE_LATENCY_NAMES.forEach(s => {
+    const d = sl[s] || {};
+    if (d.latency_s == null) {
+      // Genuinely no completed sample yet — never draw a zero bar for this.
+      waitX.push(null); computeX.push(null);
+      latAnnotations.push({x: 0, y: s, xanchor: 'left', showarrow: false,
+                            text: 'no data yet', font: {size: 11, color: P.fg}});
+      return;
+    }
+    waitX.push(d.wait_s || 0);
+    if (d.compute_s == null) {
+      computeX.push(null);
+      latAnnotations.push({x: d.wait_s || 0, y: s, xanchor: 'left', showarrow: false,
+                            text: '  compute not reported', font: {size: 11, color: P.fg}});
+    } else {
+      computeX.push(d.compute_s);
+    }
+  });
+  Plotly.react('plot-stage-duration', [
+    {
+      x: waitX, y: STAGE_LATENCY_NAMES, name: 'polling wait',
+      type: 'bar', orientation: 'h',
+      marker: {color: P.warning, line: {color: P.barEdge, width: 1}},
+      hovertemplate: '%{y} wait: %{x:.1f}s<extra></extra>',
+    },
+    {
+      x: computeX, y: STAGE_LATENCY_NAMES, name: 'compute',
+      type: 'bar', orientation: 'h',
+      marker: {color: P.success, line: {color: P.barEdge, width: 1}},
+      hovertemplate: '%{y} compute: %{x:.2f}s<extra></extra>',
+    },
+  ], themedLayout({
+    barmode: 'stack', showlegend: true,
+    legend: {orientation: 'h', y: 1.18, font: {size: 10, color: P.fg}},
+    annotations: latAnnotations,
+  }), PLOT_CFG);
 
   // Pipeline funnel: how many files have reached each stage (cumulative — each
   // stage should be <= the previous one as files move down the pipeline).

@@ -6,6 +6,7 @@ Config lives in watchdog/config.yml and holds non-secret policy:
 - notify.summary: "off" | "hourly" batching mode
 - notify.snooze_default_min: default snooze duration
 - notify.min_interval_s: throttle between sends
+- diagnosis.ai_fallback_enabled: Layer 2 of src/watchdog/diagnose.py — off by default
 
 The webhook URL comes from the environment (SWAXS_SLACK_WEBHOOK_URL), never
 config.yml (which is in git).
@@ -133,6 +134,11 @@ def load_settings(config_path: str | Path) -> dict:
     if slack_enabled:
         categories["safety"] = True
 
+    diagnosis_cfg = raw.get("diagnosis", {})
+    if not isinstance(diagnosis_cfg, dict):
+        raise ValidationError(f"diagnosis section must be a dict, got {type(diagnosis_cfg).__name__}")
+    ai_fallback_enabled = bool(diagnosis_cfg.get("ai_fallback_enabled", False))
+
     return {
         "quiet_hours": quiet_hours,
         "summary": summary,
@@ -140,6 +146,7 @@ def load_settings(config_path: str | Path) -> dict:
         "min_interval_s": min_interval_s,
         "slack_enabled": slack_enabled,
         "categories": categories,
+        "ai_fallback_enabled": ai_fallback_enabled,
     }
 
 
@@ -168,6 +175,10 @@ def save_notify_settings(
     notify_cfg = raw.get("notify", {}) if isinstance(raw, dict) else {}
     if not isinstance(notify_cfg, dict):
         notify_cfg = {}
+    diagnosis_cfg = raw.get("diagnosis", {}) if isinstance(raw, dict) else {}
+    if not isinstance(diagnosis_cfg, dict):
+        diagnosis_cfg = {}
+    ai_fallback_enabled = bool(diagnosis_cfg.get("ai_fallback_enabled", False))
 
     quiet_hours = notify_cfg.get("quiet_hours", "23:00-07:00")
     summary = notify_cfg.get("summary", "off")
@@ -221,6 +232,16 @@ def save_notify_settings(
     for c in CATEGORIES:
         lines.append(f"    {c}: {str(resolved_categories[c]).lower()}")
     lines.append("")
+    lines += [
+        "diagnosis:",
+        "  # LLM fallback for stalls that don't match a known pattern (Layer 2 of",
+        "  # src/watchdog/diagnose.py). Reads the tail of the stalled app's log and",
+        "  # asks for a likely cause; it can never change the detected state or",
+        "  # suppress a message — it only appends a paragraph labeled",
+        '  # "AI reading of the log:". Off by default (needs AI credentials).',
+        f"  ai_fallback_enabled: {str(ai_fallback_enabled).lower()}",
+        "",
+    ]
 
     config_path.write_text("\n".join(lines), encoding="utf-8")
     return {"slack_enabled": resolved_enabled, "categories": resolved_categories}

@@ -27,6 +27,14 @@ notify:
   categories:
     safety: true
     stalls: true
-    results: false
-    progress: false
-    campaign: false
+    results: true
+    progress: true
+    campaign: true
+
+diagnosis:
+  # LLM fallback for stalls that don't match a known pattern (Layer 2 of
+  # src/watchdog/diagnose.py). Reads the tail of the stalled app's log and
+  # asks for a likely cause; it can never change the detected state or
+  # suppress a message — it only appends a paragraph labeled
+  # "AI reading of the log:". Off by default (needs AI credentials).
+  ai_fallback_enabled: false
