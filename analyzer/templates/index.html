@@ -222,6 +222,7 @@ td.name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       </div>
       <div class="btn-row">
         <button class="btn btn-accent" id="c_start" onclick="startCampaign()">▶ Start campaign</button>
+        <button class="btn btn-ghost" id="c_continue" onclick="continueCampaign()" style="display:none"></button>
         <button class="btn btn-ghost" id="c_abort" onclick="abortCampaign()" disabled>⏹ Abort</button>
       </div>
       <div class="bar" id="c_bar"><i></i></div>
@@ -821,6 +822,40 @@ async function abortCampaign(){
   await api('/api/campaign/abort',{});
 }
 
+/* ── Continue a stopped Target Run ──────────────────────────────────────── */
+/* Offers only the MOST RECENT incomplete run (no incomplete run -> the button
+   stays hidden). Sourced from durable records only — no re-fitting, so this
+   is fast even for a long-since-stopped run. */
+async function refreshContinueButton(){
+  const btn=$('c_continue');
+  try{
+    const r=await (await fetch('/api/campaign/incomplete')).json();
+    if(!r || !r.run_tag){ btn.style.display='none'; return; }
+    btn.textContent=`Continue ${r.run_tag} — ${r.used} of ${r.budget} used`;
+    btn.style.display='inline-block';
+  }catch(e){ btn.style.display='none'; }
+}
+
+async function continueCampaign(){
+  const btn=$('c_continue');
+  btn.disabled=true;
+  const r=await api('/api/campaign/continue',{});
+  btn.disabled=false;
+  if(r.error||r.ok===false){
+    $('c_status').textContent='✗ could not continue: '+(r.error||'rejected');
+    return;
+  }
+  btn.style.display='none';
+  const bestTxt = (r.best && r.best.size!=null) ? `, best ${num(r.best.size,3)} nm` : '';
+  const reissueTxt = r.reissued && r.reissued.length ? ` · ${r.reissued.length} in-flight condition(s) re-issued` : '';
+  const skipTxt = r.skipped ? ` · ${r.skipped} measurement(s) could not be restored` : '';
+  const b=document.getElementById('restartBanner');
+  b.className='restart-banner show restored';
+  document.getElementById('restartBannerMsg').textContent =
+    `♻ Restored ${r.replayed} measurement(s) from ${r.run_tag}${bestTxt}, `+
+    `${r.budget-r.used} of ${r.budget} remaining.${reissueTxt}${skipTxt}`;
+}
+
 /* ── campaign card ───────────────────────────────────────────────────────── */
 const _BADGE={running:'🟢 running',converged:'🎯 converged',
               exhausted:'⏹ budget exhausted',aborted:'⏹ aborted',idle:'idle'};
@@ -829,6 +864,7 @@ function renderCampaign(c){
   const idle = !c || c.status==='idle';
   $('c_abort').disabled = !c || c.status!=='running';
   $('c_start').disabled = !!(c && c.status==='running');
+  if(!idle) $('c_continue').style.display='none';
   $('c_badge').textContent = idle?'':(_BADGE[c.status]||c.status);
   setPill('p_camp', idle?'':(c.status==='running'?'on':(c.status==='converged'?'on':'warn')),
           idle?'campaign idle':(_BADGE[c.status]||c.status)+
@@ -994,6 +1030,7 @@ async function psDiag(){
   }
   try{ psView(localStorage.getItem('swaxs-an-psview')||'slice'); }catch(_){ psView('slice'); }
   sortArrows(); setScale(_scale);
+  refreshContinueButton();
 })();
 
 /* ── live stream, with reconnect ───────────────────────────────────────────

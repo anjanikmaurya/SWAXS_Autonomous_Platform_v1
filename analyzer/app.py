@@ -40,7 +40,8 @@ from src.manifest import (update_manifest, add_analysis_entry,          # noqa: 
                           set_project_meta)
 from src.ai.loop_advice import narrate_fit                               # noqa: E402
 from src.reactor import load_config                                      # noqa: E402
-from src.optimizer import ParameterSpace, CampaignController             # noqa: E402
+from src.reactor.recipe import parse_param_file                          # noqa: E402
+from src.optimizer import ParameterSpace, CampaignController, NAMES      # noqa: E402
 from src.optimizer.io import (to_param_file, match_recipe_id,           # noqa: E402
                               recipe_id_from_filename)
 from src.runstate import (save_state, load_state, clear_state,             # noqa: E402
@@ -221,6 +222,27 @@ def _next_run_no() -> int:
         except Exception:
             continue
     return hi + 1
+
+
+def _latest_incomplete_run() -> dict | None:
+    """The highest-run_no Results/campaign_<id>.json with no "outcome" key —
+    i.e. a Target Run that was started but never converged/exhausted/aborted.
+    Detected from the record, never from the files on disk."""
+    best = None
+    try:
+        for rec_path in _resolve_results().glob("campaign_*.json"):
+            try:
+                rec = json.loads(rec_path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if "outcome" in rec:
+                continue
+            run_no = int(rec.get("run_no") or 0)
+            if best is None or run_no > best["run_no"]:
+                best = {**rec, "_path": str(rec_path), "run_no": run_no}
+    except Exception:
+        pass
+    return best
 
 
 def _new_rid() -> str:
@@ -541,6 +563,7 @@ def _restore_campaign() -> None:
             camp.tell(rec.get("params") or {}, rec.get("size"),
                       rec.get("pdi"), float(rec.get("confidence") or 0.0),
                       recipe_id=rec.get("recipe_id", ""))
+        camp._n_asked = len(camp.history)      # next ask() proposes a NEW point, not an already-replayed seed
         with _campaign_lock:
             _campaign = camp
             _campaign_cfg = cfg
@@ -612,6 +635,174 @@ def _expire_pending() -> None:
             _advance_campaign()
     if stale:
         _save_campaign()
+
+
+# ── Continue a stopped Target Run (operator-triggered, durable records only) ──
+# Distinct from _restore_campaign above: that one is automatic, silent, only for
+# a still-RUNNING campaign surviving a power blip, sourced from the 7-day-
+# expiring .swaxs_state/ snapshot. This one is an explicit operator action, no
+# time limit, and reads ONLY permanent records — Results/campaign_<id>.json,
+# Results/Fit/*.dat, and the reactor's <recipe_id>.done.json feedback files —
+# so it works no matter how long ago the process died.
+def _load_fit_records_for_campaign(campaign_id: str) -> list:
+    """Every Results/Fit/*.dat header belonging to this campaign_id, oldest
+    first (by the "Written" timestamp), as {recipe_id, size, pdi, confidence}.
+
+    recipe_id comes from the ORIGINAL subtracted filename (the fit record's
+    own stem, after stripping the "fit_" prefix _write_fit_record adds) via
+    recipe_id_from_filename — the header itself carries no recipe_id field."""
+    out = []
+    try:
+        fit_dir = _resolve_fit()
+        if not fit_dir.is_dir():
+            return out
+        for dat_path in fit_dir.glob("fit_*.dat"):
+            try:
+                lines = dat_path.read_text(encoding="utf-8", errors="replace").splitlines()
+            except OSError:
+                continue
+            hdr = {}
+            for line in lines:
+                if not line.startswith("#"):
+                    break
+                body = line[1:].strip()
+                if ":" not in body:
+                    continue
+                k, v = body.split(":", 1)
+                hdr[k.strip()] = v.strip()
+            if hdr.get("Campaign ID") != campaign_id:
+                continue
+            stem = dat_path.stem
+            if stem.startswith("fit_"):
+                stem = stem[len("fit_"):]
+            recipe_id = recipe_id_from_filename(stem)
+            if not recipe_id:
+                continue
+
+            def _num(key):
+                v = hdr.get(key)
+                if v in (None, "", "None"):
+                    return None
+                try:
+                    return float(v)
+                except ValueError:
+                    return None
+
+            out.append({
+                "recipe_id": recipe_id,
+                "size": _num("Radius (nm)"),
+                "pdi": _num("PDI"),
+                "confidence": _num("Confidence") or 0.0,
+                "written": hdr.get("Written", ""),
+            })
+    except Exception:
+        pass
+    out.sort(key=lambda r: r.get("written") or "")
+    return out
+
+
+def _load_params_for_recipe(recipe_id: str) -> dict | None:
+    """params dict for tell() replay, recovered from the reactor's
+    <recipe_id>.done.json feedback file (written once a synthesis run
+    finishes — see reactor/app.py::_feedback_cb; never pruned). Returns None
+    if the file is missing or doesn't carry all five ParameterSpace.NAMES —
+    an unrecoverable observation, skipped by the caller, never fabricated."""
+    root = Path(_project_root) if _project_root else Path.cwd()
+    p = root / "reactor" / "feedback" / f"{recipe_id}.done.json"
+    try:
+        payload = json.loads(p.read_text(encoding="utf-8"))
+        recipe = payload.get("recipe") or {}
+        if all(k in recipe for k in NAMES):
+            return {k: float(recipe[k]) for k in NAMES}
+    except Exception:
+        pass
+    return None
+
+
+def _continue_run() -> dict:
+    """Rebuild _campaign from durable records only (no .swaxs_state, no
+    re-fitting). Returns a summary dict for the confirmation banner, or
+    raises with a message on failure. Caller (the route) holds no lock;
+    this acquires _campaign_lock/_intake_lock itself."""
+    global _campaign, _campaign_cfg, _campaign_id, _campaign_meta, _run_tag, _run_seq
+    if _campaign is not None:
+        raise RuntimeError("a campaign is already running — abort it first")
+    rec = _latest_incomplete_run()
+    if rec is None:
+        raise RuntimeError("no incomplete Target Run found")
+
+    cfg_keys = ("target_size", "tolerance", "pdi_cap", "budget", "n_init")
+    meta_keys = ("objective", "started_at", "operator", "run_no", "run_tag")
+    cfg = {k: rec[k] for k in cfg_keys if k in rec}
+    meta = {k: rec[k] for k in meta_keys if k in rec}
+    campaign_id = str(rec.get("campaign_id") or "")
+    run_tag = str(meta.get("run_tag") or f"Run{rec['run_no']}")
+
+    fit_recs = _load_fit_records_for_campaign(campaign_id)
+    space = ParameterSpace.from_config(load_config())
+    camp = CampaignController(space, **cfg)
+    camp.start()
+
+    replayed, skipped = 0, 0
+    for fr in fit_recs:
+        params = _load_params_for_recipe(fr["recipe_id"])
+        if params is None:
+            skipped += 1
+            _emit(f"⚠ resume: no recoverable params for {fr['recipe_id']} — "
+                  f"this measurement is not counted toward the budget", "warn")
+            continue
+        camp.tell(params, fr["size"], fr["pdi"], fr["confidence"],
+                  recipe_id=fr["recipe_id"])
+        replayed += 1
+    camp._n_asked = len(camp.history)     # next ask() proposes a NEW point, not an already-replayed seed
+
+    # In-flight condition: files still sitting in Conditions/ (not yet moved to
+    # Conditions/done/) under this run's tag were proposed but never even
+    # started by the reactor — re-issue them (fresh timeout, no budget spent).
+    cond_dir = _resolve_cond()
+    done_dir = cond_dir / "done"
+    reissued = []
+    if cond_dir.is_dir():
+        for f in cond_dir.glob(f"{run_tag}_r*.*"):
+            if f.is_dir() or (done_dir / f.name).exists():
+                continue
+            try:
+                text = f.read_text(encoding="utf-8")
+                data = json.loads(text) if f.suffix == ".json" else parse_param_file(text)
+            except Exception:
+                continue
+            rid = f.stem
+            with _campaign_lock:
+                _pending[rid] = {k: float(data[k]) for k in NAMES if k in data}
+                _pending_at[rid] = time.time()
+            reissued.append(rid)
+
+    _run_tag = run_tag
+    _run_seq = _max_run_seq(run_tag, [fr["recipe_id"] for fr in fit_recs] + reissued)
+    with _campaign_lock:
+        _campaign = camp
+        _campaign_cfg = cfg
+        _campaign_meta = meta
+        _campaign_id = campaign_id
+        if not _pending and _campaign.status_str == "running":
+            _advance_campaign()
+    _save_campaign()
+    _record_campaign_in_manifest()
+
+    summary = {
+        "run_tag": run_tag, "replayed": replayed, "skipped": skipped,
+        "reissued": reissued, "best": camp.best,
+        "used": len(camp.history), "budget": camp.budget,
+    }
+    _emit(
+        f"♻ Restored {replayed} measurement(s) from {run_tag}"
+        + (f" (best {camp.best['size']} nm)" if camp.best and camp.best.get("size") else "")
+        + f", {camp.budget - len(camp.history)} of {camp.budget} remaining."
+        + (f" {len(reissued)} in-flight condition(s) re-issued." if reissued else "")
+        + (f" {skipped} measurement(s) could not be restored (missing feedback record)." if skipped else ""),
+        "ok",
+    )
+    return summary
 
 
 def _feed_campaign(name: str, res: dict) -> None:
@@ -979,7 +1170,35 @@ def _boot_resume() -> None:
         _emit(f"⚠ campaign resume failed: {exc}", "warn")
 
 
+def _seed_handled_at_boot() -> None:
+    """Mark every already-fit profile as handled WITHOUT fitting it, so a
+    restart doesn't re-fit an entire prior campaign's history — this is the
+    FRESH default: instant startup, nothing re-analysed.
+
+    A file with no matching Results/Fit/ record is left alone — it will be
+    fit normally on the watcher's next poll. This closes the crash-gap: a
+    profile that landed on disk but was never fit before the process died
+    must not be silently marked "already seen"."""
+    try:
+        d = _resolve_sub()
+        if not d.is_dir():
+            return
+        fit_dir = _resolve_fit()
+        with _intake_lock:
+            for f in d.glob("*.dat"):
+                if not (fit_dir / f"fit_{f.stem}.dat").is_file():
+                    continue          # never fit — let the watcher handle it normally
+                try:
+                    st = f.stat()
+                    _handled[str(f)] = (st.st_size, st.st_mtime_ns)
+                except OSError:
+                    continue
+    except Exception:
+        pass
+
+
 if os.environ.get("SWAXS_NO_WATCH", "").strip().lower() not in ("1", "true", "yes"):
+    _seed_handled_at_boot()
     threading.Thread(target=_boot_resume, daemon=True).start()
     threading.Thread(target=_watcher, daemon=True).start()
 
@@ -1018,7 +1237,8 @@ def set_project():
         _project_root = p
         threading.Thread(target=_boot_resume, daemon=True).start()
         with _intake_lock:
-            _handled.clear(); _lastsig.clear()  # rescan under the new project
+            _handled.clear(); _lastsig.clear()  # switching projects — drop the old seed
+        _seed_handled_at_boot()                 # reseed from the new project's Fit records
         _emit(f"📁 project → {p}", "info")
     return jsonify({"ok": True, "watching": str(_resolve_sub())})
 
@@ -1082,6 +1302,36 @@ def _campaign_status() -> dict:
 @app.route("/api/campaign", methods=["GET"])
 def api_campaign():
     return jsonify(_campaign_status())
+
+
+@app.route("/api/campaign/incomplete")
+def api_campaign_incomplete():
+    """{} if there's nothing to continue, else {run_tag, used, budget,
+    best_size} for the "Continue RunN — X of Y used" button label."""
+    if _campaign is not None:
+        return jsonify({})
+    rec = _latest_incomplete_run()
+    if rec is None:
+        return jsonify({})
+    campaign_id = str(rec.get("campaign_id") or "")
+    fit_recs = _load_fit_records_for_campaign(campaign_id)
+    sized = [r for r in fit_recs if r.get("size") is not None]
+    best = (min(sized, key=lambda r: abs(r["size"] - float(rec.get("target_size", 0))))
+            if sized else None)
+    return jsonify({
+        "run_tag": rec.get("run_tag") or f"Run{rec.get('run_no')}",
+        "used": len(fit_recs), "budget": int(rec.get("budget") or 0),
+        "best_size": (best or {}).get("size"),
+    })
+
+
+@app.route("/api/campaign/continue", methods=["POST"])
+def api_campaign_continue():
+    try:
+        summary = _continue_run()
+        return jsonify({"ok": True, **summary})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
 
 
 @app.route("/api/campaign/start", methods=["POST"])
