@@ -32,6 +32,7 @@ _ROOT = _HERE.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+from src.favicon import register_favicon               # noqa: E402
 from src.reactor import load_config, ReactorController, RecipeError   # noqa: E402
 from src.reactor.config import hub_to_spec_dir                        # noqa: E402
 from src.reactor.recipe import parse_param_file                       # noqa: E402
@@ -47,6 +48,10 @@ except Exception:
     _bus = None
 
 app = Flask(__name__)
+
+# Per-app browser-tab icon, from apps.yml — ten apps on ten ports
+# otherwise give ten identical tabs. See src/favicon.py.
+register_favicon(app, "reactor")
 
 _project_root: str = os.environ.get("SWAXS_PROJECT", "")   # folder selected in the hub
 _CFG = load_config()

@@ -33,6 +33,7 @@ _ROOT = _HERE.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+from src.favicon import register_favicon               # noqa: E402
 from src.analysis.nanoparticle import analyze_profile, model_intensity   # noqa: E402
 from src.utils.read_dat_metadata import read_dat_data_metadata           # noqa: E402
 from src.reactor.intake import decide_intake                             # noqa: E402
@@ -68,6 +69,10 @@ except Exception:
 import datetime, uuid                                                    # noqa: E402,E401
 
 app = Flask(__name__)
+
+# Per-app browser-tab icon, from apps.yml — ten apps on ten ports
+# otherwise give ten identical tabs. See src/favicon.py.
+register_favicon(app, "analyzer")
 
 _project_root: str = os.environ.get("SWAXS_PROJECT", "")
 _sub_folder: str = "1D/SAXS/Subtracted"     # relative to project (or absolute)

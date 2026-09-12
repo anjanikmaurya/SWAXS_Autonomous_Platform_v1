@@ -79,6 +79,7 @@ for _var in ("OMP_NUM_THREADS", "MKL_NUM_THREADS",
     os.environ.setdefault(_var, "2")
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
+from src.favicon import register_favicon               # noqa: E402
 from src.ai.assistant import SWAXSAssistant   # noqa: E402
 from src.ai.hints import HintChecker          # noqa: E402
 
@@ -130,6 +131,10 @@ BEAMLINE_ID   = os.environ.get("SWAXS_BEAMLINE",  "ssrl_1-5")
 SESSION_TTL_S = 7200   # 2-hour session expiry
 
 app = Flask(__name__, template_folder="templates")
+
+# Per-app browser-tab icon, from apps.yml — ten apps on ten ports
+# otherwise give ten identical tabs. See src/favicon.py.
+register_favicon(app, "assistant")
 
 # ── Global state ──────────────────────────────────────────────────────────────
 _sessions: dict[str, dict] = {}   # {session_id: {history, user_id, last_active}}

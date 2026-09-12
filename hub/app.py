@@ -66,7 +66,13 @@ logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s [hub] %(levelname)s %(message)s")
 logger = logging.getLogger("swaxs_platform")
 
+from src.favicon import register_favicon  # noqa: E402
+
 app = Flask(__name__)
+
+# Per-app browser-tab icon, from apps.yml — ten apps on ten ports
+# otherwise give ten identical tabs. See src/favicon.py.
+register_favicon(app, "hub")
 
 # ── flask-sock (WebSocket event bus) ─────────────────────────────────────────
 try:

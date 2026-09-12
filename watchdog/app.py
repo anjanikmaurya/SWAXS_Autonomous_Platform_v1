@@ -38,6 +38,7 @@ _ROOT = _HERE.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+from src.favicon import register_favicon               # noqa: E402
 from src.watchdog.settings import load_settings, save_notify_settings, ValidationError  # noqa: E402
 from src.watchdog.transport import WebhookTransport  # noqa: E402
 from src.watchdog.policy import (  # noqa: E402
@@ -51,6 +52,10 @@ from src.watchdog.diagnose import diagnose_stall  # noqa: E402
 from src.loop_naming import split_role, BKG_TAGS  # noqa: E402
 
 app = Flask(__name__)
+
+# Per-app browser-tab icon, from apps.yml — ten apps on ten ports
+# otherwise give ten identical tabs. See src/favicon.py.
+register_favicon(app, "watchdog")
 
 _project_root: str = os.environ.get("SWAXS_PROJECT", "")  # folder selected in the hub
 _settings: dict = {}

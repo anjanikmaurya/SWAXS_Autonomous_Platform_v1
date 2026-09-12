@@ -83,6 +83,7 @@ _ROOT = _HERE.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+from src.favicon import register_favicon               # noqa: E402
 from src.reduction import core as reduction_core  # noqa: E402
 from src.reduction.process_metadata import CSVMetadataNotFound  # noqa: E402
 from src.reduction.csv_wait import decide_csv_wait                # noqa: E402
@@ -146,6 +147,10 @@ except Exception:
     _bus = None
 
 app = Flask(__name__)
+
+# Per-app browser-tab icon, from apps.yml — ten apps on ten ports
+# otherwise give ten identical tabs. See src/favicon.py.
+register_favicon(app, "reduction")
 app.config["JSON_SORT_KEYS"] = False
 logging.basicConfig(level=logging.WARNING)
 

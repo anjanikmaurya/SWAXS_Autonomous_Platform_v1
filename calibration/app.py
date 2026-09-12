@@ -34,6 +34,7 @@ _ROOT = _HERE.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+from src.favicon import register_favicon               # noqa: E402
 from src.preprocess import (                                    # noqa: E402
     DEFAULT_SHAPES, find_raw_files, read_raw, convert_dir,
     CALIBRANTS, launch_calib2, list_poni_files,
@@ -41,6 +42,10 @@ from src.preprocess import (                                    # noqa: E402
 )
 
 app = Flask(__name__)
+
+# Per-app browser-tab icon, from apps.yml — ten apps on ten ports
+# otherwise give ten identical tabs. See src/favicon.py.
+register_favicon(app, "calibration")
 _project_root: str = os.environ.get("SWAXS_PROJECT", "")
 
 # ── SFTP data-copy state (left panel) ─────────────────────────────────────────

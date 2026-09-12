@@ -34,6 +34,7 @@ _ROOT = _HERE.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+from src.favicon import register_favicon               # noqa: E402
 from src.plot_reduction import (                                       # noqa: E402
     read_folder, average_and_save, average_batch,
 )
@@ -54,6 +55,10 @@ except Exception:
     _bus = None
 
 app = Flask(__name__)
+
+# Per-app browser-tab icon, from apps.yml — ten apps on ten ports
+# otherwise give ten identical tabs. See src/favicon.py.
+register_favicon(app, "average")
 
 # Project root (populated by hub via /api/set_project)
 _project_root: str = ""

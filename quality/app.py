@@ -38,6 +38,7 @@ _ROOT = _HERE.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+from src.favicon import register_favicon               # noqa: E402
 from src.quality import (                                       # noqa: E402
     grade_profile, score_metrics, DEFAULT_THRESHOLDS, thresholds_for, sample_key,
 )
@@ -55,6 +56,10 @@ except Exception:
     _bus = None
 
 app = Flask(__name__)
+
+# Per-app browser-tab icon, from apps.yml — ten apps on ten ports
+# otherwise give ten identical tabs. See src/favicon.py.
+register_favicon(app, "quality")
 
 _project_root: str = ""
 
