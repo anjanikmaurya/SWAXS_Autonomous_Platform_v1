@@ -29,4 +29,14 @@ logs/
 
 # node_modules for the jsdom UI runtime checks (optional, dev only)
 tests/ui/node_modules/
-ai_knowledge/ingestion_log.json
+ai_knowledge/ingestion_log*.json
+
+# Assistant "group layer" SOPs — runtime state created by the group_sops tool
+# on first add, per docs/ASSISTANT_FUNCTIONAL_SPEC.md; deliberately not shipped.
+ai_knowledge/group/
+
+# Claude Code per-machine settings
+.claude/settings.local.json
+
+# Scratch planning notes (the work they describe lands in the commit message)
+.phase2_diff.md
