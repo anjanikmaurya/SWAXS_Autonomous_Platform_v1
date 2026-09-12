@@ -258,13 +258,20 @@ html,body {
    is why this view was rectangles to begin with. The ring layout stays —
    five steps left to right with connectors, loop closed below — because that
    part reads correctly. */
-.ring { --box-h:112px }
+/* Every box IDENTICAL — same width, same height, whatever it contains.
+   --box-h is a fixed track, not a min-height: with min-height a detail that
+   wrapped to two lines grew its own box and left the row ragged. --cap-h does
+   the same for the captions, which differ a lot (the reactor carries a
+   four-step sub-track and two lane chips; Fit carries one line), so the boxes
+   stay aligned even though what hangs below them does not. */
+.ring { --box-h:104px; --cap-h:78px }
 .step {
-  display:flex; flex-direction:column; align-items:stretch; gap:8px;
-  flex:1 1 0; min-width:0; max-width:250px;
+  display:grid;
+  grid-template-rows:var(--box-h) minmax(var(--cap-h), auto);
+  gap:8px; flex:1 1 0; min-width:0; max-width:250px;
 }
 .step-box {
-  min-height:var(--box-h);
+  height:100%; overflow:hidden;
   border:2px solid var(--border); border-radius:12px;
   background:var(--surface); padding:10px 12px;
   display:flex; flex-direction:column; align-items:flex-start;
@@ -282,12 +289,17 @@ html,body {
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
 .step-hd .step-chip { margin-left:auto }
-/* Wraps rather than truncating: the whole point of the box is that the text
-   fits. Two lines is the practical worst case ("Fit + Predict" at 1200px). */
+/* Wraps to at most TWO lines, then clips. Two lines of a ~230px box at this
+   size holds everything the detail actually carries ("collecting sample",
+   "Run11_r003", "7/10 frames"); the clamp only exists so one freak value
+   cannot make this box taller than the other four. setNode() puts the full
+   string in the title attribute, so nothing is unreachable. */
 .step-detail {
   font-size:clamp(15px, 1.35vw, 21px); font-weight:800; color:var(--txt-strong);
   font-family:var(--mono); line-height:1.15; max-width:100%;
   overflow-wrap:anywhere;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+  overflow:hidden;
 }
 .step-chip {
   font-size:11px; font-weight:800; letter-spacing:.05em; text-transform:uppercase;
@@ -1071,7 +1083,13 @@ function setNode(id, node) {
   const chip = document.getElementById(id + '-chip');
   if (chip) chip.textContent = CHIP[state] || state;
   const detail = document.getElementById(id + '-detail');
-  if (detail) detail.textContent = (node && node.detail) || '—';
+  if (detail) {
+    const text = (node && node.detail) || '—';
+    detail.textContent = text;
+    // The box is a fixed height and the detail is clamped to two lines, so a
+    // long value is reachable on hover rather than lost.
+    detail.title = text;
+  }
   const rid = document.getElementById(id + '-rid');
   if (rid) {
     const value = (node && node.recipe_id) || '';

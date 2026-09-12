@@ -561,3 +561,63 @@ def test_fmt_secs_short_is_readable_and_never_negative():
     assert wd._fmt_secs_short(3864) == "1h 04m"
     assert wd._fmt_secs_short(-5) == ""
     assert wd._fmt_secs_short(None) == ""
+
+
+# ── the five step boxes must be identical ──────────────────────────────────
+# Circles clipped their text, so the steps became boxes — and then the boxes
+# were ragged, because a detail that wrapped to two lines grew its own box
+# (min-height) while the captions below differ in height by three rows. These
+# are the CSS rules that make them identical; asserted as text because there is
+# no layout engine in the suite to measure with.
+def _ring_css() -> str:
+    html = (_ROOT / "watchdog" / "templates" / "index.html").read_text()
+    css = html.split("<style>")[1].split("</style>")[0]
+    # Just the ring block, so an unrelated rule elsewhere cannot satisfy these.
+    return css[css.index(".ring {"):css.index("/* Node") if "/* Node" in css
+               else css.index(".rx-track")]
+
+
+def test_the_box_height_is_a_fixed_track_not_a_minimum():
+    css = _ring_css()
+    assert "grid-template-rows:var(--box-h)" in css.replace(" ", ""), \
+        "the box must sit in a FIXED grid row — min-height let a two-line " \
+        "detail grow its own box and leave the row ragged"
+    assert "min-height:var(--box-h)" not in css.replace(" ", ""), \
+        "min-height is what made the boxes unequal"
+
+
+def test_the_boxes_share_the_row_equally():
+    css = _ring_css().replace(" ", "")
+    assert "flex:1 1 0".replace(" ", "") in css, \
+        "flex-basis 0 with grow 1 is what makes every box the same WIDTH"
+    assert "min-width:0" in css, "without it long content widens its own box"
+
+
+def test_the_box_fills_its_track_and_clips_rather_than_growing():
+    css = _ring_css().replace(" ", "")
+    assert "height:100%" in css, "the box must fill the fixed track exactly"
+    assert "overflow:hidden" in css
+
+
+def test_a_long_detail_is_clamped_and_kept_reachable():
+    html = (_ROOT / "watchdog" / "templates" / "index.html").read_text()
+    css = _ring_css().replace(" ", "")
+    assert "-webkit-line-clamp:2" in css, \
+        "two lines, then clip — one freak value must not resize one box"
+    assert "detail.title = text" in html, \
+        "a clamped value has to stay reachable on hover"
+
+
+def test_the_captions_have_a_reserved_height_of_their_own():
+    css = _ring_css().replace(" ", "")
+    assert "--cap-h:" in css and "minmax(var(--cap-h),auto)" in css, \
+        "captions differ by three rows between Reactor and Fit; reserving a " \
+        "height keeps the boxes aligned regardless"
+
+
+def test_every_step_uses_the_same_box_class():
+    html = (_ROOT / "watchdog" / "templates" / "index.html").read_text()
+    assert html.count('class="step-box"') == 5
+    assert html.count('class="step-hd"') == 5, \
+        "name+chip header on every box, or they differ in internal layout"
+    assert 'class="step-circle"' not in html, "circles clipped the text"
