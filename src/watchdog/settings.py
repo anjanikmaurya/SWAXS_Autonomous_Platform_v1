@@ -16,6 +16,7 @@ A malformed config fails loudly at load time, not silently at 3 a.m.
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 
 from src.watchdog.policy import CATEGORIES
@@ -150,11 +151,15 @@ def load_settings(config_path: str | Path) -> dict:
     }
 
 
+_UNSET = object()
+
+
 def save_notify_settings(
     config_path: str | Path,
     *,
     slack_enabled: bool | None = None,
     categories: dict | None = None,
+    quiet_hours: object = _UNSET,
 ) -> dict:
     """Persist the Slack master switch and/or category toggles to config.yml.
 
@@ -164,7 +169,14 @@ def save_notify_settings(
     snooze_default_min, min_interval_s) are read from the current file and
     carried through unchanged.
 
-    Returns the resolved {"slack_enabled": ..., "categories": {...}}.
+    ``quiet_hours`` is writable too — pass "HH:MM-HH:MM" to set it, None to
+    disable it, or omit it to leave it alone. It is editable from the UI
+    because it is the one setting that silently stops messages without
+    anything being wrong, and an overnight autonomous run is exactly when an
+    operator needs to be able to turn it off. Validated here, so an invalid
+    window is rejected rather than written and then failing at load.
+
+    Returns the resolved {"slack_enabled", "categories", "quiet_hours"}.
     """
     import yaml
 
@@ -180,7 +192,16 @@ def save_notify_settings(
         diagnosis_cfg = {}
     ai_fallback_enabled = bool(diagnosis_cfg.get("ai_fallback_enabled", False))
 
-    quiet_hours = notify_cfg.get("quiet_hours", "23:00-07:00")
+    resolved_quiet = notify_cfg.get("quiet_hours", "23:00-07:00")
+    if quiet_hours is not _UNSET:
+        if quiet_hours in (None, "", "off", "none"):
+            resolved_quiet = None
+        else:
+            # Validate by parsing it the same way load_settings will, so a bad
+            # window is refused here instead of breaking the next load.
+            _parse_quiet_hours({"quiet_hours": str(quiet_hours)})
+            resolved_quiet = str(quiet_hours)
+    quiet_hours = resolved_quiet
     summary = notify_cfg.get("summary", "off")
     snooze_default_min = int(notify_cfg.get("snooze_default_min", 30) or 30)
     min_interval_s = notify_cfg.get("min_interval_s", 3)
@@ -243,8 +264,15 @@ def save_notify_settings(
         "",
     ]
 
-    config_path.write_text("\n".join(lines), encoding="utf-8")
-    return {"slack_enabled": resolved_enabled, "categories": resolved_categories}
+    # Atomic: write a .part and replace, as src/manifest.py and src/runstate.py
+    # do. config.yml is tracked in git, and a crash or two concurrent POSTs
+    # part-way through a plain write_text left it truncated — after which
+    # load_settings raises and (since the fail-closed fix) sending stops.
+    tmp = config_path.with_suffix(config_path.suffix + ".part")
+    tmp.write_text("\n".join(lines), encoding="utf-8")
+    os.replace(tmp, config_path)
+    return {"slack_enabled": resolved_enabled, "categories": resolved_categories,
+            "quiet_hours": quiet_hours}
 
 
 def json_or_null(v) -> str:

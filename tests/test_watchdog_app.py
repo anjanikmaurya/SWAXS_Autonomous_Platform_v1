@@ -339,3 +339,65 @@ def test_runs_omit_fits_with_no_size_and_are_time_ordered(monkeypatch):
     assert all(isinstance(r["size"], float) and r["size"] > 0 for r in runs)
     assert out["files"]["analysed"] == 3, \
         "the funnel counts nanoparticle-fitted FILES, not every analysis record"
+
+
+# ── quiet hours: visible, and changeable without editing YAML ──────────────
+def test_quiet_hours_active_is_reported(tmp_path, monkeypatch):
+    """The reported "I stopped getting Slack messages": quiet hours took
+    effect for the first time once _load_config stopped returning {} (W4),
+    and it suppresses results/progress SILENTLY. Its effect has to be
+    reportable, or "no messages" is indistinguishable from a broken webhook."""
+    import datetime as dt
+    monkeypatch.setattr(wd, "_settings", {"quiet_hours": ((23, 0), (7, 0))})
+
+    # 01:30 local — inside 23:00-07:00
+    monkeypatch.setattr(wd, "_now",
+                        lambda: dt.datetime(2026, 9, 12, 1, 30).astimezone())
+    assert wd._quiet_now() is True
+
+    # 13:30 local — outside
+    monkeypatch.setattr(wd, "_now",
+                        lambda: dt.datetime(2026, 9, 12, 13, 30).astimezone())
+    assert wd._quiet_now() is False
+
+    monkeypatch.setattr(wd, "_settings", {"quiet_hours": None})
+    assert wd._quiet_now() is False, "no window configured → never quiet"
+
+
+def test_quiet_hours_can_be_set_and_turned_off_over_the_api(tmp_path, monkeypatch):
+    cfg = tmp_path / "watchdog_config.yml"
+    _write_config(cfg, GOOD_CONFIG)
+    monkeypatch.setattr(wd, "_project_root", str(tmp_path))
+    client = wd.app.test_client()
+
+    r = client.post("/api/settings", json={"quiet_hours": None}).get_json()
+    assert r["ok"] and r["quiet_hours"] is None
+    assert wd._settings["quiet_hours"] is None, "must be reloaded, not just written"
+
+    r = client.post("/api/settings", json={"quiet_hours": "01:00-05:30"}).get_json()
+    assert r["ok"] and r["quiet_hours"] == "01:00-05:30"
+    assert wd._settings["quiet_hours"] == ((1, 0), (5, 30)), \
+        "should_send needs the PARSED tuple, not the string that was written"
+
+
+def test_an_invalid_quiet_hours_window_is_refused_and_the_file_survives(tmp_path, monkeypatch):
+    cfg = tmp_path / "watchdog_config.yml"
+    _write_config(cfg, GOOD_CONFIG)
+    monkeypatch.setattr(wd, "_project_root", str(tmp_path))
+    client = wd.app.test_client()
+
+    r = client.post("/api/settings", json={"quiet_hours": "banana"})
+    assert r.status_code == 400
+    assert "HH:MM" in r.get_json()["error"]
+    assert "notify:" in cfg.read_text(), "a rejected value must not truncate config.yml"
+
+
+def test_settings_writes_are_atomic(tmp_path, monkeypatch):
+    """config.yml is tracked in git and, since the fail-closed fix, an
+    unreadable one stops sending — so a half-written file is expensive."""
+    from src.watchdog.settings import save_notify_settings
+    cfg = tmp_path / "watchdog_config.yml"
+    _write_config(cfg, GOOD_CONFIG)
+    save_notify_settings(cfg, slack_enabled=True)
+    assert not list(tmp_path.glob("*.part")), "the temp file must be replaced, not left"
+    assert "slack_enabled: true" in cfg.read_text()

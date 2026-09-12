@@ -42,6 +42,7 @@ from src.watchdog.settings import load_settings, save_notify_settings, Validatio
 from src.watchdog.transport import WebhookTransport  # noqa: E402
 from src.watchdog.policy import (  # noqa: E402
     should_send, set_snooze, clear_snooze, category_for_event, CATEGORIES,
+    _in_quiet_hours,
 )
 from src.watchdog.messages import event_to_message  # noqa: E402
 from src.watchdog.expectations import which_stage_is_overdue, format_stall_message  # noqa: E402
@@ -1250,11 +1251,29 @@ def vendor(name: str):
     return jsonify({"error": f"no vendored copy of {safe}"}), 404
 
 
+def _quiet_now() -> bool:
+    """Is quiet hours suppressing progress/results RIGHT NOW?
+
+    Local time, not UTC — the window is written in the operator's own clock
+    (see the note at the should_send call site). Reported to the UI because
+    quiet hours is the one setting that stops messages with nothing being
+    wrong, so its effect has to be visible rather than inferred from silence.
+    """
+    qh = _settings.get("quiet_hours")
+    if not qh:
+        return False
+    try:
+        return _in_quiet_hours(_now().astimezone(), qh)
+    except Exception:
+        return False
+
+
 @app.route("/api/settings", methods=["GET"])
 def get_settings():
     snooze_until = _state.get("snooze_until")
     snoozed = snooze_until is not None and _now().timestamp() < snooze_until
     return jsonify({
+        "quiet_hours_active": _quiet_now(),
         "quiet_hours": (
             f"{_settings['quiet_hours'][0][0]:02d}:{_settings['quiet_hours'][0][1]:02d}-"
             f"{_settings['quiet_hours'][1][0]:02d}:{_settings['quiet_hours'][1][1]:02d}"
@@ -1287,7 +1306,7 @@ def update_settings():
     """
     global _settings
     data = request.get_json() or {}
-    if "slack_enabled" not in data and "categories" not in data:
+    if not any(k in data for k in ("slack_enabled", "categories", "quiet_hours")):
         return jsonify({"ok": False, "error": "nothing to update"}), 400
 
     slack_enabled = data.get("slack_enabled")
@@ -1302,15 +1321,24 @@ def update_settings():
         if not all(isinstance(v, bool) for v in categories.values()):
             return jsonify({"ok": False, "error": "category values must be booleans"}), 400
 
+    kwargs = {"slack_enabled": slack_enabled, "categories": categories}
+    if "quiet_hours" in data:
+        qh = data["quiet_hours"]
+        if not (qh is None or isinstance(qh, str)):
+            return jsonify({"ok": False,
+                            "error": "quiet_hours must be \"HH:MM-HH:MM\" or null"}), 400
+        kwargs["quiet_hours"] = qh
+
     try:
-        result = save_notify_settings(_config_path(),
-                                      slack_enabled=slack_enabled, categories=categories)
+        result = save_notify_settings(_config_path(), **kwargs)
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
 
-    _settings["slack_enabled"] = result["slack_enabled"]
-    _settings["categories"] = result["categories"]
-    return jsonify({"ok": True, **result})
+    # Reload rather than patch the three keys by hand: quiet_hours has to come
+    # back as the parsed ((h,m),(h,m)) tuple should_send expects, not the
+    # string that was written to disk.
+    _settings = _load_config(_project_root)
+    return jsonify({"ok": True, **result, "quiet_hours_active": _quiet_now()})
 
 
 @app.route("/api/test", methods=["POST"])
