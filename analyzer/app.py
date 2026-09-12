@@ -1119,41 +1119,98 @@ def _snapshot_handled() -> dict:
         return {k: list(v) for k, v in _handled.items()}
 
 
+#: More than this many profiles wanting a fit in ONE 3 s poll is not a live
+#: pipeline — the closed loop produces a handful per poll at most. It is a
+#: historical backlog, and fitting one serially (a curve_fit plus a matplotlib
+#: Fit record each, ~1 s a file) starves the live frame for minutes. That is
+#: the reported stall: a fresh run whose data waited behind 163 old profiles.
+_BACKLOG_TRIAGE_N = 12
+
+
+def _triage_backlog(go: list) -> list:
+    """Given this poll's fit-me list (oldest first), take any HISTORICAL
+    backlog out of it and seed those files as handled instead.
+
+    Belt to _reseed_intake's braces. Seeding at boot, on set_project, and on
+    every intake reset should mean a backlog never forms — but if one ever
+    does (a deleted Results/Fit/ folder, a clock jump, some future path that
+    empties _handled without reseeding), this bounds the cost to one poll
+    instead of stalling the live run until the whole back-catalogue is re-fit.
+
+    Kept: anything written within _CRASH_GAP_WINDOW_S — live data, plus what
+    landed just before a crash — and the newest _BACKLOG_TRIAGE_N regardless,
+    so a genuine burst is never throttled. Dropped files are seeded as handled
+    (not merely skipped) so they don't come back on the next poll. Order is
+    preserved: the campaign is still fed oldest-first.
+    """
+    if len(go) <= _BACKLOG_TRIAGE_N:
+        return go
+    now = time.time()
+    cutoff = len(go) - _BACKLOG_TRIAGE_N
+    keep, drop = [], []
+    for i, (f, sig) in enumerate(go):
+        recent = (now - sig[1] / 1e9) < _CRASH_GAP_WINDOW_S
+        (keep if (recent or i >= cutoff) else drop).append((f, sig))
+    if drop:
+        with _intake_lock:
+            for f, sig in drop:
+                _handled[str(f)] = sig
+        _emit(f"⏭ {len(drop)} older profile(s) skipped — no Fit record and written "
+              f"over {int(_CRASH_GAP_WINDOW_S // 60)} min ago, so they are history, "
+              f"not this run. Fitting them would stall the live loop; use "
+              f"“Continue a stopped Target Run” to rebuild a previous campaign.",
+              "warn")
+    return keep
+
+
+def _watch_once() -> None:
+    """One poll of the watched folder. Extracted from _watcher's loop so the
+    tests can drive a single poll directly, with no thread and no Flask app."""
+    d = _resolve_sub()
+    if d.is_dir():
+        # non-recursive: analyze only the flat Subtracted/*.dat, NOT the
+        # Good/ & NeedsReview/ copies the Quality app makes (avoids re-analysis)
+        files = sorted(d.glob("*.dat"), key=lambda p: p.stat().st_mtime)
+        present = set()
+        # Decide for every file FIRST, fit second: the fit-me list has to be
+        # known in full before any fitting starts, or _triage_backlog can't
+        # tell a two-file poll from a two-hundred-file one.
+        go: list = []
+        for f in files:
+            key = str(f); present.add(key)
+            try:
+                st = f.stat(); sig = (st.st_size, st.st_mtime_ns)
+            except OSError:
+                continue
+            action = decide_intake(key, sig, _handled, _lastsig)
+            if action == "skip":
+                continue
+            if action == "wait":
+                _lastsig[key] = sig; continue
+            go.append((f, sig))
+
+        for f, sig in _triage_backlog(go):
+            _analyze_file(f)
+            with _intake_lock:
+                _handled[str(f)] = sig; _lastsig.pop(str(f), None)
+        with _intake_lock:
+            for k in [k for k in _lastsig if k not in present]:
+                _lastsig.pop(k, None)
+            # `_handled` used to grow forever. Drop entries whose file is
+            # no longer in the folder, then hard-cap it — an overnight
+            # campaign otherwise accumulates thousands of dead keys.
+            for k in [k for k in _handled if k not in present]:
+                _handled.pop(k, None)
+            if len(_handled) > _MAX_RESULTS * 2:
+                for k in list(_handled)[:len(_handled) - _MAX_RESULTS]:
+                    _handled.pop(k, None)
+    _expire_pending()      # self-heal a proposal whose data never arrived
+
+
 def _watcher() -> None:
     while True:
         try:
-            d = _resolve_sub()
-            if d.is_dir():
-                # non-recursive: analyze only the flat Subtracted/*.dat, NOT the
-                # Good/ & NeedsReview/ copies the Quality app makes (avoids re-analysis)
-                files = sorted(d.glob("*.dat"), key=lambda p: p.stat().st_mtime)
-                present = set()
-                for f in files:
-                    key = str(f); present.add(key)
-                    try:
-                        st = f.stat(); sig = (st.st_size, st.st_mtime_ns)
-                    except OSError:
-                        continue
-                    action = decide_intake(key, sig, _handled, _lastsig)
-                    if action == "skip":
-                        continue
-                    if action == "wait":
-                        _lastsig[key] = sig; continue
-                    _analyze_file(f)
-                    with _intake_lock:
-                        _handled[key] = sig; _lastsig.pop(key, None)
-                with _intake_lock:
-                    for k in [k for k in _lastsig if k not in present]:
-                        _lastsig.pop(k, None)
-                    # `_handled` used to grow forever. Drop entries whose file is
-                    # no longer in the folder, then hard-cap it — an overnight
-                    # campaign otherwise accumulates thousands of dead keys.
-                    for k in [k for k in _handled if k not in present]:
-                        _handled.pop(k, None)
-                    if len(_handled) > _MAX_RESULTS * 2:
-                        for k in list(_handled)[:len(_handled) - _MAX_RESULTS]:
-                            _handled.pop(k, None)
-            _expire_pending()      # self-heal a proposal whose data never arrived
+            _watch_once()
         except Exception:
             pass
         time.sleep(3.0)
@@ -1177,6 +1234,31 @@ def _boot_resume() -> None:
 _CRASH_GAP_WINDOW_S = 600.0
 
 
+def _seed_handled_locked() -> int:
+    """The body of _seed_handled_at_boot, with _intake_lock ALREADY held.
+    Returns how many profiles were seeded. Separate from the public wrapper so
+    _reseed_intake() can clear and reseed in one atomic critical section — the
+    watcher must never observe an empty _handled, which is what makes it re-fit
+    the whole back-catalogue."""
+    d = _resolve_sub()
+    if not d.is_dir():
+        return 0
+    fit_dir = _resolve_fit()
+    now = time.time()
+    n = 0
+    for f in d.glob("*.dat"):
+        try:
+            st = f.stat()
+        except OSError:
+            continue
+        has_record = (fit_dir / f"fit_{f.stem}.dat").is_file()
+        if not has_record and (now - st.st_mtime) < _CRASH_GAP_WINDOW_S:
+            continue              # recently written, never fit — let the watcher handle it
+        _handled[str(f)] = (st.st_size, st.st_mtime_ns)
+        n += 1
+    return n
+
+
 def _seed_handled_at_boot() -> None:
     """Mark every already-fit profile as handled WITHOUT fitting it, so a
     restart doesn't re-fit an entire prior campaign's history — this is the
@@ -1192,23 +1274,31 @@ def _seed_handled_at_boot() -> None:
     project's entire pre-that-feature history, which is the exact re-fit
     storm this function exists to prevent."""
     try:
-        d = _resolve_sub()
-        if not d.is_dir():
-            return
-        fit_dir = _resolve_fit()
-        now = time.time()
         with _intake_lock:
-            for f in d.glob("*.dat"):
-                try:
-                    st = f.stat()
-                except OSError:
-                    continue
-                has_record = (fit_dir / f"fit_{f.stem}.dat").is_file()
-                if not has_record and (now - st.st_mtime) < _CRASH_GAP_WINDOW_S:
-                    continue          # recently written, never fit — let the watcher handle it
-                _handled[str(f)] = (st.st_size, st.st_mtime_ns)
+            _seed_handled_locked()
     except Exception:
         pass
+
+
+def _reseed_intake(reason: str) -> None:
+    """Drop the intake memos and IMMEDIATELY reseed them from the durable
+    Results/Fit/ records, in one critical section.
+
+    Every caller that wants a clean slate must come through here. A bare
+    ``_handled.clear()`` leaves the watcher believing that every profile in
+    Subtracted/ is new: on its next poll it re-fits the entire back-catalogue,
+    oldest first, one file at a time — and because that is the same single
+    watcher thread that fits live data, the frames from the run the operator
+    just started sit behind the whole backlog. That is the reported stall
+    (163 historical profiles re-fit while a fresh run starved), and the reason
+    it survived _seed_handled_at_boot: seeding only ran at boot and on
+    set_project, not on abort or on a folder/gate change."""
+    with _intake_lock:
+        _handled.clear(); _lastsig.clear()
+        n = _seed_handled_locked()
+    if n:
+        _emit(f"↺ intake reset ({reason}) — {n} already-fit profile(s) seeded, "
+              f"not re-analysed", "info")
 
 
 if os.environ.get("SWAXS_NO_WATCH", "").strip().lower() not in ("1", "true", "yes"):
@@ -1250,9 +1340,7 @@ def set_project():
         os.environ["SWAXS_PROJECT"] = p
         _project_root = p
         threading.Thread(target=_boot_resume, daemon=True).start()
-        with _intake_lock:
-            _handled.clear(); _lastsig.clear()  # switching projects — drop the old seed
-        _seed_handled_at_boot()                 # reseed from the new project's Fit records
+        _reseed_intake("project changed")   # drop the old seed, reseed from the new project
         _emit(f"📁 project → {p}", "info")
     return jsonify({"ok": True, "watching": str(_resolve_sub())})
 
@@ -1265,15 +1353,13 @@ def api_folder():
         f = (body.get("folder", "") or "").strip()
         if f:
             _sub_folder = f
-            with _intake_lock:
-                _handled.clear(); _lastsig.clear()
+            _reseed_intake("watched folder changed")
             _gate_note_shown = False
             _emit(f"📁 watching → {f}", "info")
         g = str(body.get("gate", "") or "").strip().lower()
         if g in ("auto", "good", "off"):
             _gate_mode = g
-            with _intake_lock:
-                _handled.clear(); _lastsig.clear()
+            _reseed_intake("quality-gate mode changed")
             _gate_note_shown = False
             _emit(f"🔒 quality gate mode → {g}"
                   + (" (rejected profiles WILL be analysed)" if g == "off" else ""),
@@ -1428,8 +1514,11 @@ def api_campaign_abort():
             _campaign_id = ""; _campaign_cfg = {}; _campaign_meta = {}
             _run_tag = ""; _run_seq = 0
             _pending.clear(); _pending_at.clear()
-            with _intake_lock:
-                _handled.clear(); _lastsig.clear()
+            # RESEED, never just clear: the next Start is a fresh Target Run, and
+            # a bare clear would have the watcher re-fit every profile this run
+            # (and every earlier one) left in Subtracted/, starving the new run's
+            # live frames behind the backlog.
+            _reseed_intake("campaign aborted")
             clear_state(_project_root, _CAMPAIGN_STATE)   # remove the resume file too
     return jsonify({"ok": True})
 
