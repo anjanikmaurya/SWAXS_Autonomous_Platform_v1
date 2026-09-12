@@ -12,7 +12,9 @@ Public API (see __all__):
 from __future__ import annotations
 
 import logging
+import os
 import re
+from collections import OrderedDict
 from pathlib import Path
 
 import numpy as np
@@ -241,16 +243,34 @@ def _truncate_q(q: np.ndarray, I: np.ndarray, sigma: np.ndarray,
 
 # The average monitor calls read_folder() on the whole Reduction folder every
 # poll cycle. Without a cache that is O(N) file parses per cycle, so CPU per
-# cycle grows for the entire beamtime. Entries are keyed on (path, mtime, size)
-# so a rewritten file is re-read; bounded so memory cannot grow without limit.
+# cycle grows for the entire beamtime (defect N7).
+#
+# Keyed by PATH, valued (signature, entry) where signature is (mtime_ns, size):
+# a rewritten file replaces its own entry. Keying the whole signature — as this
+# did first — meant a rewritten file left its old entry behind forever, so the
+# cache grew with every rewrite and the bound below was reached by dead
+# entries. Each entry holds three float64 arrays (~24 kB at 1000 points), so
+# the bound is a MEMORY bound, not a bookkeeping one: 20 000 entries is ~0.5 GB.
+#
 # Callers receive the SAME dict objects across calls and must not mutate them.
-_READ_CACHE_MAX = 20000
-_read_cache: dict = {}
+_READ_CACHE_MAX = int(os.environ.get("SWAXS_READ_CACHE_MAX", 3000))
+_read_cache: "OrderedDict[str, tuple]" = OrderedDict()
+
+
+def read_cache_stats() -> dict:
+    """Cache size and the configured bound — read by the tests and useful when
+    reasoning about the average monitor's cost per poll."""
+    return {"entries": len(_read_cache), "max": _READ_CACHE_MAX}
+
+
+def clear_read_cache() -> None:
+    _read_cache.clear()
 
 
 def read_folder(
     folder: str | Path,
     keywords: list[str] | None = None,
+    skip_names: set | frozenset | None = None,
 ) -> list[dict]:
     """
     Load all matching .dat files from *folder* into a list of file dicts.
@@ -262,6 +282,14 @@ def read_folder(
     keywords : list[str] | None
         If given, only files whose name contains at least one keyword are
         returned.  Pass None to load all .dat files.
+    skip_names : set[str] | None
+        Filenames to leave out entirely — not stat'd, not parsed, not cached.
+        The average monitor already knows which frames it has consumed into a
+        batch (``_avg_batch_state``) and immediately discards them again after
+        loading, so passing them here makes a poll cost proportional to the
+        NEW frames rather than to every frame of the beamtime. Nothing else
+        changes: the caller's ``todo`` list, and therefore the averaging gate
+        it publishes, is identical either way.
 
     Returns
     -------
@@ -292,17 +320,24 @@ def read_folder(
         dat_files = [f for f in dat_files
                      if any(kw in f.name for kw in keywords)]
 
+    # Drop already-consumed frames BEFORE any stat or parse — this is the whole
+    # point of skip_names (see the docstring).
+    if skip_names:
+        dat_files = [f for f in dat_files if f.name not in skip_names]
+
     results = []
     for path in dat_files:
         try:
             try:
                 st = path.stat()
-                ckey = (str(path), st.st_mtime_ns, st.st_size)
+                sig = (st.st_mtime_ns, st.st_size)
             except OSError:
                 continue                       # vanished between glob and stat
-            cached = _read_cache.get(ckey)
-            if cached is not None:
-                results.append(cached)
+            key = str(path)
+            hit = _read_cache.get(key)
+            if hit is not None and hit[0] == sig:
+                _read_cache.move_to_end(key)   # true LRU, not insertion order
+                results.append(hit[1])
                 continue
             _, q, I, sigma, meta = read_dat_data_metadata(path)
 
@@ -325,9 +360,10 @@ def read_folder(
                 "sigma":    sigma,
                 "metadata": meta,
             }
-            if len(_read_cache) >= _READ_CACHE_MAX:
-                _read_cache.pop(next(iter(_read_cache)))   # drop oldest
-            _read_cache[ckey] = entry
+            _read_cache[key] = (sig, entry)
+            _read_cache.move_to_end(key)
+            while len(_read_cache) > _READ_CACHE_MAX:
+                _read_cache.popitem(last=False)            # evict least-recent
             results.append(entry)
             logger.debug("[read_folder] %s: loaded %d points", path.name, len(q))
         except Exception as exc:

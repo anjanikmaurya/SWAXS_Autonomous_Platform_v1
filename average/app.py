@@ -113,6 +113,26 @@ def _mark_consumed(key, filenames) -> None:
     rec["n"] += 1
 
 
+def _consumed_for(det: str) -> set:
+    """Every filename this detector has already averaged into a batch.
+
+    Handed to read_folder(skip_names=...) so the poll never stats or parses a
+    frame it is about to discard anyway. The loop re-read and re-parsed EVERY
+    .dat in the Reduction folder every cycle (defect N7), so by the small hours
+    the scan cost more than the averaging and the monitor fell progressively
+    behind the acquisition it was tracking. Cost is now proportional to NEW
+    frames. `todo` — and therefore the gate this app publishes, which Auto
+    Watch reads — is unchanged: those files were filtered out one line later.
+
+    Keyed by detector because a keyword is only unique within one.
+    """
+    out: set = set()
+    for (d, _kw), rec in list(_avg_batch_state.items()):
+        if d == det:
+            out |= set(rec.get("files") or ())
+    return out
+
+
 def _save_batch_state() -> None:
     """Persist batch state next to the monitor state. Never raises."""
     root = _state_root()
@@ -686,7 +706,8 @@ def _avg_monitor_loop(dets, n_per_batch, interval, i0_filter_pct,
             if not fp.is_dir():
                 continue
             try:
-                frames = read_folder(fp, keywords=keywords or None)
+                frames = read_folder(fp, keywords=keywords or None,
+                                     skip_names=_consumed_for(det))
             except Exception as exc:
                 _avg_emit(f"⚠  {det.upper()} scan error: {exc}", "error")
                 continue
@@ -839,7 +860,12 @@ def monitor_start():
 
     body          = request.get_json(force=True)
     n_per_batch   = max(int(body.get("frames_per_average", 0) or 0), 1)
-    interval      = max(int(body.get("interval", 10) or 10), 1)
+    # 3 s, not 10. The 10 s default existed because every poll re-parsed the
+    # whole Reduction folder (N7); with skip_names the scan is proportional to
+    # NEW frames, so a shorter interval costs almost nothing and takes ~7 s of
+    # pure waiting out of every reduce→average handoff. This app has no 2-poll
+    # stability gate — it consumes by filename — so the interval IS the latency.
+    interval      = max(int(body.get("interval", 3) or 3), 1)
     saxs_folder   = (body.get("saxs_folder", "") or "").strip()
     waxs_folder   = (body.get("waxs_folder", "") or "").strip()
     out_saxs      = (body.get("output_dir_saxs", "") or "").strip() or None

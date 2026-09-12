@@ -4,7 +4,8 @@
 restart, a transient read failure, or a concurrent operator click corrupting
 the run or silently stalling it.
 
-**Status: Phases 1 and 2 are DONE** (N1, N2, N3, N4 — September 2026, before
+**Status: Phase 1 done (N1, N3, N4), Phase 2 half done (N2 done, N5 open),
+N7 of Phase 3 done — September 2026, before
 the beta hand-off), with regression tests in
 `tests/test_continuous_run_hardening.py`. N5 is still open, and Phases 3–4
 (N6, N7, N16, O3) are unimplemented. Every defect below is open
@@ -259,6 +260,41 @@ Lazy parse, do not cache arrays.
 **Regression test:** a folder of N files, two consecutive polls with no
 changes; assert the second poll performs zero full parses (count calls via
 monkeypatch) and still produces identical batches.
+
+#### DONE 2026-09-11 — with a smaller change than the split above
+
+The list-step / load-step split was not needed. `skip_names` reaches the same
+end with far less surgery: the caller already knows which frames it has
+consumed (`_avg_batch_state`, after N3/N4), so `read_folder` drops them from
+the glob **before any stat or parse**. The discarded files are never touched,
+which is what the split was for.
+
+Shipped:
+
+- `src/plot_reduction.py::read_folder(..., skip_names=None)` — filters by
+  filename ahead of the stat loop. `average/app.py::_consumed_for(det)` feeds
+  it; `todo`, and therefore the averaging gate Auto Watch reads, is byte
+  identical, because those files were filtered out one line later anyway.
+- The parse cache is keyed by **path**, valued `((mtime_ns, size), entry)`, so
+  a rewritten file replaces its own entry. Keying the whole signature — the
+  first attempt — left a dead entry behind on every rewrite. LRU-bounded by
+  `SWAXS_READ_CACHE_MAX`, default 3000.
+- **The gotcha above still stands and is handled by `skip_names`, not by the
+  bound.** Each entry holds three float64 arrays (~24 kB at 1000 points), so
+  20 000 entries would be ~0.5 GB. With `skip_names` the monitor only ever
+  caches *unconsumed* frames — a handful at a time — so it never approaches
+  the bound. The bound protects the interactive viewer path
+  (`average/app.py:513`), which still reads whole folders on demand.
+- Tests: `tests/test_read_folder_cost.py` — 12 cases counting parses, not wall
+  time, including the exact two-poll case above, rewrite handling, the LRU
+  bound, and cached-equals-uncached results.
+
+**Consequence:** the average and subtraction monitor defaults dropped from
+10 s to 3 s, since the 10 s only ever existed to make the rescan affordable.
+That takes ~7 s out of the reduce→average handoff and ~14 s out of
+average→subtract (subtraction pays the interval twice — `decide_intake` wants
+two consecutive stable polls). Roughly 20 s off frame-to-fit for no new
+failure mode, which is most of what N16's event triggering would buy.
 
 ---
 

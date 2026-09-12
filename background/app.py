@@ -1314,7 +1314,12 @@ def monitor_start():
         _stale_monitor_notice()
 
     body        = request.get_json(force=True)
-    interval    = max(int(body.get("interval", 10) or 10), 1)
+    # 3 s, not 10. Subtraction's per-poll cost is already proportional to
+    # UNCONSUMED files (decide_intake's handled memo), so the old 10 s bought
+    # nothing. It costs double, though: decide_intake needs two consecutive
+    # polls on a stable signature before touching a file, so the interval is
+    # paid twice per handoff — 20 s of pure waiting at 10 s, 6 s at 3 s.
+    interval    = max(int(body.get("interval", 3) or 3), 1)
     saxs_folder = (body.get("saxs_avg_folder", "") or "").strip()
     waxs_folder = (body.get("waxs_avg_folder", "") or "").strip()
     out_saxs    = (body.get("output_dir_saxs", "") or "").strip() or None
