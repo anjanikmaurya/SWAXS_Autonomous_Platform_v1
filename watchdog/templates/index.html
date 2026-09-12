@@ -338,6 +338,24 @@ html,body {
 .phase-chip[data-state="done"]  { color:var(--ok-text); border-color:var(--ok); background:var(--ok-lt) }
 .phase-arrow { font-size:13px; color:var(--faint); flex-shrink:0 }
 
+/* Reactor sub-phase track — flush → ramp → synth → collect. The minutes
+   before any file exists, which the dashboard used to report as "idle". */
+.rx-track { display:flex; align-items:center; gap:3px; flex-wrap:wrap; justify-content:center }
+.rx-step {
+  font-size:10px; font-weight:800; letter-spacing:.03em; text-transform:uppercase;
+  padding:2px 6px; border-radius:999px; white-space:nowrap;
+  color:var(--faint); background:var(--surface2);
+  border:1px solid transparent;
+}
+.rx-step[data-state="done"]   { color:var(--ok-text);   background:var(--ok-lt) }
+.rx-step[data-state="active"] { color:var(--warn-text); background:var(--warn-lt);
+                                border-color:var(--warn);
+                                animation:wait-pulse 1.8s ease-in-out infinite }
+.rx-step[data-state="active"][data-run="1"] {
+  color:var(--accent); background:var(--accent-lt); border-color:var(--accent);
+  animation:none;
+}
+
 /* Lane tag — on the (single) Reduce/Average nodes, which phase is flowing
    through them right now. */
 .lane-tag {
@@ -602,6 +620,15 @@ html,body {
               <span class="step-chip" id="n-reactor-chip">—</span>
             </div>
             <div class="step-cap">
+              <!-- flush → ramp → synthesise → collect, the part of a cycle that
+                   happens before any file exists -->
+              <div class="rx-track" id="n-reactor-track">
+                <span class="rx-step" data-phase="flushing">flush</span>
+                <span class="rx-step" data-phase="ramping,arming">ramp</span>
+                <span class="rx-step" data-phase="synthesising">synth</span>
+                <span class="rx-step" data-phase="collecting">collect</span>
+              </div>
+              <div class="step-why" id="n-reactor-phase">—</div>
               <div class="phase-track" id="n-reactor-phases">
                 <span class="phase-chip" data-lane="background" data-state="idle">① Bkg</span>
                 <span class="phase-arrow">→</span>
@@ -1027,6 +1054,20 @@ const STAGE_BANNER = {
   error:    ['UNAVAILABLE', 'metrics could not be computed; see the app log'],
 };
 
+// Fallback wording when the reactor is in a phase but publishes no numbers
+// for it yet (e.g. the first tick after the state changed).
+const REACTOR_PHASE_BLURB = {
+  flushing:     'rinsing the capillary clean before the next condition — the '
+                + 'background is measured during this',
+  ramping:      'heating to the recipe temperature; the run starts once it is stable',
+  arming:       'waiting out the arming delay before reagents start flowing',
+  synthesising: 'reagents flowing through the reactor; frames start once the '
+                + 'synthesis settles',
+  collecting:   'the detector is writing frames',
+  ready:        'armed and waiting for the next condition',
+  estop:        'the rig was stopped — check the reactor app',
+};
+
 function updateStageBanner(loop) {
   const banner = document.getElementById('stage-banner');
   if (!banner) return;
@@ -1038,6 +1079,30 @@ function updateStageBanner(loop) {
   // the operator has to act on, so it takes the banner.
   const overdue = (loop && loop.overdue) || {};
   let state = 'idle', sub = blurb;
+  let shown = label;
+
+  // Before any data exists, the PIPELINE stage is 'collect' or 'idle' and has
+  // nothing to say — but the reactor does, and it is the longest part of a
+  // cycle (a 20-minute flush, then ramping to temperature). Show the reactor's
+  // own phase there, so a working rig stops looking like a stopped one.
+  const rx = (loop && loop.reactor) || {};
+  const preData = (stage === 'idle' || stage === 'collect');
+  if (!overdue.stage && preData && rx.phase_label) {
+    shown = rx.phase_label;
+    sub = rx.phase_detail || REACTOR_PHASE_BLURB[rx.phase] || '';
+    document.getElementById('stage-banner-name').textContent = shown;
+    document.getElementById('stage-banner-sub').innerHTML = sub;
+    banner.setAttribute('data-state',
+      rx.phase === 'estop' ? 'stalled'
+      : (rx.phase === 'ready' || rx.phase === 'idle') ? 'idle'
+      : (rx.phase === 'collecting' || rx.phase === 'synthesising') ? 'running'
+      : 'waiting');           // flushing / ramping / arming — working, not late
+    document.querySelectorAll('.step').forEach(el => {
+      el.classList.toggle('is-current', el.getAttribute('data-stage') === 'collect');
+    });
+    return;
+  }
+
   if (overdue.stage) {
     const mins = Math.floor((overdue.seconds || 0) / 60);
     state = 'stalled';
@@ -1086,6 +1151,34 @@ function updateLoop() {
     const p = phases.find(x => x.lane === el.getAttribute('data-lane'));
     el.setAttribute('data-state', (p && p.state) || 'idle');
   });
+
+  // flush → ramp → synth → collect. Everything before the active one is done,
+  // so the track reads as progress rather than four independent lights.
+  const RX_ORDER = ['flushing', 'ramping', 'synthesising', 'collecting'];
+  const rxPhase = reactor.phase || '';
+  const rxIdx = RX_ORDER.indexOf(rxPhase === 'arming' ? 'ramping' : rxPhase);
+  document.querySelectorAll('#n-reactor-track .rx-step').forEach(el => {
+    const owns = (el.getAttribute('data-phase') || '').split(',');
+    const myIdx = Math.min(...owns.map(p => {
+      const i = RX_ORDER.indexOf(p);
+      return i < 0 ? 99 : i;
+    }));
+    if (rxIdx < 0) { el.removeAttribute('data-state'); el.removeAttribute('data-run'); return; }
+    el.setAttribute('data-state', myIdx < rxIdx ? 'done' : myIdx === rxIdx ? 'active' : 'idle');
+    // Synthesising and collecting are "running"; flushing and ramping are
+    // legitimate waiting, and are coloured as such rather than as a problem.
+    if (myIdx === rxIdx && (rxPhase === 'synthesising' || rxPhase === 'collecting')) {
+      el.setAttribute('data-run', '1');
+    } else {
+      el.removeAttribute('data-run');
+    }
+  });
+  const rxWhy = document.getElementById('n-reactor-phase');
+  if (rxWhy) {
+    rxWhy.textContent = reactor.phase_detail
+      || REACTOR_PHASE_BLURB[rxPhase]
+      || (reactor.state === 'idle' ? 'no run' : '—');
+  }
 
   // Reduce → Average — ONE app each; the lane tag says which phase is
   // currently flowing through them, it does not duplicate the boxes.

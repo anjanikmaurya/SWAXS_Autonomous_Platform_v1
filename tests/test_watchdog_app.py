@@ -401,3 +401,104 @@ def test_settings_writes_are_atomic(tmp_path, monkeypatch):
     save_notify_settings(cfg, slack_enabled=True)
     assert not list(tmp_path.glob("*.part")), "the temp file must be replaced, not left"
     assert "slack_enabled: true" in cfg.read_text()
+
+
+# ── the reactor's pre-collection phases ────────────────────────────────────
+# The dashboard had nothing to say between "run requested" and the first frame
+# on disk: the pipeline stage is 'collect' or 'idle' and the reactor circle
+# showed the bare state name. But that gap is the longest part of a cycle —
+# the shipped flush is 20 minutes and arming waits for temperature on top —
+# so half an hour of a working rig read as a stopped one.
+def test_flushing_reports_time_left_and_the_background_collection():
+    phase, label, detail = wd._reactor_phase({
+        "state": "flushing", "supervising": True,
+        "flush_remaining_s": 845.0, "flush_pump": "P3",
+        "spec": {"collecting": True}})
+    assert (phase, label) == ("flushing", "FLUSHING")
+    assert "14m 05s left" in detail
+    assert "pump P3" in detail
+    assert "background" in detail, \
+        "the background is collected during the flush — say so, it is not idle time"
+
+
+def test_temperature_gated_arming_reports_the_gap_to_target():
+    phase, label, detail = wd._reactor_phase({
+        "state": "arming", "supervising": True, "arm_mode": "temp",
+        "temperature": {"current": 188.4, "target": 240.0, "stable": False},
+        "spec": {}})
+    assert (phase, label) == ("ramping", "RAMPING TO TEMPERATURE")
+    assert "188.4 → 240.0 °C" in detail and "+51.6 to go" in detail
+
+
+def test_arming_at_target_says_so_rather_than_plus_zero():
+    _p, _l, detail = wd._reactor_phase({
+        "state": "arming", "supervising": True, "arm_mode": "temp",
+        "temperature": {"current": 240.0, "target": 240.0, "stable": True},
+        "spec": {}})
+    assert "at target" in detail and "stable" in detail
+
+
+def test_timed_arming_is_a_countdown_not_a_temperature():
+    phase, label, detail = wd._reactor_phase({
+        "state": "arming", "supervising": True, "arm_mode": "timed",
+        "arm_remaining_s": 95.0, "arm_total_s": 300.0, "spec": {}})
+    assert (phase, label) == ("arming", "ARMING")
+    assert "1m 35s of 5m 00s left" == detail
+
+
+def test_running_is_synthesising_until_the_detector_starts():
+    phase, label, detail = wd._reactor_phase({
+        "state": "running", "supervising": True,
+        "elapsed_s": 412.0, "duration_s": 900.0, "spec": {"collecting": False}})
+    assert (phase, label) == ("synthesising", "SYNTHESISING")
+    assert detail == "6m 52s of 15m 00s"
+
+
+def test_running_becomes_collecting_once_spec_is_collecting():
+    phase, label, detail = wd._reactor_phase({
+        "state": "running", "supervising": True,
+        "spec": {"collecting": True, "frames": 10, "exposure_s": 30}})
+    assert (phase, label) == ("collecting", "COLLECTING")
+    assert "10 frames" in detail and "30s exposure" in detail
+
+
+@pytest.mark.parametrize("state,phase,label", [
+    ("ready", "ready", "READY TO START"),
+    ("estop", "estop", "EMERGENCY STOP"),
+    ("idle", "idle", ""),
+])
+def test_the_remaining_reactor_states(state, phase, label):
+    p, l, _d = wd._reactor_phase({"state": state, "supervising": True, "spec": {}})
+    assert (p, l) == (phase, label)
+
+
+def test_no_reactor_answer_is_empty_not_a_guess():
+    assert wd._reactor_phase({}) == ("", "", "")
+    assert wd._reactor_phase(None) == ("", "", "")
+
+
+def test_an_unknown_future_state_is_passed_through_rather_than_hidden():
+    p, l, _d = wd._reactor_phase({"state": "purging", "supervising": True, "spec": {}})
+    assert (p, l) == ("purging", "PURGING"), \
+        "a state this map has not seen must still reach the operator"
+
+
+def test_the_loop_state_carries_the_phase_to_the_dashboard(monkeypatch):
+    """_loop_state is what the banner and the reactor circle read."""
+    probes = {"reactor": {"state": "flushing", "supervising": True,
+                          "flush_remaining_s": 600.0, "spec": {}},
+              "analyzer": {}, "status": {}, "monitors": {}}
+    loop = wd._loop_state(probes)
+    assert loop["reactor"]["phase"] == "flushing"
+    assert loop["reactor"]["phase_label"] == "FLUSHING"
+    assert "10m 00s left" in loop["reactor"]["phase_detail"]
+    assert loop["reactor"]["detail"] == "FLUSHING", \
+        "the circle should read the phase, not the bare state name"
+
+
+def test_fmt_secs_short_is_readable_and_never_negative():
+    assert wd._fmt_secs_short(47) == "47s"
+    assert wd._fmt_secs_short(200) == "3m 20s"
+    assert wd._fmt_secs_short(3864) == "1h 04m"
+    assert wd._fmt_secs_short(-5) == ""
+    assert wd._fmt_secs_short(None) == ""

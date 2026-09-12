@@ -430,6 +430,97 @@ def _gate_for(avg_status: dict, rid: str | None, lane: str) -> dict | None:
     return None
 
 
+def _fmt_secs_short(s) -> str:
+    """47s / 3m 20s / 1h 04m — the same wording the charts use."""
+    try:
+        s = float(s)
+    except (TypeError, ValueError):
+        return ""
+    if s < 0:
+        return ""
+    if s < 90:
+        return f"{s:.0f}s"
+    if s < 3600:
+        return f"{int(s // 60)}m {int(s % 60):02d}s"
+    return f"{int(s // 3600)}h {int((s % 3600) // 60):02d}m"
+
+
+def _reactor_phase(reactor: dict) -> tuple[str, str, str]:
+    """(phase, label, detail) for what the reactor is doing before data exists.
+
+    The dashboard used to have nothing to say between "run requested" and the
+    first frame on disk — the banner read IDLE and the reactor circle read
+    "flushing", which is the state name, not a sentence. But that gap is the
+    longest part of a cycle: the shipped flush is 20 minutes, and arming waits
+    for the reactor to reach temperature on top of that. Half an hour of a
+    working rig looking like a stopped one.
+
+    Mapped from the reactor's own `state` (src/reactor/controller.py) plus the
+    numbers it already publishes, so nothing new has to be computed or stored:
+
+      flushing      → FLUSHING            + seconds left (flush_remaining_s)
+      arming/temp   → RAMPING TO TEMP     + current → target °C
+      arming/timed  → ARMING              + seconds left of arm_total_s
+      running       → SYNTHESISING        + elapsed of duration
+      running+spec  → COLLECTING          + frames and exposure
+      ready         → READY TO START
+      estop         → EMERGENCY STOP
+    """
+    if not reactor:
+        return "", "", ""
+    state = str(reactor.get("state") or "")
+    spec = reactor.get("spec") or {}
+    temp = reactor.get("temperature") or {}
+
+    if state == "estop":
+        return "estop", "EMERGENCY STOP", "the rig was stopped — check the reactor app"
+
+    if state == "flushing":
+        left = _fmt_secs_short(reactor.get("flush_remaining_s"))
+        pump = reactor.get("flush_pump")
+        bits = [f"{left} left" if left else "", f"pump {pump}" if pump else ""]
+        # The background is collected during the flush, on the clean capillary.
+        if spec.get("collecting"):
+            bits.append("collecting the background")
+        return "flushing", "FLUSHING", " · ".join(b for b in bits if b)
+
+    if state == "arming":
+        mode = str(reactor.get("arm_mode") or "")
+        cur, tgt = temp.get("current"), temp.get("target")
+        if mode == "timed":
+            left = _fmt_secs_short(reactor.get("arm_remaining_s"))
+            total = _fmt_secs_short(reactor.get("arm_total_s"))
+            span = f"{left} of {total} left" if left and total else left
+            return "arming", "ARMING", span or "waiting out the arming delay"
+        # Temperature-gated arming is the one an operator actually waits on.
+        detail = ""
+        if isinstance(cur, (int, float)) and isinstance(tgt, (int, float)):
+            gap = tgt - cur
+            detail = (f"{cur:.1f} → {tgt:.1f} °C"
+                      + (f" ({gap:+.1f} to go)" if abs(gap) >= 0.05 else " (at target)"))
+            if temp.get("stable"):
+                detail += " · stable"
+        return "ramping", "RAMPING TO TEMPERATURE", detail
+
+    if state == "running":
+        if spec.get("collecting"):
+            frames, exp = spec.get("frames"), spec.get("exposure_s")
+            bits = [f"{frames} frames" if frames else "",
+                    f"{exp}s exposure" if exp else ""]
+            return "collecting", "COLLECTING", " · ".join(b for b in bits if b)
+        el, dur = reactor.get("elapsed_s"), reactor.get("duration_s")
+        detail = ""
+        if el is not None:
+            detail = _fmt_secs_short(el) + (f" of {_fmt_secs_short(dur)}" if dur else "")
+        return "synthesising", "SYNTHESISING", detail or "reagents flowing"
+
+    if state == "ready":
+        return "ready", "READY TO START", "armed and waiting for the next condition"
+    if state in ("", "idle"):
+        return "idle", "", ""
+    return state, state.upper(), ""
+
+
 def _loop_state(probes: dict) -> dict:
     """Per-node state for the cyclic pipeline view."""
     now = _now()
@@ -518,6 +609,7 @@ def _loop_state(probes: dict) -> dict:
     # ended instead of the one it actually belongs to.
     active_rid = (last_collect.get("recipe_id")
                   or (reactor.get("current_recipe") or {}).get("recipe_id") or "")
+    phase, phase_label, phase_detail = _reactor_phase(reactor)
     if not reactor:
         reactor_node = {"state": "unknown", "detail": "reactor not answering"}
     elif r_state in ("", "idle"):
@@ -527,13 +619,17 @@ def _loop_state(probes: dict) -> dict:
                         "detail": f"{r_state} but control loop is dead"}
     else:
         collecting = bool((reactor.get("spec") or {}).get("collecting"))
-        detail = r_state
+        detail = phase_label or r_state
         if collecting and active_lane:
             detail = f"collecting {active_lane}"
-        elif active_lane:
-            detail = f"{r_state} · last collect {active_lane}"
         reactor_node = {"state": "running", "detail": detail, "lane": active_lane}
     reactor_node["recipe_id"] = active_rid
+    # The reactor's own sub-phase, so the dashboard can say FLUSHING / RAMPING /
+    # SYNTHESISING instead of sitting on "idle" for the many minutes before the
+    # first frame exists. See _reactor_phase.
+    reactor_node["phase"] = phase
+    reactor_node["phase_label"] = phase_label
+    reactor_node["phase_detail"] = phase_detail
 
     # ── the two lanes ─────────────────────────────────────────────────────────
     lanes: dict = {}
