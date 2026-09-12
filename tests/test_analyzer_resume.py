@@ -15,6 +15,7 @@ stopped Target Run.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -173,6 +174,27 @@ def test_seed_handled_at_boot_leaves_unfit_files_for_the_watcher(tmp_path, monke
     az._seed_handled_at_boot()
 
     assert str(f) not in az._handled
+
+
+def test_seed_handled_at_boot_seeds_old_unfit_files_too(tmp_path, monkeypatch):
+    """A file with no Fit record that is NOT recent (older than the crash-gap
+    window) is historical, most commonly fit before "every fit gets a durable
+    record" existed — it must still be seeded as handled, or every restart
+    re-fits the project's entire pre-that-feature history."""
+    sub = _sub_dir(tmp_path)
+    _fit_dir(tmp_path)
+    f = sub / "Run3_r007_sample_20260101_000000.dat"
+    _write_dat(f)
+    old = time.time() - az._CRASH_GAP_WINDOW_S - 3600.0
+    os.utime(f, (old, old))
+
+    calls = []
+    monkeypatch.setattr(az, "_analyze_file", lambda p: calls.append(p))
+
+    az._seed_handled_at_boot()
+
+    assert str(f) in az._handled
+    assert calls == []
 
 
 # ── 2. Continue an incomplete Run9 ─────────────────────────────────────────────

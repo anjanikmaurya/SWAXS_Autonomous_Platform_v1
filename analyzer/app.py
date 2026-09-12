@@ -1170,29 +1170,43 @@ def _boot_resume() -> None:
         _emit(f"⚠ campaign resume failed: {exc}", "warn")
 
 
+#: How recent a Fit-record-less file must be to count as a possible crash-gap
+#: profile (see _seed_handled_at_boot). The watcher polls every 3 s, so a few
+#: minutes comfortably covers "written just before the process died" while
+#: still treating anything genuinely old as historical, not in-flight.
+_CRASH_GAP_WINDOW_S = 600.0
+
+
 def _seed_handled_at_boot() -> None:
     """Mark every already-fit profile as handled WITHOUT fitting it, so a
     restart doesn't re-fit an entire prior campaign's history — this is the
     FRESH default: instant startup, nothing re-analysed.
 
-    A file with no matching Results/Fit/ record is left alone — it will be
-    fit normally on the watcher's next poll. This closes the crash-gap: a
-    profile that landed on disk but was never fit before the process died
-    must not be silently marked "already seen"."""
+    A RECENTLY-WRITTEN file with no matching Results/Fit/ record is left
+    alone — it will be fit normally on the watcher's next poll. This closes
+    the crash-gap: a profile that landed on disk but was never fit before the
+    process died must not be silently marked "already seen". "Recent" is
+    bounded to _CRASH_GAP_WINDOW_S: older files missing a Fit record are
+    historical (most commonly, fit before "every fit gets a durable record"
+    existed) and must still be seeded — otherwise every restart re-fits the
+    project's entire pre-that-feature history, which is the exact re-fit
+    storm this function exists to prevent."""
     try:
         d = _resolve_sub()
         if not d.is_dir():
             return
         fit_dir = _resolve_fit()
+        now = time.time()
         with _intake_lock:
             for f in d.glob("*.dat"):
-                if not (fit_dir / f"fit_{f.stem}.dat").is_file():
-                    continue          # never fit — let the watcher handle it normally
                 try:
                     st = f.stat()
-                    _handled[str(f)] = (st.st_size, st.st_mtime_ns)
                 except OSError:
                     continue
+                has_record = (fit_dir / f"fit_{f.stem}.dat").is_file()
+                if not has_record and (now - st.st_mtime) < _CRASH_GAP_WINDOW_S:
+                    continue          # recently written, never fit — let the watcher handle it
+                _handled[str(f)] = (st.st_size, st.st_mtime_ns)
     except Exception:
         pass
 
