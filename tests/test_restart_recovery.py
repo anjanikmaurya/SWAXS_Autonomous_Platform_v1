@@ -406,19 +406,37 @@ def test_boot_resume_never_clobbers_a_live_campaign(tmp_path, monkeypatch):
     assert len(a._campaign.history) == 1, "history was lost to the resume"
 
 
-def _write_monodisperse_subtracted_dat(path, R=5.0, n=100, seed=3):
-    """A clean, low-noise monodisperse-sphere profile — analyze_profile fits
-    this with confidence ~0.96 (well above QC_CONF_THRESHOLD), so a test using
-    it proves a record is written for a CONFIDENT fit, not just a suspect one."""
+def _write_confident_subtracted_dat(path, R=5.0, pdi=0.08, n=100, seed=3):
+    """A clean, low-noise NARROWLY-POLYDISPERSE sphere profile — analyze_profile
+    fits this with confidence ~0.94 (well above QC_CONF_THRESHOLD) and recovers
+    R≈5.01 nm, PDI≈0.077, so a test using it proves a record is written for a
+    CONFIDENT fit, not just a suspect one.
+
+    It used to be perfectly MONODISPERSE (no polydispersity term at all), and
+    that quietly stopped being a confident fit when the auto-fit audit
+    (5b11869) added the `at_bounds` guard to `_confidence`. A zero-PDI curve
+    drives the fitted PDI onto its lower bound of 0.01, `at_bounds` fires, and
+    confidence is multiplied by 0.25 → 0.238, below the 0.5 threshold. The
+    guard is right: a railed parameter is a wall, not a minimum. The fixture
+    was wrong — PDI = 0 is not physically realisable, so no real synthesis
+    produces it and no test should depend on it.
+
+    Uses the platform's own Schulz-Zimm weighting (`src/simulator/pattern.py`)
+    rather than a second copy of the maths, so the fixture and the mock
+    simulator cannot drift apart.
+    """
     import numpy as np
+    from src.simulator.pattern import schulz_weights
+
     rng = np.random.default_rng(seed)
     q = np.linspace(0.02, 0.8, n)
-    qR = q * R
+    radii, weights = schulz_weights(R, pdi)
+    qR = np.outer(q, radii)
     amp = 3.0 * (np.sin(qR) - qR * np.cos(qR)) / qR ** 3
-    I = 1.0e6 * amp ** 2 + 0.5
+    I = 1.0e6 * (weights * amp ** 2).sum(axis=1) / weights.sum() + 0.5
     sigma = 0.02 * I + 0.1
     I = I * rng.normal(1.0, 0.02, size=I.shape)
-    lines = ["# SAXS background-subtracted data (synthetic, monodisperse sphere)",
+    lines = [f"# SAXS background-subtracted data (synthetic sphere, R={R} nm, PDI={pdi})",
              "# Columns: q_nm-1  I  sigma"]
     lines += [f"{qi:.6e}  {Ii:.6e}  {si:.6e}" for qi, Ii, si in zip(q, I, sigma)]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -441,12 +459,15 @@ def test_every_fit_gets_a_durable_record_not_just_suspect_ones(tmp_path, monkeyp
 
     a = _load("az_fit_record", "analyzer/app.py")
     dat_path = sub_dir / "auto_test_sample_SAXS_subtracted.dat"
-    _write_monodisperse_subtracted_dat(dat_path)
+    _write_confident_subtracted_dat(dat_path)
     a._analyze_file(dat_path)
 
-    conf = a._results[dat_path.name]["summary"]["confidence"]
-    assert conf > a.QC_CONF_THRESHOLD, \
-        "test fixture should be a CONFIDENT fit — that's the case this test covers"
+    summary = a._results[dat_path.name]["summary"]
+    conf = summary["confidence"]
+    assert conf > a.QC_CONF_THRESHOLD, (
+        "test fixture should be a CONFIDENT fit — that's the case this test "
+        f"covers (got {conf}; if ~0.24 the fit railed a bound, see "
+        "_write_confident_subtracted_dat)")
 
     fit_dir = tmp_path / "1D" / "SAXS" / "Results" / "Fit"
     png = fit_dir / f"fit_{dat_path.stem}.png"
@@ -467,6 +488,66 @@ def test_every_fit_gets_a_durable_record_not_just_suspect_ones(tmp_path, monkeyp
     # Results/Fit/ is a sibling of Results/QualityReports/ and Results/campaign_<id>/,
     # not nested inside Conditions/ (see test_the_campaign_record_never_lands_in_conditions)
     assert fit_dir.parent == tmp_path / "1D" / "SAXS" / "Results"
+
+    # The fixture is only a valid stand-in for a confident fit if the fit
+    # actually recovers it. Pinned so a future change that silently degrades
+    # accuracy shows up here rather than as a quietly worse campaign.
+    assert summary["radius"] == pytest.approx(5.0, abs=0.15), summary["radius"]
+    assert summary["pdi"] == pytest.approx(0.08, abs=0.03), summary["pdi"]
+
+
+def test_a_railed_parameter_is_reported_as_low_confidence(tmp_path, monkeypatch):
+    """The other side of the fixture change above, pinned so nobody "fixes" a
+    future 0.238 by loosening the guard.
+
+    A perfectly monodisperse curve (PDI = 0, physically unrealisable) drives
+    the fitted PDI onto its lower bound. `_confidence`'s at_bounds guard
+    (added by the auto-fit audit, 5b11869) must knock the result down: a
+    railed parameter is a wall, not a minimum, and the covariance cannot see
+    the active constraint, so it can even look spuriously precise. Confidence
+    GATES campaign convergence, so a falsely-high value here would let the
+    optimizer stop on garbage.
+
+    The record is still written — that is the point of the test above.
+    """
+    pytest.importorskip("scipy")
+    pytest.importorskip("matplotlib")
+    import numpy as np
+
+    sub_dir = tmp_path / "1D" / "SAXS" / "Subtracted"
+    sub_dir.mkdir(parents=True)
+    (tmp_path / "1D" / "SAXS" / "Conditions").mkdir(parents=True)
+    monkeypatch.setenv("SWAXS_PROJECT", str(tmp_path))
+
+    # Zero polydispersity: a single sphere form factor, no distribution at all.
+    rng = np.random.default_rng(3)
+    q = np.linspace(0.02, 0.8, 100)
+    qR = q * 5.0
+    amp = 3.0 * (np.sin(qR) - qR * np.cos(qR)) / qR ** 3
+    I = 1.0e6 * amp ** 2 + 0.5
+    sigma = 0.02 * I + 0.1
+    I = I * rng.normal(1.0, 0.02, size=I.shape)
+    dat_path = sub_dir / "auto_mono_sample_SAXS_subtracted.dat"
+    dat_path.write_text(
+        "# SAXS subtracted (synthetic, PERFECTLY monodisperse — rails the PDI floor)\n"
+        "# Columns: q_nm-1  I  sigma\n"
+        + "\n".join(f"{a_:.6e}  {b:.6e}  {c:.6e}" for a_, b, c in zip(q, I, sigma))
+        + "\n", encoding="utf-8")
+
+    a = _load("az_railed", "analyzer/app.py")
+    a._analyze_file(dat_path)
+
+    summary = a._results[dat_path.name]["summary"]
+    assert summary["radius"] == pytest.approx(5.0, abs=0.15), \
+        "the SIZE is still right — it is the trust in it that must drop"
+    assert summary["confidence"] <= a.QC_CONF_THRESHOLD, (
+        "a fit that railed the PDI bound must not be reported as confident "
+        f"(got {summary['confidence']})")
+
+    # And it is still recorded, exactly like a confident fit.
+    fit_dir = tmp_path / "1D" / "SAXS" / "Results" / "Fit"
+    assert (fit_dir / f"fit_{dat_path.stem}.dat").is_file()
+    assert (fit_dir / f"fit_{dat_path.stem}.png").is_file()
 
 
 def test_quality_reports_are_saved_under_results(tmp_path, monkeypatch):

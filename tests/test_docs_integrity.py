@@ -250,14 +250,35 @@ def test_no_doc_promises_a_word_export():
 
 
 # ── the audits folder stays consolidated ─────────────────────────────────────
-def test_the_audits_folder_stays_at_four_files():
+def test_the_audits_folder_stays_consolidated():
     """13 files / ~1900 lines of point-in-time reports, with the open-defect list
     scattered across all of them. Consolidated to one register + two operator
-    docs + an index."""
+    docs + an index.
+
+    Per-subsystem audit write-ups are allowed alongside those — the guarantee
+    this test protects is that the open-defect LIST is not scattered, not that
+    no analysis may be written down. Anything added here must therefore also
+    file its residuals in OPEN_DEFECTS.md (see the next test), which is what
+    keeps that file the single place to look."""
     d = ROOT / "docs" / "audits"
     got = sorted(p.name for p in d.glob("*.md"))
-    assert got == ["BEAMLINE_SAFETY_AUDIT.md", "OPEN_DEFECTS.md",
-                   "PRE_BEAMTIME_READINESS.md", "README.md"], got
+    assert got == ["AUTO_WATCH_AUDIT.md", "BEAMLINE_SAFETY_AUDIT.md",
+                   "OPEN_DEFECTS.md", "PRE_BEAMTIME_READINESS.md",
+                   "README.md"], got
+
+
+def test_every_subsystem_audit_files_its_residuals_in_the_register():
+    """An audit write-up may exist, but its open items must be in the register
+    too — otherwise the list is scattered again, which is the whole reason the
+    folder was consolidated in the first place."""
+    reg = (ROOT / "docs" / "audits" / "OPEN_DEFECTS.md").read_text()
+    # Auto Watch: W10-W25 are the residuals; W1-W9/W13/W24 were fixed.
+    missing = [w for w in ("W10", "W11", "W12", "W14", "W15", "W17",
+                           "W18", "W19", "W20", "W21", "W22", "W23", "W25")
+               if w not in reg]
+    assert not missing, f"Auto Watch residuals missing from the register: {missing}"
+    assert "AUTO_WATCH_AUDIT.md" in reg, \
+        "the register must link to the write-up it summarises"
 
 
 def test_the_open_defect_register_still_carries_the_reactor_residuals():

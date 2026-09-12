@@ -431,6 +431,29 @@ honoured (`quality/app.py:216-222`) and there is a graded-file cache (`:481`).
 | LOW | `/api/browse` returns `{"path": …}` in reduction but `{"current": …}` in the average app — two contracts for one job. |
 | LOW | `quality`, `reactor`, `analyzer` and `calibration` post-date the design audit and have **never been contrast-checked**. See `docs/DESIGN_SYSTEM.md` §6. |
 
+### Auto Watch (watchdog, 5110)
+
+Audited 2026-09-11; full write-up with line references and the reasoning in
+[AUTO_WATCH_AUDIT.md](AUTO_WATCH_AUDIT.md). W1–W9, W13 and W24 are **fixed**;
+these are the residuals, kept here so this file stays the one place an open
+defect lives.
+
+| ID | Sev | Finding |
+|---|---|---|
+| W10 | MED | The **`campaign` notification category is wired to nothing**. It is in `CATEGORIES`, validated by `/api/settings`, persisted to config.yml and rendered as a toggle, but `category_for_event` maps nothing to it, no caller passes it, and no `campaign.*` event is published anywhere. Toggling it has no effect. Fix: have the analyzer publish campaign-lifecycle events, or drop the category. |
+| W11 | MED | **A low-confidence fit is classified as a fault**, so it overrides quiet hours and snooze (`messages.format_fit_complete` returns `level="fault"` when `suspect`). Its category is `results`, so the only way to stop 3am pages about a poor fit is to silence all fit results. |
+| W12 | MED | **`summary: "hourly"` is accepted, validated, persisted and exposed on `/api/settings` — and never read.** `should_send` ignores `cfg["summary"]`. config.yml's comment admits it is a placeholder; `policy.py`'s docstring claims otherwise. |
+| W14 | MED | **Ports hard-coded in three places** (`probes.MONITOR_APPS`, `probes.ANALYZER_PORT`/`REACTOR_PORT`, `app.LOOP_APPS`), duplicating `apps.yml`. A renumbering makes every probe read "down". |
+| W15 | MED | **The localhost probes do not bypass a configured proxy.** With `http_proxy` exported, every probe is routed out and fails, so all six apps read as down and every stall diagnosis is wrong in the same direction. Fix: one opener with `ProxyHandler({})`. |
+| W17 | LOW | **The loop-closure edge is unmonitored.** `fit` is last in `_STAGE_ORDER` and `STAGE_TIMEOUTS` has no `collect` key, so once `fit.complete` lands nothing is expected until it ages out of the 2 h window. The reactor failing to start the next run raises no stall. Documented as intended by `test_at_final_stage`, but it is the gap that matters overnight. |
+| W18 | LOW | Dead code: `expectations.format_stall_message` (imported by the app, never called — `diagnose_stall` superseded it) and `probes.check_monitor_alive`. `format_stall_message` also labels the *overdue delta* as the silence duration. |
+| W19 | LOW | `save_notify_settings` writes config.yml **non-atomically and unlocked** (`write_text` in place), unlike `src/manifest.py` and `src/runstate.py`. A crash or two concurrent POSTs mid-write truncates a tracked file. |
+| W20 | LOW | **Docstring/contract drift on `now`.** `policy.should_send` documents UTC but *requires* local time for quiet hours to mean the operator's night; `expectations` wants UTC. The app passes each correctly; a future caller following the docstrings breaks quiet hours by the UTC offset. |
+| W21 | LOW | `_in_quiet_hours` treats `start == end` as "never quiet" rather than "always quiet", accepted silently. |
+| W22 | LOW | `should_send`'s snooze check is `isinstance(snooze_until, float)` with a `0.0` fallback, so an int silently disables the snooze. Unreachable today (`_state` is memory-only); a trap if snooze is ever persisted. |
+| W23 | LOW | `/api/test` bypasses `should_send`, so the Test button still sends with the master switch off. Defensible, undocumented. |
+| W25 | LOW | The Auto Watch card icon is `🐕` — the one app that did not come out of the scattering-icon pass. |
+
 ---
 
 ## Recommended order
