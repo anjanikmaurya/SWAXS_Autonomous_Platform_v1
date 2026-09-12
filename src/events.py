@@ -35,7 +35,7 @@ Event types
 -----------
 Publishers              Event type
 ──────────────────────  ──────────────────────
-reduction               file.reduced
+reduction               file.reduced, file.skipped
 average                 file.averaged, file.stitched
 background              file.subtracted
 analysis                analysis.complete
@@ -309,6 +309,23 @@ class EventBusClient:
             "analysis_type": analysis_type,
             "file_path":     str(file_path),
             "results":       results,
+        })
+
+    def emit_file_skipped(
+        self,
+        file_path:  str,
+        keyword:    str,
+        n_failures: int,
+        detector:   str = "saxs",
+    ) -> bool:
+        """Emit ``file.skipped`` when reduction permanently gives up on a
+        frame (see reduction/app.py::_note_failure) — the frame will never be
+        reduced without an operator restart or /api/reset."""
+        return self.publish("file.skipped", {
+            "file_path":  str(file_path),
+            "keyword":    keyword,
+            "n_failures": n_failures,
+            "detector":   detector,
         })
 
     def emit_watch_new_raw(

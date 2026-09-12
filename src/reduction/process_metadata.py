@@ -11,11 +11,23 @@ import pandas as pd
 
 __all__ = [
     "process_csv_metadata",    # Extract i0/bstop from experiment CSV file
+    "CSVMetadataNotFound",     # Raised by process_csv_metadata when no CSV matches
     "process_pdi_full",        # Extract metadata from PDI beamline file
     "find_row_number_to_read", # Map raw file index → CSV row
     "get_saxs_pdi_from_waxs",  # Derive SAXS PDI path from WAXS PDI path
     "get_meta_from_pdi",       # Low-level PDI parser
 ]
+
+
+class CSVMetadataNotFound(RuntimeError):
+    """No CSV matches a .raw frame's filename prefix.
+
+    Distinct from every other failure in this module: the metadata CSV for an
+    acquisition is written only when the acquisition COMPLETES, so this is the
+    expected, transient state for every frame that lands before then — not
+    necessarily a real problem. reduction/app.py catches this type specifically
+    and consults src/reduction/csv_wait.py before counting it as a failure.
+    """
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CSV metadata
@@ -75,12 +87,10 @@ def process_csv_metadata(raw_file_path: Path) -> dict:
             best_len = len(stem)
 
     if csv_file is None:
-        raise RuntimeError(
-            f"No matching CSV found for {raw_file_path.name} "
-            f"in directory {csv_dir}.\n"
-            f"Searched for a CSV whose name (without extension) appears inside "
-            f"'{raw_stem_no_idx}'. "
-            f"CSVs present: {[f.name for f in csv_dir.glob('*.csv')]}"
+        n_csvs = sum(1 for _ in csv_dir.glob("*.csv"))
+        raise CSVMetadataNotFound(
+            f"No CSV matching '{raw_stem_no_idx}' found for {raw_file_path.name} "
+            f"({n_csvs} CSV(s) present in {csv_dir})"
         )
 
     df = pd.read_csv(csv_file)

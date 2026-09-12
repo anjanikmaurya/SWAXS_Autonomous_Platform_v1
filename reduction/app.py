@@ -84,6 +84,8 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from src.reduction import core as reduction_core  # noqa: E402
+from src.reduction.process_metadata import CSVMetadataNotFound  # noqa: E402
+from src.reduction.csv_wait import decide_csv_wait                # noqa: E402
 from src.manifest import (                        # noqa: E402
     update_manifest, add_file_entry, make_provenance, set_project_meta,
 )
@@ -287,6 +289,31 @@ _SETTLE_S      = 2.0
 _MAX_FAILURES  = 3
 _fail_counts: dict[str, int] = {}
 
+# ── CSV-race defence ──────────────────────────────────────────────────────────
+# The metadata CSV for an acquisition is written when the acquisition
+# COMPLETES, but .raw frames land throughout it — a missing CSV is normal for
+# every frame of a run still in progress. Tracked per filename PREFIX (the
+# same keyword _parse_raw_kw_idx already derives, e.g.
+# "Run9_r003_sample_scan1"), not per file: it's the prefix's arrivals that show
+# whether the acquisition is still alive, not any one stuck frame's. In-memory
+# like _fail_counts — a restart gets a fresh chance.
+_prefix_last_seen: dict[str, float] = {}
+
+
+def _note_prefix_activity(raws: list[Path]) -> None:
+    """Record the newest .raw mtime seen so far for each raw's filename prefix.
+    Called on every poll with every not-yet-processed .raw currently on disk
+    (before settle/already-reduced filtering) — the broadest available signal
+    of "is this acquisition still producing frames."""
+    for raw in raws:
+        kw, _idx = _parse_raw_kw_idx(raw)
+        try:
+            mtime = raw.stat().st_mtime
+        except OSError:
+            continue
+        if mtime > _prefix_last_seen.get(kw, 0.0):
+            _prefix_last_seen[kw] = mtime
+
 
 def _ready_to_reduce(raw: Path) -> bool:
     if _fail_counts.get(str(raw), 0) >= _MAX_FAILURES:
@@ -297,11 +324,29 @@ def _ready_to_reduce(raw: Path) -> bool:
         return False        # vanished between glob and stat — pick it up next cycle
 
 
-def _note_failure(raw: Path) -> None:
+def _note_failure(raw: Path) -> bool:
+    """Record one failure for `raw`. Returns True exactly on the call that
+    crosses the permanent-skip threshold, so the caller emits the
+    "permanently skipped" event exactly once."""
     n = _fail_counts.get(str(raw), 0) + 1
     _fail_counts[str(raw)] = n
     if n == _MAX_FAILURES:
         _emit(f"  ⏭  {raw.name}: failed {n}× — skipping until restart or /api/reset", "warn")
+        return True
+    return False
+
+
+def _publish_permanent_skip(raw: Path, detector: str, keyword: str) -> None:
+    """Emit ``file.skipped`` the moment a frame is given up on for good — the
+    signal that tells the watchdog an average gate for this recipe/lane will
+    never fill, instead of leaving it to guess from a timeout."""
+    if _bus is None:
+        return
+    try:
+        _bus.emit_file_skipped(str(raw), keyword=keyword, detector=detector,
+                                n_failures=_MAX_FAILURES)
+    except Exception:
+        pass
 
 
 def _already_reduced(raw_path, out_root) -> bool:
@@ -491,6 +536,40 @@ def _register_reduced(result: dict, raw_path: Path, detector: str,
         ))
     except Exception as exc:
         _emit(f"  [manifest] write error: {exc}", "warn")
+
+
+def _process_one_raw(f: Path, detector: str, experiment, config: dict,
+                      operator: str, interval: float) -> None:
+    """Process one already-vetted .raw file: reduce it, or classify and
+    record the failure. Shared by the SAXS and WAXS legs of _loop() (also the
+    unit of work the tests drive directly, with no Flask app running).
+
+    A missing CSV (CSVMetadataNotFound) is checked against decide_csv_wait
+    before it is allowed to count against the file's strike budget — while
+    its filename prefix is still producing new frames, the acquisition (and
+    its CSV) is presumably still running, and "no CSV yet" is not a failure.
+    Every other exception (a genuinely corrupt frame, a bad CSV row, …)
+    counts immediately, exactly as before.
+    """
+    kw, _idx = _parse_raw_kw_idx(f)
+    process_fn = (experiment.process_saxs_file if detector == "saxs"
+                  else experiment.process_waxs_file)
+    try:
+        result = process_fn(f)   # frees arrays inside
+        with _processed_lock:
+            _processed_files.add(str(f))
+        _emit(reduction_core._fmt_result_line(result), "ok")
+        _register_reduced(result, f, detector, experiment, config, operator)
+        return
+    except CSVMetadataNotFound as e:
+        if decide_csv_wait(_prefix_last_seen.get(kw), time.time(), interval) == "wait":
+            _emit(f"  ⏳ {f.name}: {e} — '{kw}' may still be acquiring, waiting", "info")
+            return
+        _emit(f"  ✗  {f.name}: {e}", "error")
+    except Exception as e:
+        _emit(f"  ✗  {f.name}: {e}", "error")
+    if _note_failure(f):   # single bad file — log, continue, give up after N tries
+        _publish_permanent_skip(f, detector, kw)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -732,6 +811,11 @@ def monitor_start():
                     time.sleep(interval)
                     continue
 
+                # Record prefix activity from the RAW scan, before any settle/
+                # already-reduced filtering below — this is the broadest signal
+                # of "is this acquisition still producing frames" available.
+                _note_prefix_activity(saxs_new + waxs_new)
+
                 # Second defence against re-reducing the whole experiment when the
                 # persisted processed-set is missing/unreadable at boot (fresh clone,
                 # two-laptop move, deleted state dir): skip any .raw whose .dat is
@@ -768,15 +852,7 @@ def monitor_start():
                     if not _monitoring:
                         break
                     _emit(f"  SAXS  {f.name}", "info")
-                    try:
-                        result = experiment.process_saxs_file(f)   # frees arrays inside
-                        with _processed_lock:
-                            _processed_files.add(str(f))
-                        _emit(reduction_core._fmt_result_line(result), "ok")
-                        _register_reduced(result, f, "saxs", experiment, config, operator)
-                    except Exception as e:
-                        _emit(f"  ✗  {f.name}: {e}", "error")
-                        _note_failure(f)   # single bad file — log, continue, give up after N tries
+                    _process_one_raw(f, "saxs", experiment, config, operator, interval)
                     gc.collect()
 
                 # ── Process WAXS files — one at a time ────────────────────────
@@ -784,15 +860,7 @@ def monitor_start():
                     if not _monitoring:
                         break
                     _emit(f"  WAXS  {f.name}", "info")
-                    try:
-                        result = experiment.process_waxs_file(f)
-                        with _processed_lock:
-                            _processed_files.add(str(f))
-                        _emit(reduction_core._fmt_result_line(result), "ok")
-                        _register_reduced(result, f, "waxs", experiment, config, operator)
-                    except Exception as e:
-                        _emit(f"  ✗  {f.name}: {e}", "error")
-                        _note_failure(f)
+                    _process_one_raw(f, "waxs", experiment, config, operator, interval)
                     gc.collect()
 
                 # ── End-of-cycle cleanup ──────────────────────────────────────
