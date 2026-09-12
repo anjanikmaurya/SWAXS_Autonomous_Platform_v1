@@ -617,6 +617,34 @@ class TempController:
     def age_s(self) -> float:
         return time.time() - self._last_read_ok
 
+    @property
+    def source(self) -> str:
+        """Where `current` comes from — so a consumer can say whether the
+        number is a MEASUREMENT or a placeholder.
+
+        "beamline" — read from the SPEC/EPICS counter; `stale` and `age_s`
+                     are meaningful.
+        "mock"     — the simulated ramp in tick(); a plausible number, not a
+                     reading.
+        "unwired"  — `read()` is still the shipped stub, which returns the last
+                     value (the 25 °C ambient default) forever. It looks like a
+                     measurement and is not one, and `stale` cannot detect it
+                     because there is no source to go stale. Anything that
+                     displays a temperature has to distinguish this case, and
+                     temperature-gated arming must not be used in it (see the
+                     REAL DRIVER HOOK note on read()).
+        """
+        if self.beamline is not None:
+            return "beamline"
+        if self.backend == "mock":
+            return "mock"
+        return "unwired"
+
+    @property
+    def trustworthy(self) -> bool:
+        """True when `current` is a live reading worth gating a run on."""
+        return self.source == "beamline" and not self.stale
+
     def set_temperature(self, T: float) -> None:
         """Set the reactor temperature. When a beamline is wired, this COMMANDS
         the controller to ramp to T (csettemp); otherwise it only records the

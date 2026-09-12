@@ -1334,6 +1334,18 @@ class ReactorController:
                                 "current": round(self.temp.current, 2),
                                 "stable": self.temp.is_stable(),
                                 "tolerance": self.temp.tolerance,
+                                # Whether `current` is a MEASUREMENT. With no
+                                # sensor wired, read() returns the last value
+                                # (25 °C ambient) forever and `stale` cannot
+                                # see it — there is no source to go stale. A UI
+                                # that prints the number without this is
+                                # presenting a placeholder as a reading.
+                                # See TempController.source.
+                                "source": self.temp.source,
+                                "stale": self.temp.stale,
+                                "age_s": (round(self.temp.age_s(), 1)
+                                          if self.temp.source == "beamline" else None),
+                                "trustworthy": self.temp.trustworthy,
                                 "bstop": self.temp.bstop,
                                 "i0": self.temp.i0},
                 "last_collect": self._last_collect,

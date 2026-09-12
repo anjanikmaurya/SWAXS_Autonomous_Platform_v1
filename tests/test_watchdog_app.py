@@ -424,18 +424,77 @@ def test_flushing_reports_time_left_and_the_background_collection():
 def test_temperature_gated_arming_reports_the_gap_to_target():
     phase, label, detail = wd._reactor_phase({
         "state": "arming", "supervising": True, "arm_mode": "temp",
-        "temperature": {"current": 188.4, "target": 240.0, "stable": False},
+        "temperature": {"current": 188.4, "target": 240.0, "tolerance": 2.0,
+                        "source": "beamline", "stale": False, "stable": False},
         "spec": {}})
     assert (phase, label) == ("ramping", "RAMPING TO TEMPERATURE")
     assert "188.4 → 240.0 °C" in detail and "+51.6 to go" in detail
+    assert "±2 °C band" in detail, "the tolerance decides when the run starts"
 
 
 def test_arming_at_target_says_so_rather_than_plus_zero():
     _p, _l, detail = wd._reactor_phase({
         "state": "arming", "supervising": True, "arm_mode": "temp",
-        "temperature": {"current": 240.0, "target": 240.0, "stable": True},
+        "temperature": {"current": 240.0, "target": 240.0, "tolerance": 2.0,
+                        "source": "beamline", "stale": False, "stable": True},
         "spec": {}})
     assert "at target" in detail and "stable" in detail
+
+
+# ── the temperature has to be a MEASUREMENT, or say that it is not ─────────
+# With no sensor wired, TempController.read() is still the shipped stub: it
+# returns the last value (the 25 °C ambient default) forever. Rendering that
+# as "25.0 → 240.0 °C (+215.0 to go)" presents a placeholder as a reading, it
+# never changes, and temperature-gated arming can never open its gate.
+def test_an_unwired_sensor_is_named_rather_than_shown_as_a_reading():
+    detail = wd._temp_detail({"target": 240.0, "current": 25.0, "tolerance": 2.0,
+                              "source": "unwired", "stale": False})
+    assert "25.0" not in detail, \
+        "the placeholder value must NOT be shown — it looks like a measurement"
+    assert "target 240.0 °C" in detail
+    assert "no temperature sensor wired" in detail
+    assert "timed arming" in detail, "say what to do about it"
+
+
+def test_a_stale_beamline_reading_reports_its_age_not_its_value():
+    detail = wd._temp_detail({"target": 240.0, "current": 25.0, "tolerance": 2.0,
+                              "source": "beamline", "stale": True, "age_s": 735.0})
+    assert "25.0" not in detail, \
+        "a stale value is whatever it was when the source died — do not show it"
+    assert "STALE" in detail and "12m 15s old" in detail
+    assert "time out" in detail
+
+
+def test_a_simulated_reading_is_labelled_simulated():
+    detail = wd._temp_detail({"target": 240.0, "current": 231.0, "tolerance": 2.0,
+                              "source": "mock", "stale": False})
+    assert "231.0 → 240.0 °C" in detail and "simulated" in detail
+
+
+def test_a_live_reading_carries_no_disclaimer():
+    detail = wd._temp_detail({"target": 240.0, "current": 188.4, "tolerance": 2.0,
+                              "source": "beamline", "stale": False})
+    for word in ("simulated", "placeholder", "STALE"):
+        assert word not in detail, detail
+
+
+def test_missing_numbers_fall_back_to_the_target_alone():
+    assert wd._temp_detail({"target": 240.0, "source": "beamline",
+                            "stale": False}) == "target 240.0 °C"
+    assert wd._temp_detail({}) == "target —"
+
+
+def test_the_reactor_publishes_where_its_temperature_comes_from():
+    """_temp_detail is only honest if the reactor tells it. TempController
+    exposes source/trustworthy and controller.status() forwards them."""
+    import inspect
+    from src.reactor.hardware import TempController
+    assert isinstance(TempController.source, property)
+    assert isinstance(TempController.trustworthy, property)
+    src = inspect.getsource(__import__("src.reactor.controller",
+                                        fromlist=["x"]).ReactorController.status)
+    for key in ('"source"', '"stale"', '"age_s"', '"trustworthy"'):
+        assert key in src, f"status() must publish {key} for the dashboard"
 
 
 def test_timed_arming_is_a_countdown_not_a_temperature():

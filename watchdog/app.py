@@ -445,6 +445,55 @@ def _fmt_secs_short(s) -> str:
     return f"{int(s // 3600)}h {int((s % 3600) // 60):02d}m"
 
 
+def _temp_detail(temp: dict) -> str:
+    """The reactor temperature, said honestly.
+
+    `current` is only a measurement when it comes from the beamline counter
+    (`source == "beamline"`). The other two cases both produce a number that
+    LOOKS measured:
+
+      mock     — the simulated ramp. Fine to show, must be labelled.
+      unwired  — TempController.read() is still the shipped stub, which returns
+                 the last value (the 25 °C ambient default) forever. It never
+                 changes, `stale` cannot detect it (there is no source to go
+                 stale), and temperature-gated arming can therefore never
+                 open its gate: the run waits until the arm timeout, every
+                 time. That is worth saying on the dashboard, because it is
+                 a configuration problem and not a slow ramp.
+
+    A stale beamline reading is reported with its age rather than its value,
+    because the value is whatever it was when the source died.
+    """
+    tgt = temp.get("target")
+    cur = temp.get("current")
+    tol = temp.get("tolerance")
+    src = str(temp.get("source") or "")
+    tgt_s = f"{tgt:.1f} °C" if isinstance(tgt, (int, float)) else "—"
+
+    if src == "unwired":
+        return (f"target {tgt_s} · no temperature sensor wired, so the reading "
+                f"is a placeholder — temperature-gated arming cannot complete; "
+                f"use timed arming")
+    if temp.get("stale"):
+        age = temp.get("age_s")
+        aged = f" ({_fmt_secs_short(age)} old)" if age else ""
+        return (f"target {tgt_s} · SENSOR READING STALE{aged} — arming will "
+                f"time out rather than open the gate")
+    if not (isinstance(cur, (int, float)) and isinstance(tgt, (int, float))):
+        return f"target {tgt_s}"
+
+    gap = tgt - cur
+    bits = [f"{cur:.1f} → {tgt:.1f} °C"
+            + (f" ({gap:+.1f} to go)" if abs(gap) >= 0.05 else " (at target)")]
+    if isinstance(tol, (int, float)) and tol > 0:
+        bits.append(f"±{tol:g} °C band")
+    if temp.get("stable"):
+        bits.append("stable — the run starts now")
+    if src == "mock":
+        bits.append("simulated")
+    return " · ".join(bits)
+
+
 def _reactor_phase(reactor: dict) -> tuple[str, str, str]:
     """(phase, label, detail) for what the reactor is doing before data exists.
 
@@ -492,15 +541,13 @@ def _reactor_phase(reactor: dict) -> tuple[str, str, str]:
             total = _fmt_secs_short(reactor.get("arm_total_s"))
             span = f"{left} of {total} left" if left and total else left
             return "arming", "ARMING", span or "waiting out the arming delay"
-        # Temperature-gated arming is the one an operator actually waits on.
-        detail = ""
-        if isinstance(cur, (int, float)) and isinstance(tgt, (int, float)):
-            gap = tgt - cur
-            detail = (f"{cur:.1f} → {tgt:.1f} °C"
-                      + (f" ({gap:+.1f} to go)" if abs(gap) >= 0.05 else " (at target)"))
-            if temp.get("stable"):
-                detail += " · stable"
-        return "ramping", "RAMPING TO TEMPERATURE", detail
+        # Temperature-gated arming is the one an operator actually waits on,
+        # so the numbers here have to be the REAL ones — and have to say so
+        # when they are not. With no sensor wired, TempController.read() is
+        # still the shipped stub that returns the 25 °C ambient default
+        # forever; printing "25.0 → 240.0 °C (+215.0 to go)" presents that
+        # placeholder as a measurement, and it will never change.
+        return "ramping", "RAMPING TO TEMPERATURE", _temp_detail(temp)
 
     if state == "running":
         if spec.get("collecting"):
