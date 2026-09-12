@@ -289,6 +289,11 @@ _SETTLE_S      = 2.0
 _MAX_FAILURES  = 3
 _fail_counts: dict[str, int] = {}
 
+#: One-element list so the monitor loop can flip it without a `global`. Reset on
+#: every monitor start, so each run says once — and only once — how much of the
+#: folder it is skipping.
+_skip_note_shown = [False]
+
 # ── CSV-race defence ──────────────────────────────────────────────────────────
 # The metadata CSV for an acquisition is written when the acquisition
 # COMPLETES, but .raw frames land throughout it — a missing CSV is normal for
@@ -349,12 +354,22 @@ def _publish_permanent_skip(raw: Path, detector: str, keyword: str) -> None:
         pass
 
 
-def _already_reduced(raw_path, out_root) -> bool:
+def _already_reduced(raw_path, out_root, prefixes=()) -> bool:
     """True when this .raw already has a NEWER .dat on disk.
 
-    The second defence, and the one that works with no saved state at all. A
-    .raw modified after its .dat (a re-acquisition, or a corrected frame) is
-    correctly treated as new again.
+    The second defence, and the one that works with no saved state at all — it
+    is what keeps reduction from re-reducing a folder when the processed-set is
+    missing (a fresh clone, a two-laptop move, /api/reset). A .raw modified
+    after its .dat (a re-acquisition, a corrected frame) is correctly treated
+    as new again.
+
+    ``prefixes`` must carry ``saxs_filename_prefix`` / ``waxs_filename_prefix``
+    from config.yml. ``Experiment._make_output_path`` STRIPS a configured
+    prefix from the output stem (src/reduction/core.py), so with a prefix set
+    the output is ``{stem-without-prefix}_SAXS.dat`` while this glob looked for
+    ``{stem-with-prefix}*.dat`` — it matched nothing, the check always returned
+    False, and the only defence against reprocessing the folder was silently
+    inoperative on exactly the setups that configure a prefix.
     """
     try:
         raw = Path(raw_path)
@@ -363,14 +378,21 @@ def _already_reduced(raw_path, out_root) -> bool:
             if stem.lower().endswith(suffix):
                 stem = stem[: -len(suffix)]
                 break
+        # Try the name as-is and with each configured prefix stripped, because
+        # the output may have been written either way.
+        stems = {stem}
+        for p in prefixes:
+            if p and stem.startswith(p):
+                stems.add(stem[len(p):])
         raw_mtime = raw.stat().st_mtime
         for det in ("SAXS", "WAXS"):
             d = Path(out_root) / det / "Reduction"
             if not d.is_dir():
                 continue
-            for cand in d.glob(f"{stem}*.dat"):
-                if cand.stat().st_mtime >= raw_mtime:
-                    return True
+            for s in stems:
+                for cand in d.glob(f"{s}*.dat"):
+                    if cand.stat().st_mtime >= raw_mtime:
+                        return True
         return False
     except Exception:
         return False        # never let the check itself skip a frame
@@ -769,6 +791,7 @@ def monitor_start():
             return jsonify({"ok": False, "error": "No config provided"}), 400
 
         _monitoring = True
+        _skip_note_shown[0] = False      # say it once per run, not once per process
         _emit(f"👁  Monitoring started — checking every {interval} s  ·  Operator: {operator}", "ok")
 
         def _loop():
@@ -822,10 +845,25 @@ def monitor_start():
                 # already newer on disk. `_already_reduced` existed and was unit-tested
                 # but was never wired into the live pipeline.
                 _out_root = experiment.output_dir_1d
+                _prefixes = (config.get("saxs_filename_prefix", "") or "",
+                             config.get("waxs_filename_prefix", "") or "")
+                _n_before = len(saxs_new) + len(waxs_new)
                 saxs_new = [f for f in saxs_new
-                            if not _already_reduced(f, _out_root) and _ready_to_reduce(f)]
+                            if not _already_reduced(f, _out_root, _prefixes)
+                            and _ready_to_reduce(f)]
                 waxs_new = [f for f in waxs_new
-                            if not _already_reduced(f, _out_root) and _ready_to_reduce(f)]
+                            if not _already_reduced(f, _out_root, _prefixes)
+                            and _ready_to_reduce(f)]
+
+                # Say so ONCE, the first time a folder with previous work in it
+                # is skipped. Silence here is what made "started a run, nothing
+                # happens for ten minutes" impossible to tell apart from a hang.
+                _n_skipped = _n_before - len(saxs_new) - len(waxs_new)
+                if _n_skipped > 0 and not _skip_note_shown[0]:
+                    _skip_note_shown[0] = True
+                    _emit(f"  ↪ {_n_skipped} frame(s) already have a newer .dat — "
+                          f"skipping them (this is a new run, not a re-run of the "
+                          f"folder)", "ok")
 
                 if not saxs_new and not waxs_new:
                     _emit("  (no new files)", "info")

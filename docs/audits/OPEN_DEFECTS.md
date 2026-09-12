@@ -431,6 +431,42 @@ honoured (`quality/app.py:216-222`) and there is a graded-file cache (`:481`).
 | LOW | `/api/browse` returns `{"path": …}` in reduction but `{"current": …}` in the average app — two contracts for one job. |
 | LOW | `quality`, `reactor`, `analyzer` and `calibration` post-date the design audit and have **never been contrast-checked**. See `docs/DESIGN_SYSTEM.md` §6. |
 
+### Fresh start reprocessed the whole folder — FIXED 2026-09-11
+
+Reported twice from the beamline. Pressing **Start** on a project folder that
+already held data made reduce, average, subtract and the auto-fit app work
+through the ENTIRE folder — every file of every previous run, oldest first —
+before touching the frames of the run just started. Each stage is one worker
+thread, so the live data queued behind the whole back-catalogue and the loop
+appeared stalled for minutes to hours.
+
+Four separate causes, one rule. `monitor_start` in `average` set
+`_avg_batch_state = {}` and in `background` set `_sub_done = {}` unless the
+request carried `resume=True`; the analyzer cleared `_handled` on abort and on
+a folder change without reseeding; reduction survived only because
+`_already_reduced` checks the disk — and *that* check was silently inoperative
+whenever `saxs_filename_prefix`/`waxs_filename_prefix` was configured, because
+`Experiment._make_output_path` strips the prefix from the output stem while
+the glob looked for the prefixed name.
+
+Those clears came from the N3 fix, which was about the *boot resume* wrongly
+clearing state; "fresh start" was then read as "forget everything", which is
+not what an operator means by it.
+
+The rule now lives once in **`src/backlog.py`** and is applied by all four:
+an input whose output exists is done; an input with no output older than the
+crash-gap window is history; an input with no output newer than the window is
+left for normal processing. Each app rebuilds its memo from durable disk state
+on a fresh start instead of wiping it —
+`average/app.py::_seed_batch_state_from_disk` (which also restores batch
+NUMBERING, since `n` resetting to 0 rewrote `batch001` over the existing
+file — lossy, not merely slow),
+`background/app.py::_seed_sub_done_from_disk`,
+`analyzer/app.py::_reseed_intake`. Each now also logs, once per run, how much
+of the folder it is skipping: the silence was what made this indistinguishable
+from a hang. Tests: `tests/test_fresh_start_no_backlog.py`,
+`tests/test_analyzer_fresh_run_backlog.py`.
+
 ### Auto Watch (watchdog, 5110)
 
 Audited 2026-09-11; full write-up with line references and the reasoning in

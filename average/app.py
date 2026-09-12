@@ -15,6 +15,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -171,6 +172,72 @@ def _load_batch_state() -> None:
                       f"in {len(_avg_batch_state)} group(s)", "info")
     except Exception as exc:
         _avg_emit(f"⚠ could not load the batch state: {exc}", "warn")
+
+
+def _seed_batch_state_from_disk(dets, n_per_batch: int) -> None:
+    """Reconstruct the batch state from the Averaged files already on disk.
+
+    What a FRESH operator start used to do instead was `_avg_batch_state = {}`,
+    which told the loop that nothing in the Reduction folder had ever been
+    averaged. On a project with a previous run in it, the next poll therefore
+    re-averaged the WHOLE folder, oldest first, before touching the frames of
+    the run just started — one worker thread, so the live frames waited behind
+    all of it and the loop looked stalled. And because `n` reset to 0, the
+    rewrite started at `batch001`, OVERWRITING the existing batch001 for every
+    group: not just slow, lossy.
+
+    Rebuilt from the only durable record there is, the output filenames
+    (`{kw}_batch{NNN}_{N}files_{label}.dat`):
+
+      • `n` = how many batches that group already has, so numbering continues
+        at the next one instead of overwriting
+      • the first `n * n_per_batch` frames of the group, in acquisition order,
+        are the ones those batches consumed — marked consumed
+
+    Only batches of the CURRENT `n_per_batch` count: a group averaged at a
+    different batch size is not a statement about how many frames this run's
+    batches will consume, so it is left alone rather than guessed at.
+    """
+    total_seeded = 0
+    for det, folder, outdir in dets:
+        fp = Path(folder)
+        out_dir = Path(outdir) if outdir else fp.parent / "Averaged"
+        if not (fp.is_dir() and out_dir.is_dir()):
+            continue
+        # How many batches each group already has on disk.
+        batches: dict = {}
+        for p in out_dir.glob(f"*_batch*_{n_per_batch}files_*.dat"):
+            m = re.match(rf"(?P<kw>.+)_batch(?P<no>\d+)_{n_per_batch}files_", p.name)
+            if m:
+                kw = m.group("kw")
+                batches[kw] = max(batches.get(kw, 0), int(m.group("no")))
+        if not batches:
+            continue
+        # Which frames those batches consumed, in acquisition order.
+        try:
+            frames = read_folder(fp)
+        except Exception as exc:
+            _avg_emit(f"⚠  {det.upper()}: could not scan for existing batches: {exc}", "warn")
+            continue
+        groups: dict = {}
+        for fd in frames:
+            gk = condition_keyword(fd["filename"]) or fd["keyword"]
+            groups.setdefault(gk, []).append(fd)
+        for kw, n_batches in batches.items():
+            grp = sorted(groups.get(kw, []), key=lambda d: d.get("scan_idx", 0))
+            consumed = [fd["filename"] for fd in grp[: n_batches * n_per_batch]]
+            rec = _batch_rec((det, kw))
+            rec["files"].update(consumed)
+            rec["n"] = max(rec["n"], n_batches)
+            total_seeded += len(consumed)
+    if total_seeded:
+        _avg_emit(f"↪ {total_seeded} frame(s) in "
+                  f"{len(_avg_batch_state)} group(s) were already averaged — "
+                  f"skipping them and continuing the batch numbering "
+                  f"(a new run, not a re-run of the folder)", "ok")
+    _save_batch_state()
+
+
 #: (det, keyword) -> frames waiting, so the 'still waiting' line is
 #: logged once per change instead of every poll
 _avg_pending: dict = {}
@@ -904,14 +971,18 @@ def monitor_start():
                   f"average will be written. Set frames/batch to {per_acq} (or "
                   f"lower), or raise spec.frames in reactor/config.yml.", "error")
 
-    # N3: only a FRESH operator start clears the batch state. The boot resume
-    # replays the saved body through this same endpoint, and clearing there is
-    # what made a restart re-average the whole night.
+    # N3: the boot resume replays the saved body through this same endpoint, so
+    # it restores the saved state. A FRESH operator start no longer WIPES it —
+    # it reconstructs it from the Averaged files already on disk. "Fresh start"
+    # means start a new run, not redo the folder; wiping made the next poll
+    # re-average every previous run's frames ahead of the live ones and restart
+    # batch numbering at 001 over the top of the existing files. See
+    # _seed_batch_state_from_disk and src/backlog.py.
     if bool((request.get_json(silent=True) or {}).get("resume")):
         _load_batch_state()
     else:
         _avg_batch_state = {}
-        _save_batch_state()
+        _seed_batch_state_from_disk(dets, n_per_batch)
     _avg_pending.clear()
     _avg_status.update({"monitoring": True, "batches": 0, "last": None,
                         "frames_per_average": n_per_batch, "interval": interval,

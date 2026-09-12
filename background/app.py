@@ -1344,14 +1344,19 @@ def monitor_start():
     if not dets:
         return jsonify({"ok": False, "error": "No Averaged folder provided"}), 400
 
-    # Only a FRESH operator start forgets what was already subtracted. The boot
-    # resume passes resume=True so a restart RESUMES instead of re-subtracting the
-    # whole night (see _save_sub_done). Mirrors the average app's N3 fix.
+    # The boot resume passes resume=True and restores the saved memo. A FRESH
+    # operator start no longer FORGETS what was already subtracted — it
+    # reconstructs the memo from the Subtracted files already on disk. Wiping
+    # it meant pressing Start on a folder with a previous run in it
+    # re-subtracted every averaged file in it, oldest first, ahead of the run
+    # just started; one worker thread, so the live curves waited behind the
+    # whole back-catalogue. "Fresh start" means start a new run, not redo the
+    # folder. See _seed_sub_done_from_disk and src/backlog.py.
     _sub_done = {}
     if bool((request.get_json(silent=True) or {}).get("resume")):
         _load_sub_done()
     else:
-        _save_sub_done()             # clear the persisted copy on a fresh start
+        _seed_sub_done_from_disk(dets)
     _sub_nobkg.clear(); _sub_seen.clear(); _sub_lastsig.clear()
     _sub_status.update({"monitoring": True, "subtracted": 0, "flagged": 0,
                         "last": None, "interval": interval})
@@ -1425,6 +1430,55 @@ def _save_sub_done() -> None:
                    {"done": {k: list(v) for k, v in _sub_done.items()}})
     except Exception as exc:
         _sub_emit(f"⚠ could not save the subtraction state: {exc}", "warn")
+
+
+def _seed_sub_done_from_disk(dets) -> None:
+    """Rebuild the 'already subtracted' memo from the Subtracted folder.
+
+    `_process_one` writes `<sample stem>_sub.dat`, so the output name is a
+    complete record of which averaged files have been subtracted — no saved
+    state needed. An averaged file with its `_sub.dat` already present is
+    marked done at its CURRENT signature, so a genuine rewrite (the averager
+    re-emitting the same filename with more frames) still gets a new
+    signature and is subtracted again, exactly as decide_intake intends.
+
+    An averaged file with no `_sub.dat` is left alone only if it is recent;
+    anything older than the crash-gap window is history and is marked done
+    too, because a new run must not work through the back-catalogue before it
+    reaches the live data. Both rules live in src/backlog.py, shared with the
+    other monitors so they cannot drift apart.
+    """
+    from src.backlog import partition_backlog, describe, CRASH_GAP_WINDOW_S
+
+    now = time.time()
+    total_done = total_todo = 0
+    for det, avg_folder, out_folder in dets:
+        src_dir, out_dir = Path(avg_folder), Path(out_folder)
+        if not src_dir.is_dir():
+            continue
+        candidates, sigs = [], {}
+        for p in sorted(src_dir.glob("*.dat")):
+            try:
+                st = p.stat()
+            except OSError:
+                continue
+            rp = str(p.resolve())
+            sigs[rp] = (st.st_size, st.st_mtime_ns)
+            candidates.append((rp, st.st_mtime))
+        if not candidates:
+            continue
+        done, todo = partition_backlog(
+            candidates,
+            has_output=lambda rp: (out_dir / (Path(rp).stem + "_sub.dat")).is_file(),
+            now=now, window_s=CRASH_GAP_WINDOW_S)
+        for rp in done:
+            _sub_done[rp] = sigs[rp]
+        total_done += len(done); total_todo += len(todo)
+
+    line = describe(list(range(total_done)), list(range(total_todo)), "averaged file")
+    if line:
+        _sub_emit("↪ " + line, "ok")
+    _save_sub_done()
 
 
 def _load_sub_done() -> None:
