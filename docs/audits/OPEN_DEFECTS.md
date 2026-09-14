@@ -488,7 +488,7 @@ defect lives.
 | W21 | LOW | `_in_quiet_hours` treats `start == end` as "never quiet" rather than "always quiet", accepted silently. |
 | W22 | LOW | `should_send`'s snooze check is `isinstance(snooze_until, float)` with a `0.0` fallback, so an int silently disables the snooze. Unreachable today (`_state` is memory-only); a trap if snooze is ever persisted. |
 | W23 | LOW | `/api/test` bypasses `should_send`, so the Test button still sends with the master switch off. Defensible, undocumented. |
-| W25 | LOW | The Auto Watch card icon is `🐕` — the one app that did not come out of the scattering-icon pass. |
+| W25 | ~~LOW~~ **FIXED 2026-09-14** | Auto Watch now has a generated scattering icon (`tools/make_watchdog_icon.py`): the monodisperse SAXS profile every other icon uses, ending in a large dot at the newest point — the curve is the loop's output, the dot is the frame being watched. Tuned by inspecting the downscaled result: a dashed "expected but not arrived" tail and a thin white ring around the dot were both tried and rejected as invisible at 16 px. Also closed a related gap the favicon work exposed — `analyzer` and `reduction` both shipped `#1565C0`, so they were distinguishable only by emoji; analyzer is now `#4527A0`. `tests/test_favicons.py` asserts no two apps share a colour or an icon, that every declared `icon_image` exists, and that `hub/static/` carries a copy of each (the hub serves its own static folder). |
 
 ---
 

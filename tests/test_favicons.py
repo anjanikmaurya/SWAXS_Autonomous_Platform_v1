@@ -152,3 +152,62 @@ def test_a_broken_registry_does_not_stop_an_app_serving_an_icon(monkeypatch):
     fav.register_favicon(app, "reduction")
     r = app.test_client().get("/app-icon")
     assert r.status_code == 200, "an app must never fail to boot over a favicon"
+
+
+# ── the registry itself has to keep them distinguishable ────────────────────
+def test_no_two_apps_share_an_accent_colour():
+    """analyzer and reduction both shipped #1565C0, so they were told apart
+    only by emoji — and at 16 px in a tab strip, colour is what you actually
+    see first."""
+    import collections
+    import yaml
+    apps = yaml.safe_load((_ROOT / "apps.yml").read_text())["apps"]
+    counts = collections.Counter(a.get("color") for a in apps)
+    dupes = {c: n for c, n in counts.items() if n > 1}
+    assert not dupes, f"apps.yml colours are shared: {dupes}"
+
+
+def test_no_two_apps_share_an_icon_field():
+    import collections
+    import yaml
+    apps = yaml.safe_load((_ROOT / "apps.yml").read_text())["apps"]
+    keys = [(a.get("icon_image") or a.get("icon")) for a in apps]
+    counts = collections.Counter(keys)
+    dupes = {k: n for k, n in counts.items() if n > 1}
+    assert not dupes, f"apps.yml icons are shared: {dupes}"
+
+
+def test_every_declared_icon_image_exists_in_its_apps_static_folder():
+    """A typo'd icon_image degrades to an emoji tile silently — which is
+    exactly the failure src/favicon.py is designed to survive, and exactly the
+    one nobody would notice."""
+    import yaml
+    apps = yaml.safe_load((_ROOT / "apps.yml").read_text())["apps"]
+    missing = []
+    for a in apps:
+        rel = str(a.get("icon_image") or "")
+        if not rel.startswith("/static/"):
+            continue
+        p = _ROOT / a["id"] / "static" / rel[len("/static/"):]
+        if not p.is_file():
+            missing.append(str(p.relative_to(_ROOT)))
+    assert not missing, f"declared but absent: {missing}"
+
+
+def test_the_hub_carries_a_copy_of_every_app_icon_it_renders():
+    """The hub serves its OWN static folder (Flask(__name__)), so an app's
+    icon_image is not reachable from a hub card unless it is copied there too.
+    Every icon generator's output says this; it is the step that gets missed."""
+    import yaml
+    apps = yaml.safe_load((_ROOT / "apps.yml").read_text())["apps"]
+    missing = []
+    for a in apps:
+        rel = str(a.get("icon_image") or "")
+        if not rel.startswith("/static/"):
+            continue
+        name = rel[len("/static/"):]
+        if not (_ROOT / "hub" / "static" / name).is_file():
+            missing.append(name)
+    assert not missing, (
+        f"hub/static/ is missing {missing} — the hub card would fall back to "
+        f"the emoji while the app's own tab shows the real icon")

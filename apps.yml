@@ -87,7 +87,8 @@ apps:
     entry:        "analyzer/app.py"
     manifest_key: "analyses"
     icon:         "🧭"          # navigating parameter space toward the target size — the search/optimize loop
-    color:        "#1565C0"
+    color:        "#4527A0"     # NOT reduction's #1565C0 — two apps sharing one
+                                # colour are indistinguishable in a 16 px tab
     knowledge:    "analyzer/knowledge.md"
 
   - id:           reactor
@@ -117,5 +118,6 @@ apps:
     port:         5110
     entry:        "watchdog/app.py"
     knowledge:    "watchdog/knowledge.md"
-    icon:         "🐕"
+    icon:         "📡"          # fallback only — icon_image below is what renders
+    icon_image:   "/static/watchdog_icon.png"   # tools/make_watchdog_icon.py
     color:        "#D32F2F"
