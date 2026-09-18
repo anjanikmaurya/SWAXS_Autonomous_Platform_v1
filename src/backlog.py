@@ -17,7 +17,12 @@ Each app forgot for its own reason:
 * ``background``— ``monitor_start`` set ``_sub_done = {}`` on the same condition
 * ``analyzer``  — cleared ``_handled`` on abort / folder change without reseeding
   (fixed separately in ``analyzer/app.py::_reseed_intake``)
-* ``reduction`` — survived only because ``_already_reduced`` checks the disk
+* ``reduction`` — appeared safe because ``_already_reduced`` checks the disk,
+  but that check compares mtimes: any operation that re-stamps the .raw files
+  (SFTP pull, two-laptop sync, restore from backup, ``cp`` without ``-p``) made
+  the whole back-catalogue look newer than its own .dat and it reduced the
+  folder from scratch. It now seeds through this module like the others, and
+  redoing the folder is opt-in (``reprocess_existing``).
 
 Those clears came from the N3 fix, which was about the *boot resume* wrongly
 clearing state. "Fresh start" was then read as "forget everything", which is

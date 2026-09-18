@@ -12,6 +12,36 @@ and simultaneous SWAXS modes.
 - Reads paired `.raw.pdi` files (PDI metadata format) or a single CSV
 - Extracts per-frame: I₀, beamstop transmission, exposure time, timestamp
 
+#### What happens to frames that are already in the folder
+
+Pressing **Watch for new files** starts a *new run*. It does not re-reduce the
+folder. At the first poll the app claims everything already present as done,
+using the shared rule in `src/backlog.py`:
+
+| Frame | Verdict |
+|---|---|
+| has a `.dat` on disk | done — skipped |
+| no `.dat`, older than 10 min (`CRASH_GAP_WINDOW_S`) | history — skipped |
+| no `.dat`, newer than 10 min | reduced — it may have landed just before a crash |
+
+It says so once in the log (`↪ N existing frames already processed — skipping`).
+
+**To reduce the back-catalogue again**, tick **Reprocess existing frames**
+before starting. That clears the processed set *and* bypasses the newer-`.dat`
+check, so existing output is overwritten, oldest frame first — new frames from
+the live run queue behind it, so do not use it during a beamtime.
+
+The checkbox is deliberately not saved with the config and is forced off when
+the app auto-resumes after a restart: a restart continues a run, it never
+decides to redo the folder.
+
+Why a checkbox and not just the mtime check: `_already_reduced()` compares the
+`.raw` mtime with its `.dat`. Anything that re-stamps the raw files — the SFTP
+pull, a two-laptop sync (SYNC.md), a restore from backup, `cp` without `-p` —
+makes the entire back-catalogue look newer than its own output, and the folder
+was reduced from scratch with no way to say no. **↺ Reset files** only forgets
+the bookkeeping; it does not request a re-run.
+
 ### 2. Metadata Extraction
 Two formats supported:
 - **PDI mode** (`metadata_format: pdi`): reads `*.raw.pdi` files alongside each

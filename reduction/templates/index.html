@@ -934,6 +934,12 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
           <input type="number" id="mon-interval" value="10" min="1" style="width:60px; padding:5px 8px;" />
           <span class="hint">seconds</span>
         </div>
+        <div class="vdiv"></div>
+        <label class="inline" style="gap:6px; cursor:pointer;"
+               title="Off (default): Start begins a NEW run — frames already in the folder are left alone.&#10;On: every frame in the folder is reduced again, oldest first, and new frames wait behind it.">
+          <input type="checkbox" id="mon-reprocess" />
+          <span class="hint">Reprocess existing frames</span>
+        </label>
         <div style="margin-left:auto;" class="btn-grp">
           <button class="btn btn-ghost btn-sm" onclick="clearLog()">Clear log</button>
           <button class="btn btn-warn  btn-sm" onclick="resetProcessed()">↺ Reset files</button>
@@ -1259,9 +1265,21 @@ async function toggleMonitor() {
       document.getElementById('mon-tog').checked = false; return;
     }
     const operator = (document.getElementById('cfg-operator')?.value || '').trim();
+    // Opt-in only. Default off: Start means "new run", not "redo the folder".
+    const reprocess = !!document.getElementById('mon-reprocess')?.checked;
+    if (reprocess && !confirm(
+          'Reprocess existing frames?\n\n' +
+          'Every frame already in this folder will be reduced again, oldest ' +
+          'first, and its .dat overwritten. New frames from the live run wait ' +
+          'behind that backlog.\n\nLeave this off for a normal run.')) {
+      document.getElementById('mon-reprocess').checked = false;
+      document.getElementById('mon-tog').checked = false;
+      return;
+    }
     const r = await fetch('/api/monitor/start', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ config: cfg, interval: +ivl, operator }),
+      body: JSON.stringify({ config: cfg, interval: +ivl, operator,
+                             reprocess_existing: reprocess }),
     });
     const d = await r.json();
     if (d.ok) { S.monitoring = true; setBadge('Monitoring…','orange'); }
@@ -1273,7 +1291,10 @@ async function toggleMonitor() {
 }
 
 async function resetProcessed() {
-  if (!confirm('All files will be re-processed on the next run. Continue?')) return;
+  if (!confirm('Forget which frames have been reduced?\n\n' +
+               'Frames that already have a .dat are still skipped on the next ' +
+               'run — tick “Reprocess existing frames” if you want them redone.'))
+    return;
   await fetch('/api/reset', { method:'POST' });
 }
 

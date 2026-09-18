@@ -83,6 +83,7 @@ _ROOT = _HERE.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+from src.backlog import partition_backlog, describe as describe_backlog  # noqa: E402
 from src.favicon import register_favicon               # noqa: E402
 from src.reduction import core as reduction_core  # noqa: E402
 from src.reduction.process_metadata import CSVMetadataNotFound  # noqa: E402
@@ -267,9 +268,11 @@ def _load_processed() -> None:
     if not root:
         return
     try:
-        # Fresh by default (Sept 2026): the processed-set is only restored when
-        # the operator opts into resume (SWAXS_RESUME=1). Otherwise a restart
-        # re-reduces from scratch, per the "carry nothing over" requirement.
+        # Restored unconditionally, and that is deliberate: remembering what was
+        # already reduced is never the wrong answer. Whether the folder gets
+        # REDUCED AGAIN is decided at Start by `reprocess_existing`, not here —
+        # an earlier comment claimed this was gated on SWAXS_RESUME, which the
+        # code never did.
         st = load_state(root, _PROCESSED_STATE) or {}
         rp = Path(root)
         restored = set()
@@ -401,6 +404,56 @@ def _already_reduced(raw_path, out_root, prefixes=()) -> bool:
         return False
     except Exception:
         return False        # never let the check itself skip a frame
+
+
+def _seed_processed_from_disk(config, out_root, *, now=None) -> str:
+    """Mark everything already sitting in the folder as done, so pressing Start
+    begins a NEW run rather than re-running the folder.
+
+    This is the default, and the reason it cannot be left to
+    ``_already_reduced`` alone: that check compares mtimes, so anything that
+    re-stamps the .raw files — an SFTP pull, a two-laptop sync (SYNC.md), a
+    restore from backup, `cp` without `-p` — makes the whole back-catalogue
+    look newer than its own .dat output and the folder is reduced from scratch.
+    The operator sees a fresh run stall for minutes to hours behind work that
+    was already done, which is exactly the failure ``src/backlog.py`` exists to
+    prevent for the other three monitors.
+
+    So: enumerate the folder at Start and apply the shared rule — output on
+    disk, or no output but older than the crash-gap window, counts as done;
+    anything newer than the window is left alone, because it may be a frame
+    that landed just before the last crash. Reducing the back-catalogue anyway
+    is still available, but it is now something the operator asks for
+    (``reprocess_existing``), not something a restart decides for them.
+
+    Returns the one-line operator note, or "" when there was nothing to skip.
+    """
+    prefixes = (config.get("saxs_filename_prefix", "") or "",
+                config.get("waxs_filename_prefix", "") or "")
+    try:
+        saxs_all, waxs_all = reduction_core.find_new_raw_files(config, set())
+    except Exception as exc:
+        _emit(f"  [seed] could not list the folder ({exc}) — falling back to "
+              f"the per-file .dat check", "warn")
+        return ""
+
+    candidates = []
+    for f in list(saxs_all) + list(waxs_all):
+        try:
+            candidates.append((f, Path(f).stat().st_mtime))
+        except OSError:
+            candidates.append((f, 0.0))
+
+    done, todo = partition_backlog(
+        candidates,
+        has_output=lambda f: _already_reduced(f, out_root, prefixes),
+        now=time.time() if now is None else now,
+    )
+    if done:
+        with _processed_lock:
+            _processed_files.update(str(f) for f in done)
+    return describe_backlog(done, todo, "frame")
+
 
 # Stop event for one-shot /api/run calls.
 # Cleared at the start of every new run; set by /api/run/stop.
@@ -791,6 +844,10 @@ def monitor_start():
         config   = data.get("config", {})
         interval = max(int(data.get("interval", 10)), 1)
         operator = _current_user(data.get("operator") or config.pop("operator", None))
+        # Reducing what is ALREADY in the folder is opt-in (Sept 2026). Pressing
+        # Start means "begin a new run", not "redo the folder" — see
+        # _seed_processed_from_disk for why the mtime check alone was not enough.
+        reprocess = bool(data.get("reprocess_existing", False))
 
         if not config:
             return jsonify({"ok": False, "error": "No config provided"}), 400
@@ -798,6 +855,15 @@ def monitor_start():
         _monitoring = True
         _skip_note_shown[0] = False      # say it once per run, not once per process
         _emit(f"👁  Monitoring started — checking every {interval} s  ·  Operator: {operator}", "ok")
+        if reprocess:
+            # Loud, because this is the expensive path and the one that starves
+            # live frames behind the back-catalogue.
+            with _processed_lock:
+                _processed_files.clear()
+            _save_processed()
+            _emit("♻  Reprocess existing frames is ON — every frame in the folder "
+                  "will be reduced again, oldest first. New frames wait behind it.",
+                  "warn")
 
         def _loop():
             """
@@ -814,6 +880,7 @@ def monitor_start():
             experiment    = None
             backoff       = interval   # seconds to wait after a setup error
             MAX_BACKOFF   = 300        # cap at 5 minutes
+            seeded        = reprocess  # nothing to seed when redoing the folder
 
             while _monitoring:
                 # ── Ensure we have a working Experiment ──────────────────────
@@ -828,6 +895,25 @@ def monitor_start():
                         time.sleep(backoff)
                         backoff = min(backoff * 2, MAX_BACKOFF)
                         continue
+
+                # ── Claim the existing folder as done, once per run ──────────
+                # Deliberately here and not in monitor_start: the output root
+                # comes off the Experiment, and building one loads the
+                # integrators, which must not block the POST.
+                if not seeded:
+                    seeded = True
+                    try:
+                        note = _seed_processed_from_disk(
+                            config, experiment.output_dir_1d)
+                        if note:
+                            _skip_note_shown[0] = True   # already said it
+                            _emit(f"  ↪ {note}", "ok")
+                            _emit("     Tick “Reprocess existing frames” before "
+                                  "starting if you want them reduced again.", "info")
+                            _save_processed()
+                    except Exception as exc:
+                        _emit(f"  [seed] skipped ({exc}) — relying on the "
+                              f"per-file .dat check", "warn")
 
                 # ── Scan for new files ────────────────────────────────────────
                 try:
@@ -853,12 +939,12 @@ def monitor_start():
                 _prefixes = (config.get("saxs_filename_prefix", "") or "",
                              config.get("waxs_filename_prefix", "") or "")
                 _n_before = len(saxs_new) + len(waxs_new)
-                saxs_new = [f for f in saxs_new
-                            if not _already_reduced(f, _out_root, _prefixes)
-                            and _ready_to_reduce(f)]
-                waxs_new = [f for f in waxs_new
-                            if not _already_reduced(f, _out_root, _prefixes)
-                            and _ready_to_reduce(f)]
+                # …unless the operator explicitly asked to redo the folder, in
+                # which case a newer .dat is exactly what they want overwritten.
+                _done = (lambda f: False) if reprocess else \
+                        (lambda f: _already_reduced(f, _out_root, _prefixes))
+                saxs_new = [f for f in saxs_new if not _done(f) and _ready_to_reduce(f)]
+                waxs_new = [f for f in waxs_new if not _done(f) and _ready_to_reduce(f)]
 
                 # Say so ONCE, the first time a folder with previous work in it
                 # is skipped. Silence here is what made "started a run, nothing
@@ -944,7 +1030,12 @@ def reset_processed():
     _fail_counts.clear()
     _save_processed()          # N1: clear the PERSISTED copy too, or a restart
                                # would silently restore what the operator just reset
-    _emit("♻  Processed-files list cleared — all files will reprocess on next run", "warn")
+    # Clearing the list is NOT the same as asking for a re-run: the next Start
+    # reseeds from the folder unless `reprocess_existing` is set. Saying "all
+    # files will reprocess" here was the promise that made the button
+    # untrustworthy once seeding landed.
+    _emit("♻  Processed-files list cleared. Frames that already have a .dat are "
+          "still skipped — tick “Reprocess existing frames” to redo them.", "warn")
     return jsonify({"ok": True})
 
 
@@ -1200,6 +1291,15 @@ def _boot_resume_monitor() -> None:
         params = load_monitor(_state_root(), _MON_APP)
         if not params:
             return
+        # A restart is never a request to redo the folder, even if the run being
+        # resumed was started with the box ticked. Replaying that flag is how a
+        # crash at 3 a.m. turns into the whole back-catalogue being reduced
+        # again while the beamline is still producing frames.
+        if params.get("reprocess_existing"):
+            _emit("  ↪ resuming WITHOUT reprocessing existing frames "
+                  "(a restart continues the run, it does not redo the folder)",
+                  "info")
+        params = {**params, "reprocess_existing": False}
         rv = app.test_client().post("/api/monitor/start", json=params)
         body = rv.get_json(silent=True) or {}
         # "Already monitoring" is a SUCCESS for our purposes: the loop is running.
