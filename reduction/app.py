@@ -268,11 +268,21 @@ def _load_processed() -> None:
     if not root:
         return
     try:
-        # Restored unconditionally, and that is deliberate: remembering what was
-        # already reduced is never the wrong answer. Whether the folder gets
-        # REDUCED AGAIN is decided at Start by `reprocess_existing`, not here —
-        # an earlier comment claimed this was gated on SWAXS_RESUME, which the
-        # code never did.
+        # This almost always restores NOTHING, and that is by design — it is
+        # also the mechanism behind "restarting re-reduces the whole folder".
+        #
+        # load_state() defaults to honour_no_resume=True, and
+        # src/runstate.resume_disabled() is True unless SWAXS_RESUME=1, because
+        # the platform starts fresh on every restart (Sept 2026). So on a normal
+        # restart the processed set comes back EMPTY, every .raw in the tree
+        # looks new, and the only thing standing between the operator and a full
+        # re-reduction is the mtime check in _already_reduced() — which any
+        # re-stamping of the raw files defeats.
+        #
+        # That is why the real defence is _seed_processed_from_disk() at Start,
+        # which reads the OUTPUT folder rather than a memo that resume policy is
+        # allowed to throw away. This call is the fast path for the opt-in
+        # resume case, not the guarantee.
         st = load_state(root, _PROCESSED_STATE) or {}
         rp = Path(root)
         restored = set()

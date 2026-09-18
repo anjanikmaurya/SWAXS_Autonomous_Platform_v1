@@ -25,7 +25,14 @@ if str(_ROOT) not in sys.path:
 
 os.environ.setdefault("SWAXS_NO_WATCH", "1")
 os.environ.setdefault("SWAXS_NO_BUS", "1")
-os.environ.setdefault("SWAXS_NO_RESUME", "1")
+# NOT SWAXS_NO_RESUME. These are module-level, so they are set at COLLECTION
+# time and never undone — they leak into every other test in the session.
+# SWAXS_NO_RESUME is the hard override in src/runstate.resume_disabled(), so
+# setting it here silently beat the `monkeypatch.setenv("SWAXS_RESUME", "1")`
+# in tests/test_continuous_run_hardening.py and made two of its persistence
+# tests fail whenever this file happened to be collected alongside them.
+# SWAXS_NO_WATCH already stops the boot-resume thread, which is all this file
+# actually needs.
 
 from src.favicon import app_meta, favicon_svg, register_favicon   # noqa: E402
 

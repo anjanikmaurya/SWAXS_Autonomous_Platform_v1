@@ -24,10 +24,38 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 
 
+#: Directories that are never scanned. Runtime artifacts and third-party code:
+#: nothing in them is a doc this suite is responsible for.
+_SKIP_DIRS = {"node_modules", ".git", ".git-old-backup", "ai_knowledge",
+              "venv", ".venv", "logs", "__pycache__", ".pytest_cache",
+              ".ruff_cache"}
+
+
+def _walk(patterns: tuple[str, ...]) -> list[Path]:
+    """Every file under ROOT matching `patterns`, PRUNING the skip list as it
+    descends.
+
+    `ROOT.rglob(...)` cannot prune: it walks the entire tree and the caller
+    filters afterwards. 23,018 of this repo's 23,199 .py files live in venv/,
+    so the scan below — six patterns, six full walks — spent all its time
+    listing a virtualenv in order to examine about 180 project files. That is
+    slow on a local disk and minutes-long on a network mount, which made the
+    `uv run` test look like a hang. os.walk lets us drop those directories
+    before descending into them.
+    """
+    import fnmatch
+    import os
+    out: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(ROOT):
+        dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
+        for name in filenames:
+            if any(fnmatch.fnmatch(name, pat) for pat in patterns):
+                out.append(Path(dirpath) / name)
+    return out
+
+
 def _docs() -> list[Path]:
-    skip = {"node_modules", ".git", "ai_knowledge", "venv", ".venv"}
-    return sorted(p for p in ROOT.rglob("*.md")
-                  if not any(part in skip for part in p.parts))
+    return sorted(_walk(("*.md",)))
 
 
 #: Phrases that mark a mention as a deliberate "this does not exist" statement.
@@ -144,13 +172,11 @@ def _uv_run_scan_targets() -> list[Path]:
     user copy-pastes first. This file is excluded because it necessarily
     quotes the string it forbids; logs/ and venv/ are runtime artifacts.
     """
-    skip_dirs = {"venv", ".venv", "node_modules", ".git", "logs", "ai_knowledge"}
+    me = Path(__file__).resolve()
     out = list(_docs())
-    for pattern in ("*.py", "*.yml", "*.yaml", "*.html",
-                    "start_platform.sh", "start_platform.bat"):
-        out += [p for p in ROOT.rglob(pattern)
-                if not any(part in skip_dirs for part in p.parts)
-                and p.resolve() != Path(__file__).resolve()]
+    out += [p for p in _walk(("*.py", "*.yml", "*.yaml", "*.html",
+                              "start_platform.sh", "start_platform.bat"))
+            if p.resolve() != me]
     return sorted(set(out))
 
 
