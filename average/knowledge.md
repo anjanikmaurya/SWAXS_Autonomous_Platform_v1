@@ -123,6 +123,30 @@ Causes:
 Action: exclude outlier frames, or turn on the I₀ Frame Filter to reject frames
 whose I₀ deviates from the group median.
 
+### "batch N dropped — …" in the auto-averaging log
+
+A full batch arrived and no average came out. The message names the reason
+(`diagnose_unusable` in `src/plot_reduction.py`); the common ones are:
+
+| Reason | What it means |
+|---|---|
+| `N× I ≤ 0 at every q` | the frames integrate to zero — the 2D input was blank/dark for this condition, or normalization drove I non-positive |
+| `N× sigma is NaN/inf` | intensity is fine, the error column is not — check `error_model` and the mask |
+| `N× the file has no data rows` | reduction wrote a `.dat` with no points at all |
+| `no overlapping q range` | two detectors or two `radial_range` settings mixed into one group |
+
+**The batch is consumed and will not be retried.** That is deliberate — the
+`.dat` files are static on disk, so a retry would fail identically every poll
+forever — but it does mean that condition will never produce an averaged, and
+therefore never a subtracted, profile. An `average.skipped` event goes on the
+bus so the background app is not left waiting and Auto Watch can report the
+reason (Pattern H) instead of "go read the average app's log".
+
+A frame that fails the validity check is excluded from the batch, not averaged
+in as zero: nine good frames plus one dark one give an average of the nine,
+with `Files averaged: 9` in the header. Before September 2026 the shared q grid
+was built *before* that check, so one empty `.dat` discarded the whole batch.
+
 ### "No overlapping q range across files"
 Raised by `_common_q_grid` when the largest q_min is at or above the smallest
 q_max — usually a SAXS file mixed into a WAXS group, or a frame integrated with a

@@ -270,6 +270,37 @@ class EventBusClient:
             "detector":  detector,
         })
 
+    def emit_average_skipped(
+        self,
+        keyword:  str,
+        detector: str,
+        batch:    int,
+        n_files:  int,
+        reason:   str,
+        files:    list | None = None,
+    ) -> bool:
+        """Emit ``average.skipped`` when a full batch produces no average.
+
+        The batch is consumed and the frames are static on disk, so this is
+        terminal: that {recipe_id}_{role} will never yield an averaged profile,
+        and every downstream stage waiting on one is waiting forever. Without
+        this event the only trace was a line in the average app's own log, and
+        the watchdog could say no more than "gate full, no average — go read
+        the average app's log" (diagnose.py Pattern E).
+
+        Deliberately NOT ``file.skipped``: that one means *reduction* gave up
+        on a frame and the watchdog counts it for Pattern G, which would then
+        be counting two different things.
+        """
+        return self.publish("average.skipped", {
+            "keyword":  keyword,
+            "detector": detector,
+            "batch":    batch,
+            "n_files":  n_files,
+            "reason":   reason,
+            "files":    list(files or []),
+        })
+
     def emit_file_stitched(
         self,
         file_path:    str,

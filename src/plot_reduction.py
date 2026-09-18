@@ -59,6 +59,82 @@ def _common_q_grid(files: list[dict], n_pts: int = 1000) -> np.ndarray:
     return np.geomspace(lo, hi, n_pts)
 
 
+#: Why a frame contributed nothing, in the order the validity mask applies
+#: them. Order matters: a frame can fail several at once and the operator needs
+#: the one that explains the physics, not the first bit that happened to clear.
+_UNUSABLE_REASONS = (
+    ("I ≤ 0 at every q",              lambda q, I, s: ~(I > 0)),
+    ("intensity is NaN/inf",          lambda q, I, s: ~np.isfinite(I)),
+    ("sigma is NaN/inf",              lambda q, I, s: ~np.isfinite(s)),
+    ("q ≤ 0 or non-finite",           lambda q, I, s: ~((q > 0) & np.isfinite(q))),
+)
+
+
+def diagnose_unusable(frames: list[dict], n_valid_min: int = 3) -> str:
+    """Explain, in one line, why :func:`_average_group` could not use a batch.
+
+    `_average_group` returns a bare ``None`` for four quite different
+    situations, and the callers turned all of them into "no usable frames —
+    skipped". The actual diagnosis went to the module logger, i.e. into a
+    rotating file nobody reads during a beamtime, so a batch of perfectly good
+    frames that failed for a trivial reason looked exactly like the averaging
+    app being broken.
+
+    This re-derives the reason from the same frames, using the same validity
+    rule, so the app can say it out loud. Read-only and never raises: it runs
+    on a path that has already failed once.
+    """
+    if not frames:
+        return "the batch was empty"
+    n = len(frames)
+    counts: dict[str, int] = {}
+    unusable = 0
+    survivors = []
+    for fd in frames:
+        try:
+            q, I, s = fd["q"], fd["I"], fd["sigma"]
+            valid = ((q > 0) & (I > 0) & np.isfinite(q)
+                     & np.isfinite(I) & np.isfinite(s))
+            if valid.sum() >= n_valid_min:
+                survivors.append(fd)
+                continue
+            unusable += 1
+            if q.size == 0:
+                counts["the file has no data rows"] = \
+                    counts.get("the file has no data rows", 0) + 1
+                continue
+            for label, bad in _UNUSABLE_REASONS:
+                if bad(q, I, s).all():
+                    counts[label] = counts.get(label, 0) + 1
+                    break
+            else:
+                counts[f"fewer than {n_valid_min} usable points"] = \
+                    counts.get(f"fewer than {n_valid_min} usable points", 0) + 1
+        except Exception:
+            unusable += 1
+            counts["unreadable"] = counts.get("unreadable", 0) + 1
+
+    if unusable == 0:
+        # Every frame was individually fine, so the batch died on the shared
+        # grid — the frames do not overlap in q.
+        try:
+            lo = max(float(f["q"].min()) for f in frames)
+            hi = min(float(f["q"].max()) for f in frames)
+            return (f"the {n} frames share no overlapping q range "
+                    f"(highest q_min={lo:.4g}, lowest q_max={hi:.4g}) — "
+                    f"are two different detectors or configs mixed in?")
+        except Exception:
+            return "the frames could not be put on a common q grid"
+
+    why = ", ".join(f"{c}× {label}" for label, c in
+                    sorted(counts.items(), key=lambda kv: -kv[1]))
+    head = (("the only frame is unusable" if n == 1 else f"all {n} frames are unusable")
+            if unusable == n else f"{unusable} of {n} frames are unusable")
+    tail = ("" if unusable == n else
+            f"; the remaining {len(survivors)} could not be combined either")
+    return f"{head} ({why}){tail}"
+
+
 def _write_averaged_dat(
     path: Path,
     q: np.ndarray,
@@ -141,9 +217,35 @@ def _average_group(
         fd = kw_files[0]
         return fd["q"], fd["I"], fd["sigma"], fd["metadata"], 1
 
-    # Build common grid and interpolate all files onto it
+    # ── Reject unusable frames BEFORE building the shared grid ───────────────
+    # The validity mask used to be applied inside the interpolation loop, i.e.
+    # AFTER _common_q_grid had already been computed over every frame. A single
+    # bad frame therefore set the grid for the whole batch: an empty q array
+    # raised ValueError and took nine good frames down with it, and a frame
+    # with a truncated q range silently clipped the average to that range. The
+    # frames that cannot contribute must not get a vote on the grid.
+    #
+    # One NaN/inf in I or sigma would also propagate through np.interp and
+    # poison every averaged q-bin it touches, which is what the mask is for.
+    usable: list[tuple[dict, np.ndarray]] = []
+    for fd in kw_files:
+        valid = ((fd["q"] > 0) & (fd["I"] > 0)
+                 & np.isfinite(fd["q"]) & np.isfinite(fd["I"]) & np.isfinite(fd["sigma"]))
+        if valid.sum() < 3:
+            logger.warning(
+                "[_average_group] skipping %s (<3 valid points)",
+                fd.get("filename", "?"))
+            continue
+        usable.append((fd, valid))
+
+    if not usable:
+        return None
+    if len(usable) == 1:
+        fd, _ = usable[0]
+        return fd["q"], fd["I"], fd["sigma"], fd["metadata"], 1
+
     try:
-        q_grid = _common_q_grid(kw_files, n_pts=n_pts)
+        q_grid = _common_q_grid([{"q": fd["q"][v]} for fd, v in usable], n_pts=n_pts)
     except ValueError as exc:
         logger.warning("[_average_group] %s", exc)
         return None
@@ -152,16 +254,7 @@ def _average_group(
     sig_rows: list[np.ndarray] = []
     used_files: list[dict] = []
 
-    for fd in kw_files:
-        # One NaN/inf in I or sigma would otherwise propagate through np.interp
-        # and poison every averaged q-bin it touches.
-        valid = ((fd["q"] > 0) & (fd["I"] > 0)
-                 & np.isfinite(fd["q"]) & np.isfinite(fd["I"]) & np.isfinite(fd["sigma"]))
-        if valid.sum() < 3:
-            logger.warning(
-                "[_average_group] skipping %s (<3 valid points)",
-                fd.get("filename", "?"))
-            continue
+    for fd, valid in usable:
         # Log-space interpolation (more accurate for scattering data)
         I_rows.append(np.exp(np.interp(
             np.log(q_grid),

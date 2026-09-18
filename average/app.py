@@ -36,7 +36,7 @@ if str(_ROOT) not in sys.path:
 
 from src.favicon import register_favicon               # noqa: E402
 from src.plot_reduction import (                                       # noqa: E402
-    read_folder, average_and_save, average_batch,
+    read_folder, average_and_save, average_batch, diagnose_unusable,
 )
 from src.utils.read_dat_metadata import read_dat_data_metadata         # noqa: E402
 from src.loop_naming import condition_keyword                          # noqa: E402
@@ -848,8 +848,32 @@ def _avg_monitor_loop(dets, n_per_batch, interval, i0_filter_pct,
                     _save_batch_state()
 
                     if written is None:
-                        _avg_emit(f"⚠  {kw} [{det}] batch {batch_no}: "
-                                  f"no usable frames — skipped", "warn")
+                        # "no usable frames — skipped" on its own sent the
+                        # operator to read a rotating log file for the reason,
+                        # which during a beamtime means the reason is lost.
+                        # Worse, the batch is consumed (above) and the frames
+                        # are static on disk, so this condition will NEVER
+                        # produce an average — say why, name the frames, and
+                        # tell the rest of the loop so the background app is
+                        # not left waiting on a gate that can never fill.
+                        try:
+                            why = diagnose_unusable(batch)
+                        except Exception as exc:          # never mask the skip
+                            why = f"reason could not be determined ({exc})"
+                        _avg_emit(f"⚠  {kw} [{det}] batch {batch_no} dropped — "
+                                  f"{why}", "warn")
+                        _avg_emit(f"     frames: {batch[0]['filename']} … "
+                                  f"{batch[-1]['filename']}  ·  these are "
+                                  f"consumed and will not be retried", "warn")
+                        if _bus is not None:
+                            try:
+                                _bus.emit_average_skipped(
+                                    keyword=kw, detector=det, batch=batch_no,
+                                    n_files=len(batch), reason=why,
+                                    files=[fd["filename"] for fd in batch],
+                                )
+                            except Exception:
+                                pass
                         continue
 
                     _avg_status["batches"] += 1

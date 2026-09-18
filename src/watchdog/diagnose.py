@@ -212,6 +212,29 @@ def _diagnose_average(stage: str, overdue_s: float, probes: dict, loop: dict,
         return (f"Pattern G — reduction permanently skipped {skipped} "
                 f"frame{plural}, gate stuck at {gate_line}"), text, True
 
+    # H — the average app consumed a full batch and wrote nothing, and said
+    # why (average.skipped). Terminal and self-explaining, so it is checked
+    # before E: E is the "gate full, no average, no idea why" case, and once
+    # the app reports a reason there is nothing left to guess. The frames are
+    # consumed, so no amount of waiting fixes this lane.
+    drop = avg.get("dropped") or {}
+    if drop.get("reason"):
+        n = drop.get("n_files") or "?"
+        pattern_line = (f"pattern: H (average dropped the batch) — "
+                         f"the average app reported the reason, no log needed")
+        text = "\n".join([
+            f"The average app consumed a full batch of {n} frames for "
+            f"{recipe_id or '?'} · {lane or '?'} and wrote no average.",
+            f"Reason given: {drop['reason']}",
+            "Those frames are consumed and will not be retried, so this "
+            "condition will never produce a subtracted profile. The frames "
+            "themselves are the problem — check what reduction wrote for this "
+            "condition before re-running it.",
+            _facts_block(stage, overdue_s, loop, recipe_id, lane, gate_line, pattern_line),
+        ])
+        return (f"Pattern H — average dropped a full batch: {drop['reason'][:80]}",
+                text, True)
+
     # E — gate full, but no averaged output: genuine average-app failure.
     if gate_full and avg.get("state") == "stalled":
         pattern_line = (f"pattern: E (average app stalled with a full gate) — "

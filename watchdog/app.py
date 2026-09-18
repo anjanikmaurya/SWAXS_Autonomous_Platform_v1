@@ -680,6 +680,23 @@ def _loop_state(probes: dict) -> dict:
             skipped_rid[lane], skipped_by_lane[lane] = rid, 0
         skipped_by_lane[lane] += 1
 
+    # average.skipped — a full batch consumed with no average written. Newest
+    # per lane wins; the recipe it belongs to is carried along so a stale drop
+    # from a previous condition cannot be reported against the current one.
+    dropped_by_lane: dict = {}
+    for event in events:
+        if event.get("type") != "average.skipped":
+            continue
+        lane, rid = _event_lane_rid(event)
+        if not lane:
+            continue
+        d = event.get("data") or {}
+        dropped_by_lane[lane] = {
+            "rid": rid, "reason": str(d.get("reason") or ""),
+            "n_files": d.get("n_files"), "batch": d.get("batch"),
+            "keyword": str(d.get("keyword") or ""),
+        }
+
     def _newest(etype: str, lane: str | None = None) -> dict | None:
         if lane is None:
             options = [newest.get((etype, k[1])) for k in newest if k[0] == etype]
@@ -828,6 +845,15 @@ def _loop_state(probes: dict) -> dict:
         # gate for this lane will never fill, not a guess from a timeout. See
         # diagnose.py Pattern G.
         red_node["skipped"] = skipped_by_lane[lane] if skipped_rid[lane] == rid else 0
+
+        # A full batch the average app consumed WITHOUT producing an average
+        # (src/events.py::emit_average_skipped). Terminal, and the strongest
+        # possible answer to "gate full, no file.averaged": the frames were
+        # unusable and are gone. Without it Pattern E could only say "go read
+        # the average app's log", which during a beamtime means the reason is
+        # lost to log rotation.
+        drop = dropped_by_lane.get(lane)
+        avg_node["dropped"] = drop if (drop and drop.get("rid") == rid) else None
 
         lanes[lane] = {
             "recipe_id": rid or "",
