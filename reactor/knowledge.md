@@ -98,6 +98,29 @@ Filenames carry role tags: `{recipe_id}_{spec.sample_tag}` (default `sample`) an
 
 `POST /api/collect_now` triggers a 2D collection on demand.
 
+#### The settings freeze while the loop is collecting
+
+`exposure_s`, `frames`, `sample_tag`, `bkg_tag`, `spec_lead_s` and `data_dir`
+cannot be changed while **auto-run is ON**, or while the state is `arming`,
+`running` or `flushing`. `POST /api/spec_settings` answers `409` with the
+reason, `status().spec.locked` / `.lock_reason` carry it, and the UI greys the
+fields. To change them: turn auto-run off (or let the run finish), edit, start
+again.
+
+Two reasons, and the second is the one that is easy to miss:
+
+1. **A bad value collects nothing.** `exposure_s` had no lower bound while
+   `frames` beside it was clamped with `max(1, …)`. A zero exposure makes
+   `simulate_frame` multiply its intensity map to nothing, writing blank `.raw`
+   files that reduce to structurally perfect `.dat` files full of zeros. Run20
+   lost condition r006 — twenty frames, both lanes — this way, and the first
+   complaint came from the average app two stages later. `exposure_s <= 0` is
+   now refused outright, on top of the freeze.
+2. **A good value is still wrong mid-campaign.** These settings define what an
+   acquisition *is*. Change the exposure between r005 and r006 and the two
+   conditions are no longer comparable, but the optimizer treats every point as
+   a measurement of one experiment and has no way to know.
+
 ### Abort, E-stop, cooldown
 **Abort** goes straight to flush. **E-stop** idles everything immediately (state
 `estop`; `/api/reset` clears it). `temperature.cooldown_c` (25.0 °C in the shipped

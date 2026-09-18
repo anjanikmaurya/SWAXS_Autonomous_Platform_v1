@@ -618,8 +618,11 @@ def api_auto_run():
 
 @app.route("/api/spec_settings", methods=["POST"])
 def api_spec_settings():
-    _ctrl.set_spec_settings(request.get_json(silent=True) or {})
-    return jsonify({"ok": True})
+    ok, msg = _ctrl.set_spec_settings(request.get_json(silent=True) or {})
+    # Refused while a run or campaign is in flight. 409, not 400: the request
+    # is well-formed, it just conflicts with the current state.
+    return jsonify({"ok": ok} if ok else {"ok": False, "error": msg}), \
+        (200 if ok else 409)
 
 
 @app.route("/api/collect_now", methods=["POST"])

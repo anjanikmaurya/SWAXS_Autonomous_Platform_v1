@@ -196,7 +196,10 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
     <div class="card">
       <div class="card-hd">🔦 Data collection (SPEC)</div>
       <div class="grid2">
-        <div><label>Exposure (s / frame)</label><input type="number" id="spec_exposure" step="0.1" min="0" onchange="pushSpec()"></div>
+        <!-- min is 0.1, not 0: an exposure of zero multiplies the detector
+             frame to nothing and collects blank .raw files that look perfectly
+             valid until the average app drops them two stages later. -->
+        <div><label>Exposure (s / frame)</label><input type="number" id="spec_exposure" step="0.1" min="0.1" onchange="pushSpec()"></div>
         <div><label>Number of frames</label><input type="number" id="spec_frames" step="1" min="1" onchange="pushSpec()"></div>
         <div><label>Sample keyword</label><input type="text" id="spec_sample_tag" onchange="pushSpec()"></div>
         <div><label>Background keyword</label><input type="text" id="spec_bkg_tag" onchange="pushSpec()"></div>
@@ -207,6 +210,8 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
         <input type="text" id="spec_data_dir" style="width:100%" onchange="pushSpec()"
                placeholder="defaults to the hub project folder — edit to the path SPEC writes to (e.g. /msd_data/...)">
       </div>
+      <div id="specLockNote" class="hint"
+           style="display:none; margin-top:8px; color:var(--warn);"></div>
       <div class="btn-row" style="align-items:center">
         <button class="btn btn-ghost" id="collectNowBtn" onclick="collectNow()">📷 Collect now</button>
         <label class="toggle" style="margin:0">as
@@ -434,8 +439,17 @@ async function collectNow(){
   if(r&&r.ok){ m.style.color='var(--ok)'; m.textContent='✓ collecting…'; }
   else{ m.style.color='var(--err)'; m.textContent='✗ '+((r&&r.error)||'failed'); }
 }
+const SPEC_FIELDS = ['spec_exposure','spec_frames','spec_sample_tag',
+                     'spec_bkg_tag','spec_lead','spec_data_dir'];
+
+function setSpecEnabled(on, why){
+  SPEC_FIELDS.forEach(id=>{ const e=$(id); if(e) e.disabled = !on; });
+  const n = $('specLockNote');
+  if(n){ n.style.display = on ? 'none' : ''; n.textContent = on ? '' : '🔒 ' + why; }
+}
+
 async function pushSpec(){
-  await api('/api/spec_settings',{
+  const r = await api('/api/spec_settings',{
     exposure_s:  $('spec_exposure').value.trim(),
     frames:      $('spec_frames').value.trim(),
     sample_tag:  $('spec_sample_tag').value.trim(),
@@ -443,6 +457,13 @@ async function pushSpec(){
     spec_lead_s: $('spec_lead').value.trim(),
     data_dir:    $('spec_data_dir').value.trim()
   });
+  // A refusal must not leave the box showing a value the controller rejected —
+  // that reads as accepted and is exactly how a 0 exposure went unnoticed.
+  if(r && r.ok === false){
+    const n = $('specLockNote');
+    if(n){ n.style.display=''; n.textContent = '🔒 ' + (r.error||'refused'); }
+    window._specInit = false;          // let the next refresh restore the real values
+  }
 }
 function setManualEnabled(on){
   ['T_reac','F_tot','x_ODE','x_TOP','x_oley','queueBtn'].forEach(id=>{const e=$(id);if(e)e.disabled=!on;});
@@ -740,6 +761,12 @@ function render(st){
     $('spec_exposure').value=sp.exposure_s; $('spec_frames').value=sp.frames;
     $('spec_sample_tag').value=sp.sample_tag; $('spec_bkg_tag').value=sp.bkg_tag;
     $('spec_lead').value=sp.spec_lead_s; $('spec_data_dir').value=sp.data_dir||''; }
+  // Freeze the acquisition settings while a run or campaign is in flight.
+  // These define what an acquisition IS, so changing one mid-campaign makes
+  // the conditions on either side of the change incomparable — and a bad
+  // value (exposure 0) silently collects nothing. The server refuses them
+  // too; this is so the operator sees it before typing, not after.
+  if(st.spec) setSpecEnabled(!st.spec.locked, st.spec.lock_reason||'');
   // currently-running readout + lock the manual form while autonomous
   const cr=st.current_recipe;
   $('runningNow').textContent = cr

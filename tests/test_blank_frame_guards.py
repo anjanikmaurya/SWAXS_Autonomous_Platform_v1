@@ -73,6 +73,75 @@ def test_a_valid_exposure_still_applies():
     assert c._spec_exposure == 0.25, "the guard must not reject small exposures"
 
 
+# ── guard 0: frozen while the loop owns the acquisition ─────────────────────
+# The clamp above stops a BAD value. This stops ANY value: mid-campaign the
+# settings define what an acquisition is, so even a valid change makes the
+# conditions on either side of it incomparable to the optimizer.
+def test_settings_are_frozen_while_auto_run_is_on():
+    c = _controller()
+    c.set_spec_settings({"exposure_s": "10", "frames": "10"})
+    c.set_auto_run(True)
+
+    ok, why = c.set_spec_settings({"exposure_s": "2", "frames": "3"})
+    assert ok is False and "auto-run" in why
+    assert (c._spec_exposure, c._spec_frames) == (10.0, 10), \
+        "a campaign's acquisition settings changed underneath it"
+
+
+def test_settings_are_frozen_mid_run_even_without_auto_run():
+    c = _controller()
+    c.set_spec_settings({"exposure_s": "10"})
+    c.state = "running"
+    ok, why = c.set_spec_settings({"exposure_s": "2"})
+    assert ok is False and "run is in progress" in why
+    assert c._spec_exposure == 10.0
+
+
+@pytest.mark.parametrize("state", ["idle", "ready", "estop"])
+def test_settings_are_editable_again_once_the_run_ends(state):
+    """'Turn auto-run off to change them' has to actually work, or the freeze
+    is a trap rather than a guard."""
+    c = _controller()
+    c.set_auto_run(True)
+    c.set_auto_run(False)
+    c.state = state
+    ok, _ = c.set_spec_settings({"exposure_s": "3"})
+    assert ok is True and c._spec_exposure == 3.0
+
+
+def test_the_lock_is_published_so_the_ui_can_grey_the_fields():
+    c = _controller()
+    assert c.status()["spec"]["locked"] is False
+    c.set_auto_run(True)
+    sp = c.status()["spec"]
+    assert sp["locked"] is True and sp["lock_reason"]
+
+
+def test_the_route_refuses_with_409_not_a_silent_ok():
+    """The UI reads r.ok; a 200 {"ok": true} on a refused change would leave
+    the operator believing a value was applied that never was."""
+    import importlib.util as u
+    import os
+    os.environ.setdefault("SWAXS_NO_WATCH", "1")
+    os.environ.setdefault("SWAXS_NO_BUS", "1")
+    spec = u.spec_from_file_location("reactor_lock_app", _ROOT / "reactor" / "app.py")
+    mod = u.module_from_spec(spec)
+    sys.modules["reactor_lock_app"] = mod
+    spec.loader.exec_module(mod)
+
+    client = mod.app.test_client()
+    assert client.post("/api/spec_settings",
+                       json={"exposure_s": "5"}).status_code == 200
+    mod._ctrl.set_auto_run(True)
+    try:
+        r = client.post("/api/spec_settings", json={"exposure_s": "1"})
+        assert r.status_code == 409
+        body = r.get_json()
+        assert body["ok"] is False and "auto-run" in body["error"]
+    finally:
+        mod._ctrl.set_auto_run(False)
+
+
 # ── guard 2: the collector ──────────────────────────────────────────────────
 def test_the_collector_refuses_to_run_with_no_exposure(tmp_path):
     from src.simulator.collector import SimulatedCollector

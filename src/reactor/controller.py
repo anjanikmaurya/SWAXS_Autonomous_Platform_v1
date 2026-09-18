@@ -324,14 +324,46 @@ class ReactorController:
                     self._run_deadline = self._run_started + self.live_duration
                     self._log(f"⏱ run duration → {self.live_duration:g}s (applies to current run)", "info")
 
-    def set_spec_settings(self, d: dict) -> None:
+    def spec_lock_reason(self) -> str:
+        """Why the data-collection settings cannot be changed right now, or ''.
+
+        These define what an acquisition IS — exposure, frame count, the tags
+        that become filenames, the folder frames land in. Changing them while
+        the loop is collecting does not just risk a bad value (Run20 lost a
+        whole condition to an exposure_s of 0); even a VALID change makes the
+        conditions before and after it incomparable, which is the one thing a
+        campaign cannot tolerate, since the optimizer treats every point as a
+        measurement of the same experiment.
+
+        So they are frozen for the duration and the operator stops the run to
+        change them. Caller must hold _lock.
+        """
+        if self.auto_run:
+            return ("auto-run is ON — data-collection settings are frozen so "
+                    "every condition in the campaign is collected identically. "
+                    "Turn auto-run off to change them.")
+        if self.state not in ("idle", "ready", "estop"):
+            return (f"a run is in progress ({self.state}) — data-collection "
+                    f"settings are frozen until it finishes.")
+        return ""
+
+    def set_spec_settings(self, d: dict) -> tuple[bool, str]:
         """Live SPEC data-collection settings from the app: exposure_s, frames,
         spec_lead_s, sample_tag, bkg_tag, data_dir. Blank/missing keys are left
-        unchanged. Values apply to the NEXT acquisition (read when a collect fires)."""
+        unchanged. Values apply to the NEXT acquisition (read when a collect fires).
+
+        Returns (ok, message) like collect_now/set_backend. Refused outright
+        while a run or campaign is in flight — see spec_lock_reason.
+        """
         def _tag(v):
             # keep filename-safe tokens only (letters/digits/_-)
             return "".join(c for c in str(v).strip() if c.isalnum() or c in "_-")
         with self._lock:
+            locked = self.spec_lock_reason()
+            if locked:
+                self._log(f"⚙ data-collection settings NOT changed — {locked}",
+                          "warn")
+                return False, locked
             if str(d.get("exposure_s", "")).strip():
                 # A non-positive exposure is silently catastrophic: the mock
                 # detector multiplies its intensity map by exposure_s, so 0
@@ -364,9 +396,11 @@ class ReactorController:
                 self._spec_bkg_tag = _tag(d["bkg_tag"])
             if str(d.get("data_dir", "")).strip():
                 self._spec_data_dir = str(d["data_dir"]).strip()
-            self._log(f"⚙ data-collection: exp {self._spec_exposure:g}s ×{self._spec_frames}, "
-                      f"lead {self._spec_lead:g}s, tags {self._spec_sample_tag}/{self._spec_bkg_tag}, "
-                      f"dir {self._spec_data_dir or '(unset)'}", "info")
+            msg = (f"exp {self._spec_exposure:g}s ×{self._spec_frames}, "
+                   f"lead {self._spec_lead:g}s, tags {self._spec_sample_tag}/"
+                   f"{self._spec_bkg_tag}, dir {self._spec_data_dir or '(unset)'}")
+            self._log(f"⚙ data-collection: {msg}", "info")
+            return True, msg
 
     def set_project_root(self, path: str) -> None:
         """Tell the controller (and the 2D simulator) where the hub project
@@ -1370,6 +1404,11 @@ class ReactorController:
                          "frames": self._spec_frames, "spec_lead_s": self._spec_lead,
                          "sample_tag": self._spec_sample_tag, "bkg_tag": self._spec_bkg_tag,
                          "data_dir": self._spec_data_dir,
+                         # So the UI can grey the fields and say why, rather
+                         # than letting the operator type into a box whose
+                         # value will be refused.
+                         "lock_reason": self.spec_lock_reason(),
+                         "locked": bool(self.spec_lock_reason()),
                          "collecting": self.beamline.is_collecting()},
                 "current_recipe": self.current.to_dict() if self.current else None,
                 "elapsed_s": elapsed, "duration_s": dur,
