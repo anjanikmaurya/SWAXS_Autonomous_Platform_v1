@@ -90,6 +90,18 @@ def write_raw(path: Path, image: np.ndarray) -> Path:
             f"refusing to write an EMPTY frame to {path.name} — the detector "
             f"shape resolved to {arr.shape}. Check detector_shapes in the "
             f"project config.yml and simulator.shape in reactor/config.yml.")
+    # A frame of the right size carrying no counts at all. The size check above
+    # never caught it, so twenty of these were written for one condition and
+    # only surfaced two stages later, as "no usable frames" in the average app.
+    # It cannot be legitimate here: simulate_frame adds a solvent background
+    # floor to EVERY frame, including particle-free background collections, so
+    # zero counts means something upstream was zero — in practice exposure_s.
+    if not arr.any():
+        raise ValueError(
+            f"refusing to write a BLANK frame to {path.name} — every pixel is "
+            f"zero. simulate_frame always adds a solvent background, so this "
+            f"means exposure_s or flux was zero. Fix the acquisition settings "
+            f"rather than writing frames that reduce to I = 0.")
 
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".part")

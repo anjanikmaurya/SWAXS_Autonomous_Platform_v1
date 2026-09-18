@@ -663,6 +663,13 @@ class Experiment:
                 # thickness) — and marked it done forever.
                 filename=str(_part_path(output_path)),
             )
+            try:
+                _assert_has_signal(intensity, raw_file_path, "SAXS", self._log)
+            except ValueError:
+                # Discard the .part, or a rejected frame leaves a stub behind on
+                # every poll for the rest of the beamtime.
+                _part_path(output_path).unlink(missing_ok=True)
+                raise
             _append_metadata_to_dat(_part_path(output_path), metadata)
             _part_path(output_path).replace(output_path)      # atomic publish
 
@@ -713,6 +720,11 @@ class Experiment:
                 # thickness) — and marked it done forever.
                 filename=str(_part_path(output_path)),
             )
+            try:
+                _assert_has_signal(intensity, raw_file_path, "WAXS", self._log)
+            except ValueError:
+                _part_path(output_path).unlink(missing_ok=True)
+                raise
             _append_metadata_to_dat(_part_path(output_path), metadata)
             _part_path(output_path).replace(output_path)      # atomic publish
 
@@ -747,6 +759,52 @@ def _fmt_result_line(result: dict) -> str:
         f"      I0={i0:.2f}  Bstop={bstop:.2f}  T={t:.4f}  "
         f"thickness={thick:.3f} mm{calib_str}{ctemp_str}"
     )
+
+
+#: A profile needs at least this many positive intensity points to be worth
+#: publishing. Matches the threshold the averaging core applies when deciding
+#: whether a frame can contribute (src/plot_reduction._average_group), so a
+#: .dat that reduction accepts is one the average app can actually use.
+_MIN_POSITIVE_POINTS = 3
+
+
+def _assert_has_signal(intensity, raw_file_path, detector, log) -> None:
+    """Refuse to publish a .dat with no positive intensity.
+
+    Reduction already skips a frame whose corrected i0 or bstop is non-positive,
+    because normalising by it would be meaningless. A frame of ZERO COUNTS slips
+    past all of those: i0 and bstop are read from the counters and are perfectly
+    healthy, so every guard passes and pyFAI dutifully integrates zeros into a
+    structurally perfect profile — right q grid, right row count, finite sigma,
+    and I = 0 everywhere.
+
+    Nothing downstream can tell that apart from real data until the averaging
+    core's validity mask rejects every frame, which is two stages and up to ten
+    minutes later, by which point the batch is consumed and the condition is
+    lost. Run20 lost r006 exactly this way: a zero exposure time produced twenty
+    blank frames, twenty flawless-looking .dat files, and one confusing "no
+    usable frames" message.
+
+    Raising here puts the failure where the cause is. run_pipeline() catches it
+    per-file, logs ✗ and continues, and the .part is discarded — so no
+    misleading .dat is ever published.
+    """
+    try:
+        import numpy as _np
+        n_pos = int((_np.asarray(intensity) > 0).sum())
+    except Exception:
+        return                      # never let the check itself fail a good frame
+    if n_pos >= _MIN_POSITIVE_POINTS:
+        return
+    name = Path(raw_file_path).name
+    log(f"  ⛔ {name}: {detector} integrates to no signal ({n_pos} positive "
+        f"point(s)) — skipping file. The detector frame is blank: check the "
+        f"exposure time, the shutter, and the mask.", "error")
+    raise ValueError(
+        f"{name}: {detector} profile has {n_pos} positive intensity point(s), "
+        f"fewer than {_MIN_POSITIVE_POINTS}. The 2D frame carries no counts, so "
+        f"the .dat would be zeros — skipped rather than published, because a "
+        f"zero profile is indistinguishable from real data until averaging.")
 
 
 def _part_path(dat_path: Path) -> Path:

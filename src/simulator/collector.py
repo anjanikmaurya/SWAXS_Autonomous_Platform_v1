@@ -225,6 +225,16 @@ class SimulatedCollector:
                 temperature: float = 25.0, recipe_id: str = "") -> dict:
         self._last_data_dir = str(data_dir or "")     # widen the config.yml search
         det, shape, poni, mask_path, meta_fmt = self._resolve()
+        # simulate_frame multiplies its intensity map by exposure_s, so a
+        # non-positive exposure produces an all-zero image that write_raw is
+        # perfectly happy to store: right size, right dtype, no counts. That
+        # blank frame then reduces to a .dat of zeros and is not noticed until
+        # the average app drops the batch. Refuse at the source.
+        if not (float(exposure) > 0):
+            raise ValueError(
+                f"exposure={exposure!r} — a simulated acquisition needs a "
+                f"positive exposure time. At zero every frame would be blank "
+                f"and the whole condition silently lost.")
         if shape[0] <= 0 or shape[1] <= 0:
             raise ValueError(
                 f"detector shape for {det} resolved to {shape} — cannot generate "

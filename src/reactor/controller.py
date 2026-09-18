@@ -333,7 +333,24 @@ class ReactorController:
             return "".join(c for c in str(v).strip() if c.isalnum() or c in "_-")
         with self._lock:
             if str(d.get("exposure_s", "")).strip():
-                try: self._spec_exposure = float(d["exposure_s"])
+                # A non-positive exposure is silently catastrophic: the mock
+                # detector multiplies its intensity map by exposure_s, so 0
+                # yields a correctly-sized, entirely BLANK .raw — which reduces
+                # to a structurally perfect .dat full of zeros, and only
+                # surfaces four stages later as "no usable frames" in the
+                # average app. On a real rig it is a zero-second count, i.e.
+                # burnt beamtime. `frames` beside it has always been clamped
+                # with max(1, ...); exposure_s was not, so a 0 typed into the
+                # UI field was accepted verbatim and every later condition
+                # collected nothing. Refuse it and keep the working value.
+                try:
+                    v = float(d["exposure_s"])
+                    if v > 0:
+                        self._spec_exposure = v
+                    else:
+                        self._log(f"⚠ exposure_s={v:g} refused — an exposure of "
+                                  f"zero or less collects blank frames. Keeping "
+                                  f"{self._spec_exposure:g}s.", "warn")
                 except (TypeError, ValueError): pass
             if str(d.get("frames", "")).strip():
                 try: self._spec_frames = max(1, int(float(d["frames"])))
