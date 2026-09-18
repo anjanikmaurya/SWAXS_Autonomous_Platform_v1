@@ -23,7 +23,7 @@ The platform is organized as ten small web apps, launched from one central hub. 
 | 📈 | **Data Analysis** | 5106 | Guinier, Porod, Kratky, pair-distance, peak fitting |
 | 🧭 | **Auto-Fit & Optimiser** | 5107 | Fits nanoparticle size / PDI / phase from subtracted SAXS and proposes the next synthesis conditions (Bayesian optimization) — the brain of the autonomous loop |
 | 🔁 | **Autonomous Synthesis (reactor)** | 5108 | 5-pump flow reactor **and** beamline control: sets temperature (SPEC `csettemp`) and triggers 2D collection (shutter + a configurable collect command, default `ct`) through the SPEC bServer, plus auto-flush |
-| 🤖 | **Tassone Group** (AI assistant) | 5109 | Ask questions about your data, generate plots, get proactive quality hints |
+| 🤖 | **Guinier** (AI assistant) | 5109 | Ask questions about your data, generate plots, get proactive quality hints |
 | 🐕 | **Auto Watch** | 5110 | Loop-stall detection and the sole gateway for all platform notifications (Slack) |
 
 A typical **data** session: **reduce → view & average → subtract background → quality-gate (optional) → analyze**, with the assistant available throughout.

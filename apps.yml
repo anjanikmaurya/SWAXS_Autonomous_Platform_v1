@@ -102,7 +102,7 @@ apps:
     color:        "#00838F"
 
   - id:           assistant
-    name:         "Tassone Group"
+    name:         "Guinier"
     description:  "LLM-powered data interpretation, proactive hints, inline plots"
     port:         5109
     entry:        "assistant/app.py"
