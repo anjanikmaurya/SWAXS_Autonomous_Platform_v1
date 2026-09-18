@@ -320,7 +320,8 @@ class EventBusClient:
     ) -> bool:
         """Emit ``file.skipped`` when reduction permanently gives up on a
         frame (see reduction/app.py::_note_failure) — the frame will never be
-        reduced without an operator restart or /api/reset."""
+        reduced without an operator restart or a "Retry failed" request
+        (reduction POST /api/retry-failed)."""
         return self.publish("file.skipped", {
             "file_path":  str(file_path),
             "keyword":    keyword,

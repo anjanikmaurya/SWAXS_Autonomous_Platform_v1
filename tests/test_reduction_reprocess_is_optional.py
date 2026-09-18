@@ -148,6 +148,45 @@ def test_the_optin_is_wired_past_both_defences(red):
 
 
 # ── 3. a restart is not a re-run request ────────────────────────────────────
+def test_retry_failed_lifts_the_giveup_flag_and_nothing_else(red, tmp_path):
+    """"Reset files" cleared the processed set too. Before a run that was
+    merely pointless (Start reseeds from disk); DURING a run it was dangerous,
+    because seeding happens once at the first poll — clearing the set mid-run
+    dropped the loop back to the mtime check, the one that a re-stamped folder
+    fools. So the endpoint now touches `_fail_counts` only."""
+    red._processed_files.clear()
+    red._processed_files.update({"/data/a.raw", "/data/b.raw"})
+    red._fail_counts.clear()
+    red._fail_counts.update({"/data/bad.raw": red._MAX_FAILURES,
+                             "/data/wobbly.raw": 1})
+
+    rv = red.app.test_client().post("/api/retry-failed")
+
+    assert rv.get_json()["ok"] is True
+    assert rv.get_json()["retried"] == 1, "only the given-up frame is reported"
+    assert red._fail_counts == {}
+    assert red._processed_files == {"/data/a.raw", "/data/b.raw"}, \
+        "clearing the processed set mid-run is how this became a silent re-run"
+
+
+def test_a_given_up_frame_is_reducible_again_after_a_retry(red, tmp_path):
+    """The behaviour the button exists for, through the gate that enforces it."""
+    f = tmp_path / "bad.raw"
+    f.write_bytes(b"x")
+    os.utime(f, (0, 0))                       # long settled
+    red._fail_counts[str(f)] = red._MAX_FAILURES
+    assert red._ready_to_reduce(f) is False
+
+    red.app.test_client().post("/api/retry-failed")
+    assert red._ready_to_reduce(f) is True
+
+
+def test_the_old_reset_url_still_answers(red):
+    """Only this app's own UI called it, but a stale bookmark or a note in
+    someone's runbook should not 404."""
+    assert red.app.test_client().post("/api/reset").status_code == 200
+
+
 def test_a_restart_does_not_inherit_the_optin(red, monkeypatch):
     """The saved monitor params are replayed verbatim on boot. If the last run
     was started with the box ticked, a 3 a.m. crash would otherwise reduce the

@@ -35,6 +35,21 @@ The checkbox is deliberately not saved with the config and is forced off when
 the app auto-resumes after a restart: a restart continues a run, it never
 decides to redo the folder.
 
+**↻ Retry failed** (`POST /api/retry-failed`, formerly `/api/reset`) is a
+different thing and is easy to confuse with it. A frame that raises three times
+is given up on for the rest of the session (`_MAX_FAILURES`, `_fail_counts`),
+and `file.skipped` is emitted so Auto Watch stops waiting for it. This button
+clears those counts, nothing else. It does **not** re-reduce frames that
+succeeded.
+
+It used to be "↺ Reset files" and also cleared the processed set. That became
+wrong in both directions once Start seeds: harmless before a run (the next
+Start rebuilds the set from disk anyway) and actively dangerous during one —
+seeding happens once, at the first poll, so clearing the set mid-run dropped
+the loop back to the mtime check, which on a re-stamped folder is exactly the
+check that is fooled. A button that said "reset the list" would have re-reduced
+the whole experiment with no confirm, mid-beamtime.
+
 Why a checkbox and not just the mtime check: `_already_reduced()` compares the
 `.raw` mtime with its `.dat`. Anything that re-stamps the raw files — the SFTP
 pull, a two-laptop sync (SYNC.md), a restore from backup, `cp` without `-p` —

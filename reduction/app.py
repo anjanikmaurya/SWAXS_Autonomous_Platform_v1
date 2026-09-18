@@ -20,7 +20,7 @@ Routes
   POST /api/monitor/start    → start continuous file watching
   POST /api/monitor/stop     → stop watching
   GET  /api/monitor/status   → {"monitoring": bool}
-  POST /api/reset            → clear processed-files list
+  POST /api/retry-failed     → clear per-file failure counts (alias: /api/reset)
   GET  /api/list-dat         → .dat files in a directory
   GET  /api/list-raw         → .raw files in a directory
   GET  /api/dat-data         → q/I/err for one .dat file
@@ -344,7 +344,8 @@ def _note_failure(raw: Path) -> bool:
     n = _fail_counts.get(str(raw), 0) + 1
     _fail_counts[str(raw)] = n
     if n == _MAX_FAILURES:
-        _emit(f"  ⏭  {raw.name}: failed {n}× — skipping until restart or /api/reset", "warn")
+        _emit(f"  ⏭  {raw.name}: failed {n}× — skipping until restart or "
+              f"“Retry failed”", "warn")
         return True
     return False
 
@@ -367,7 +368,7 @@ def _already_reduced(raw_path, out_root, prefixes=()) -> bool:
 
     The second defence, and the one that works with no saved state at all — it
     is what keeps reduction from re-reducing a folder when the processed-set is
-    missing (a fresh clone, a two-laptop move, /api/reset). A .raw modified
+    missing (a fresh clone, a two-laptop move). A .raw modified
     after its .dat (a re-acquisition, a corrected frame) is correctly treated
     as new again.
 
@@ -1023,20 +1024,39 @@ def monitor_status():
     return jsonify({"monitoring": monitor_alive(_monitoring, _monitor_thread)})
 
 
-@app.route("/api/reset", methods=["POST"])
-def reset_processed():
-    with _processed_lock:
-        _processed_files.clear()
+@app.route("/api/retry-failed", methods=["POST"])
+@app.route("/api/reset", methods=["POST"])          # old name, kept working
+def retry_failed():
+    """Give the frames that were given up on another chance.
+
+    This used to be "Reset files": it cleared `_processed_files` as well, on
+    the theory that forgetting the bookkeeping is how you ask for a re-run.
+    Once Start began seeding from the folder (`_seed_processed_from_disk`)
+    that stopped being true in both directions:
+
+      * harmless case — clearing the set achieves nothing, because the next
+        Start rebuilds it from the .dat files on disk;
+      * harmful case — clearing it DURING a run skips the seeding (that
+        happens once, at the first poll), so the loop falls back to the mtime
+        check, and on a folder whose .raw files have been re-stamped that
+        check is exactly the one that is fooled. A button labelled "reset the
+        list" silently became "re-reduce the whole experiment", with no
+        confirm, while the beamline was running.
+
+    So the processed set is left alone — `reprocess_existing` at Start is the
+    one way to ask for a re-run, and it says so. What remains here is the only
+    thing this endpoint did that nothing else does: clear the per-file failure
+    counts, so a frame that failed `_MAX_FAILURES` times is retried without
+    restarting the app.
+    """
+    n = sum(1 for v in _fail_counts.values() if v >= _MAX_FAILURES)
     _fail_counts.clear()
-    _save_processed()          # N1: clear the PERSISTED copy too, or a restart
-                               # would silently restore what the operator just reset
-    # Clearing the list is NOT the same as asking for a re-run: the next Start
-    # reseeds from the folder unless `reprocess_existing` is set. Saying "all
-    # files will reprocess" here was the promise that made the button
-    # untrustworthy once seeding landed.
-    _emit("♻  Processed-files list cleared. Frames that already have a .dat are "
-          "still skipped — tick “Reprocess existing frames” to redo them.", "warn")
-    return jsonify({"ok": True})
+    if n:
+        _emit(f"↻  {n} frame(s) that had been given up on will be retried", "ok")
+    else:
+        _emit("↻  No frames were being skipped for repeated failures — "
+              "nothing to retry", "info")
+    return jsonify({"ok": True, "retried": n})
 
 
 # ─────────────────────────────────────────────────────────────────────────────
