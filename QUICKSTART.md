@@ -299,7 +299,7 @@ green, then **↗ Open**. Work left to right:
 | 6 | Data Analysis | 5106 | Guinier, Porod, Kratky, model fits |
 | 7 | Auto-Fit & Optimiser | 5107 | automatic size + PDI, closed-loop optimiser |
 | 8 | Autonomous Synthesis | 5108 | the 5-pump reactor (mock by default) |
-| 9 | Tassone Group | 5109 | the AI assistant — answers questions about the experiment |
+| 9 | Guinier | 5109 | the AI assistant — answers questions about the experiment |
 | 10 | Auto Watch | 5110 | loop monitoring + all platform notifications to Slack |
 
 **3. Stop.** Press **■ Stop** on a card, or `Ctrl-C` in the terminal to close the
@@ -423,7 +423,7 @@ changed — project folders, `config.yml` and `manifest.json` are all unaffected
 | Hub on **5000**, apps 5001–5009 | Hub on **5100**, apps **5101–5110** | macOS AirPlay Receiver owns 5000, so the hub could not bind on a stock Mac |
 | **Data Viewer** (`viewer/`) | **Visualisation & Average** (`average/`) | the folder name said "viewer" while the app's main job is averaging |
 | **Nanoparticle Analyzer** | **Auto-Fit & Optimiser** | the old name hid the Bayesian optimizer half, and read like a sibling of Data Analysis |
-| **Tassone Group Assistant** | **Tassone Group** | shorter |
+| the AI assistant (renamed twice before this) | **Guinier** | named for André Guinier, whose analysis every SAXS session starts with |
 | `start_platform.ps1` **and** `.bat` | **`start_platform.bat` only** | a `.bat` runs from PowerShell too and needs no execution-policy change, so the second launcher was upkeep for no gain |
 | **Flow Synthesis** | **Autonomous Synthesis** | the reactor is a fixture — flow rate is one setting, not the point; the point is that it runs the loop unattended |
 | `requirements.txt` present | **removed entirely** | it was a `pip freeze` of one Mac that made numpy try to compile from source on Windows — the single most common install failure |
