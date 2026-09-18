@@ -53,6 +53,42 @@ def _fmt(x, nd=4):
         return str(x)
 
 
+#: Frames shown per acquisition. Frames within one acquisition are near
+#: identical, so a handful is enough — but the cap is applied PER ACQUISITION,
+#: never across the whole match. A flat [:10] silently showed ten frames of
+#: whichever acquisition sorted first and hid every other one, which is how a
+#: run for "r006" reported on Run12_r006 and declared the data healthy while
+#: Run20_r006 — the actual failure — was never opened.
+_PER_ACQ = 4
+
+
+def acquisition_of(name: str) -> str:
+    """'Run20_r006_bkg' from 'Run20_r006_bkg_scan1_0003_SAXS.dat'.
+
+    The _scanN_NNNN suffix is the frame index; everything before it names the
+    acquisition, and a project folder accumulates many of them across runs.
+    """
+    stem = name
+    for suffix in (".raw", ".dat", ".pdi", ".csv"):
+        if stem.endswith(suffix):
+            stem = stem[: -len(suffix)]
+    for det in ("_SAXS", "_WAXS"):
+        if stem.endswith(det):
+            stem = stem[: -len(det)]
+    parts = stem.split("_")
+    for i, p in enumerate(parts):
+        if p.startswith("scan") and p[4:].isdigit():
+            return "_".join(parts[:i])
+    return stem
+
+
+def _by_acquisition(paths: list[Path]) -> dict[str, list[Path]]:
+    groups: dict[str, list[Path]] = {}
+    for p in sorted(paths):
+        groups.setdefault(acquisition_of(p.name), []).append(p)
+    return groups
+
+
 # ── stage 1: the 2D frames ──────────────────────────────────────────────────
 def check_raw(two_d: Path, tag: str, shape=None) -> list[dict]:
     out = []
@@ -60,14 +96,16 @@ def check_raw(two_d: Path, tag: str, shape=None) -> list[dict]:
         d = two_d / det
         if not d.is_dir():
             continue
-        for f in sorted(d.glob(f"*{tag}*.raw"))[:10]:
-            a = np.fromfile(f, dtype=np.int32)
-            out.append({
-                "file": f.name, "det": det, "n": a.size,
-                "nonzero_pct": 100.0 * (a > 0).mean() if a.size else 0.0,
-                "max": int(a.max()) if a.size else 0,
-                "sum": int(a.sum()) if a.size else 0,
-            })
+        for acq, files in _by_acquisition(list(d.glob(f"*{tag}*.raw"))).items():
+            for f in files[:_PER_ACQ]:
+                a = np.fromfile(f, dtype=np.int32)
+                out.append({
+                    "file": f.name, "acq": acq, "det": det, "n": a.size,
+                    "of": len(files),
+                    "nonzero_pct": 100.0 * (a > 0).mean() if a.size else 0.0,
+                    "max": int(a.max()) if a.size else 0,
+                    "sum": int(a.sum()) if a.size else 0,
+                })
     return out
 
 
@@ -82,10 +120,9 @@ def check_counters(two_d: Path, tag: str) -> list[dict]:
             continue
         try:
             with csv_path.open(newline="", encoding="utf-8") as fh:
-                for i, r in enumerate(csv.DictReader(fh)):
-                    if i >= 10:
-                        break
-                    rows.append({"csv": csv_path.name, **r})
+                all_rows = list(csv.DictReader(fh))
+            for r in all_rows[:_PER_ACQ]:
+                rows.append({"csv": csv_path.name, "of": len(all_rows), **r})
         except Exception as exc:
             rows.append({"csv": csv_path.name, "error": str(exc)})
     return rows
@@ -98,25 +135,29 @@ def check_dat(one_d: Path, tag: str) -> list[dict]:
         d = one_d / det / "Reduction"
         if not d.is_dir():
             continue
-        for f in sorted(d.glob(f"*{tag}*.dat"))[:10]:
-            try:
-                a = np.loadtxt(f)
-                if a.ndim != 2 or a.shape[1] < 3:
-                    out.append({"file": f.name, "det": det,
-                                "note": f"unexpected shape {a.shape}"})
-                    continue
-                q, I, s = a[:, 0], a[:, 1], a[:, 2]
-                valid = ((q > 0) & (I > 0) & np.isfinite(q)
-                         & np.isfinite(I) & np.isfinite(s))
-                out.append({
-                    "file": f.name, "det": det, "rows": len(q),
-                    "valid": int(valid.sum()),          # the average app's rule
-                    "I_min": _fmt(np.nanmin(I)), "I_max": _fmt(np.nanmax(I)),
-                    "I_positive_pct": 100.0 * (I > 0).mean(),
-                    "sigma_finite_pct": 100.0 * np.isfinite(s).mean(),
-                })
-            except Exception as exc:
-                out.append({"file": f.name, "det": det, "note": f"unreadable: {exc}"})
+        for acq, files in _by_acquisition(list(d.glob(f"*{tag}*.dat"))).items():
+            for f in files[:_PER_ACQ]:
+                try:
+                    a = np.loadtxt(f)
+                    if a.ndim != 2 or a.shape[1] < 3:
+                        out.append({"file": f.name, "acq": acq, "det": det,
+                                    "of": len(files),
+                                    "note": f"unexpected shape {a.shape}"})
+                        continue
+                    q, I, s = a[:, 0], a[:, 1], a[:, 2]
+                    valid = ((q > 0) & (I > 0) & np.isfinite(q)
+                             & np.isfinite(I) & np.isfinite(s))
+                    out.append({
+                        "file": f.name, "acq": acq, "det": det, "rows": len(q),
+                        "of": len(files),
+                        "valid": int(valid.sum()),      # the average app's rule
+                        "I_min": _fmt(np.nanmin(I)), "I_max": _fmt(np.nanmax(I)),
+                        "I_positive_pct": 100.0 * (I > 0).mean(),
+                        "sigma_finite_pct": 100.0 * np.isfinite(s).mean(),
+                    })
+                except Exception as exc:
+                    out.append({"file": f.name, "acq": acq, "det": det,
+                                "of": len(files), "note": f"unreadable: {exc}"})
     return out
 
 
@@ -127,16 +168,34 @@ def report(project: Path, tag: str) -> dict:
 
     print(f"\n{'='*72}\n  {tag}\n{'='*72}")
 
-    print(f"\n  2D .raw  ({len(raw)} file(s))")
+    # A project folder accumulates every run, so a loose tag like "r006" hits
+    # Run10_r006, Run12_r006, Run20_r006 … Say which acquisitions were opened,
+    # up front: reporting on the wrong run and calling the data healthy is the
+    # one failure mode that wastes the most time.
+    acqs = sorted({r["acq"] for r in raw} | {r["acq"] for r in dat})
+    if len(acqs) > 1:
+        print(f"\n  ⚠ '{tag}' matches {len(acqs)} acquisitions: {', '.join(acqs)}")
+        print("    All are shown below. Pass a more specific tag "
+              "(e.g. 'Run20_r006') to look at just one.")
+    elif acqs:
+        print(f"\n  acquisition: {acqs[0]}")
+
+    print(f"\n  2D .raw")
     if not raw:
         print("    none found — wrong tag, or the frames were never written")
     for r in raw:
         flag = "  ← BLANK" if r["nonzero_pct"] == 0 else ""
-        print(f"    {r['file']:<44} {r['nonzero_pct']:6.2f}% nonzero  "
-              f"max={r['max']:<10}{flag}")
+        print(f"    {r['file']:<46} {r['nonzero_pct']:6.2f}% nonzero  "
+              f"max={r['max']:<8}{flag}")
+    for acq, n in sorted({r["acq"]: r["of"] for r in raw}.items()):
+        if n > _PER_ACQ:
+            print(f"    … {acq}: showing {_PER_ACQ} of {n} frames")
 
-    print(f"\n  counters ({len(ctr)} row(s))")
-    for r in ctr[:5]:
+    print(f"\n  counters")
+    if not ctr:
+        print("    no matching CSV in 2D/ — reduction would have nothing to "
+              "normalise by")
+    for r in ctr:
         if "error" in r:
             print(f"    {r['csv']}: {r['error']}")
             continue
@@ -145,26 +204,57 @@ def report(project: Path, tag: str) -> dict:
             t = f"  T={float(bs)/float(i0):.4f}" if float(i0) else "  T=n/a (i0=0)"
         except (TypeError, ValueError, ZeroDivisionError):
             t = "  T=?"
-        print(f"    i0={_fmt(i0):<12} bstop={_fmt(bs):<12}{t}")
+        print(f"    {r['csv']:<30} i0={_fmt(i0):<11} bstop={_fmt(bs):<11}{t}")
 
-    print(f"\n  1D .dat  ({len(dat)} file(s))")
+    print(f"\n  1D .dat")
+    if not dat:
+        print("    none found — the frames were never reduced")
     for r in dat:
         if "note" in r:
-            print(f"    {r['file']:<44} {r['note']}")
+            print(f"    {r['file']:<46} {r['note']}")
             continue
         flag = "  ← NO USABLE POINTS" if r["valid"] < 3 else ""
-        print(f"    {r['file']:<44} valid={r['valid']:>5}/{r['rows']:<5} "
-              f"I={r['I_min']}…{r['I_max']}  σ finite {r['sigma_finite_pct']:.0f}%{flag}")
+        print(f"    {r['file']:<46} valid={r['valid']:>5}/{r['rows']:<5} "
+              f"I={r['I_min']}…{r['I_max']}  σ fin {r['sigma_finite_pct']:.0f}%{flag}")
+    for acq, n in sorted({r["acq"]: r["of"] for r in dat}.items()):
+        if n > _PER_ACQ:
+            print(f"    … {acq}: showing {_PER_ACQ} of {n} profiles")
 
-    return {"raw": raw, "counters": ctr, "dat": dat}
+    return {"raw": raw, "counters": ctr, "dat": dat, "acqs": acqs}
 
 
 def verdict(bad: dict, tag: str) -> None:
+    # Per-acquisition, not across the whole match: with several runs in one
+    # folder, a healthy Run12_r006 would otherwise average away a dead
+    # Run20_r006 and the verdict would read "nothing conclusive".
+    for acq in bad.get("acqs") or []:
+        raws = [r for r in bad["raw"] if r["acq"] == acq]
+        dats = [r for r in bad["dat"] if r["acq"] == acq]
+        if dats and all(r.get("valid", 0) < 3 for r in dats):
+            _verdict_one(acq, raws, dats)
+            return
     raw_blank = bool(bad["raw"]) and all(r["nonzero_pct"] == 0 for r in bad["raw"])
     dat_dead = bool(bad["dat"]) and all(r.get("valid", 0) < 3 for r in bad["dat"])
 
     print(f"\n{'─'*72}\n  verdict for {tag}\n{'─'*72}")
-    if not bad["raw"]:
+    _print_verdict(bad, raw_blank, dat_dead)
+
+
+def _verdict_one(acq: str, raws: list, dats: list) -> None:
+    print(f"\n{'─'*72}\n  verdict — {acq} is the dead one\n{'─'*72}")
+    _print_verdict({"raw": raws, "dat": dats},
+                   bool(raws) and all(r["nonzero_pct"] == 0 for r in raws),
+                   True)
+
+
+def _print_verdict(bad: dict, raw_blank: bool, dat_dead: bool) -> None:
+    if not bad["raw"] and dat_dead:
+        print("  The .dat files exist and are dead, but their 2D frames are GONE.\n"
+              "  Reduction cannot have produced these from nothing, so the .raw\n"
+              "  files were deleted or moved after reduction ran — or written to a\n"
+              "  different 2D folder than the one being searched. Check\n"
+              "  spec.mock_data_dir and data_directory in config.yml.")
+    elif not bad["raw"]:
         print("  No 2D frames found for this tag — check the tag spelling, or\n"
               "  the acquisition never ran. Nothing downstream can be blamed.")
     elif raw_blank:
