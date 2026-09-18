@@ -761,8 +761,14 @@ def _loop_state(probes: dict) -> dict:
         elif frames and (avg_rid and age_avg is not None and
                          (age_red is None or age_avg <= age_red)):
             red_node = {"state": "done", "detail": counted}
-        elif frames:
+        elif frames and age_red is not None and age_red <= _FRESH_S:
             red_node = {"state": "waiting", "detail": counted}
+        elif frames:
+            # Same guard as the average node below: frames still sitting in the
+            # event window are not evidence that anything is happening NOW.
+            # Without the age check, a window seeded from manifest["events"] at
+            # boot made a cold start look mid-cycle.
+            red_node = {"state": "done", "detail": counted}
         else:
             red_node = {"state": "idle", "detail": "no frames yet"}
         red_node["frames"] = frames
@@ -795,12 +801,27 @@ def _loop_state(probes: dict) -> dict:
                             short=expected - have)
         elif overdue_stage == "average":
             avg_node.update(state="stalled", detail="no average written")
-        elif frames:
+        elif frames and age_red is not None and age_red <= _FRESH_S:
+            # Frames are arriving but the average app has not published a gate
+            # entry for them yet. Only FRESH frames count: this branch used to
+            # test `frames` alone, so any file.reduced still in the event window
+            # — however old — read as "waiting for more frames right now".
+            #
+            # That was unreachable until the event window began being seeded
+            # from manifest["events"] at boot (W2, so a restarted Auto Watch can
+            # see a stall that started before it). Seeding filled the window
+            # with a PREVIOUS run's file.reduced events, so a freshly started
+            # Auto Watch reported the average node as waiting, and the stage
+            # banner promoted that to AVERAGING with nothing running at all.
             avg_node.update(state="waiting",
                             detail=(f"{frames} / {expected} frames" if expected
                                     else f"{frames} frames in"))
         else:
-            avg_node.update(state="idle", detail="no frames yet")
+            # Either no frames at all, or frames but none recent and no live
+            # gate — in which case this lane's work is over, not pending.
+            # (already_averaged is impossible here; it is handled above.)
+            avg_node.update(state="idle",
+                            detail="nothing recent" if frames else "no frames yet")
 
         # Frames reduction has permanently given up on for the CURRENT recipe
         # (see reduction/app.py::_note_failure) — a definite reason the average

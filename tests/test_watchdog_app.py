@@ -710,3 +710,83 @@ def test_no_project_means_an_empty_but_well_formed_series(monkeypatch):
     tp = wd._throughput_last_24h()
     assert len(tp) == 24 and all(d["count"] == 0 for d in tp)
     assert all(d["hour"] for d in tp), "labels must still be present"
+
+
+# ── a cold start must not look mid-cycle ───────────────────────────────────
+# Reported: starting Auto Watch showed AVERAGING with nothing running. The
+# average node's fallback branch tested `frames` alone — any file.reduced still
+# in the event window, however old, read as "waiting for more frames now". That
+# was unreachable until W2 began seeding the window from manifest["events"] at
+# boot, which filled it with a PREVIOUS run's events.
+import datetime as _dt
+
+
+def _seed_reduced(age_min: float, n: int = 7, lane: str = "sample") -> None:
+    ts = (_dt.datetime.now(_dt.timezone.utc)
+          - _dt.timedelta(minutes=age_min)).isoformat()
+    for i in range(n):
+        wd._recent_events.append({
+            "type": "file.reduced", "timestamp": ts,
+            "data": {"file_path": f"/x/Run9_r001_{lane}_{i:04d}.dat",
+                     "keyword": f"Run9_r001_{lane}", "detector": "saxs"}})
+
+
+def _bare_probes(avg_status: dict | None = None) -> dict:
+    return {"reactor": {}, "analyzer": {}, "monitors": {},
+            "status": {"average": avg_status or {}}}
+
+
+@pytest.fixture(autouse=True)
+def _reset_last_averaged():
+    wd._last_averaged.update({"background": None, "sample": None})
+    yield
+    wd._last_averaged.update({"background": None, "sample": None})
+
+
+def test_events_recovered_from_a_previous_run_do_not_read_as_live_work():
+    """THE REPORTED BUG. A three-day-old file.reduced is history, not a
+    pipeline that is mid-average."""
+    _seed_reduced(age_min=3 * 24 * 60)
+    loop = wd._loop_state(_bare_probes())
+    assert loop["average"]["state"] == "idle", \
+        f"cold start read as {loop['average']['state']} — the banner then said AVERAGING"
+    assert loop["reduce"]["state"] != "waiting"
+
+
+def test_frames_older_than_the_freshness_window_are_not_waiting():
+    _seed_reduced(age_min=10)
+    loop = wd._loop_state(_bare_probes())
+    assert loop["average"]["state"] == "idle"
+    assert loop["average"]["detail"] == "nothing recent", \
+        "and it should say why, not claim there were no frames at all"
+
+
+def test_frames_arriving_right_now_still_read_as_waiting():
+    """The branch has to keep working for its real case: frames landing before
+    the average app has published a gate entry for them."""
+    _seed_reduced(age_min=0.5)
+    loop = wd._loop_state(_bare_probes())
+    assert loop["reduce"]["state"] == "running"
+    assert loop["average"]["state"] == "waiting"
+    assert "7" in loop["average"]["detail"]
+
+
+def test_a_live_partial_gate_is_waiting_however_old_the_frames_are():
+    """The average app's own gate is the authoritative 'still waiting' signal
+    and must not be overridden by the age guard — a batch can legitimately sit
+    part-filled for a long time."""
+    _seed_reduced(age_min=120)
+    loop = wd._loop_state(_bare_probes({
+        "frames_per_average": 10,
+        "gate": {"expected": 10,
+                 "waiting": [{"keyword": "Run9_r001_sample", "have": 7,
+                              "detector": "saxs"}]}}))
+    assert loop["average"]["state"] == "waiting"
+    assert loop["average"]["detail"] == "7 / 10 frames"
+
+
+def test_nothing_at_all_still_reads_idle_with_the_right_reason():
+    loop = wd._loop_state(_bare_probes())
+    assert loop["average"]["state"] == "idle"
+    assert loop["average"]["detail"] == "no frames yet", \
+        "distinct from 'nothing recent' — one has never run, the other has"
