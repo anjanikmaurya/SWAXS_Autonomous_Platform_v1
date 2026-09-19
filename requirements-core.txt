@@ -33,6 +33,11 @@ numpy>=1.26,<3
 scipy>=1.11                # curve fitting (analysis, nanoparticle sizing)
 pandas>=2.0                # beamline CSV metadata
 matplotlib>=3.8            # server-side plots (Agg backend, no GUI needed)
+pillow>=10.0               # tools/make_watchdog_icon.py (recolour + LANCZOS
+                           #   downscale of the app icon). Declared rather than
+                           #   relied on implicitly: matplotlib already requires
+                           #   Pillow, so this costs nothing to install, but a
+                           #   package we import by name belongs in the list.
 pyyaml>=6.0                # config.yml, apps.yml
 
 # ── Detector I/O and azimuthal integration ───────────────────────────────────

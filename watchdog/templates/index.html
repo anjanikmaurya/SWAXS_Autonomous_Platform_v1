@@ -1465,16 +1465,39 @@ function updateCharts() {
   // Pipeline funnel: how many files have reached each stage (cumulative — each
   // stage should be <= the previous one as files move down the pipeline).
   const f = _metrics.files || {};
-  const funnelY = [f.reduced || 0, f.averaged || 0, f.subtracted || 0, f.analysed || 0];
+  const q = _metrics.quality || {};
+  const qGood = q.good || 0, qBad = q.bad || 0;
+
+  // The Quality Gate sits between subtract and analyse and was the one
+  // pipeline stage the dashboard never showed — its good/bad counts were
+  // computed every tick and thrown away. It is OPTIONAL, so the bar appears
+  // only once the gate has actually graded something; a permanent zero bar on
+  // the majority of runs that never enable it would be clutter that teaches
+  // the operator to ignore the chart.
+  const names  = ['Reduced', 'Averaged', 'Subtracted'];
+  const funnelY = [f.reduced || 0, f.averaged || 0, f.subtracted || 0];
+  const colors = [P.primary, P.success, P.warning];
+  const notes  = ['', '', ''];
+  if (qGood + qBad > 0) {
+    names.push('Quality-passed');
+    funnelY.push(qGood);
+    colors.push(P.success);
+    notes.push(qBad ? ` — ${qBad} flagged for review` : ' — none flagged');
+  }
+  names.push('Analysed');
+  funnelY.push(f.analysed || 0);
+  colors.push(P.accent);
+  notes.push('');
+
   safeReact('plot-queue-bar', [{
-    x: ['Reduced', 'Averaged', 'Subtracted', 'Analysed'],
+    x: names,
     y: funnelY,
+    customdata: notes,
     type: 'bar',
-    marker: {color: [P.primary, P.success, P.warning, P.accent],
-             line: {color: P.barEdge, width: 1}},
+    marker: {color: colors, line: {color: P.barEdge, width: 1}},
     text: funnelY.map(String), textposition: 'outside',
     textfont: {size: 12, color: P.fg}, cliponaxis: false,
-    hovertemplate: '%{x}: %{y} files<extra></extra>',
+    hovertemplate: '%{x}: %{y} files%{customdata}<extra></extra>',
   }], themedLayout({
     margin: {t: 24, l: 58, r: 12, b: 48},
     xaxis: {title: {text: 'pipeline stage (in order)', font: {size: 11, color: P.fg}}},

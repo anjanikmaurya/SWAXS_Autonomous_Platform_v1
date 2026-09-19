@@ -1058,24 +1058,13 @@ def _compute_metrics() -> dict:
         # durable across a restart.
         cycle = _run_cycle_times(manifest)
 
-        # App health. probe_all() returns {"monitors": {app: bool}, "analyzer": {...},
-        # "reactor": {...}}. The monitor apps report a bool; analyzer/reactor are
-        # considered up when they return a non-empty status dict.
-        app_health = {}
+        # `app_health` used to be built here — a per-app bool that no part of
+        # the dashboard ever read. The health strip renders `health`, the
+        # richer per-app row from _health_row(), so this was a second, poorer
+        # copy of the same facts computed every 3 s and discarded. Removed
+        # rather than wired up: two sources for "is this app alive" is how
+        # they end up disagreeing.
         probes = _probe_all_cached()
-        try:
-            monitors = probes.get("monitors", {}) or {}
-            app_health = {
-                "reduction": bool(monitors.get("reduction")),
-                "average": bool(monitors.get("average")),
-                "background": bool(monitors.get("background")),
-                "quality": bool(monitors.get("quality")),
-                "analyzer": bool(probes.get("analyzer")),
-                "reactor": bool(probes.get("reactor")),
-            }
-        except Exception as exc:
-            _emit(f"probe error: {exc}", "warn")
-            app_health = {}
 
         # Quality: count good vs bad from manifest
         quality_entries = manifest.get("quality", {}) or {}
@@ -1172,7 +1161,6 @@ def _compute_metrics() -> dict:
                 "analysed": file_counts.get("analysed", 0) or analysed_count,
             },
             "runs": runs[-20:] if runs else [],
-            "app_health": app_health,
             "resources": _resource_metrics(),
         }
     except Exception as exc:
@@ -1186,7 +1174,6 @@ def _compute_metrics() -> dict:
             "quality": {"good": 0, "bad": 0, "trend": []},
             "files": {"reduced": 0, "averaged": 0, "subtracted": 0, "analysed": 0},
             "runs": [],
-            "app_health": {},
             "resources": {"cpu": 0, "mem": 0, "disk": 0},
         }
 
@@ -1711,9 +1698,85 @@ def stream_metrics():
 
 # ── Shutdown ───────────────────────────────────────────────────────────────────
 
+#: Set once, so a farewell is sent exactly once however shutdown is reached
+#: (atexit after SIGTERM from the hub, atexit after Ctrl-C, or a direct call).
+_farewell_sent = [False]
+
+
+def _farewell_message() -> tuple[str, str, str]:
+    """What to say on the way out.
+
+    The important part is not "goodbye" — it is that from this moment nothing
+    is watching. If the loop is mid-campaign, a stall, an E-stop or a dropped
+    batch will now happen in silence, and the operator's last Slack message
+    would otherwise be a perfectly normal one from minutes earlier. That is
+    the worst way to find out monitoring stopped: by eventually noticing you
+    have heard nothing.
+
+    So the message says what was running when the watch ended.
+    """
+    lines = ["Auto Watch has been stopped — no further alerts will be sent "
+             "until it is started again."]
+    try:
+        m = _metrics_cache.get("data") or {}
+        loop = m.get("loop") or {}
+        stage = str(loop.get("current_stage") or "").strip()
+        rid = str(loop.get("recipe_id") or "").strip()
+        if rid or stage:
+            lines.append(f"At the time it stopped: {stage or 'unknown stage'}"
+                         + (f" · {rid}" if rid else ""))
+        reactor = (m.get("reactor") or {})
+        r_state = str(reactor.get("state") or "").strip()
+        if r_state and r_state not in ("idle", "ready"):
+            lines.append(f"⚠ The reactor is still {r_state} and is now "
+                         f"UNWATCHED.")
+    except Exception:
+        pass                       # never let the report block the report
+    return "Auto Watch stopped", "\n".join(lines), "fault"
+
+
+def _send_farewell() -> None:
+    """Queue the shutdown notice as a FAULT.
+
+    Not because stopping is an emergency, but because of how the transport
+    drains: close() joins the worker for a couple of seconds, and an info
+    message can sit behind a 3 s throttle for longer than that and be lost.
+    Faults are drained first and skip the throttle, so this is the only level
+    that reliably gets out of a process that is already on its way down.
+    """
+    # _NO_WATCH means the background threads were never started — the module
+    # was imported by a test or a tool, not run as the app. Announcing that
+    # watching has stopped when it never began would fire a real Slack message
+    # at the end of every test run that imports this module, which is both
+    # noise and a lie.
+    if _farewell_sent[0] or _transport is None or _NO_WATCH:
+        return
+    _farewell_sent[0] = True
+    try:
+        title, text, level = _farewell_message()
+        # Master switch only. Deliberately NOT should_send(): quiet hours and
+        # the category toggles suppress routine chatter, and "your monitoring
+        # is gone" is not routine — it is the one message whose absence cannot
+        # be noticed, because silence is exactly what it is warning about.
+        if _settings.get("slack_enabled", True):
+            _transport.send(title, text, level)
+            _sent_messages.append({"timestamp": _now().isoformat(),
+                                    "title": title, "text": text,
+                                    "level": level})
+    except Exception:
+        pass
+
+
 def shutdown():
+    _send_farewell()
     if _transport is not None:
-        _transport.close()
+        # Longer than the 2 s default (the farewell was only just queued and a
+        # shutdown that beats its own goodbye out of the door is pointless),
+        # but comfortably INSIDE the hub's 5 s SIGTERM grace before it
+        # escalates to SIGKILL — src/proc_lifecycle.kill_tree(grace=5.0).
+        # Overrun it and the process is killed mid-drain and the message is
+        # lost, which is the failure this whole path exists to avoid.
+        _transport.close(timeout=4.0)
     if _bus is not None:
         try:
             _bus.disconnect()
@@ -1722,8 +1785,39 @@ def shutdown():
 
 
 import atexit as _atexit
+import signal as _signal
 
 _atexit.register(shutdown)
+
+
+def _on_signal(signum, _frame):
+    """Run the shutdown path on SIGTERM/SIGINT, then exit.
+
+    atexit alone was not enough. The hub stops an app with Popen-style
+    terminate() (src/proc_lifecycle.kill_tree), i.e. SIGTERM, and Python's
+    default SIGTERM disposition kills the process outright WITHOUT running
+    atexit handlers. So stopping Auto Watch from the hub — by far the usual
+    way it is stopped — would have skipped the farewell entirely and the
+    operator's last Slack message would be an ordinary one from minutes
+    earlier.
+
+    sys.exit() from a handler raises SystemExit in the main thread, which
+    unwinds normally and lets the registered atexit handler run.
+    """
+    try:
+        shutdown()
+    finally:
+        sys.exit(0)
+
+
+# Only possible from the main thread; under gunicorn or a test harness that
+# imports this module elsewhere, signal.signal raises and the atexit path
+# still covers a clean interpreter exit.
+for _sig in (_signal.SIGTERM, _signal.SIGINT):
+    try:
+        _signal.signal(_sig, _on_signal)
+    except (ValueError, OSError, AttributeError):
+        pass
 
 if __name__ == "__main__":
     app.run(host="localhost", port=5110, debug=False)
