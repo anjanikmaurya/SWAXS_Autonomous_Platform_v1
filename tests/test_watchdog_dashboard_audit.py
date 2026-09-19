@@ -227,3 +227,53 @@ def test_the_farewell_ignores_quiet_hours_but_not_the_master_switch(wd, monkeypa
     monkeypatch.setattr(wd, "_NO_WATCH", False)
     wd.shutdown()
     assert not sent, "the master switch must still mean off"
+
+
+# ── the page explains itself ────────────────────────────────────────────────
+def test_the_legend_covers_every_state_a_step_can_be_in():
+    """The ring's chips spell each state out in words, but nothing said what
+    the states ARE — a box glowing amber was a puzzle rather than information.
+    A legend that misses a state is worse than none, so it is checked against
+    the CHIP map the renderer actually uses."""
+    import re
+    chips = re.search(r"const CHIP = \{(.*?)\};", _TPL, re.S).group(1)
+    states = set(re.findall(r"^\s*(\w+):", chips, re.M))
+    assert states, "the CHIP map moved; this test can no longer see it"
+
+    key = _TPL.split('class="state-key"')[1].split("</div>")[0]
+    missing = sorted(s for s in states
+                     if f'data-state="{s}"' not in key)
+    assert not missing, f"the legend does not explain: {missing}"
+
+
+def test_the_legend_has_a_swatch_style_for_each_state():
+    """A legend entry with no colour rule renders as a blank square, which
+    explains nothing."""
+    import re
+    key = _TPL.split('class="state-key"')[1].split("</div>")[0]
+    for state in re.findall(r'data-state="(\w+)"', key):
+        if state == "idle":
+            continue          # idle is the default swatch, deliberately unstyled
+        assert f'.state-key .key-item[data-state="{state}"]' in _TPL, \
+            f"the {state!r} legend swatch has no colour rule"
+
+
+def test_stale_probe_data_is_shown_as_stale():
+    """probe.stale was computed and never rendered: if the probe thread died
+    or every app stopped answering, the health strip showed the last good
+    result forever. A monitoring page presenting frozen facts as current is
+    worse than one that admits it does not know."""
+    fn = _TPL.split("function updateHealth()")[1].split("\nfunction ")[0]
+    assert "_metrics.probe.stale" in fn, \
+        "updateHealth ignores probe.stale — frozen data still reads as live"
+    assert "health-stale" in fn and ".health-stale" in _TPL, \
+        "there is no visible indicator, only a variable"
+
+
+def test_the_throughput_card_and_its_axis_agree_on_what_is_counted():
+    """The card said "frames reduced" while the axis said .dat files. The scan
+    counts both Reduction/SAXS and Reduction/WAXS, so in SWAXS mode one frame
+    makes two files and "frames" overstates the rate by 2x."""
+    hd = _TPL.split("📈 Throughput")[1].split("</div>")[0]
+    assert ".dat files" in hd, f"the Throughput subtitle still says: {hd.strip()[:120]}"
+    assert "frames reduced" not in hd

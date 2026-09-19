@@ -161,6 +161,17 @@ html,body {
   font-size:14px; font-weight:700; color:var(--txt-strong);
 }
 #tb-health .health-none { font-size:14px; color:var(--faint); font-style:italic }
+/* Shown when the probe cache has gone cold. Deliberately loud and to the LEFT
+   of the app dots, because it qualifies every one of them. */
+#tb-health .health-stale {
+  display:flex; align-items:center; gap:6px; padding:2px 10px;
+  border-radius:999px; font-size:var(--fs-xs); font-weight:var(--fw-semibold);
+  color:var(--warn-text); background:var(--warn-lt);
+  border:1px solid var(--warn); white-space:nowrap;
+}
+/* Fade what the stale chip is qualifying, so the two read as one statement
+   rather than a warning sitting next to healthy-looking dots. */
+#tb-health .health-item.is-stale { opacity:.45 }
 
 #tb-resources { display:flex; align-items:center; gap:18px; margin-left:auto; flex-shrink:0 }
 .res-stat { display:flex; align-items:baseline; gap:6px }
@@ -425,6 +436,29 @@ html,body {
 .step[data-state="unknown"] .step-box { border-style:dashed; border-color:var(--border-strong) }
 .step[data-state="unknown"] .step-chip   { color:var(--faint) }
 @keyframes wait-pulse { 0%,100%{border-color:var(--warn)} 50%{border-color:var(--warn-lt)} }
+
+/* Legend for the six step states. Swatches only — the ring's own chips carry
+   the words, so this does not need to repeat the icons. */
+.state-key {
+  display:flex; flex-wrap:wrap; align-items:center; gap:var(--sp-2) var(--sp-4);
+  margin-top:var(--sp-4); padding-top:var(--sp-3);
+  border-top:1px solid var(--border);
+  font-size:var(--fs-xs); color:var(--muted);
+}
+.state-key .key-label {
+  text-transform:uppercase; letter-spacing:var(--ls-label);
+  font-weight:var(--fw-semibold); color:var(--faint);
+}
+.state-key .key-item { display:inline-flex; align-items:center; gap:var(--sp-2) }
+.state-key .key-item i {
+  width:11px; height:11px; border-radius:3px; flex-shrink:0;
+  border:2px solid var(--border); background:transparent;
+}
+.state-key .key-item[data-state="running"] i { border-color:var(--accent); background:var(--accent-lt) }
+.state-key .key-item[data-state="waiting"] i { border-color:var(--warn);   background:var(--warn-lt) }
+.state-key .key-item[data-state="done"]    i { border-color:var(--ok) }
+.state-key .key-item[data-state="stalled"] i { border-color:var(--err);    background:var(--err-lt) }
+.state-key .key-item[data-state="unknown"] i { border-style:dashed; border-color:var(--border-strong) }
 
 /* Gate meter — the frames-to-go bar in the AVERAGE caption */
 .gate { height:8px; width:100%; border-radius:5px; background:var(--surface2);
@@ -779,13 +813,30 @@ html,body {
           <span class="return-pending" id="return-pending"><span>campaign</span> —</span>
         </div>
 
+        <!-- What the colours mean. The chips already spell the state out in
+             words (colour is never the only carrier), but nothing said what
+             the five states ARE, so a box glowing amber was a puzzle rather
+             than information. -->
+        <div class="state-key">
+          <span class="key-label">What the boxes mean</span>
+          <span class="key-item" data-state="idle"><i></i>idle — nothing to do</span>
+          <span class="key-item" data-state="running"><i></i>running — working now</span>
+          <span class="key-item" data-state="waiting"><i></i>waiting — needs more input</span>
+          <span class="key-item" data-state="done"><i></i>done — finished for this condition</span>
+          <span class="key-item" data-state="stalled"><i></i>stalled — overdue, alert sent</span>
+          <span class="key-item" data-state="unknown"><i></i>unknown — app not answering</span>
+        </div>
+
       </div><!-- .cycle -->
     </div><!-- .card -->
 
     <div class="charts-grid">
       <div class="card">
         <div class="card-hd">📈 Throughput
-          <span class="hd-note">frames reduced per hour (count/h) vs. hour of day, last 24 h</span>
+          <!-- ".dat files", not "frames": the scan counts BOTH Reduction/SAXS
+               and Reduction/WAXS, so in SWAXS mode one detector frame makes
+               two files. The subtitle said "frames" while the axis said files. -->
+          <span class="hd-note">reduced .dat files per hour (SAXS+WAXS) vs. hour of day, last 24 h</span>
         </div>
         <div class="chart-area" id="plot-throughput"></div>
       </div>
@@ -1067,10 +1118,24 @@ function updateHealth() {
       : 'no loop app active'}</span>`;
     return;
   }
-  row.innerHTML = items.map(h => {
+  // A monitoring page showing FROZEN facts as though they were current is
+  // worse than one that admits it does not know. probe.stale was computed and
+  // never displayed: if the probe thread died or every app stopped answering,
+  // the health strip kept showing the last good result indefinitely and the
+  // operator had no way to tell.
+  const stale = !!(_metrics && _metrics.probe && _metrics.probe.stale);
+  const age = _metrics && _metrics.probe && _metrics.probe.age_s;
+  const staleChip = stale
+    ? `<span class="health-stale" title="The last successful probe of the loop
+apps was ${age === null || age === undefined ? 'never' : Math.round(age) + 's'} ago.
+Everything to the right of this may be out of date.">⚠ data ${
+        age === null || age === undefined ? 'unavailable' : Math.round(age) + 's old'}</span>`
+    : '';
+
+  row.innerHTML = staleChip + items.map(h => {
     const port = h.port ? ` :${h.port}` : '';
     const title = `${h.app}${port} — ${h.ok ? 'active' : 'PROBLEM'}${h.note ? ' · ' + h.note : ''}`;
-    return `<span class="health-item" title="${esc(title)}">
+    return `<span class="health-item${stale ? ' is-stale' : ''}" title="${esc(title)}">
       <span class="health-dot ${h.ok ? 'ok' : 'err'}"></span>
       <span class="health-name">${esc(h.app)}</span></span>`;
   }).join('');
