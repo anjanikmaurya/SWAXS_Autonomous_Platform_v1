@@ -135,3 +135,57 @@ def test_the_text_aliases_are_overridden_in_dark_mode_too(token):
         dark = html.split('[data-theme="dark"]')[1].split("}")[0]
         assert f"{token}:" in dark, \
             f"{name}: {token} has no dark-mode value — invisible text in dark"
+
+
+# ── the form spec (added after the operator asked average to follow
+#    background: label-above, one shared 15px token, whole app) ─────────────
+_FORM = re.compile(r"/\* ── Shared form spec.*?\n\.fnote, \.hint \{[^}]*\}", re.S)
+
+
+def _form_block(html: str) -> str:
+    m = _FORM.search(html)
+    assert m, "the shared form spec is missing"
+    return m.group(0)
+
+
+def test_the_form_spec_is_identical_in_both_apps():
+    assert _form_block(_AVG) == _form_block(_BKG), \
+        "the shared form spec has diverged between the apps"
+
+
+def test_average_now_stacks_its_labels_above_the_input():
+    """average used .fg — a 185px label column with the label to the LEFT.
+    Converted by turning that grid into a single column, so the existing
+    <label><div.cell> pairs stack exactly like background's .field. No markup
+    was rewritten; if this rule goes, all 17 containers revert at once."""
+    block = _form_block(_AVG)
+    assert ".field, .fg { display:flex; flex-direction:column" in block
+    assert "text-align:left" in block, "labels are still right-aligned"
+
+
+def test_both_apps_size_form_text_from_one_token():
+    """--fs-form exists because the --fs-* scale jumps 14px -> 16px with
+    nothing between, and 15px is what average's forms were already using."""
+    block = _form_block(_AVG)
+    assert "--fs-form:.9375rem" in block
+    assert block.count("var(--fs-form)") >= 2, \
+        "the token is declared but the labels/inputs do not use it"
+
+
+def test_focusing_an_input_does_not_turn_it_white_in_dark_mode():
+    """average had `input:focus{background:#fff}` with no dark override, so
+    focusing any field in dark mode put near-white text on a white box —
+    invisible while typing. Omitting the property would not have undone it;
+    the shared rule has to restate the background."""
+    block = _form_block(_AVG)
+    focus = block[block.index("input:focus, select:focus {"):]
+    assert "background:var(--surface2)" in focus, \
+        "the focus rule no longer overrides the hard-coded white background"
+    # and it must come after the old rule to win
+    assert _AVG.index("Shared form spec") > _AVG.index("background:#fff")
+
+
+def test_the_two_hint_classes_render_the_same():
+    """average called it .fnote at 14px, background .hint at 13px."""
+    block = _form_block(_AVG)
+    assert ".fnote, .hint {" in block

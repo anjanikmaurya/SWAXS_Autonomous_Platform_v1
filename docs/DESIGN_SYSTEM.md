@@ -45,6 +45,29 @@ one change that makes every other token lie.
 
 ---
 
+### The shared form spec (average · background)
+
+`.field` (label above) is the form shape for both apps. average used `.fg` — a
+185px label column with the label to the LEFT — and was converted by turning
+that grid into a single column, so its existing `<label><div.cell>` pairs stack
+the same way. 17 containers, 40 fields, no markup rewritten.
+
+It costs about 22px per field (~54% taller than label-left) and that was a
+deliberate call: matching the two apps was worth more than the vertical space.
+If scrolling becomes the bigger problem again, flipping BOTH apps to label-left
+is the compact option, not just reverting average.
+
+`--fs-form: .9375rem` (15px) exists because the `--fs-*` scale jumps 14px → 16px
+with nothing between, and 15px is what these forms already used. Labels, inputs
+and selects in both apps take their size from it.
+
+One bug fell out of the comparison: average had `input:focus{background:#fff}`
+with no dark-mode override, so focusing any field in dark mode put near-white
+text on a white box. The shared focus rule restates `background:var(--surface2)`
+— omitting the property would not have undone it.
+
+---
+
 ## 0. Per-app conformance
 
 | App | Port | Type scale | Weights / line-heights / spacing | `--font` | `--radius` | Base size | Dark mode | `:focus-visible` |
@@ -54,7 +77,7 @@ one change that makes every other token lie.
 | assistant | 5109 | all 8 | yes | Inter | 8px | **18px** | toggle + OS | yes |
 | hub | 5100 | all 8 | yes | Inter | 8px | 16px | dark only, no toggle | yes |
 | watchdog | 5110 | all 8 | yes | Inter | 8px | 16px | toggle, defaults dark | yes |
-| background | 5104 | 7 of 8 (`--fs-2xl` missing) | `--fw-*` partial; no `--lh-*`, no `--sp-*` | Inter | 8px | **18px** | toggle + OS | 1 rule |
+| background | 5104 | 7 of 8 (`--fs-2xl` missing) | `--fw-*` partial; no `--lh-*`, no `--sp-*` | Inter | 8px | 16px | toggle + OS | 1 rule |
 | analysis | 5106 | 5 of 8 | none | Inter | 8px | **18px** | toggle + OS | **none** |
 | quality | 5105 | 6 of 8 | none | **unset** (system-ui literal) | **9px** | 16px | toggle + OS | **none** |
 | reactor | 5108 | 4 tokens, **different values** | none | **unset** | **9px** | 1.02rem | toggle, defaults dark | **none** |
@@ -103,10 +126,15 @@ Consequences worth knowing before you write CSS:
 | `--lh-snug` | 1.4 | Tables / dense rows |
 | `--lh-normal` | 1.5 | Body copy |
 
-- **Base size is not uniform.** 16px in reduction, average, hub, quality,
-  calibration; **18px** in analysis, background, assistant; `1.02rem` in
-  reactor and analyzer. Because `--fs-*` are `rem`-based, the 18px apps render
-  the whole scale ~12% larger than the table above.
+- **Base size is not uniform.** 16px in reduction, average, background, hub,
+  quality, calibration, watchdog; **18px** in analysis and assistant;
+  `1.02rem` in reactor and analyzer. Because `--fs-*` are `rem`-based, the
+  18px apps render the whole scale ~12% larger than the table above — the same
+  token, a different size. background was one of them until September 2026;
+  analysis and assistant are the remaining two.
+- `--fs-form` (0.9375rem / 15px) fills the gap between `--fs-md` (14px) and
+  `--fs-base` (16px). Defined in average and background, which share a form
+  spec; see above.
 - **Eyebrow labels** (section titles): `--fs-2xs`, weight 700,
   `letter-spacing: var(--ls-label)` (0.06em), uppercase, color `--muted`.
 - **Font family** (`--font`): `'Inter','Segoe UI',system-ui,-apple-system,sans-serif`.

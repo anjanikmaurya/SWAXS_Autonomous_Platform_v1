@@ -230,6 +230,51 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{ou
   display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr));
   gap:12px 18px; align-items:start;
 }
+
+/* ── Shared form spec — average · background ──────────────────────────────
+   average put labels to the LEFT of their input (.fg, a 185px label column);
+   background puts them ABOVE (.field). Same job, two shapes. Unified on
+   background's, per the operator's call — it costs ~22px per field, which is
+   the price of the two apps actually matching.
+
+   No markup was rewritten to do it. .fg already contains <label><div.cell>
+   pairs, so turning the grid into a single column stacks them label-above
+   exactly like .field. 17 containers, 40 fields, one rule.
+
+   --fs-form (15px at the shared 16px base) is a NEW token, added because the
+   --fs-* scale jumps 14px -> 16px with nothing between, and 15px is the size
+   average's forms already used. Both apps now share it rather than one of
+   them moving to a size it was not designed at.
+
+   The focus rule restates the background colour on purpose. average had
+   `input:focus{background:#fff}` with NO dark-mode override, so focusing any
+   input in dark mode turned it white under near-white text — invisible while
+   typing. Omitting the property here would not have undone it.
+
+   tests/test_average_background_parity.py keeps the two copies identical. */
+:root { --fs-form:.9375rem }
+
+.field, .fg { display:flex; flex-direction:column; gap:4px; margin-bottom:8px }
+.fg > label:not(:first-child) { margin-top:8px }
+.field > label, .fg > label {
+  font-size:var(--fs-form); color:var(--muted); font-weight:600;
+  text-align:left; padding-top:0; line-height:1.35;
+}
+.fg > .cell { display:flex; flex-direction:column; gap:4px }
+.field input, .field select, .fg input, .fg select,
+input[type="text"], input[type="number"], select {
+  width:100%; padding:7px 10px;
+  background:var(--surface2); border:1px solid var(--border-strong);
+  border-radius:6px; font-size:var(--fs-form); color:var(--txt);
+  transition:border-color .15s, box-shadow .15s;
+}
+.field input:focus, .field select:focus, .fg input:focus, .fg select:focus,
+input:focus, select:focus {
+  outline:none; border-color:var(--accent);
+  background:var(--surface2);
+  box-shadow:0 0 0 3px rgba(140,21,21,.15);
+}
+.fnote, .hint { font-size:var(--fs-sm); color:var(--muted); margin-top:2px }
 </style>
 </head>
 <body>
