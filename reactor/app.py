@@ -18,6 +18,7 @@ from __future__ import annotations
 import collections
 import datetime
 import json
+import logging
 import os
 import sys
 import threading
@@ -65,6 +66,39 @@ if _BACKEND not in ("mock", "real"):
         f"{os.environ.get('SWAXS_REACTOR_BACKEND')!r}). Refusing to start rather "
         f"than guess — an ambiguous value can mean live hardware.")
 
+# ── logging to logs/reactor.log ──────────────────────────────────────────────
+# The hub captures each app's stderr into logs/<app>.log. This app never
+# configured logging, so the only logger with a handler was werkzeug's and the
+# file held nothing but HTTP access lines. Two consequences, both found the
+# hard way while diagnosing a lost condition:
+#
+#   * src.beamline.driver already passes the 2D simulator a
+#     `log=lambda m: logger.info(...)` callback, so every acquisition announces
+#     itself with the prefix, frame count, exposure and the TRUE R/PDI it is
+#     generating — and every one of those lines was dropped by Python's
+#     last-resort handler, which is WARNING-level. Run20's blank frames took a
+#     folder-walking diagnostic tool to explain; one grep would have done it.
+#   * the operator log (collect START/DONE, arming, faults, E-stop) lived only
+#     in a 500-entry in-memory deque served over SSE, so it existed only while
+#     a browser was watching. Nothing survived the night.
+#
+# Root stays at WARNING so pyFAI/matplotlib/urllib3 do not flood the file; only
+# our own packages are raised to INFO.
+logging.basicConfig(
+    level=logging.WARNING,
+    format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
+)
+for _name in ("src.beamline", "src.simulator", "src.reactor", "reactor"):
+    logging.getLogger(_name).setLevel(logging.INFO)
+
+logger = logging.getLogger("reactor")
+
+#: Operator-log tag → log level. Warnings and errors must not land in the file
+#: as INFO, or grepping the overnight log for trouble finds nothing.
+_TAG_LEVEL = {"error": logging.ERROR, "err": logging.ERROR,
+              "warn": logging.WARNING, "warning": logging.WARNING}
+
 # ── log buffer (fed by the controller, streamed over SSE) ─────────────────────
 _log: collections.deque = collections.deque(maxlen=500)
 _seq = 0
@@ -77,6 +111,12 @@ def _emit(msg: str, tag: str = "info") -> None:
         _seq += 1
         _log.append((_seq, {"ts": datetime.datetime.now().strftime("%H:%M:%S"),
                             "msg": msg, "tag": tag}))
+    # Tee to the file. Outside the lock: a blocked write must not stall the
+    # controller thread that called us, and never raise for the same reason.
+    try:
+        logger.log(_TAG_LEVEL.get(str(tag).lower(), logging.INFO), "%s", msg)
+    except Exception:
+        pass
 
 
 def _sync_data_dir_from_hub(folder: str) -> None:

@@ -121,6 +121,32 @@ Two reasons, and the second is the one that is easy to miss:
    conditions are no longer comparable, but the optimizer treats every point as
    a measurement of one experiment and has no way to know.
 
+### Where the reactor's log goes
+
+The operator log in the UI is streamed over SSE from a 500-entry in-memory
+deque — it exists only while a browser is watching. Since September 2026 it is
+**also** written to `logs/reactor.log` (the hub captures each app's stderr),
+with the message tag mapped to the log level, so `grep -E 'WARNING|ERROR'` over
+an overnight run finds the faults.
+
+The same change put the 2D simulator's lines in that file. Each acquisition
+records its prefix, frame count, exposure, the TRUE R/PDI being generated, and
+what actually landed:
+
+```
+simulator: sample acquisition 'Run21_r001_sample' (10×10s, poni atT_SAXS.poni)
+           — TRUE R=4.11 nm, PDI=0.012
+simulator: wrote 10 frame(s), 41 MB, peak 251 counts, 71% of pixels non-zero
+```
+
+That last line is the quickest answer to "did this condition actually collect
+anything?". Before, every one of these was discarded: the app configured no
+logging, so INFO fell through to Python's WARNING-level last-resort handler and
+`logs/reactor.log` held only HTTP access lines.
+
+Root stays at WARNING so pyFAI/matplotlib/urllib3 do not bury the file; only
+`src.beamline`, `src.simulator`, `src.reactor` and `reactor` are raised to INFO.
+
 ### Abort, E-stop, cooldown
 **Abort** goes straight to flush. **E-stop** idles everything immediately (state
 `estop`; `/api/reset` clears it). `temperature.cooldown_c` (25.0 °C in the shipped
