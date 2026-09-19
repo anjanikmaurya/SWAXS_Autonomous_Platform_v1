@@ -2,37 +2,33 @@
 """
 make_watchdog_icon.py — hub card / tab icon for Auto Watch.
 
-Auto Watch was the one app still carrying a stock emoji (🐕) after the
-scattering-icon pass, which the Auto Watch audit recorded as W25. A dog says
-nothing about what the app does; it watches the loop produce curves and raises
-an alarm when one stops arriving.
+This used to DRAW the icon: a SAXS profile ending in a dot, in the app's red.
+It is now a recolour of supplied artwork — an eye with a power symbol and two
+circuit nodes, with a single green status dot — kept as a script rather than a
+hand-edited PNG so the transform is reproducible and reviewable.
 
-So: the same monodisperse nanoparticle SAXS profile the other icons use — the
-thing being watched — in the app's accent red, ending in a large dot at the
-newest point. The curve is the loop's output; the dot is the frame being
-watched right now.
+    watchdog/static/watchdog_icon_source.png   the artwork as supplied (blue)
+    watchdog/static/watchdog_icon.png          what ships: white + green dot
 
-Two earlier attempts were rejected by looking at the result downscaled, which
-is the only test that matters here:
+The transform: every visible pixel becomes white EXCEPT the green dot, which
+keeps its colour. Alpha is preserved untouched, so the antialiased edges stay
+smooth and the background stays transparent.
 
-  * a faint dashed "expected but not arrived" continuation past the dot — it
-    vanished at 16 px and read as dirt on the curve at 32;
-  * a thin white ring around the dot — invisible on a light tab strip, and
-    indistinguishable from the dot on a dark one.
+Why white: the hub is dark-only (--surface #161b22, no theme toggle), so white
+line art reads cleanly on the card. The green dot is the one element carrying
+meaning — "watching, alive" — and is the only thing that should pull the eye.
 
-What survived is the shape the analysis and average icons already prove works
-at this size: plateau, knee, steep descent. NOW_FRAC is tuned so the cut lands
-AFTER the knee — cutting before it (0.72) left a plain line-and-dot with no
-scattering character at all.
+CAVEAT, and the reason this docstring exists. The same PNG is served at
+/app-icon as the BROWSER TAB icon (src/favicon.py), and a tab strip is light in
+light mode. White-on-transparent is close to invisible there. That is a real
+trade the hub card wins, because the card is where the icon is actually read;
+if the tab matters more later, give the favicon its own dark rounded-square
+tile rather than tinting this one, since a mid-grey compromise would be muddy
+on both.
 
-Same conventions as the other generators in this folder, for the same reasons:
-
-  * monodisperse sphere form factor with NO polydispersity term, so the minima
-    stay sharp instead of smearing into a smooth slope;
-  * transparent background — the hub card and the browser tab supply their own;
-  * deliberately heavy strokes and oversized markers. This is rendered at
-    34x34 px on the hub card and 16-32 px in a tab; anything with the line
-    weight of a real log-log plot vanishes at that size.
+The green is detected by hue (g > r+40 and g > b+40), not by matching an exact
+RGB — the dot is antialiased, so its edge pixels are dozens of slightly
+different greens and an equality test would leave a white fringe around it.
 
     python tools/make_watchdog_icon.py [output.png]
 """
@@ -42,82 +38,72 @@ import sys
 from pathlib import Path
 
 import numpy as np
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
+from PIL import Image
 
-rng = np.random.default_rng(11)
+#: Below this alpha a pixel is background or invisible antialiasing; recolouring
+#: it would turn the transparent halo into a white one.
+_ALPHA_FLOOR = 8
 
-BKG_FLOOR = 0.8
-ACCENT = "#D32F2F"        # apps.yml watchdog color — the alarm colour
-TRACE = "#f4a7a4"         # the data already in, lighter so ACCENT reads on top
+#: How much greener than red/blue a pixel must be to count as the status dot.
+_GREEN_MARGIN = 40
 
-#: Where the "now" dot sits along the curve, as a fraction of the q range.
-#: 0.88 keeps the whole recognisable shape — plateau, knee, descent — behind
-#: the dot. Lower (0.72) cuts before the knee and the glyph stops looking like
-#: a scattering profile; higher (0.93) puts the dot on the vertical tail where
-#: it merges with the line.
-NOW_FRAC = 0.88
-
-
-def sphere_form_factor(q, R):
-    """Monodisperse sphere form factor P(q) — no polydispersity term on
-    purpose, since that's what would smear out the minima."""
-    qR = q * R
-    amp = 3.0 * (np.sin(qR) - qR * np.cos(qR)) / qR ** 3
-    return amp ** 2
+#: The artwork is supplied at 1254 px. It is rendered at 34 px on the hub card
+#: and 16-32 px in a tab, so shipping the full size cost 124 KB to display a
+#: thumbnail — every page load, for pixels no one sees. 256 px leaves plenty of
+#: headroom for a 2x display and is an eighth of the bytes. Downscaling happens
+#: AFTER the recolour: doing it first would blend the green dot's edge into the
+#: surrounding blue and the hue test would then whiten the blend.
+_SHIP_PX = 256
 
 
-def monodisperse_curve(q, R=8.0, scale=1.0e6):
-    return scale * sphere_form_factor(q, R) + BKG_FLOOR
+def recolour(src: Path) -> Image.Image:
+    """White line art, green dot preserved, alpha untouched."""
+    a = np.array(Image.open(src).convert("RGBA"))
+    r, g, b, alpha = (a[..., 0].astype(int), a[..., 1].astype(int),
+                      a[..., 2].astype(int), a[..., 3])
 
+    visible = alpha > _ALPHA_FLOOR
+    green = visible & (g > r + _GREEN_MARGIN) & (g > b + _GREEN_MARGIN)
+    to_white = visible & ~green
 
-def noisy(I, frac, rng):
-    return np.clip(I * rng.normal(1.0, frac, size=I.shape), BKG_FLOOR * 0.5, None)
-
-
-def build(path: Path) -> None:
-    q = np.logspace(np.log10(0.01), np.log10(1.0), 400)
-    truth = monodisperse_curve(q)
-    I = noisy(truth, 0.13, rng)
-
-    cut = int(len(q) * NOW_FRAC)
-
-    fig = plt.figure(figsize=(2.0, 2.0), dpi=200)
-    fig.patch.set_alpha(0.0)
-    ax = fig.add_axes([0.06, 0.10, 0.88, 0.80])
-    ax.patch.set_alpha(0.0)
-    ax.axis("off")
-
-    # The profile as far as it has arrived. Thick and full-frame, matching the
-    # analysis and average icons — at 16 px the stroke IS the glyph.
-    ax.loglog(q[:cut], I[:cut], color=TRACE, lw=2.4, alpha=0.9,
-              solid_capstyle="round", zorder=2)
-    ax.loglog(q[:cut], truth[:cut], color=ACCENT, lw=5.0,
-              solid_capstyle="round", zorder=3)
-
-    # The frame being watched right now. One big filled dot, no thin ring: a
-    # 3 px ring is invisible at tab size and reads as dirt on the curve, and
-    # the earlier dashed "expected" continuation was worse — it disappeared at
-    # 16 px and looked like noise at 32.
-    qn, In = q[cut - 1], truth[cut - 1]
-    ax.loglog([qn], [In], "o", color=ACCENT, ms=24.0, mew=0, zorder=5)
-
-    ax.set_xlim(q.min(), q.max())
-    ax.set_ylim(BKG_FLOOR * 0.4, truth.max() * 1.6)
-    fig.savefig(path, dpi=200, transparent=True)
-    plt.close(fig)
+    out = a.copy()
+    out[..., 0][to_white] = 255
+    out[..., 1][to_white] = 255
+    out[..., 2][to_white] = 255
+    return Image.fromarray(out, "RGBA"), int(green.sum()), int(to_white.sum())
 
 
 def main() -> int:
     root = Path(__file__).resolve().parent.parent
+    src = root / "watchdog" / "static" / "watchdog_icon_source.png"
+    if not src.is_file():
+        print(f"✗ missing source artwork: {src}")
+        return 1
     out = (Path(sys.argv[1]) if len(sys.argv) > 1 else
            root / "watchdog" / "static" / "watchdog_icon.png")
+
+    img, n_green, n_white = recolour(src)
+    if img.width > _SHIP_PX:
+        img = img.resize((_SHIP_PX, _SHIP_PX), Image.LANCZOS)
+    if not n_green:
+        # Silently shipping an all-white icon would lose the only element that
+        # carries meaning, and it would not be obvious at 34 px.
+        print("✗ no green pixels found — the source artwork changed, or the "
+              "hue test needs adjusting. Refusing to write an all-white icon.")
+        return 1
+
     out.parent.mkdir(parents=True, exist_ok=True)
-    build(out)
+    img.save(out)
     print(f"✓ wrote {out} ({out.stat().st_size:,} bytes)")
-    print("  Also copy to hub/static/ — the hub serves its own static folder, "
-          "not the app's.")
+    print(f"  {n_white:,} px → white, {n_green:,} px kept green")
+
+    # The hub serves its OWN static folder (Flask(__name__)), so an app's
+    # icon_image is not reachable from a hub card unless it is copied there.
+    # tests/test_favicons.py asserts this; it is the step that gets missed.
+    hub_copy = root / "hub" / "static" / out.name
+    hub_copy.parent.mkdir(parents=True, exist_ok=True)
+    img.save(hub_copy)
+    print(f"✓ copied to {hub_copy}")
     return 0
 
 
