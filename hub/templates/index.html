@@ -61,9 +61,22 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
   height:56px;background:var(--surface);border-bottom:1px solid var(--border);
   flex-shrink:0;
 }
-.topbar-logo{font-size:20px;font-weight:700;letter-spacing:-.5px;color:var(--text)}
+/* Brand lockup: mark beside the wordmark, not above it. The wrapper had no
+   display:flex, so the two stacked and the mark took a line of its own in a
+   56px bar. The mark is optically centred on the WORDMARK rather than on the
+   two-line block — aligning to the block's centre floats it between the two
+   lines and reads as misaligned. */
+.brand{display:flex;align-items:center;gap:12px;min-width:0}
+.brand-mark{width:28px;height:28px;color:var(--swaxs-calibration);flex-shrink:0}
+.brand-text{min-width:0;display:flex;flex-direction:column;justify-content:center}
+.topbar-logo{font-size:20px;font-weight:700;letter-spacing:-.5px;color:var(--text);
+             line-height:1.15;white-space:nowrap}
 .topbar-logo span{color:var(--accent)}
-.topbar-sub{font-size:14px;color:var(--muted);margin-top:2px}
+.topbar-sub{font-size:13px;color:var(--muted);margin-top:1px;line-height:1.2;
+            white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* The strapline is the first thing that should go when the bar is tight —
+   before the project path truncates or the Bus chip wraps. */
+@media (max-width:1100px){ .topbar-sub{display:none} }
 .topbar-spacer{flex:1}
 .corner-brand{
   position:fixed;bottom:14px;right:20px;z-index:50;
@@ -77,7 +90,9 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
   padding:6px 12px;cursor:pointer;transition:border-color .15s;max-width:380px;
 }
 .project-pill:hover{border-color:var(--accent)}
-.project-pill .picon{font-size:16px}
+.project-pill /* Holds an SVG now, not a glyph: font-size did nothing and the flex
+   centring is what keeps it on the text baseline. */
+.picon{display:inline-flex;align-items:center;flex-shrink:0}
 .project-pill .ppath{font-size:14px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:300px}
 .project-pill .pchange{font-size:13px;color:var(--accent-text);white-space:nowrap}
 
@@ -294,10 +309,10 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,
   <!-- Top bar -->
   <header class="topbar">
     <div class="brand">
-      <svg class="ico" style="width:24px;height:24px;color:var(--swaxs-calibration)" aria-hidden="true"><use href="#swaxs-ui-mark"/></svg>
-      <div>
-      <div class="topbar-logo">SWAXS <span>Platform</span></div>
-      <div class="topbar-sub">Modular X-ray Scattering Analysis Suite</div>
+      <svg class="ico brand-mark" aria-hidden="true"><use href="#swaxs-ui-mark"/></svg>
+      <div class="brand-text">
+        <div class="topbar-logo">SWAXS <span>Platform</span></div>
+        <div class="topbar-sub">Modular X-ray Scattering Analysis Suite</div>
       </div>
     </div>
     <div class="topbar-spacer"></div>

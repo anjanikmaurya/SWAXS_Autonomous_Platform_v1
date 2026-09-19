@@ -9,12 +9,18 @@ window switcher.
 The icon comes from `apps.yml` — the same registry the hub cards read, so a
 tab and its card can never disagree:
 
-  * `icon_image` when the app has one (the custom scattering icons, 400-512 px
-    PNGs — already the right thing, just never used as a favicon);
-  * otherwise the app's `icon` emoji on a rounded tile in its `color`, drawn
-    as SVG. SVG because a favicon is rendered at 16-32 px and rasterising an
-    emoji ourselves at that size would need a font dependency and a build
-    step; the browser already has the emoji font.
+  * `icon_id` — the app's mark from the shared set (assets/icons/), drawn on a
+    rounded tile in its `accent` token. First choice, so the tab, the hub card
+    and the app's own chrome are one artwork;
+  * `icon_image` when the app has one and no icon_id (the older 400-512 px
+    PNGs);
+  * otherwise the app's `icon` emoji on a rounded tile in its `color`.
+
+The mark is inlined into the favicon rather than referenced from the sprite:
+a favicon document is fetched on its own, so a `use href="#id"` pointing at a
+symbol defined in some other document resolves to nothing and the tab goes
+blank. currentColor is resolved to the accent's literal value for the same
+reason — there is no page around it to inherit from.
 
 Usage — one line per app, after `app = Flask(__name__)`:
 
@@ -34,6 +40,7 @@ browsers request on their own initiative, so a tab still gets an icon if the
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent.parent
@@ -73,6 +80,58 @@ def _icon_and_colour(app_id: str) -> tuple[str, str]:
     return (str(meta.get("icon") or "●"), str(meta.get("color") or "#B1040E"))
 
 
+_ICON_DIR = Path(__file__).resolve().parent.parent / "assets" / "icons"
+
+
+def _sprite_mark(icon_id: str) -> str | None:
+    """The inner markup of one source icon, or None. No sprite, no <use>."""
+    try:
+        raw = (_ICON_DIR / "swaxs-icons-svg" / f"{icon_id}.svg").read_text()
+    except OSError:
+        return None
+    m = re.search(r"<svg\b[^>]*>(.*)</svg>", raw, re.S)
+    if not m:
+        return None
+    root = re.match(r"<svg\b([^>]*)>", raw, re.S)
+    keep = " ".join(
+        f'{a}="{v}"' for a, v in re.findall(r'([\w-]+)="([^"]*)"', root.group(1))
+        if a in ("fill", "stroke", "stroke-width", "stroke-linecap",
+                 "stroke-linejoin"))
+    return f'<g {keep}>{m.group(1).strip()}</g>'
+
+
+def _token_value(token: str) -> str | None:
+    """The DARK value of an accent token from swaxs-tokens.css.
+
+    Dark, because the tile behind the mark is the app's dark surface. Read from
+    the stylesheet rather than duplicated here, so a colour change upstream
+    reaches the tab without anyone remembering this file.
+    """
+    try:
+        css = (_ICON_DIR / "swaxs-tokens.css").read_text()
+    except OSError:
+        return None
+    m = re.search(rf"^\s*{re.escape(token)}-dark\s*:\s*(#[0-9a-fA-F]{{3,8}})",
+                  css, re.M)
+    return m.group(1) if m else None
+
+
+def mark_favicon_svg(icon_id: str, accent_token: str) -> str | None:
+    """A tab icon carrying the app's own mark. None if anything is missing."""
+    inner = _sprite_mark(icon_id)
+    colour = _token_value(f"--{accent_token}")
+    if not inner or not colour:
+        return None
+    # The mark is drawn on 24x24; the tile is 64x64 with the art inset ~10px so
+    # it does not touch the rounded corners at 16 px.
+    return (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
+        '<rect width="64" height="64" rx="14" fill="#12161c"/>'
+        f'<g transform="translate(11 11) scale(1.75)" color="{colour}" '
+        f'stroke="{colour}">{inner}</g></svg>'
+    )
+
+
 def favicon_svg(emoji: str, color: str) -> str:
     """A rounded tile in `color` with `emoji` centred, sized for a tab.
 
@@ -104,6 +163,12 @@ def register_favicon(flask_app, app_id: str) -> None:
     meta = app_meta(app_id)
     emoji, color = _icon_and_colour(app_id)
 
+    # The shared mark wins when the registry names one. Built once here, not
+    # per request — it reads two files.
+    mark = None
+    if meta.get("icon_id") and meta.get("accent"):
+        mark = mark_favicon_svg(str(meta["icon_id"]), str(meta["accent"]))
+
     # The custom PNGs live in the owning app's own static/ folder, which Flask
     # already serves — resolve it once at registration rather than per request.
     png_dir = png_name = None
@@ -114,6 +179,9 @@ def register_favicon(flask_app, app_id: str) -> None:
             png_dir, png_name = str(candidate.parent), candidate.name
 
     def _send():
+        if mark:
+            return Response(mark, mimetype="image/svg+xml",
+                            headers={"Cache-Control": "public, max-age=86400"})
         if png_name:
             return send_from_directory(png_dir, png_name,
                                        mimetype="image/png", max_age=86400)

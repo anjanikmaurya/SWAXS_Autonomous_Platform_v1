@@ -41,6 +41,15 @@ from src.favicon import app_meta, favicon_svg, register_favicon   # noqa: E402
 APPS = ["hub", "calibration", "reduction", "average", "background", "quality",
         "analysis", "analyzer", "reactor", "assistant", "watchdog"]
 
+
+def _dark_value(token: str) -> str | None:
+    """The -dark value of an accent token, read from the shipped stylesheet."""
+    import re
+    css = (_ROOT / "assets" / "icons" / "swaxs-tokens.css").read_text()
+    m = re.search(rf"^\s*{re.escape(token)}-dark\s*:\s*(#[0-9a-fA-F]{{3,8}})",
+                  css, re.M)
+    return m.group(1) if m else None
+
 LINK = 'href="/app-icon"'
 
 
@@ -101,10 +110,32 @@ def test_every_template_links_the_icon(app_id, modules):
 @pytest.mark.parametrize("app_id", APPS)
 def test_the_icon_matches_the_registry(app_id, modules):
     """The tab and the hub card read the SAME apps.yml entry, so they cannot
-    drift apart. An app with a custom icon_image serves that PNG; everything
-    else serves its emoji on its colour."""
+    drift apart. Precedence, highest first:
+
+      1. `icon_id`    — the app's mark from the shared set, on a dark tile in
+                        its `accent` colour. Since September 2026 this is what
+                        every registered app uses, so the tab, the hub card and
+                        the app's own chrome are one artwork.
+      2. `icon_image` — the older custom PNG.
+      3. `icon`       — the emoji on a tile in `color`.
+
+    This test used to assert (2) before (1) existed, and every app tripped it
+    the moment the marks landed — correctly: the contract had changed.
+    """
     meta = app_meta(app_id)
     body = modules[app_id].app.test_client().get("/app-icon").get_data()
+
+    if meta.get("icon_id"):
+        text = body.decode("utf-8")
+        assert text.startswith("<svg"), f"{app_id} does not serve its mark"
+        assert "<use" not in text, (
+            f"{app_id} references a sprite symbol — a favicon is fetched as its "
+            f"own document, so that resolves to nothing and the tab goes blank")
+        accent = _dark_value(f"--{meta['accent']}")
+        assert accent and accent.lower() in text.lower(), \
+            f"{app_id} mark is not painted in var(--{meta['accent']})"
+        return
+
     rel = str(meta.get("icon_image") or "")
     if rel:
         assert body[:4] == b"\x89PNG", \
