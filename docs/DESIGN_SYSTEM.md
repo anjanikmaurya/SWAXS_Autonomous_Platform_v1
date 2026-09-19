@@ -21,6 +21,7 @@ do not assume conformance.
 | average | 5103 | all 8 | yes | Inter | 8px | (inherits 16px) | toggle + OS | yes |
 | assistant | 5109 | all 8 | yes | Inter | 8px | **18px** | toggle + OS | yes |
 | hub | 5100 | all 8 | yes | Inter | 8px | 16px | dark only, no toggle | yes |
+| watchdog | 5110 | all 8 | yes | Inter | 8px | 16px | toggle, defaults dark | yes |
 | background | 5104 | 7 of 8 (`--fs-2xl` missing) | `--fw-*` partial; no `--lh-*`, no `--sp-*` | Inter | 8px | **18px** | toggle + OS | 1 rule |
 | analysis | 5106 | 5 of 8 | none | Inter | 8px | **18px** | toggle + OS | **none** |
 | quality | 5105 | 6 of 8 | none | **unset** (system-ui literal) | **9px** | 16px | toggle + OS | **none** |
@@ -191,8 +192,15 @@ user from app to app on the same `localhost` origin.
 |---|---|
 | reduction, average, analysis, background, quality, assistant | `matchMedia('(prefers-color-scheme:dark)')` — follows the OS |
 | reactor, analyzer | **dark**, unconditionally (`<html data-theme="dark">`) |
+| watchdog | **dark**, but only when nothing is stored — it is usually a wall display. An explicit choice from any app wins. |
 | hub | dark only; no toggle, no light palette |
 | calibration | light only; no toggle, no dark palette |
+
+All nine themed apps share one `localStorage` key, **`swaxs-theme`**. watchdog
+used `swaxs_theme` with an underscore until September 2026, so its theme lived
+in a separate entry: choosing light in reduction left Auto Watch dark, and the
+toggle there changed nothing anywhere else. If you add an app, use the hyphen —
+`tests/test_theme_and_naming.py` checks this.
 
 New apps should follow the OS. Hardcoding dark means a user on a light desktop
 gets a dark panel next to nine light ones.

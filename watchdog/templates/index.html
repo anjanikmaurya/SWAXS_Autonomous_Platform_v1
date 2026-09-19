@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Auto Watch — Autonomous Loop Monitor</title>
+    <title>Auto Watch — SWAXS</title>
     <link rel="icon" href="/app-icon">   <!-- per-app tab icon, from apps.yml (src/favicon.py) -->
     <!-- Served from the copy already vendored in the repo, so the charts work
          on a beamline PC with no internet; /vendor/ redirects to the CDN only
@@ -14,8 +14,9 @@
    The canonical block, copied from reduction/templates/index.html: light values
    in :root, dark values in the [data-theme="dark"] override, same token names.
    This page DEFAULTS to dark (it is usually a wall display) and remembers the
-   operator's choice in localStorage under the shared `swaxs_theme` key, so the
-   toggle here and in every other app agree.
+   operator's choice in localStorage under the shared `swaxs-theme` key — the
+   same key the other eight themed apps use, so an explicit choice made in any
+   of them carries over here. The default only applies when nothing is stored.
    ─────────────────────────────────────────────────────────────────────────── */
 :root {
   /* ── SWAXS shared design system — Light theme ───────── */
@@ -944,16 +945,26 @@ function applyThemeIcon() {
   const btn = document.getElementById('themeToggle');
   if (btn) btn.textContent = isDark() ? '☀' : '☾';
 }
+//: The key every other SWAXS app uses. This page used `swaxs_theme` with an
+//: UNDERSCORE while the other eight use a hyphen, so its theme lived in a
+//: different localStorage entry: switching to light in Reduction left Auto
+//: Watch dark, and switching here changed nothing anywhere else. The comment
+//: at the top of this file claimed the toggles agreed; they could not.
+const THEME_KEY = 'swaxs-theme';
+
 function toggleTheme() {
   const next = isDark() ? 'light' : 'dark';
   document.documentElement.setAttribute('data-theme', next);
-  try { localStorage.setItem('swaxs_theme', next); } catch(e) {}
+  try { localStorage.setItem(THEME_KEY, next); } catch(e) {}
   applyThemeIcon();
   if (_metrics) updateCharts();   // re-render plots in the new palette
 }
 try {
+  // Dark remains the default when NOTHING is stored — this page is usually a
+  // wall display, and that is a deliberate exception to the platform rule of
+  // following the OS. But an explicit choice made in any app now wins here.
   document.documentElement.setAttribute(
-    'data-theme', localStorage.getItem('swaxs_theme') || 'dark');
+    'data-theme', localStorage.getItem(THEME_KEY) || 'dark');
 } catch(e) { document.documentElement.setAttribute('data-theme', 'dark'); }
 
 // Plot palette — the series colours differ per theme so they stay legible on
