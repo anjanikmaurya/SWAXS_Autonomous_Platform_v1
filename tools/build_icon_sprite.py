@@ -2,7 +2,9 @@
 """
 build_icon_sprite.py — one <symbol> sprite from assets/icons/swaxs-icons-svg/.
 
-The icon set arrived as 27 standalone .svg files. The hub references them as
+The icon set is a folder of standalone .svg files (35 at the time of
+writing). The count is DISCOVERED by globbing, never listed here — adding an
+icon means dropping the file in and re-running this. The hub references them as
 `<svg><use href="…#swaxs-reduction"/></svg>`, which needs a single document of
 <symbol> elements, so this builds it:
 

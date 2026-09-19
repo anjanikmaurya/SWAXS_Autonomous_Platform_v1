@@ -74,6 +74,56 @@ def test_the_sprite_is_in_sync_with_its_source_icons():
         "the sprite is stale; run python tools/build_icon_sprite.py"
 
 
+def test_the_sprite_holds_every_source_icon_except_the_skipped_variants():
+    """DERIVED, not a literal.
+
+    A hardcoded number is the kind of assertion that keeps passing for the
+    wrong reason: it went from 27 to 33 when eight glyphs were added and two
+    alt variants were excluded, and a stale 27 would simply have failed while a
+    stale 35 would have been wrong in the other direction. Counting the files
+    and subtracting the documented skips cannot drift.
+
+    Note the arithmetic: there are 35 .svg files but 33 symbols, because
+    swaxs-reduction-alt-b and -alt-c are deliberately left out.
+    """
+    from tools.build_icon_sprite import _SKIP
+    files = {p.stem for p in (_ROOT / "assets" / "icons" / "swaxs-icons-svg").glob("*.svg")}
+    expected = files - set(_SKIP)
+    got = set(re.findall(r'<symbol id="([^"]+)"', _SPRITE.read_text()))
+    assert got == expected, (
+        f"missing from sprite: {sorted(expected - got)}; "
+        f"unexpected in sprite: {sorted(got - expected)}")
+    assert set(_SKIP) & files == set(_SKIP), \
+        "the skip list names files that no longer exist — stale exclusion"
+
+
+@pytest.mark.parametrize("icon,token", [
+    ("swaxs-ui-warning",    "--swaxs-status-warning"),
+    ("swaxs-ui-pass",       "--swaxs-status-running"),
+    ("swaxs-ui-flag",       "--swaxs-status-warning"),
+    ("swaxs-ui-close",      "--swaxs-chrome"),
+    ("swaxs-ui-parent-dir", "--swaxs-chrome"),
+    ("swaxs-ui-drive",      "--swaxs-chrome"),
+])
+def test_each_new_glyph_replaced_its_emoji_with_the_right_token(icon, token, page):
+    """The six that had no counterpart until this icon drop."""
+    src = (_ROOT / "hub" / "templates" / "index.html").read_text()
+    assert f'#{icon}"' in src, f"{icon} is never referenced"
+    for m in re.finditer(rf'style="([^"]*)"[^>]*>\s*<use href="#{icon}"', src):
+        assert token in m.group(1), f"{icon} coloured with {m.group(1)}, want {token}"
+
+
+def test_no_emoji_remains_where_an_icon_exists():
+    """Only two non-ASCII marks should survive in the hub: the arrow inside an
+    app DESCRIPTION string (prose, "2D → 1D"), and the box-drawing rules in
+    JS section comments. Neither is UI chrome."""
+    src = (_ROOT / "hub" / "templates" / "index.html").read_text()
+    body = src[src.index("<body>"):]
+    gone = "⚠✅⚑✕⬆💾🔌📁🎯🌀🔁🧭▶■↗"
+    found = sorted({c for c in gone if c in body})
+    assert not found, f"emoji still in the hub body: {found}"
+
+
 def test_both_copies_of_the_sprite_match():
     assert _SPRITE.read_text() == _PARTIAL.read_text(), \
         "assets/ and hub/templates/ hold different sprites"

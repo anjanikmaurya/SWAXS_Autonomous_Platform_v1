@@ -393,7 +393,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,
   <div class="modal">
     <div class="modal-head">
       <h2>Select Project Folder</h2>
-      <button class="modal-close" onclick="closeBrowser()">✕</button>
+      <button class="modal-close" onclick="closeBrowser()" aria-label="Close"><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-chrome)" aria-hidden="true"><use href="#swaxs-ui-close"/></svg></button>
     </div>
     <div class="modal-body">
       <div style="display:flex;gap:8px;margin-bottom:10px">
@@ -471,7 +471,10 @@ function setHubLink(ok, note) {
   }
   if (ok) { b.style.display = 'none'; return; }
   b.style.display = 'block';
-  b.textContent = '⚠ Not receiving status from the hub' + (note ? ' — ' + note : '') +
+  // innerHTML, not textContent, so the mark renders. `note` is server-supplied
+  // and is escaped — the icon is the only markup we add here.
+  b.innerHTML = '<svg class="ico" style="width:18px;height:18px;color:var(--swaxs-status-warning)" aria-hidden="true"><use href="#swaxs-ui-warning"/></svg>' +
+    ' Not receiving status from the hub' + (note ? ' — ' + _esc(note) : '') +
     '. The values below may be stale.';
 }
 
@@ -526,13 +529,13 @@ function showHubWarnings(data) {
   }
   const msgs = [];
   if (data.event_bus === false) {
-    msgs.push('⚠ <b>Event bus DOWN</b> — remote fit reports and the ' +
+    msgs.push('<svg class="ico" style="width:18px;height:18px;color:var(--swaxs-status-warning)" aria-hidden="true"><use href="#swaxs-ui-warning"/></svg> <b>Event bus DOWN</b> — remote fit reports and the ' +
               'measurement-complete signal are disabled; runs will end on the ' +
               'timer instead. Install <code>flask-sock</code> + ' +
               '<code>websocket-client</code>.');
   }
   if (typeof data.disk_free_gb === 'number' && data.disk_free_gb < 20) {
-    msgs.push(`⚠ <b>Only ${data.disk_free_gb} GB free</b> on the project volume — ` +
+    msgs.push(`<svg class="ico" style="width:18px;height:18px;color:var(--swaxs-status-warning)" aria-hidden="true"><use href="#swaxs-ui-warning"/></svg> <b>Only ${data.disk_free_gb} GB free</b> on the project volume — ` +
               'a full disk truncates .dat files that still look valid downstream.');
   }
   bar.innerHTML = msgs.join('<br>');
@@ -558,7 +561,10 @@ function updateCard(id, info) {
       const s = info.summary;
       lbl.insertAdjacentHTML('beforeend',
         `<span class="qbadge" title="${s.graded||0} profiles graded">` +
-        `<b style="color:var(--green)">✅ ${s.good}</b> / <b style="color:var(--red)">⚑ ${s.bad}</b></span>`);
+        `<b style="color:var(--swaxs-status-running)">`
+        + `<svg class="ico" style="width:16px;height:16px;color:var(--swaxs-status-running)" aria-hidden="true"><use href="#swaxs-ui-pass"/></svg> ${s.good}</b> / `
+        + `<b style="color:var(--swaxs-status-warning)">`
+        + `<svg class="ico" style="width:16px;height:16px;color:var(--swaxs-status-warning)" aria-hidden="true"><use href="#swaxs-ui-flag"/></svg> ${s.bad}</b></span>`);
     }
     open.removeAttribute('disabled');
   } else if (info.running) {
@@ -585,7 +591,8 @@ function updateCard(id, info) {
     dot.classList.add('stopped');
     const c = info.crashed;
     const why = c.reason || (c.exit_code == null ? 'reason unknown' : `exit ${c.exit_code}`);
-    lbl.innerHTML = `<b style="color:var(--red)">⚠ CRASHED</b> (${_esc(why)}) · press Start`;
+    lbl.innerHTML = `<b style="color:var(--swaxs-status-error)">`
+      + `<svg class="ico" style="width:16px;height:16px;color:var(--swaxs-status-warning)" aria-hidden="true"><use href="#swaxs-ui-warning"/></svg> CRASHED</b> (${_esc(why)}) · press Start`;
     const tail = (c.tail || []).filter(Boolean);
     let box = document.getElementById(`crash-${id}`);
     if (tail.length) {
@@ -853,7 +860,7 @@ async function browseTo(path) {
       const b = document.createElement('button');
       b.className = 'btn btn-ghost';
       b.style.cssText = 'padding:3px 10px;margin:0 6px 4px 0;font-size:13px';
-      b.textContent = '💾 ' + dr;
+      b.innerHTML = '<svg class="ico" style="width:18px;height:18px;color:var(--swaxs-chrome)" aria-hidden="true"><use href="#swaxs-ui-drive"/></svg> ' + _esc(dr);
       b.onclick = () => browseTo(dr);
       db.appendChild(b);
     });
@@ -889,7 +896,8 @@ async function browseTo(path) {
   if (data.parent) {
     const up = document.createElement('div');
     up.className = 'dir-item';
-    up.innerHTML = '<span class="dicon">⬆</span><span class="dname">..</span>';
+    up.innerHTML = '<span class="dicon"><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-chrome)" aria-hidden="true"><use href="#swaxs-ui-parent-dir"/></svg></span>'
+      + '<span class="dname">..</span>';
     up.onclick = () => browseTo(data.parent);
     list.appendChild(up);
   }
