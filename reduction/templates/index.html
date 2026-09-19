@@ -411,6 +411,16 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
   display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr));
   gap:12px 18px; align-items:start;
 }
+
+/* ── Content gutter — reduction · average · background ────────────────────
+   All three had `padding: 22px 22px 22px 48px` (background 18px on the right)
+   on their scrolling content pane: a 48px inset on the LEFT against 18-22px on
+   the right. Against the left nav's own border that reads as a wide, lopsided
+   channel down one side of the window and a thin one down the other.
+
+   One small, even gutter instead. It also returns ~30px of width per pane,
+   which the two-column form grids can use. */
+.ipanel-scroll, .tab-panel, .inputs { padding:18px }
 </style>
 </head>
 <body>
