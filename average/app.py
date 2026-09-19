@@ -37,6 +37,7 @@ if str(_ROOT) not in sys.path:
 from src.favicon import register_favicon               # noqa: E402
 from src.plot_reduction import (                                       # noqa: E402
     read_folder, average_and_save, average_batch, diagnose_unusable,
+    list_folder_index,
 )
 from src.utils.read_dat_metadata import read_dat_data_metadata         # noqa: E402
 from src.loop_naming import condition_keyword                          # noqa: E402
@@ -219,8 +220,17 @@ def _seed_batch_state_from_disk(dets, n_per_batch: int) -> None:
         if not batches:
             continue
         # Which frames those batches consumed, in acquisition order.
+        #
+        # list_folder_index, not read_folder: this only needs each file's
+        # group and its position in the sequence, both of which come from the
+        # NAME. read_folder opened and parsed every .dat in the Reduction
+        # folder — the largest in the project — into q/I/sigma arrays that
+        # were then thrown away, and it did it synchronously inside
+        # POST /api/monitor/start. That is why "Start auto-averaging" sat dead
+        # for so long on a folder with history in it while the subtraction
+        # app's equivalent button felt instant: its seed only globs and stats.
         try:
-            frames = read_folder(fp)
+            frames = list_folder_index(fp)
         except Exception as exc:
             _avg_emit(f"⚠  {det.upper()}: could not scan for existing batches: {exc}", "warn")
             continue

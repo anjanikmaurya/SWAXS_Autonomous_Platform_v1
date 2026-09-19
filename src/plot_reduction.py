@@ -135,6 +135,52 @@ def diagnose_unusable(frames: list[dict], n_valid_min: int = 3) -> str:
     return f"{head} ({why}){tail}"
 
 
+def keyword_and_index(name: str) -> tuple[str, int]:
+    """(keyword, scan_idx) for a .dat filename. Pure string work, no I/O.
+
+    Extracted from read_folder so callers that only need to GROUP and ORDER
+    files do not have to parse them. Both values were always derived from the
+    filename alone; they were just unreachable without reading the file.
+    """
+    m = _IDX_RE.search(name)
+    scan_idx = int(m.group(1)) if m else 0
+    # Strip a trailing _N (and optional _DET suffix). Averaged files have no
+    # numeric index, so the stem is used and _LABEL_RE removes _Average/_Avg.
+    keyword = name[: name.index(m.group(0))] if m else Path(name).stem
+    return _LABEL_RE.sub("", keyword), scan_idx
+
+
+def list_folder_index(folder, keywords=None) -> list[dict]:
+    """``[{filename, keyword, scan_idx}, …]`` for a folder — NOTHING is opened.
+
+    read_folder() parses every .dat into q/I/sigma numpy arrays. That is right
+    when you are going to average them and wrong when you only need to know
+    which file belongs to which group and in what order.
+
+    average/app.py::_seed_batch_state_from_disk was doing the latter with the
+    former, on the Reduction folder — the largest in the project, one .dat per
+    frame per detector — synchronously inside POST /api/monitor/start. So
+    pressing "Start auto-averaging" read and parsed the entire back-catalogue
+    before the button could respond: seconds on a small folder, minutes on a
+    beamtime's worth, for data the seed then discarded. The subtraction app
+    felt instant by comparison because its seed only globs and stats.
+
+    Same regexes as read_folder, via the same helper, so the grouping a seed
+    computes cannot drift from the grouping the averaging loop computes.
+    """
+    folder = Path(folder)
+    if not folder.is_dir():
+        return []
+    out = []
+    for path in sorted(folder.glob("*.dat")):
+        if keywords and not any(kw in path.name for kw in keywords):
+            continue
+        keyword, scan_idx = keyword_and_index(path.name)
+        out.append({"filename": path.name, "keyword": keyword,
+                    "scan_idx": scan_idx})
+    return out
+
+
 def _write_averaged_dat(
     path: Path,
     q: np.ndarray,
@@ -434,15 +480,7 @@ def read_folder(
                 continue
             _, q, I, sigma, meta = read_dat_data_metadata(path)
 
-            # Extract scan index from filename
-            m = _IDX_RE.search(path.name)
-            scan_idx = int(m.group(1)) if m else 0
-
-            # Derive keyword: strip trailing _N+ (and optional _DET suffix).
-            # For averaged files (no numeric index), path.stem is used, then
-            # _LABEL_RE strips any _Average / _Avg suffix.
-            keyword = path.name[: path.name.index(m.group(0))] if m else path.stem
-            keyword = _LABEL_RE.sub("", keyword)
+            keyword, scan_idx = keyword_and_index(path.name)
 
             entry = {
                 "filename": path.name,
