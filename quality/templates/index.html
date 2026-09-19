@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Quality Gate — SWAXS</title>
     <link rel="icon" href="/app-icon">   <!-- per-app tab icon, from apps.yml (src/favicon.py) -->
+<link rel="stylesheet" href="/static/swaxs-tokens.css">
 <style>
 :root{
   --fs-2xs:.6875rem;--fs-xs:.75rem;--fs-sm:.8125rem;--fs-md:.875rem;--fs-base:1rem;--fs-lg:1.125rem;
@@ -85,11 +86,23 @@ select{background:var(--surface2);border:1px solid var(--border-strong);border-r
 .restart-banner.restored{background:var(--surface2);color:var(--text);border-color:var(--accent)}
 .restart-banner.lost{background:var(--err-lt);color:var(--err);font-weight:700;border:2px solid var(--err)}
 .restart-banner .rb-x{float:right;cursor:pointer;opacity:.6;font-weight:700;margin-left:12px}
+
+/* ── App mark ─────────────────────────────────────────────────────────────
+   This app's own icon beside its wordmark — the SAME artwork as its hub card
+   and its browser tab, so the three agree. Colour comes from the accent token
+   in swaxs-tokens.css; the art is drawn with stroke="currentColor", so the
+   `color` below is the only thing that paints it. Generated partial: see
+   tools/build_icon_sprite.py. */
+.app-mark { width:26px; height:26px; flex-shrink:0; color:var(--swaxs-quality); }
+.app-lockup { display:flex; align-items:center; gap:10px; min-width:0 }
 </style>
 </head>
 <body>
 <div class="topbar">
-  <h1>SWAXS <span>Quality Gate</span></h1>
+  <div class="app-lockup">
+    {% include "_app_mark.svg" %}
+    <h1>SWAXS <span>Quality Gate</span></h1>
+  </div>
   <div style="flex:1"></div>
   <span class="proj" id="proj"></span>
   <button class="theme-toggle" id="themeBtn" onclick="toggleTheme()">☾</button>

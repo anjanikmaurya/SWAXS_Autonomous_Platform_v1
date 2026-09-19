@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Auto-Fit & Optimiser — SWAXS</title>
     <link rel="icon" href="/app-icon">   <!-- per-app tab icon, from apps.yml (src/favicon.py) -->
+<link rel="stylesheet" href="/static/swaxs-tokens.css">
 <style>
 /* ── SWAXS shared design system ──────────────────────────────────────────── */
 html{font-size:18px}
@@ -168,10 +169,22 @@ td.name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .restart-banner.restored{background:var(--surface2);color:var(--info);border-color:var(--info)}
 .restart-banner.lost{background:var(--surface2);color:var(--err);font-weight:700;border:2px solid var(--err)}
 .restart-banner .rb-x{float:right;cursor:pointer;opacity:.6;font-weight:700;margin-left:12px}
+
+/* ── App mark ─────────────────────────────────────────────────────────────
+   This app's own icon beside its wordmark — the SAME artwork as its hub card
+   and its browser tab, so the three agree. Colour comes from the accent token
+   in swaxs-tokens.css; the art is drawn with stroke="currentColor", so the
+   `color` below is the only thing that paints it. Generated partial: see
+   tools/build_icon_sprite.py. */
+.app-mark { width:26px; height:26px; flex-shrink:0; color:var(--swaxs-autofit); }
+.app-lockup { display:flex; align-items:center; gap:10px; min-width:0 }
 </style></head>
 <body>
 <div class="topbar">
-  <h1>Auto-Fit &amp; <span>Optimiser</span></h1>
+  <div class="app-lockup">
+    {% include "_app_mark.svg" %}
+    <h1>Auto-Fit &amp; <span>Optimiser</span></h1>
+  </div>
   <span class="sub">Port 5107 · <a href="http://localhost:5100">← Hub</a></span>
   <span class="hd-right" style="margin-left:auto">
     <button class="theme-toggle" id="themeBtn" onclick="toggleTheme()" title="Toggle light / dark">☾</button>

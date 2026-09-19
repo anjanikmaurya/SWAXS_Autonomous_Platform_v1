@@ -9,7 +9,8 @@
          on a beamline PC with no internet; /vendor/ redirects to the CDN only
          if no local copy is found. See watchdog/app.py::vendor. -->
     <script src="/vendor/plotly.min.js"></script>
-    <style>
+    <link rel="stylesheet" href="/static/swaxs-tokens.css">
+<style>
 /* ── Design tokens ─────────────────────────────────────────────────────────
    The canonical block, copied from reduction/templates/index.html: light values
    in :root, dark values in the [data-theme="dark"] override, same token names.
@@ -614,7 +615,16 @@ html,body {
 ::-webkit-scrollbar-track { background:transparent }
 ::-webkit-scrollbar-thumb { background:var(--border-strong); border-radius:5px }
 ::-webkit-scrollbar-thumb:hover { background:var(--accent) }
-    </style>
+    
+/* ── App mark ─────────────────────────────────────────────────────────────
+   This app's own icon beside its wordmark — the SAME artwork as its hub card
+   and its browser tab, so the three agree. Colour comes from the accent token
+   in swaxs-tokens.css; the art is drawn with stroke="currentColor", so the
+   `color` below is the only thing that paints it. Generated partial: see
+   tools/build_icon_sprite.py. */
+.app-mark { width:26px; height:26px; flex-shrink:0; color:var(--swaxs-watch); }
+.app-lockup { display:flex; align-items:center; gap:10px; min-width:0 }
+</style>
 </head>
 <body>
 <div id="app">
@@ -623,7 +633,10 @@ html,body {
 <nav id="sidebar">
   <div id="logo">
     <div id="logo-badge">SLAC / SSRL</div>
-    <div id="logo-name">Auto Watch</div>
+    <div class="app-lockup">
+      {% include "_app_mark.svg" %}
+      <div><div id="logo-name">Auto Watch</div></div>
+    </div>
     <div id="logo-sub">Autonomous loop monitor</div>
   </div>
 

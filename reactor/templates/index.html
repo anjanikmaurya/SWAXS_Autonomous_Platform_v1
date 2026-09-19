@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Autonomous Synthesis — SWAXS</title>
     <link rel="icon" href="/app-icon">   <!-- per-app tab icon, from apps.yml (src/favicon.py) -->
+<link rel="stylesheet" href="/static/swaxs-tokens.css">
 <style>
 /* Font scale bumped up across the app; sizes are rem-based off html. */
 html{font-size:18px}
@@ -107,11 +108,23 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
 .restart-banner.restored{background:rgba(56,132,255,.12);color:var(--accent);border-bottom-color:var(--accent)}
 .restart-banner.lost{background:rgba(220,60,60,.15);color:var(--err);font-weight:700;border-bottom:2px solid var(--err)}
 .restart-banner .rb-x{float:right;cursor:pointer;opacity:.6;font-weight:700;margin-left:12px}
+
+/* ── App mark ─────────────────────────────────────────────────────────────
+   This app's own icon beside its wordmark — the SAME artwork as its hub card
+   and its browser tab, so the three agree. Colour comes from the accent token
+   in swaxs-tokens.css; the art is drawn with stroke="currentColor", so the
+   `color` below is the only thing that paints it. Generated partial: see
+   tools/build_icon_sprite.py. */
+.app-mark { width:26px; height:26px; flex-shrink:0; color:var(--swaxs-synthesis); }
+.app-lockup { display:flex; align-items:center; gap:10px; min-width:0 }
 </style>
 </head>
 <body>
 <div class="topbar">
-  <h1>SWAXS <span>Autonomous Synthesis</span></h1>
+  <div class="app-lockup">
+    {% include "_app_mark.svg" %}
+    <h1>SWAXS <span>Autonomous Synthesis</span></h1>
+  </div>
   <span class="state-pill" id="state">idle</span>
   <div style="flex:1"></div>
   <span class="proj" id="proj"></span>

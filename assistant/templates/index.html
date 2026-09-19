@@ -16,6 +16,7 @@
 <script src="/static/vendor/katex/auto-render.min.js"></script>
 <!-- Interactive plots (Plotly), vendored offline. Falls back to static PNG if absent. -->
 <script src="/static/vendor/plotly.min.js"></script>
+<link rel="stylesheet" href="/static/swaxs-tokens.css">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -307,6 +308,15 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
 .sidebar .scard,.sidebar #kbStats,.sidebar .hint-item{font-size:var(--fs-md)}
 .sidebar .kb-item{font-size:var(--fs-sm)}
 .sidebar .pdf-label{font-size:var(--fs-md)}
+
+/* ── App mark ─────────────────────────────────────────────────────────────
+   This app's own icon beside its wordmark — the SAME artwork as its hub card
+   and its browser tab, so the three agree. Colour comes from the accent token
+   in swaxs-tokens.css; the art is drawn with stroke="currentColor", so the
+   `color` below is the only thing that paints it. Generated partial: see
+   tools/build_icon_sprite.py. */
+.app-mark { width:26px; height:26px; flex-shrink:0; color:var(--swaxs-guinier); }
+.app-lockup { display:flex; align-items:center; gap:10px; min-width:0 }
 </style>
 </head>
 <body>
@@ -315,7 +325,10 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
   <header class="topbar">
     <img src="/static/saxs_smiley.png" alt="SAXS assistant icon"
          style="width:30px;height:30px;border-radius:7px;margin-right:10px;object-fit:cover;box-shadow:0 1px 3px rgba(0,0,0,.25)">
-    <h1><span>Guinier</span></h1>
+    <div class="app-lockup">
+      {% include "_app_mark.svg" %}
+      <h1><span>Guinier</span></h1>
+    </div>
     <div id="apiBadge" class="badge warn">Connecting…</div>
     <div class="spacer"></div>
     <button class="btn" onclick="clearChat()">🗑 Clear</button>

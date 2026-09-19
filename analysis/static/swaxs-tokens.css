@@ -1,0 +1,128 @@
+/* SWAXS Platform icon accents.
+ *
+ * Two ways to use these, pick one:
+ *
+ * 1. --swaxs-x        single value, ~4.3:1 on both #0d1117 and #fff. Clears the
+ *                     WCAG 1.4.11 bar for non-text contrast (3:1) in either theme
+ *                     with no swap. No single hex can reach 4.5:1 against both
+ *                     backgrounds at once, so if you want that, use option 2.
+ * 2. --swaxs-x-dark / --swaxs-x-light   per-theme pair, ~6.4:1 each, which meets
+ *                     the stricter 4.5:1 text-grade bar Carbon applies to icons.
+ *                     The light-dark() block below wires them up automatically.
+ */
+:root {
+  color-scheme: light dark;
+
+  --swaxs-calibration: #ed1632;
+  --swaxs-reduction: #2374ee;
+  --swaxs-visualisation: #0b8c47;
+  --swaxs-subtraction: #ab43f1;
+  --swaxs-quality: #0a8783;
+  --swaxs-analysis: #a56d0c;
+  --swaxs-autofit: #815ef3;
+  --swaxs-synthesis: #0d81b2;
+  --swaxs-guinier: #e011a2;
+  --swaxs-watch: #dc4011;
+
+  --swaxs-calibration-light: #be0e26;  /* 6.4:1 on #fff   */
+  --swaxs-calibration-dark:  #f4677a;  /* 6.37:1 on #0d1117 */
+  --swaxs-reduction-light: #0f59c7;  /* 6.41:1 on #fff   */
+  --swaxs-reduction-dark:  #5a97f3;  /* 6.45:1 on #0d1117 */
+  --swaxs-visualisation-light: #086e38;  /* 6.37:1 on #fff   */
+  --swaxs-visualisation-dark:  #0dad57;  /* 6.43:1 on #0d1117 */
+  --swaxs-subtraction-light: #8d11e0;  /* 6.38:1 on #fff   */
+  --swaxs-subtraction-dark:  #c175f5;  /* 6.43:1 on #0d1117 */
+  --swaxs-quality-light: #086a67;  /* 6.43:1 on #fff   */
+  --swaxs-quality-dark:  #0da7a2;  /* 6.37:1 on #0d1117 */
+  --swaxs-analysis-light: #83570a;  /* 6.3:1 on #fff   */
+  --swaxs-analysis-dark:  #cd870f;  /* 6.37:1 on #0d1117 */
+  --swaxs-autofit-light: #6136f0;  /* 6.37:1 on #fff   */
+  --swaxs-autofit-dark:  #9e84f6;  /* 6.38:1 on #0d1117 */
+  --swaxs-synthesis-light: #0b678e;  /* 6.28:1 on #fff   */
+  --swaxs-synthesis-dark:  #11a0de;  /* 6.4:1 on #0d1117 */
+  --swaxs-guinier-light: #b20d81;  /* 6.43:1 on #fff   */
+  --swaxs-guinier-dark:  #f35ac5;  /* 6.38:1 on #0d1117 */
+  --swaxs-watch-light: #af330d;  /* 6.36:1 on #fff   */
+  --swaxs-watch-dark:  #f16f47;  /* 6.4:1 on #0d1117 */
+
+  /* Hub chrome: structural icons stay neutral so they don't compete with the
+     ten coloured app marks. Colour is reserved for status. */
+  --swaxs-chrome-light: #586170;  /* 6.25:1 on #fff   */
+  --swaxs-chrome-dark:  #98a3b3;  /* 7.41:1 on #0d1117 */
+  --swaxs-chrome-strong-light: #12161c;  /* 18.15:1 on #fff   */
+  --swaxs-chrome-strong-dark:  #e6edf3;  /* 16.02:1 on #0d1117 */
+  --swaxs-status-running-light: #086e33;  /* 6.39:1 on #fff   */
+  --swaxs-status-running-dark:  #0dad50;  /* 6.41:1 on #0d1117 */
+  --swaxs-status-stopped-light: #55606d;  /* 6.4:1 on #fff   */
+  --swaxs-status-stopped-dark:  #8c97a4;  /* 6.38:1 on #0d1117 */
+  --swaxs-status-warning-light: #7b5909;  /* 6.41:1 on #fff   */
+  --swaxs-status-warning-dark:  #c38d0f;  /* 6.43:1 on #0d1117 */
+  --swaxs-status-error-light: #ba1f0e;  /* 6.38:1 on #fff   */
+  --swaxs-status-error-dark:  #f36b5c;  /* 6.37:1 on #0d1117 */
+
+  /* Unsuffixed names, which is what components should reference.
+     Dark values are the default; the blocks below switch them. */
+  --swaxs-chrome: #98a3b3;
+  --swaxs-chrome-strong: #e6edf3;
+  --swaxs-status-running: #0dad50;
+  --swaxs-status-stopped: #8c97a4;
+  --swaxs-status-warning: #c38d0f;
+  --swaxs-status-error: #f36b5c;
+}
+
+/* Fallback for engines without light-dark(). */
+@media (prefers-color-scheme: light) {
+  :root {
+    --swaxs-calibration: #be0e26;
+    --swaxs-reduction: #0f59c7;
+    --swaxs-visualisation: #086e38;
+    --swaxs-subtraction: #8d11e0;
+    --swaxs-quality: #086a67;
+    --swaxs-analysis: #83570a;
+    --swaxs-autofit: #6136f0;
+    --swaxs-synthesis: #0b678e;
+    --swaxs-guinier: #b20d81;
+    --swaxs-watch: #af330d;
+    --swaxs-chrome: #586170;
+    --swaxs-chrome-strong: #12161c;
+    --swaxs-status-running: #086e33;
+    --swaxs-status-stopped: #55606d;
+    --swaxs-status-warning: #7b5909;
+    --swaxs-status-error: #ba1f0e;
+  }
+}
+
+/* Option 2: resolve per theme automatically. */
+@supports (color: light-dark(#000, #fff)) {
+  :root {
+    --swaxs-calibration: light-dark(var(--swaxs-calibration-light), var(--swaxs-calibration-dark));
+    --swaxs-reduction: light-dark(var(--swaxs-reduction-light), var(--swaxs-reduction-dark));
+    --swaxs-visualisation: light-dark(var(--swaxs-visualisation-light), var(--swaxs-visualisation-dark));
+    --swaxs-subtraction: light-dark(var(--swaxs-subtraction-light), var(--swaxs-subtraction-dark));
+    --swaxs-quality: light-dark(var(--swaxs-quality-light), var(--swaxs-quality-dark));
+    --swaxs-analysis: light-dark(var(--swaxs-analysis-light), var(--swaxs-analysis-dark));
+    --swaxs-autofit: light-dark(var(--swaxs-autofit-light), var(--swaxs-autofit-dark));
+    --swaxs-synthesis: light-dark(var(--swaxs-synthesis-light), var(--swaxs-synthesis-dark));
+    --swaxs-guinier: light-dark(var(--swaxs-guinier-light), var(--swaxs-guinier-dark));
+    --swaxs-watch: light-dark(var(--swaxs-watch-light), var(--swaxs-watch-dark));
+    --swaxs-chrome: light-dark(var(--swaxs-chrome-light), var(--swaxs-chrome-dark));
+    --swaxs-chrome-strong: light-dark(var(--swaxs-chrome-strong-light), var(--swaxs-chrome-strong-dark));
+    --swaxs-status-running: light-dark(var(--swaxs-status-running-light), var(--swaxs-status-running-dark));
+    --swaxs-status-stopped: light-dark(var(--swaxs-status-stopped-light), var(--swaxs-status-stopped-dark));
+    --swaxs-status-warning: light-dark(var(--swaxs-status-warning-light), var(--swaxs-status-warning-dark));
+    --swaxs-status-error: light-dark(var(--swaxs-status-error-light), var(--swaxs-status-error-dark));
+  }
+}
+
+/* A dark-only surface must pin the scheme, or light-dark() follows the OS and
+ * hands a dark page the light values:
+ *     :root { color-scheme: dark; }
+ */
+/* Icons inherit colour, so a card needs only:
+ *   .card--reduction .card__icon   { color: var(--swaxs-reduction); }
+ *   .card--reduction .card__stripe { background: var(--swaxs-reduction); }
+ *
+ * Stroke scales with size: the set is drawn at 2px on a 24px canvas (1/12 of the
+ * icon size). At 16px use ~1.33, at 20px ~1.67, at 32px ~2.67 — or set
+ * vector-effect:non-scaling-stroke if you prefer a fixed rendered width.
+ */

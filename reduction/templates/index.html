@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Reduction & Correction — SWAXS</title>
     <link rel="icon" href="/app-icon">   <!-- per-app tab icon, from apps.yml (src/favicon.py) -->
-  <style>
+  <link rel="stylesheet" href="/static/swaxs-tokens.css">
+<style>
 /* ── Design tokens — SLAC cardinal red theme ───────────────────────────── */
 :root {
   /* ── SWAXS shared design system — Light theme ───────── */
@@ -421,6 +422,15 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
    One small, even gutter instead. It also returns ~30px of width per pane,
    which the two-column form grids can use. */
 .ipanel-scroll, .tab-panel, .inputs { padding:18px }
+
+/* ── App mark ─────────────────────────────────────────────────────────────
+   This app's own icon beside its wordmark — the SAME artwork as its hub card
+   and its browser tab, so the three agree. Colour comes from the accent token
+   in swaxs-tokens.css; the art is drawn with stroke="currentColor", so the
+   `color` below is the only thing that paints it. Generated partial: see
+   tools/build_icon_sprite.py. */
+.app-mark { width:26px; height:26px; flex-shrink:0; color:var(--swaxs-reduction); }
+.app-lockup { display:flex; align-items:center; gap:10px; min-width:0 }
 </style>
 </head>
 <body>
@@ -430,7 +440,10 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
 <nav id="sidebar">
   <div id="logo">
     <div id="logo-badge">SLAC · SSRL</div>
-    <div id="logo-name">SWAXS<br>Pipeline</div>
+    <div class="app-lockup">
+      {% include "_app_mark.svg" %}
+      <div><div id="logo-name">SWAXS<br>Pipeline</div></div>
+    </div>
     <div id="logo-sub">Web Interface</div>
   </div>
 

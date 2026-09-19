@@ -6,6 +6,7 @@
 <title>Data Analysis — SWAXS</title>
     <link rel="icon" href="/app-icon">   <!-- per-app tab icon, from apps.yml (src/favicon.py) -->
 <script src="/static/vendor/plotly.min.js"></script>
+<link rel="stylesheet" href="/static/swaxs-tokens.css">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -83,12 +84,24 @@ table.res td:last-child{font-family:var(--mono);font-weight:600}
 /* larger left-nav text */
 .nav .lbl{font-size:var(--fs-sm)}
 .navtab{font-size:var(--fs-base)}
+
+/* ── App mark ─────────────────────────────────────────────────────────────
+   This app's own icon beside its wordmark — the SAME artwork as its hub card
+   and its browser tab, so the three agree. Colour comes from the accent token
+   in swaxs-tokens.css; the art is drawn with stroke="currentColor", so the
+   `color` below is the only thing that paints it. Generated partial: see
+   tools/build_icon_sprite.py. */
+.app-mark { width:26px; height:26px; flex-shrink:0; color:var(--swaxs-analysis); }
+.app-lockup { display:flex; align-items:center; gap:10px; min-width:0 }
 </style>
 </head>
 <body>
 <div class="shell">
   <header class="topbar">
-    <h1>SWAXS <span>Analysis</span></h1>
+    <div class="app-lockup">
+      {% include "_app_mark.svg" %}
+      <h1>SWAXS <span>Analysis</span></h1>
+    </div>
     <span class="sub" id="projSub">no project</span>
     <div class="spacer"></div>
     <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" title="Toggle light / dark">☾</button>

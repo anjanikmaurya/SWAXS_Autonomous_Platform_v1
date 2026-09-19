@@ -6,6 +6,7 @@
 <title>Visualisation & Average — SWAXS</title>
     <link rel="icon" href="/app-icon">   <!-- per-app tab icon, from apps.yml (src/favicon.py) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.26.0/plotly.min.js"></script>
+<link rel="stylesheet" href="/static/swaxs-tokens.css">
 <style>
 /* ── Design tokens (identical to pipeline app) ───────── */
 :root {
@@ -703,6 +704,15 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
 /* The sidebar lost its logo block, so the first nav label needs the top
    breathing room the logo's border used to provide. */
 #sidebar .nav-section-label:first-child { padding-top:18px }
+
+/* ── App mark ─────────────────────────────────────────────────────────────
+   This app's own icon beside its wordmark — the SAME artwork as its hub card
+   and its browser tab, so the three agree. Colour comes from the accent token
+   in swaxs-tokens.css; the art is drawn with stroke="currentColor", so the
+   `color` below is the only thing that paints it. Generated partial: see
+   tools/build_icon_sprite.py. */
+.app-mark { width:26px; height:26px; flex-shrink:0; color:var(--swaxs-visualisation); }
+.app-lockup { display:flex; align-items:center; gap:10px; min-width:0 }
 </style>
 </head>
 
@@ -713,7 +723,10 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
      "SWAXS Average") and show only the current mode up here, so the two apps
      did not look like the same product at a glance. -->
 <header class="topbar">
-  <h1>SWAXS <span>Average</span></h1>
+  <div class="app-lockup">
+    {% include "_app_mark.svg" %}
+    <h1>SWAXS <span>Average</span></h1>
+  </div>
   <div style="flex:1"></div>
   <span class="proj" id="projPath"></span>
   <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" title="Toggle light / dark">☾</button>
