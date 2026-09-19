@@ -13,6 +13,38 @@ do not assume conformance.
 
 ---
 
+## The shared layout spec (reduction · average · background)
+
+These three apps are the same kind of page — a column of panels, each a
+heading over a form — and now carry one byte-identical CSS block, checked by
+`tests/test_shared_layout_spec.py`:
+
+```css
+.card, .section          { padding:16px 18px; … }
+.card-hd, .section-title { font-size:15px; uppercase; accent; … }
+.two-col, .row           { grid, auto-fit minmax(240px, 1fr) }
+```
+
+Three things it fixed:
+
+- **background rendered every token ~11% larger.** The `--fs-*` scale is
+  defined against a **16px base** (`--fs-sm:.8125rem` is meant to be 13px), but
+  background set `font-size:18px` on `html`. Same token name, different size.
+  It is 16px now, matching reduction and average.
+- **`.row` had no CSS rule.** background's markup used it in four places to put
+  two fields side by side; with no rule they stacked, silently, costing about
+  160px of scrolling.
+- **Panels are tighter** — 16/18px padding rather than reduction's original
+  20/22px, and a 12/8px heading rule rather than 16/10px. About 14px back per
+  panel, so roughly 140–250px per screen depending on the app. No text got
+  smaller to achieve it.
+
+**Guideline for any new app:** 16px base, the `--fs-*` scale as defined in
+section 1, and this layout block copied verbatim. A different base size is the
+one change that makes every other token lie.
+
+---
+
 ## 0. Per-app conformance
 
 | App | Port | Type scale | Weights / line-heights / spacing | `--font` | `--radius` | Base size | Dark mode | `:focus-visible` |

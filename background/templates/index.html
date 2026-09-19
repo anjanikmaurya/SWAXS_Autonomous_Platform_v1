@@ -31,7 +31,12 @@
   --fs-2xs:.6875rem;--fs-xs:.75rem;--fs-sm:.8125rem;--fs-md:.875rem;--fs-base:1rem;--fs-lg:1.125rem;--fs-xl:1.375rem;
   --fw-semibold:600;--fw-bold:700;--ls-label:.06em;--radius:8px;
 }
-html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--font);font-size:18px}
+/* 16px, not 18px. The --fs-* tokens are DEFINED against a 16px base
+   (--fs-sm:.8125rem is meant to be 13px), so an 18px base silently rendered
+   every one of them ~11% larger than the same token in reduction or average.
+   The page also fits noticeably more of a form on one screen at 16px, which
+   is the other half of why this changed. */
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--font);font-size:16px}
 .shell{display:grid;grid-template-rows:56px 1fr;height:100vh}
 .topbar{display:flex;align-items:center;gap:14px;padding:0 20px;background:var(--surface);border-bottom:1px solid var(--border)}
 .topbar h1{font-size:var(--fs-lg);font-weight:700}.topbar h1 span{color:var(--accent)}
@@ -191,6 +196,39 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{ou
   padding:10px 12px; background:var(--surface2);
   border:1px solid var(--border); border-radius:var(--radius);
   font-family:var(--mono); font-size:13px; line-height:1.5;
+}
+
+/* ── Shared layout spec — reduction · average · background ────────────────
+   These three apps are the same kind of page: a column of panels, each a
+   heading over a form. They had three different implementations of that.
+   reduction and average already agreed (.card/.card-hd, byte for byte);
+   background had .section/.section-title with 14px padding and a small grey
+   heading, on an 18px base, so the same page furniture rendered at a
+   different size AND a different weight.
+
+   One spec now, byte-identical in all three. Panels are a little tighter than
+   reduction's original 20px/22px: the operator asked to see a whole form
+   without scrolling, and ~14px per panel back is the cheapest way to give it
+   without shrinking any text.
+
+   tests/test_shared_layout_spec.py checks the three copies stay identical. */
+.card, .section {
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:var(--radius); padding:16px 18px;
+}
+.card-hd, .section-title {
+  font-size:15px; font-weight:700; letter-spacing:.08em;
+  text-transform:uppercase; color:var(--accent);
+  margin-bottom:12px; padding-bottom:8px;
+  border-bottom:1px solid var(--border);
+}
+/* Two fields side by side. `.row` existed in background's MARKUP in four
+   places and had no rule at all, so every pair it wrapped stacked instead —
+   pure scrolling, invisible in the source. Collapses to one column when the
+   panel is too narrow to give each field a usable width. */
+.two-col, .row {
+  display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr));
+  gap:12px 18px; align-items:start;
 }
 </style>
 </head>
