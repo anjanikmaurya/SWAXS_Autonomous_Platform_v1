@@ -46,21 +46,59 @@ def format_reactor_run_start(data: dict) -> tuple[str, str, str]:
     return title, text, "info"
 
 
+#: Run-end reasons that are the loop working as designed. Everything else
+#: ended the run earlier than planned and the operator should be able to see
+#: that at a glance, from the phone, without decoding reason strings.
+_NORMAL_END = ("saxs measurement complete", "duration elapsed",
+               "next condition available", "ended")
+
+
+def _split_reason(reason: str) -> tuple[str, str]:
+    """('SAXS measurement complete', 'Run21_r016_..._Average.dat').
+
+    The reactor appends the triggering file to the reason with an em dash
+    (controller._run_reason). Slack then showed the whole absolute path inline,
+    which pushed the actual reason off the edge on a phone.
+    """
+    head, _, tail = reason.partition(" — ")
+    detail = tail.strip()
+    if detail and ("/" in detail or "\\" in detail):
+        detail = detail.replace("\\", "/").rsplit("/", 1)[-1]
+    return head.strip(), detail
+
+
 def format_reactor_run_complete(data: dict) -> tuple[str, str, str]:
-    """Translate reactor.run_complete event to (title, text, level)."""
+    """Translate reactor.run_complete event to (title, text, level).
+
+    "Stopped by: …" was wrong for the case that happens most. In an autonomous
+    campaign almost every run ends because the measurement finished, and
+    reading "Stopped by" on the phone at 2am suggests something interrupted the
+    rig. The label now reflects which of the two actually happened, because the
+    distinction — did this finish, or did it stop early? — is the whole reason
+    the message is worth sending.
+    """
     recipe_id = str(data.get("recipe_id") or "")
-    reason = str(data.get("reason") or "?")
+    reason = str(data.get("reason") or "").strip() or "ended"
     duration_s = float(data.get("duration_s") or 0)
     analysis = data.get("analysis") or {}
 
-    fields = [f"Stopped by: {reason}", f"Ran: {_format_duration(duration_s)}"]
+    head, detail = _split_reason(reason)
+    normal = head.lower() in _NORMAL_END
+
+    fields = [f"{'Ended' if normal else '⚠ Stopped early'}: {head}"]
+    if detail:
+        fields.append(f"File: {detail}")
+    fields.append(f"Ran: {_format_duration(duration_s)}")
     for key in ("size", "pdi", "confidence", "loss"):
         if analysis.get(key) is not None:
             fields.append(f"{key}: {_fmt(analysis[key])}")
 
-    title = f"Run Complete — {recipe_id}" if recipe_id else "Run Complete"
-    text = "\n".join(fields)
-    return title, text, "info"
+    if recipe_id:
+        title = (f"Run Complete — {recipe_id}" if normal
+                 else f"Run Stopped Early — {recipe_id}")
+    else:
+        title = "Run Complete" if normal else "Run Stopped Early"
+    return title, "\n".join(fields), "info"
 
 
 def format_reactor_estop(data: dict) -> tuple[str, str, str]:
@@ -124,9 +162,72 @@ def format_fit_complete(data: dict) -> tuple[str, str, str]:
     return title, text, level
 
 
+def format_average_skipped(data: dict) -> tuple[str, str, str]:
+    """Translate average.skipped — a full batch consumed with no average out.
+
+    This is terminal and was completely silent: the average app dropped ten
+    frames, the condition could never produce a subtracted profile, and an
+    operator away from the beamline heard nothing. Run20 lost r006 that way and
+    the campaign kept going as though nothing had happened.
+
+    A fault, not progress. It is not recoverable by waiting — the frames are
+    consumed — so it is the kind of thing worth waking someone for.
+    """
+    kw = str(data.get("keyword") or "?")
+    det = str(data.get("detector") or "?").upper()
+    n = data.get("n_files")
+    reason = str(data.get("reason") or "no reason recorded")
+    text = (f"{n or '?'} frames for {kw} [{det}] were consumed without "
+            f"producing an average.\nReason: {reason}\n"
+            f"These frames will not be retried, so this condition will never "
+            f"produce a subtracted profile.")
+    return f"Averaging DROPPED a batch — {kw}", text, "fault"
+
+
+def format_file_skipped(data: dict) -> tuple[str, str, str]:
+    """Translate file.skipped — reduction gave up on a frame for good.
+
+    Also silent until now. One skipped frame means the average gate for that
+    lane can never fill, which the watchdog already understands well enough to
+    diagnose (diagnose.py Pattern G) but never actually told anyone about
+    unless a stall check happened to fire later.
+    """
+    path = str(data.get("file_path") or "")
+    name = path.replace("\\", "/").rsplit("/", 1)[-1] or "?"
+    kw = str(data.get("keyword") or "?")
+    det = str(data.get("detector") or "?").upper()
+    n = data.get("n_failures")
+    text = (f"{name} [{det}] failed {n or '?'}× and will not be retried.\n"
+            f"The average gate for {kw} is now one frame short and cannot fill "
+            f"on its own.")
+    # Deliberately info, not fault. One bad CSV can make reduction give up on
+    # frame after frame, and faults bypass the transport's throttle entirely —
+    # a per-frame fault would push a burst at Slack, get rate-limited, and take
+    # genuinely urgent messages down with it. The CONSEQUENCE of these skips
+    # (the batch being dropped, the stage stalling) is reported as a fault by
+    # average.skipped and by the stall diagnosis; the individual frame is news,
+    # not an emergency.
+    return f"Frame permanently skipped — {kw}", text, "info"
+
+
+def format_reactor_vent(data: dict) -> tuple[str, str, str]:
+    """Translate reactor.vent. Published since the controller was written and
+    never formatted, so venting — which may follow an E-stop — was invisible."""
+    latched = bool(data.get("estop_latched"))
+    text = ("Vented while an E-stop was latched." if latched
+            else "All lines vented.")
+    return "Reactor vented", text, ("fault" if latched else "info")
+
+
 #: Events whose message must go out even if formatting it fails. These are the
 #: reactor's safety events; a formatting bug must never be the reason an
 #: operator is not told the rig tripped.
+#: Not reactor.vent. It is routed to the "safety" CATEGORY (so quiet hours and
+#: the category toggles cannot suppress a vent that follows an E-stop), but
+#: NEVER_DROP means something stricter: on a formatter failure, send the raw
+#: payload as a FAULT rather than nothing. A routine vent is not a fault, and
+#: promoting every one to fault-level to satisfy that rule would page the
+#: operator for normal operation.
 NEVER_DROP = ("reactor.estop", "reactor.safety")
 
 
@@ -164,7 +265,13 @@ def event_to_message(event_type: str, data: dict) -> tuple[str, str, str] | None
         "reactor.estop": format_reactor_estop,
         "reactor.safety": format_reactor_safety,
         "reactor.backend": format_reactor_backend,
+        "reactor.vent": format_reactor_vent,
         "fit.complete": format_fit_complete,
+        # Pipeline failures. Both are terminal for the condition they hit, and
+        # both were published for months with no formatter, so event_to_message
+        # returned None and nothing was ever sent.
+        "average.skipped": format_average_skipped,
+        "file.skipped": format_file_skipped,
     }
     formatter = formatters.get(event_type)
     if formatter:

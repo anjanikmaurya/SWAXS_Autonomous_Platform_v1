@@ -57,14 +57,48 @@ You should see a test message in `#autoq`.
 ### Events from the Bus
 
 Auto Watch subscribes to platform events:
-- **reactor.run_start** — recipe applied to the reactor
-- **reactor.run_complete** — synthesis run finished
-- **reactor.estop** — emergency stop triggered
-- **reactor.safety** — safety violation (pump, temperature, etc.)
-- **reactor.backend** — backend switched (mock ↔ real)
-- **fit.complete** — auto-fit result available
+
+| Event | Category | Level | Meaning |
+|---|---|---|---|
+| `reactor.estop` | safety | fault | emergency stop triggered |
+| `reactor.safety` | safety | fault | safety violation (pump, temperature, …) |
+| `reactor.vent` | safety | fault if an E-stop was latched, else info | lines vented |
+| `reactor.run_start` | progress | info | recipe applied to the reactor |
+| `reactor.run_complete` | progress | info | synthesis run finished |
+| `reactor.backend` | progress | info | backend switched (mock ↔ real) |
+| `fit.complete` | results | fault if the fit is suspect | auto-fit result available |
+| `average.skipped` | campaign | fault | a full batch was consumed with no average written |
+| `file.skipped` | campaign | info | reduction gave up on a frame for good |
 
 Each is translated to `{title, text, level}` and sent via webhook.
+
+`average.skipped` and `file.skipped` were published for months with no
+formatter, so `event_to_message()` returned `None` and **nothing was sent** —
+the pipeline could lose a whole condition (Run20 r006) without the operator
+hearing anything. They are the "campaign" category, which until then had no
+event mapped to it at all, making its toggle on the Alerts page a no-op
+(audit item W10).
+
+`file.skipped` is deliberately **info**, not fault. Faults bypass the
+transport's throttle, and one bad CSV can make reduction give up on frame after
+frame; a burst of un-throttled faults would be rate-limited by Slack and take
+genuinely urgent messages down with it. The *consequence* of those skips — the
+batch being dropped, or the stage stalling — is reported as a fault by
+`average.skipped` and by the stall diagnosis.
+
+`reactor.run_complete` says **"Ended: …"** for a normal finish and **"⚠ Stopped
+early: …"** otherwise. It used to say "Stopped by: …" for both, which in an
+autonomous campaign — where almost every run ends because the measurement
+finished — read as though something had interrupted the rig. The triggering
+file is shown by basename; the full absolute path pushed the reason off the
+edge of a phone screen.
+
+High-frequency progress events (`file.reduced`, `file.averaged`,
+`file.subtracted`, `analysis.complete`, `watch.new_raw`, …) are deliberately
+**not** notified — they appear on the dashboard instead. That list is asserted
+in `tests/test_watchdog_message_coverage.py`, so a newly published event is
+either given a formatter or explicitly recorded as silent; it cannot simply be
+forgotten.
 
 ### Policy
 

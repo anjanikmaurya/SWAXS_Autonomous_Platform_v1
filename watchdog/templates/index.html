@@ -1382,11 +1382,16 @@ function updateCharts() {
     type: 'scatter', mode: 'lines', fill: 'tozeroy',
     line: {color: P.primary, width: 3, shape: 'spline', smoothing: 1.1},
     fillcolor: P.fill,
-    hovertemplate: '%{x} — %{y} frames reduced<extra></extra>',
+    // ".dat files", not "frames": _throughput_scan counts every .dat in BOTH
+    // Reduction/SAXS and Reduction/WAXS, so in SWAXS mode one detector frame
+    // contributes two files. Calling that "frames reduced" made the chart read
+    // as double the real acquisition rate.
+    hovertemplate: '%{x} — %{y} .dat files<extra></extra>',
   }], themedLayout({
     margin: {t: 12, l: 58, r: 12, b: 48},
     xaxis: {title: {text: 'hour of day (local, last 24 h)', font: {size: 11, color: P.fg}}},
-    yaxis: {title: {text: 'frames reduced (count / h)', font: {size: 11, color: P.fg}}},
+    yaxis: {title: {text: 'reduced .dat files, SAXS+WAXS (count / h)',
+                    font: {size: 11, color: P.fg}}},
   }));
 
   // collect is deliberately excluded — its duration is exposure time, not

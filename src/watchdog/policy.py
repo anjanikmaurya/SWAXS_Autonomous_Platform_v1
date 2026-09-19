@@ -23,10 +23,20 @@ CATEGORIES = ("safety", "stalls", "results", "progress", "campaign")
 _EVENT_CATEGORY = {
     "reactor.estop": "safety",
     "reactor.safety": "safety",
+    # Venting may follow an E-stop; it belongs with the rig's safety state, not
+    # with progress chatter that quiet hours can suppress.
+    "reactor.vent": "safety",
     "reactor.run_start": "progress",
     "reactor.run_complete": "progress",
     "reactor.backend": "progress",
     "fit.complete": "results",
+    # Pipeline failures that end a condition. "campaign" was in CATEGORIES and
+    # on the Alerts page from the start but nothing ever mapped to it, so the
+    # toggle did nothing whichever way it was set (recorded as W10 in the Auto
+    # Watch audit). These are exactly what it was for: not a rig fault, not a
+    # stall, but the campaign quietly losing a data point.
+    "average.skipped": "campaign",
+    "file.skipped": "campaign",
 }
 
 

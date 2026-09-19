@@ -366,7 +366,36 @@ def _reduction_dirs() -> list[Path]:
     return uniq
 
 
+#: The 24 h throughput histogram is the one metric that walks the disk, and it
+#: is bucketed by HOUR — so recomputing it on the 3 s metrics tick re-stat()ed
+#: every .dat in both Reduction folders twenty times a minute to redraw a chart
+#: that cannot change more than once an hour. On a multi-day beamtime that is
+#: thousands of stat() calls a second against the very directory the reduction
+#: app is writing into, which is the opposite of what a monitoring tool should
+#: cost the thing it monitors. 60 s is still far finer than the bucket width.
+_THROUGHPUT_TTL_S = 60.0
+#: Keyed on the project root as well as the clock. A time-only cache kept
+#: showing the PREVIOUS project's counts for up to a minute after the operator
+#: switched folders — a monitoring chart displaying another experiment's data
+#: is worse than one that is briefly slow.
+_throughput_cache: dict = {"ts": 0.0, "data": None, "root": None}
+
+
 def _throughput_last_24h() -> list[dict]:
+    """Hourly count of reduced files over the last 24 h, cached for
+    _THROUGHPUT_TTL_S. Call this; _throughput_scan() is the expensive part."""
+    now = _time.monotonic()
+    cached = _throughput_cache["data"]
+    if (cached is not None
+            and _throughput_cache["root"] == _project_root
+            and (now - _throughput_cache["ts"]) < _THROUGHPUT_TTL_S):
+        return cached
+    data = _throughput_scan()
+    _throughput_cache.update(ts=now, data=data, root=_project_root)
+    return data
+
+
+def _throughput_scan() -> list[dict]:
     """Hourly count of reduced files over the real last 24 h, from files on
     disk (mtime) — not the in-memory event window, which is capped at 100
     entries and empties on restart (about five recipes, not a day). A count
@@ -1376,7 +1405,14 @@ def _stall_check_loop() -> None:
             gap = _BACKOFF_S[min(n_alerts, len(_BACKOFF_S) - 1)]
             if n_alerts and time.monotonic() - last_alert_ts < gap:
                 continue
-            probes = probe_all()
+            # The CACHE, not a fresh probe_all(). This loop runs every 300 s
+            # and the cache is never more than _PROBE_TTL_S (5 s) old, so there
+            # is nothing to gain from six more blocking HTTP calls — one of
+            # which takes the reactor controller's lock — and two things to
+            # lose: up to 12 s stalled in this thread when an app is down, and
+            # a diagnosis built from a different set of probe results than the
+            # dashboard is showing for the same moment.
+            probes = _probe_all_cached()
             loop = _loop_state(probes)
             diag_title, diag_text, is_stall = diagnose_stall(
                 stage, overdue_s, probes, loop,
