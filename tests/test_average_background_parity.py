@@ -189,3 +189,40 @@ def test_the_two_hint_classes_render_the_same():
     """average called it .fnote at 14px, background .hint at 13px."""
     block = _form_block(_AVG)
     assert ".fnote, .hint {" in block
+
+
+# ── the Monitor panel ───────────────────────────────────────────────────────
+def test_both_start_controls_live_in_a_titled_monitor_panel():
+    """background's Start/Stop sat bare at the bottom of the auto pane while
+    average's lived in a card headed "▶ Monitor", so the same control looked
+    like two different things. Both are panelled now."""
+    for name, html, hd in (("average", _AVG, 'class="card-hd">▶ Monitor<'),
+                           ("background", _BKG, 'class="section-title">▶ Monitor<')):
+        assert hd in html, f"{name} has no ▶ Monitor panel heading"
+
+
+def test_the_monitor_panel_contains_the_controls_and_the_log():
+    """A heading with the controls outside it would look right and group
+    nothing."""
+    for name, html, opener in (
+            ("average", _AVG, '<div class="card">\n        <div class="card-hd">▶ Monitor</div>'),
+            ("background", _BKG, '<div class="section">\n              <div class="section-title">▶ Monitor</div>')):
+        i = html.index(opener)
+        # the panel runs to the next panel opener or the pane's end
+        tail = html[i:i + 1400]
+        assert 'class="auto-actions"' in tail, f"{name}: controls are outside the panel"
+        assert 'class="auto-log"' in tail, f"{name}: the log is outside the panel"
+
+
+def test_scale_and_schedule_share_a_row_in_background():
+    """Two small panels stacked full-width wasted a screen's worth of height
+    between them."""
+    seg = _BKG[_BKG.index('id="auto-setup"'):]
+    row = seg.index('<div class="row">\n            <div class="section">\n'
+                    '              <div class="section-title">⚙ Scale</div>')
+    close = seg.index('</div><!-- /.row -->', row)
+    block = seg[row:close]
+    assert "⚙ Scale" in block and "⏱ Schedule" in block, \
+        "Scale and Schedule are not inside the same .row"
+    n_panels = block.count('<div class="section">')
+    assert n_panels == 2, f"{n_panels} panels in the row, expected 2"
