@@ -1,0 +1,137 @@
+"""
+tests/test_average_background_parity.py
+
+average (5103) and background (5104) do the same job — watch a folder, process
+what lands in rolling batches, log it, let the operator start and stop that
+from one control. Their auto-monitor controls had drifted into looking like
+two different products:
+
+    average                          background
+    ─────────────────────────────    ──────────────────────────────
+    btn-ok (GREEN) Start             btn-primary (CARDINAL) Start
+    .btn-grp → content-width         .actions → flex:1, stretched
+    pill font-size:14px              pill font-size:var(--fs-sm)
+    .fnote count                     .hint count
+    log max-height 260px             log max-height 300px
+    log ui-monospace literal         log var(--mono)
+    error lines var(--err)           error lines var(--accent)
+
+That last one was not cosmetic. background defines --green/--yellow/--red but
+NOT --ok/--warn/--err, so every var(--err) written there resolved to nothing
+and the log painted ERROR lines in the brand accent — the only colour that did
+resolve. Both now use the --*-text variants, which exist in both apps and in
+both themes.
+
+The two apps still differ underneath in a way this file does NOT try to fix:
+average sizes text in px and inherits a 16px base; background sizes in --fs-*
+tokens on an 18px base. The same token therefore renders ~11% bigger in
+background. That is a platform-wide split (docs/DESIGN_SYSTEM.md §0 — five
+apps each way) and converting either app wholesale is a separate job. The
+shared block below sidesteps it by using absolute px, so it looks identical in
+both regardless of the base.
+"""
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+import pytest
+
+_ROOT = Path(__file__).resolve().parent.parent
+_AVG = (_ROOT / "average" / "templates" / "index.html").read_text()
+_BKG = (_ROOT / "background" / "templates" / "index.html").read_text()
+
+#: The shared control block, matched from its opening comment to its last rule.
+_BLOCK = re.compile(
+    r"/\* ── Auto-monitor control — SHARED.*?\n\.auto-log \{.*?\n\}", re.S)
+
+
+def _shared_block(html: str) -> str:
+    m = _BLOCK.search(html)
+    assert m, "the shared auto-monitor CSS block is missing"
+    return m.group(0)
+
+
+def test_the_shared_control_css_is_identical_in_both_apps():
+    """Byte-identical, not merely similar. "Similar" is how it drifted."""
+    a, b = _shared_block(_AVG), _shared_block(_BKG)
+    assert a == b, "the shared auto-monitor block has diverged between the apps"
+
+
+def test_the_shared_block_does_not_use_font_size_tokens():
+    """The two apps run different base font sizes (16px vs 18px), so a --fs-*
+    token renders ~11% larger in background. px is what makes this block look
+    the same in both."""
+    # Rules only. The comment above them necessarily NAMES the tokens it is
+    # telling you not to use, and a scanner that cannot tell code from prose
+    # reports the explanation as the defect (third time in this session).
+    rules = re.sub(r"/\*.*?\*/", "", _shared_block(_AVG), flags=re.S)
+    assert "--fs-" not in rules, (
+        "the shared block uses a --fs-* token; it will render at two different "
+        "sizes because the apps have different base font sizes")
+
+
+@pytest.mark.parametrize("cls", ["auto-actions", "auto-state", "auto-count",
+                                 "auto-log"])
+def test_both_apps_use_the_shared_classes(cls):
+    for name, html in (("average", _AVG), ("background", _BKG)):
+        assert f'class="{cls}"' in html, f"{name} does not use .{cls}"
+
+
+def test_both_start_buttons_are_the_same_colour():
+    """A green Start in one app and a cardinal Start in the other, for the same
+    action, is the difference you notice first."""
+    for name, html, btn_id in (("average", _AVG, "aa-start"),
+                               ("background", _BKG, "auto-start")):
+        m = re.search(rf'<button[^>]*id="{btn_id}"[^>]*>', html) \
+            or re.search(rf'<button[^>]*class="([^"]*)"[^>]*id="{btn_id}"', html)
+        assert m, f"{name}: no start button found"
+        tag = m.group(0)
+        assert "btn-primary" in tag, (
+            f"{name}'s start button is not btn-primary: {tag}")
+        assert "btn-ok" not in tag
+
+
+def test_neither_start_row_stretches_its_buttons():
+    """`.actions` sets flex:1 on its buttons, so Start and Stop filled the row
+    in background while the identical pair sat at content width in average."""
+    for name, html in (("average", _AVG), ("background", _BKG)):
+        row = re.search(r'<div class="auto-actions">(.*?)</div>', html, re.S)
+        assert row, f"{name}: no .auto-actions row"
+        assert 'class="actions"' not in row.group(0)
+
+
+def test_the_log_colour_map_is_identical():
+    maps = [re.search(r"const colors=\{[^}]*\}", h).group(0)
+            for h in (_AVG, _BKG)]
+    assert maps[0] == maps[1], f"log colour maps differ: {maps}"
+
+
+def test_the_log_never_paints_an_error_in_the_brand_colour():
+    """background used var(--accent) for errors because var(--err) did not
+    resolve there — an error the same colour as every heading and button."""
+    for name, html in (("average", _AVG), ("background", _BKG)):
+        colours = re.search(r"const colors=\{[^}]*\}", html).group(0)
+        assert "--accent" not in colours, \
+            f"{name} paints a log level in the brand accent: {colours}"
+
+
+# ── the token names both apps rely on now resolve in both ───────────────────
+@pytest.mark.parametrize("token", ["--ok", "--warn", "--err",
+                                   "--ok-text", "--warn-text", "--err-text",
+                                   "--txt", "--txt-strong", "--mono",
+                                   "--surface2", "--border", "--radius"])
+def test_both_apps_define_every_token_the_shared_block_needs(token):
+    for name, html in (("average", _AVG), ("background", _BKG)):
+        assert re.search(rf"{re.escape(token)}\s*:", html), \
+            f"{name} does not define {token}; declarations using it are dropped"
+
+
+@pytest.mark.parametrize("token", ["--txt", "--txt-strong"])
+def test_the_text_aliases_are_overridden_in_dark_mode_too(token):
+    """Defining an alias in :root only is worse than not defining it: the
+    near-black light value then applies on a #1f2126 dark surface."""
+    for name, html in (("average", _AVG), ("background", _BKG)):
+        dark = html.split('[data-theme="dark"]')[1].split("}")[0]
+        assert f"{token}:" in dark, \
+            f"{name}: {token} has no dark-mode value — invisible text in dark"

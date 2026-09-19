@@ -15,7 +15,18 @@
   --sidebar:#eef1f5;--sidebar-h:#e3e7ed;--sf:31,41,55;
   --sidebar-active-bg:rgba(177,4,14,.10);--sidebar-active-fg:#8C1515;
   --green:#16a34a;--yellow:#d97706;--red:#dc2626;--blue:#2563eb;
+  /* Same four colours under the names the rest of the platform uses. This app
+     had only --green/--yellow/--red/--blue, so every `var(--ok)` / `var(--err)`
+     written here silently resolved to nothing — which is why the auto-log
+     painted ERROR lines in the brand accent (the only colour that did resolve)
+     and needed inline fallbacks like var(--ok,#15803d) to work at all. */
+  --ok:#16a34a;--warn:#d97706;--err:#dc2626;--info:#2563eb;
+  --ok-lt:#dcfce7;--warn-lt:#fef3c7;--err-lt:#fee2e2;
   --ok-text:#15803d;--warn-text:#b45309;--err-text:#b91c1c;--info-text:#1d4ed8;
+  /* --txt/--txt-strong are what reduction, average and calibration call these;
+     --text/--text-strong above are this app's names. Both resolve now, so a
+     block copied between the apps keeps its colours. */
+  --txt:#1f2937;--txt-strong:#111827;
   --font:'Inter','Segoe UI',system-ui,-apple-system,sans-serif;--mono:'JetBrains Mono','Fira Code',monospace;
   --fs-2xs:.6875rem;--fs-xs:.75rem;--fs-sm:.8125rem;--fs-md:.875rem;--fs-base:1rem;--fs-lg:1.125rem;--fs-xl:1.375rem;
   --fw-semibold:600;--fw-bold:700;--ls-label:.06em;--radius:8px;
@@ -133,6 +144,10 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{ou
 :root[data-theme="dark"]{
   --bg:#15161a;--surface:#1f2126;--surface2:#272a31;--border:#343842;--border-strong:#4c515c;
   --text:#e7e9ee;--text-strong:#f5f7fa;--muted:#a4abb6;--faint:#7d848f;--disabled:#5a606b;
+  /* The --txt aliases MUST be overridden here too. Adding them to :root only
+     would leave var(--txt) at its near-black light value in dark mode —
+     invisible on #1f2126, and worse than not defining the alias at all. */
+  --txt:#e7e9ee;--txt-strong:#f5f7fa;
   --accent:#d44a55;--accent-d:#b1040e;--accent-lt:#3a2023;
   --sidebar:#1f2126;--sidebar-h:#2a2d34;--sf:231,233,238;
   --sidebar-active-bg:rgba(212,74,85,.22);--sidebar-active-fg:#f0a6ab;
@@ -149,6 +164,34 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{ou
 .restart-banner.restored{background:var(--accent-lt);color:var(--info-text);border-bottom-color:var(--info-text)}
 .restart-banner.lost{background:#fde8e8;color:var(--err-text);font-weight:700;border-bottom:2px solid var(--err-text)}
 .restart-banner .rb-x{float:right;cursor:pointer;opacity:.6;font-weight:700;margin-left:12px}
+
+/* ── Auto-monitor control — SHARED between average and background ──────────
+   These two apps do the same job (watch a folder, process in rolling batches,
+   log what happened) and their controls had drifted apart: a green Start here
+   against a cardinal one there, content-width buttons against stretched ones
+   (background used `.actions`, which sets flex:1), two log heights, two fonts
+   and two hint classes.
+
+   Sizes here are absolute px, not --fs-* tokens, and that is deliberate. The
+   two apps run different base font sizes — average inherits 16px, background
+   sets 18px on html — so the SAME token renders ~11% larger in one than the
+   other. Until the platform settles on one base (docs/DESIGN_SYSTEM.md §0),
+   px is the only way this block looks identical in both.
+   Keep the two copies byte-identical; tests/test_average_background_parity.py
+   checks that they are. */
+.auto-actions { display:flex; gap:8px; flex-wrap:wrap; align-items:center }
+.auto-actions .btn { flex:0 0 auto }
+.auto-state {
+  padding:3px 12px; border-radius:999px; font-size:14px; font-weight:600;
+  background:var(--surface2); color:var(--muted); white-space:nowrap;
+}
+.auto-count { font-size:14px; color:var(--muted); margin:0 }
+.auto-log {
+  display:none; margin-top:10px; max-height:280px; overflow-y:auto;
+  padding:10px 12px; background:var(--surface2);
+  border:1px solid var(--border); border-radius:var(--radius);
+  font-family:var(--mono); font-size:13px; line-height:1.5;
+}
 </style>
 </head>
 <body>
@@ -419,17 +462,18 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{ou
               </div>
             </div>
 
-            <div class="actions" style="align-items:center">
+            <!-- Shared with average/templates/index.html — same job, same
+                 control. `.actions` was wrong here: it sets flex:1 on its
+                 buttons, so Start and Stop stretched to fill the row while the
+                 identical pair in the average app sat at content width. -->
+            <div class="auto-actions">
               <button class="btn btn-primary" id="auto-start" onclick="startAutoSub()">▶ Start auto-subtraction</button>
               <button class="btn btn-ghost" id="auto-stop" onclick="stopAutoSub()" disabled>⏹ Stop</button>
-              <span id="auto-state" style="padding:3px 12px;border-radius:999px;font-size:var(--fs-sm);font-weight:600;background:var(--surface2);color:var(--muted)">Idle</span>
-              <span id="auto-count" class="hint" style="margin:0"></span>
+              <span class="auto-state" id="auto-state">Idle</span>
+              <span class="auto-count" id="auto-count"></span>
             </div>
 
-            <div id="auto-log"
-                 style="display:none;margin-top:4px;max-height:300px;overflow-y:auto;
-                        padding:10px 12px;background:var(--surface2);border:1px solid var(--border);
-                        border-radius:var(--radius);font-family:var(--mono);font-size:13px;line-height:1.55"></div>
+            <div class="auto-log" id="auto-log"></div>
            </div><!-- /auto-setup -->
           </section>
           <div class="status-bar"><div class="dot" id="statusDot"></div><span id="statusMsg">Ready</span></div>
@@ -1050,9 +1094,9 @@ function autoSetState(txt,on){
 function autoLog(line){
   const box=document.getElementById('auto-log');
   box.style.display='block';
-  const colors={ok:'var(--ok,#15803d)',error:'var(--accent)',warn:'var(--warn-text,#b45309)',info:'var(--muted)'};
+  const colors={ok:'var(--ok-text)',error:'var(--err-text)',warn:'var(--warn-text)',info:'var(--muted)'};
   const div=document.createElement('div');
-  div.style.color=colors[line.tag]||'var(--text)';
+  div.style.color=colors[line.tag]||'var(--txt)';
   div.textContent=`[${line.ts}]  ${line.msg}`;
   box.appendChild(div);
   while(box.childNodes.length>500) box.removeChild(box.firstChild);

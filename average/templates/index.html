@@ -573,6 +573,34 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
 .restart-banner.restored{background:rgba(29,78,216,.10);color:var(--info-text);border-color:var(--info-text)}
 .restart-banner.lost{background:var(--err-lt);color:var(--err-text);font-weight:700;border:2px solid var(--err-text)}
 .restart-banner .rb-x{float:right;cursor:pointer;opacity:.6;font-weight:700;margin-left:12px}
+
+/* ── Auto-monitor control — SHARED between average and background ──────────
+   These two apps do the same job (watch a folder, process in rolling batches,
+   log what happened) and their controls had drifted apart: a green Start here
+   against a cardinal one there, content-width buttons against stretched ones
+   (background used `.actions`, which sets flex:1), two log heights, two fonts
+   and two hint classes.
+
+   Sizes here are absolute px, not --fs-* tokens, and that is deliberate. The
+   two apps run different base font sizes — average inherits 16px, background
+   sets 18px on html — so the SAME token renders ~11% larger in one than the
+   other. Until the platform settles on one base (docs/DESIGN_SYSTEM.md §0),
+   px is the only way this block looks identical in both.
+   Keep the two copies byte-identical; tests/test_average_background_parity.py
+   checks that they are. */
+.auto-actions { display:flex; gap:8px; flex-wrap:wrap; align-items:center }
+.auto-actions .btn { flex:0 0 auto }
+.auto-state {
+  padding:3px 12px; border-radius:999px; font-size:14px; font-weight:600;
+  background:var(--surface2); color:var(--muted); white-space:nowrap;
+}
+.auto-count { font-size:14px; color:var(--muted); margin:0 }
+.auto-log {
+  display:none; margin-top:10px; max-height:280px; overflow-y:auto;
+  padding:10px 12px; background:var(--surface2);
+  border:1px solid var(--border); border-radius:var(--radius);
+  font-family:var(--mono); font-size:13px; line-height:1.5;
+}
 </style>
 </head>
 
@@ -1280,17 +1308,17 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
 
       <div class="card">
         <div class="card-hd">▶ Monitor</div>
-        <div class="btn-grp" style="align-items:center">
-          <button class="btn btn-ok" id="aa-start" onclick="startAutoAvg()">▶ Start auto-averaging</button>
+        <!-- Shared with background/templates/index.html — the two apps do the
+             same job (watch a folder, process in batches, log it) and had
+             drifted: green Start here vs cardinal there, buttons content-width
+             here vs stretched there, two different log heights and fonts. -->
+        <div class="auto-actions">
+          <button class="btn btn-primary" id="aa-start" onclick="startAutoAvg()">▶ Start auto-averaging</button>
           <button class="btn btn-ghost" id="aa-stop" onclick="stopAutoAvg()" disabled>⏹ Stop</button>
-          <span id="aa-state" style="padding:3px 12px;border-radius:999px;font-size:14px;font-weight:600;background:var(--surface2);color:var(--muted)">Idle</span>
-          <span id="aa-count" class="fnote" style="margin:0"></span>
+          <span class="auto-state" id="aa-state">Idle</span>
+          <span class="auto-count" id="aa-count"></span>
         </div>
-        <div id="aa-log"
-             style="display:none;margin-top:10px;max-height:260px;overflow-y:auto;
-                    padding:10px 12px;background:var(--surface2);border:1px solid var(--border);
-                    border-radius:var(--radius);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
-                    font-size:13px;line-height:1.5"></div>
+        <div class="auto-log" id="aa-log"></div>
       </div>
 
     </div>
@@ -1971,7 +1999,7 @@ function aaSetState(txt,on){
 function aaLog(line){
   const box=document.getElementById('aa-log');
   box.style.display='block';
-  const colors={ok:'var(--ok)',error:'var(--err)',warn:'#b8860b',info:'var(--muted)'};
+  const colors={ok:'var(--ok-text)',error:'var(--err-text)',warn:'var(--warn-text)',info:'var(--muted)'};
   const div=document.createElement('div');
   div.style.color=colors[line.tag]||'var(--txt)';
   div.textContent=`[${line.ts}]  ${line.msg}`;
