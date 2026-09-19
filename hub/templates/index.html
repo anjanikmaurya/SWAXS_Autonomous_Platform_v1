@@ -5,7 +5,23 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>SWAXS Platform Hub</title>
     <link rel="icon" href="/app-icon">   <!-- per-app tab icon, from apps.yml (src/favicon.py) -->
+<link rel="stylesheet" href="/static/swaxs-tokens.css">
 <style>
+/* The hub is dark-only (no toggle, no light palette), but swaxs-tokens.css
+   resolves its light-dark() pairs from `color-scheme`, which defaults to
+   following the OS. Pinning it to dark here is what makes an icon on this page
+   take the dark-tuned value (~6.4:1 on #0d1117) instead of the light one. */
+:root { color-scheme: dark }
+
+/* Icon marks. Sized by the element, coloured by `color` — every symbol in the
+   sprite is drawn with stroke="currentColor", so the accent token is the only
+   thing that sets the colour. Never a hex at the call site. */
+.ico { width:24px; height:24px; flex-shrink:0; vertical-align:-0.18em }
+/* Anything with a mark beside a word lines them up and spaces them once. */
+.btn, .btn-xs, .pchange, .flow-badge, .bus-badge, .project-pill,
+.flow-row b { display:inline-flex; align-items:center; gap:6px }
+.card-icon .ico { width:24px; height:24px }
+
 /* ── Reset & base ───────────────────────────────────────────────────────── */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -140,11 +156,17 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
 .card-name{font-size:15px;font-weight:600}
 .card-desc{font-size:13px;color:var(--muted);margin-top:2px;line-height:1.5}
 .card-status{display:flex;align-items:center;gap:6px;margin-top:6px}
-.status-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
-.status-dot.healthy{background:var(--green);box-shadow:0 0 6px var(--green)}
-.status-dot.starting{background:var(--yellow);animation:pulse 1s infinite}
-.status-dot.stopped{background:var(--muted)}
-.status-dot.error{background:var(--red)}
+/* The status dot is now a 16px icon slot. It keeps its element, id and state
+   classes so the JS that sets them is untouched — only the paint changed from
+   a filled circle to a mark, and the colour from the old --green/--red to the
+   status tokens. The text beside it ("Running · port 5102") is unchanged. */
+.status-dot{width:16px;height:16px;flex-shrink:0;display:flex;
+            align-items:center;justify-content:center;background:none}
+.status-dot .ico{width:16px;height:16px}
+.status-dot.healthy {color:var(--swaxs-status-running)}
+.status-dot.starting{color:var(--swaxs-status-warning);animation:pulse 1s infinite}
+.status-dot.stopped {color:var(--swaxs-status-stopped)}
+.status-dot.error   {color:var(--swaxs-status-error)}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 .status-label{font-size:13px;color:var(--muted)}
 .qbadge{display:inline-block;margin-left:8px;padding:1px 8px;border-radius:999px;background:#0003;border:1px solid #ffffff14;font-size:12px;font-weight:700}
@@ -260,25 +282,36 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,
 </style>
 </head>
 <body>
+<!-- Icon sprite, inlined once so every symbol reference on this page
+     resolves against the same document, with no second request. Generated
+     by tools/build_icon_sprite.py from assets/icons/swaxs-icons-svg/ — do
+     not edit here. (Deliberately no literal use/href example in this
+     comment: a scan for unresolved references reads it as a real one.) -->
+{% include "_icon_sprite.svg" %}
+
 <div class="shell">
 
   <!-- Top bar -->
   <header class="topbar">
-    <div>
+    <div class="brand">
+      <svg class="ico" style="width:24px;height:24px;color:var(--swaxs-calibration)" aria-hidden="true"><use href="#swaxs-ui-mark"/></svg>
+      <div>
       <div class="topbar-logo">SWAXS <span>Platform</span></div>
       <div class="topbar-sub">Modular X-ray Scattering Analysis Suite</div>
+      </div>
     </div>
     <div class="topbar-spacer"></div>
     <!-- Event bus connectivity badge -->
     <div class="bus-badge" id="busBadge" title="WebSocket event bus — receives live events from all apps">
+      <svg class="ico" style="width:18px;height:18px;color:var(--swaxs-chrome)" aria-hidden="true"><use href="#swaxs-ui-bus"/></svg>
       <div class="bdot" id="busDot"></div>
       <span>Bus</span>
       <span class="bcount" id="busCount" style="display:none">0</span>
     </div>
     <div class="project-pill" id="projectPill" onclick="openBrowser()">
-      <span class="picon">📁</span>
+      <span class="picon"><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-chrome)" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg></span>
       <span class="ppath" id="projectPath">No project selected — click to choose</span>
-      <span class="pchange">Change</span>
+      <span class="pchange"><svg class="ico" style="width:16px;height:16px;color:var(--swaxs-chrome)" aria-hidden="true"><use href="#swaxs-ui-folder-change"/></svg>Change</span>
     </div>
   </header>
 
@@ -288,41 +321,45 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,
       <span>Applications</span>
       <span style="margin-left:auto;display:flex;gap:8px;font-weight:400">
         <button class="btn btn-stop" onclick="stopAllApps()"
-                title="Stop every app and leave no process running">■ Stop all</button>
+                title="Stop every app and leave no process running"><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-status-error)" aria-hidden="true"><use href="#swaxs-ui-stop-all"/></svg>Stop all</button>
         <button class="btn btn-stop" onclick="whoHasPorts()"
-                title="Show what is holding each app's port">🔌 Ports</button>
+                title="Show what is holding each app's port"><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-chrome)" aria-hidden="true"><use href="#swaxs-ui-ports"/></svg>Ports</button>
       </span>
     </div>
     <div class="section-hint">
       <div class="flow-row">
-        <span class="flow-badge flow-standard">STANDARD</span>
-        Pick your project folder, then work through: <b>🎯 Calibration</b><span class="arrow">→</span><b>🌀 Reduction</b><span class="arrow">→</span><b><img src="/static/average_icon.png" class="flow-icon" alt=""> Visualisation &amp; Average</b><span class="arrow">→</span><b><img src="/static/background_icon.png" class="flow-icon" alt=""> Subtraction</b><span class="arrow">→</span><b><img src="/static/analysis_icon.png" class="flow-icon" alt=""> Analysis</b>. Stuck? Use <b><img src="/static/saxs_smiley.png" class="flow-icon" alt=""> Guinier</b> AI assistant any time.
+        <span class="flow-badge flow-standard"><svg class="ico" style="width:16px;height:16px;color:var(--swaxs-visualisation)" aria-hidden="true"><use href="#swaxs-ui-mode-standard"/></svg>STANDARD</span>
+        Pick your project folder, then work through: <b><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-calibration)" aria-hidden="true"><use href="#swaxs-calibration"/></svg>Calibration</b><span class="arrow"><svg class="ico" style="width:16px;height:16px;color:var(--swaxs-chrome)" aria-hidden="true"><use href="#swaxs-ui-flow-next"/></svg></span><b><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-reduction)" aria-hidden="true"><use href="#swaxs-reduction"/></svg>Reduction</b><span class="arrow"><svg class="ico" style="width:16px;height:16px;color:var(--swaxs-chrome)" aria-hidden="true"><use href="#swaxs-ui-flow-next"/></svg></span><b><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-visualisation)" aria-hidden="true"><use href="#swaxs-visualisation"/></svg> Visualisation &amp; Average</b><span class="arrow"><svg class="ico" style="width:16px;height:16px;color:var(--swaxs-chrome)" aria-hidden="true"><use href="#swaxs-ui-flow-next"/></svg></span><b><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-subtraction)" aria-hidden="true"><use href="#swaxs-subtraction"/></svg> Subtraction</b><span class="arrow"><svg class="ico" style="width:16px;height:16px;color:var(--swaxs-chrome)" aria-hidden="true"><use href="#swaxs-ui-flow-next"/></svg></span><b><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-analysis)" aria-hidden="true"><use href="#swaxs-analysis"/></svg> Analysis</b>. Stuck? Use <b><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-guinier)" aria-hidden="true"><use href="#swaxs-guinier-ai"/></svg> Guinier</b> AI assistant any time.
       </div>
       <div class="flow-row flow-auto">
-        <span class="flow-badge flow-autonomous">AUTONOMOUS</span>
-        The reactor and optimiser close the loop: <b>🔁 Autonomous Synthesis</b> collects a sample<span class="arrow">→</span>pipeline reduces it<span class="arrow">→</span><b>🧭 Auto-Fit &amp; Optimiser</b> proposes what's next<span class="arrow">→</span>back to <b>🔁 Autonomous Synthesis</b>. Stuck? Use <b><img src="/static/saxs_smiley.png" class="flow-icon" alt=""> Guinier</b> AI assistant any time.
+        <span class="flow-badge flow-autonomous"><svg class="ico" style="width:16px;height:16px;color:var(--swaxs-subtraction)" aria-hidden="true"><use href="#swaxs-ui-mode-autonomous"/></svg>AUTONOMOUS</span>
+        The reactor and optimiser close the loop: <b><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-synthesis)" aria-hidden="true"><use href="#swaxs-synthesis"/></svg>Autonomous Synthesis</b> collects a sample<span class="arrow"><svg class="ico" style="width:16px;height:16px;color:var(--swaxs-chrome)" aria-hidden="true"><use href="#swaxs-ui-flow-next"/></svg></span>pipeline reduces it<span class="arrow"><svg class="ico" style="width:16px;height:16px;color:var(--swaxs-chrome)" aria-hidden="true"><use href="#swaxs-ui-flow-next"/></svg></span><b><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-autofit)" aria-hidden="true"><use href="#swaxs-autofit"/></svg>Auto-Fit &amp; Optimiser</b> proposes what's next<span class="arrow"><svg class="ico" style="width:16px;height:16px;color:var(--swaxs-chrome)" aria-hidden="true"><use href="#swaxs-ui-flow-next"/></svg></span>back to <b><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-synthesis)" aria-hidden="true"><use href="#swaxs-synthesis"/></svg>Autonomous Synthesis</b>. Stuck? Use <b><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-guinier)" aria-hidden="true"><use href="#swaxs-guinier-ai"/></svg> Guinier</b> AI assistant any time.
       </div>
     </div>
 
     <div class="app-grid" id="appGrid">
       {% for a in apps %}
-      <div class="app-card" id="card-{{ a.id }}" style="--card-color:{{ a.color }}">
+      <div class="app-card" id="card-{{ a.id }}"
+           style="--card-color:{% if a.accent %}var(--{{ a.accent }}){% else %}{{ a.color }}{% endif %}">
         <div class="card-header">
-          <div class="card-icon">{% if a.icon_image %}<img src="{{ a.icon_image }}" alt="{{ a.name }} icon" style="width:34px;height:34px;border-radius:8px;object-fit:cover;display:block">{% else %}{{ a.icon }}{% endif %}</div>
+          {# icon_id -> sprite mark, tinted by the SAME token as the card's top
+             stripe above, so the two cannot drift apart. Apps without it keep
+             their emoji or PNG until they are converted. #}
+          <div class="card-icon">{% if a.icon_id %}<svg class="ico" style="color:var(--{{ a.accent }})" role="img" aria-label="{{ a.name }} icon"><use href="#{{ a.icon_id }}"/></svg>{% elif a.icon_image %}<img src="{{ a.icon_image }}" alt="{{ a.name }} icon" style="width:34px;height:34px;border-radius:8px;object-fit:cover;display:block">{% else %}{{ a.icon }}{% endif %}</div>
           <div class="card-meta">
             <div class="card-name">{{ a.name }}</div>
             <div class="card-desc">{{ a.description }}</div>
           </div>
         </div>
         <div class="card-status">
-          <div class="status-dot stopped" id="dot-{{ a.id }}"></div>
+          <div class="status-dot stopped" id="dot-{{ a.id }}"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-status-stopped"/></svg></div>
           <span class="status-label" id="lbl-{{ a.id }}">Stopped</span>
         </div>
         <div class="card-footer">
-          <button class="btn btn-start" onclick="startApp('{{ a.id }}')">▶ Start</button>
-          <button class="btn btn-stop"  onclick="stopApp('{{ a.id }}')">■ Stop</button>
+          <button class="btn btn-start" onclick="startApp('{{ a.id }}')"><svg class="ico" style="width:16px;height:16px;color:inherit" aria-hidden="true"><use href="#swaxs-ui-start"/></svg>Start</button>
+          <button class="btn btn-stop"  onclick="stopApp('{{ a.id }}')"><svg class="ico" style="width:16px;height:16px;color:inherit" aria-hidden="true"><use href="#swaxs-ui-stop"/></svg>Stop</button>
           <a class="btn btn-open" id="open-{{ a.id }}"
-             href="http://localhost:{{ a.port }}" target="_blank" disabled>↗ Open</a>
+             href="http://localhost:{{ a.port }}" target="_blank" disabled><svg class="ico" style="width:16px;height:16px;color:inherit" aria-hidden="true"><use href="#swaxs-ui-open"/></svg>Open</a>
         </div>
       </div>
       {% endfor %}
@@ -330,11 +367,11 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,
 
     <!-- Live Event Log -->
     <div class="log-header">
-      <div class="section-title" style="margin-bottom:0">Live Event Log</div>
+      <div class="section-title" style="margin-bottom:0;display:flex;align-items:center;gap:8px"><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-chrome)" aria-hidden="true"><use href="#swaxs-ui-log"/></svg>Live Event Log</div>
       <div class="log-meta">
         <span class="log-count" id="logCount"></span>
         <div class="log-actions">
-          <button class="btn-xs" onclick="clearLog()">Clear</button>
+          <button class="btn-xs" onclick="clearLog()"><svg class="ico" style="width:16px;height:16px;color:var(--swaxs-chrome)" aria-hidden="true"><use href="#swaxs-ui-clear"/></svg>Clear</button>
         </div>
       </div>
     </div>
@@ -509,6 +546,11 @@ function updateCard(id, info) {
   if (!dot) return;
 
   dot.className = 'status-dot';
+  // Swap the mark with the state. The <use> is replaced rather than the whole
+  // node so the dot keeps its id and every other line here is unchanged.
+  const _u = dot.querySelector('use');
+  if (_u) _u.setAttribute('href',
+    info.healthy ? '#swaxs-ui-status-running' : '#swaxs-ui-status-stopped');
   if (info.healthy) {
     dot.classList.add('healthy');
     lbl.textContent = `Running  ·  port ${info.port}`;
@@ -854,7 +896,9 @@ async function browseTo(path) {
   data.dirs.forEach(d => {
     const item = document.createElement('div');
     item.className = 'dir-item';
-    item.innerHTML = `<span class="dicon">📁</span><span class="dname">${_esc(d)}</span>`;
+    item.innerHTML = `<span class="dicon"><svg class="ico" style="width:16px;height:16px;`
+      + `color:var(--swaxs-chrome)" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg>`
+      + `</span><span class="dname">${_esc(d)}</span>`;
     item.onclick = () => {
       _currentBrowsePath = _currentBrowsePath + '/' + d;
       browseTo(_currentBrowsePath);

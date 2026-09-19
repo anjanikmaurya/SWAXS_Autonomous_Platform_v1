@@ -24,6 +24,8 @@ apps:
     port:         5101
     entry:        "calibration/app.py"
     icon:         "🎯"
+    icon_id:      "swaxs-calibration"
+    accent:       "swaxs-calibration"
     color:        "#AD1457"
     knowledge:    "calibration/knowledge.md"
 
@@ -34,8 +36,13 @@ apps:
     entry:        "reduction/app.py"
     knowledge:    "reduction/knowledge.md"
     manifest_key: "files"
-    icon:         "🌀"          # 2D diffraction rings collapsed to a 1D radial curve — what azimuthal integration does
-    color:        "#1565C0"
+    icon:         "🌀"          # fallback only — icon_id below is what the hub renders
+    # Sprite symbol + accent token (assets/icons/). When icon_id is present the
+    # hub draws <svg><use href="…#icon_id"/></svg> and takes both the mark and
+    # the card's top stripe from `accent`, so the two can never disagree.
+    icon_id:      "swaxs-reduction"
+    accent:       "swaxs-reduction"
+    color:        "#1565C0"      # still used by apps that have no icon_id yet
 
   - id:           average
     name:         "Visualisation & Average"
@@ -46,6 +53,8 @@ apps:
     manifest_key: "files"
     icon:         "📊"
     icon_image:   "/static/average_icon.png"   # overlaid frame profiles, averaged curve on top
+    icon_id:      "swaxs-visualisation"
+    accent:       "swaxs-visualisation"
     color:        "#2E7D32"
 
   - id:           background
@@ -57,6 +66,8 @@ apps:
     manifest_key: "background"
     icon:         "➖"          # sample minus buffer/blank — literally what this app does
     icon_image:   "/static/background_icon.png"  # sample + buffer curves, subtracted result on top
+    icon_id:      "swaxs-subtraction"
+    accent:       "swaxs-subtraction"
     color:        "#6A1B9A"
 
   - id:           quality
@@ -67,6 +78,8 @@ apps:
     knowledge:    "quality/knowledge.md"
     manifest_key: "quality"
     icon:         "🚦"          # triage into Good / NeedsReview, not a single pass/fail
+    icon_id:      "swaxs-quality"
+    accent:       "swaxs-quality"
     color:        "#00897B"
 
   - id:           analysis
@@ -78,6 +91,8 @@ apps:
     manifest_key: "analyses"
     icon:         "📈"
     icon_image:   "/static/analysis_icon.png"  # SAXS profile with fitted curve overlaid
+    icon_id:      "swaxs-analysis"
+    accent:       "swaxs-analysis"
     color:        "#E65100"
 
   - id:           analyzer
@@ -87,6 +102,8 @@ apps:
     entry:        "analyzer/app.py"
     manifest_key: "analyses"
     icon:         "🧭"          # navigating parameter space toward the target size — the search/optimize loop
+    icon_id:      "swaxs-autofit"
+    accent:       "swaxs-autofit"
     color:        "#4527A0"     # NOT reduction's #1565C0 — two apps sharing one
                                 # colour are indistinguishable in a 16 px tab
     knowledge:    "analyzer/knowledge.md"
@@ -99,6 +116,8 @@ apps:
     knowledge:    "reactor/knowledge.md"
     manifest_key: "reactor"
     icon:         "🔁"          # the unattended closed loop: recipe → collect → measure → next recipe
+    icon_id:      "swaxs-synthesis"
+    accent:       "swaxs-synthesis"
     color:        "#00838F"
 
   - id:           assistant
@@ -110,6 +129,8 @@ apps:
     manifest_key: "ai_memory"
     icon:         "🤖"
     icon_image:   "/static/saxs_smiley.png"
+    icon_id:      "swaxs-guinier-ai"
+    accent:       "swaxs-guinier"
     color:        "#455A64"
 
   - id:           watchdog
@@ -120,4 +141,6 @@ apps:
     knowledge:    "watchdog/knowledge.md"
     icon:         "📡"          # fallback only — icon_image below is what renders
     icon_image:   "/static/watchdog_icon.png"   # tools/make_watchdog_icon.py
+    icon_id:      "swaxs-watch"
+    accent:       "swaxs-watch"
     color:        "#D32F2F"
