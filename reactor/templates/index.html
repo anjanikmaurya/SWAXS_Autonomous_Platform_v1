@@ -252,22 +252,24 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
               title="Fault or danger: idle ALL pumps immediately and lock the panel until you press Reset.">🛑 EMERGENCY STOP</button>
     </div>
 
-    <!-- Leaving the hutch: arm Slack so the run reports to you -->
+    <!-- Notifications live in Auto Watch (port 5110). This card used to arm
+         them here; the backend moved and the markup did not, so it kept
+         offering an armed-looking button backed by a route that returns 404 —
+         see the comment on the deleted renderSlack() in the script below. -->
     <div class="card">
       <div class="card-hd">🔔 Leaving the beamline</div>
-      <div class="muted" style="font-size:var(--fs-sm);margin-bottom:8px" id="slackHint">
-        Arm Slack notifications once the measurement is running, so recipes,
-        results and any fault reach you while you're away.
+      <div class="muted" style="font-size:var(--fs-sm);margin-bottom:8px">
+        Notifications are set up in <b>Auto Watch</b>, which watches the whole
+        loop rather than the reactor alone — so a stall in reduction, averaging
+        or fitting reaches you too, not just a reactor fault.
       </div>
-      <button class="btn" id="slackBtn" style="width:100%" onclick="toggleSlack()"
-              title="Turn Slack notifications on or off without restarting the app.">
-        🔔 Notify me on Slack
-      </button>
-      <div class="btn-row" style="margin-top:6px">
-        <button class="btn btn-ghost" id="slackTestBtn" onclick="testSlack()"
-                title="Send one message now to confirm the channel works — do this BEFORE you leave.">
-          Send test message</button>
-        <span class="muted" id="slackState" style="font-size:var(--fs-xs);align-self:center"></span>
+      <a class="btn btn-primary" style="width:100%;display:block;text-align:center"
+         href="http://localhost:5110/#alerts" target="_blank" rel="noopener"
+         title="Auto Watch → Alerts: master switch, categories, quiet hours, and a test message.">
+        🔔 Open Auto Watch → Alerts
+      </a>
+      <div class="muted" style="font-size:var(--fs-xs);margin-top:6px">
+        Send a test message from there <b>before</b> you leave.
       </div>
     </div>
 
@@ -664,63 +666,16 @@ async function setBackend(mode){
   if(r && !r.ok){ alert('Could not switch to '+mode.toUpperCase()+':\n\n'+(r.error||'unknown error')); }
   // the pill updates from the next status frame
 }
-/* ── Slack notifications: arm on the way out ─────────────────────────────── */
-function renderSlack(s){
-  const btn=$('slackBtn'), st=$('slackState'), hint=$('slackHint'), tb=$('slackTestBtn');
-  if(!btn) return;
-  if(!s || !s.configured){
-    btn.disabled=true; tb.disabled=true;
-    btn.className='btn btn-ghost';
-    btn.textContent='🔔 Notifications not configured';
-    st.textContent='';
-    hint.innerHTML='No channel configured. In <code>.env</code> set either a Slack '+
-      'credential (<code>SWAXS_SLACK_BOT_TOKEN</code> / '+
-      '<code>SWAXS_SLACK_WEBHOOK</code>) <b>or</b> email '+
-      '(<code>SWAXS_SMTP_HOST</code> + <code>SWAXS_NOTIFY_EMAIL</code> — needs no '+
-      'workspace approval), then restart. Check with '+
-      '<code>python tools/notify_test.py --check</code>.';
-    return;
-  }
-  btn.disabled=false; tb.disabled=false;
-  const where=[];
-  if(s.slack&&s.slack.configured) where.push('Slack'+(s.slack.enabled?'':' (off)'));
-  if(s.email&&s.email.configured) where.push('email'+(s.email.enabled?'':' (off)'));
-  if(s.enabled){
-    btn.className='btn btn-ok';
-    btn.textContent='🔔 Notifications ARMED — click to stop';
-    st.textContent=`${s.mode}`+((s.email&&s.email.enabled&&s.email.to&&s.email.to.length)
-        ? ` → ${s.email.to.join(', ')}` : '');
-    hint.textContent='You will get a message for each recipe, its fitted result, '+
-                     'and immediately for any fault. Safe to leave.';
-  }else{
-    btn.className='btn btn-primary';
-    btn.textContent='🔔 Notify me when I leave';
-    st.textContent=`ready · ${where.join(' + ')||s.mode}`;
-    hint.textContent='Arm notifications once the measurement is running, so '+
-                     'recipes, results and any fault reach you while you\'re away.';
-  }
-}
-async function toggleSlack(){
-  const btn=$('slackBtn'); btn.disabled=true;
-  try{
-    const r=await api('/api/slack',{});          // no body = toggle
-    if(r && r.error) $('form-err').textContent=r.error;
-    renderSlack(r);
-  }catch(e){}
-  finally{ btn.disabled=false; }
-}
-async function testSlack(){
-  const tb=$('slackTestBtn'), old=tb.textContent;
-  tb.disabled=true; tb.textContent='sending…';
-  try{
-    const r=await api('/api/slack/test',{});
-    if(r && r.error) $('form-err').textContent=r.error;
-    tb.textContent = (r && r.ok) ? 'sent ✓ check Slack' : 'failed';
-    renderSlack(r);
-  }catch(e){ tb.textContent='failed'; }
-  setTimeout(()=>{ tb.textContent=old; tb.disabled=false; }, 2500);
-}
-api('/api/slack').then(renderSlack).catch(()=>{});
+/* renderSlack/toggleSlack/testSlack lived here and were removed with the card
+   above. Notifications moved to Auto Watch; reactor/app.py stopped serving
+   /api/slack and stopped importing src.notify, but this JS and its markup
+   stayed. The failure mode was quiet and bad: the boot call
+   `api('/api/slack').then(renderSlack).catch(()=>{})` hit a 404, .json() threw
+   on the HTML error page, the .catch swallowed it, renderSlack never ran — so
+   the card kept the ENABLED-looking button and "Arm Slack notifications once
+   the measurement is running" text baked into the HTML. Clicking it 404'd into
+   another empty catch and changed nothing. An operator could arm notifications
+   and leave for the night with none armed. */
 
 function updateBackendPill(backend, state){
   window._backend=backend;

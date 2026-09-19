@@ -2,6 +2,16 @@
 
 **The Auto Watch app (port 5110) is the sole place the platform sends notifications.** It subscribes to the event bus, applies policy (quiet hours, snooze, throttle), and sends to Slack via a Workflow Builder webhook.
 
+The reactor app used to arm notifications itself, and its "Leaving the beamline"
+card outlived the move: `reactor/app.py` stopped serving `/api/slack`, but the
+card's boot call `api('/api/slack').then(renderSlack).catch(()=>{})` swallowed
+the resulting 404, so the hard-coded "🔔 Notify me on Slack" button stayed on
+screen looking live and clicking it did nothing. An operator could arm alerts,
+read the reassuring text, and leave for the night with none armed. The card now
+links to Auto Watch → Alerts, and `tests/test_no_dead_ui_endpoints.py` checks
+that every `/api/...` path in every app's template is a route that app actually
+serves.
+
 ## Setup
 
 ### 1. Create a Slack Workflow (one-time, by any workspace member)

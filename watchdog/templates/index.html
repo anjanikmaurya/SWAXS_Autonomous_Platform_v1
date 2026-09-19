@@ -1001,7 +1001,22 @@ function switchView(name) {
     content.style.display = 'block';
     setTimeout(() => redrawCharts(), 300);
   }
+  // Reflect the view in the URL so it can be linked to and survives a reload.
+  try { history.replaceState(null, '', '#' + name); } catch (e) {}
 }
+
+//: Views that may be deep-linked. Anything else in the hash is ignored rather
+//: than throwing in switchView's querySelector, which would leave the page
+//: blank — the reactor app links straight to #alerts, so a typo there must
+//: degrade to the overview, not to nothing.
+const _VIEWS = ['overview', 'messages', 'alerts'];
+
+function applyHashView() {
+  const want = (location.hash || '').replace(/^#/, '');
+  if (_VIEWS.includes(want)) switchView(want);
+}
+
+window.addEventListener('hashchange', applyHashView);
 
 let _sseRetries = 0;
 const _MAX_SSE_RETRIES = 10;
@@ -1732,6 +1747,7 @@ window.addEventListener('resize', () => {
 });
 
 applyThemeIcon();
+applyHashView();                   // honour a deep link (the reactor links to #alerts)
 startSSE();
 renderAlerts();                    // initial render from defaults, refined by first poll
 pollMessages();                    // initial message load
