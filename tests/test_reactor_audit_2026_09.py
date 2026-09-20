@@ -1343,3 +1343,38 @@ def test_r29_a_refused_spec_change_is_not_persisted(tmp_path, monkeypatch):
                               honour_no_resume=False), "a refused change was saved"
     finally:
         m._ctrl.shutdown(collect_wait_s=0.0)
+
+
+def test_r29_the_restore_banner_lists_the_beamline_params_too(tmp_path, monkeypatch):
+    """Operator request: the '♻ settings restored' banner listed only the run
+    settings (arm_mode, run_duration, flush_*). The beamline settings were
+    restored silently. The banner must name them too, in the one list."""
+    (tmp_path / "1D" / "SAXS" / "Conditions").mkdir(parents=True)
+    monkeypatch.setenv("SWAXS_PROJECT", str(tmp_path))
+    monkeypatch.setenv("SWAXS_REACTOR_BACKEND", "mock")
+    import importlib.util as u
+
+    def boot(tag):
+        spec = u.spec_from_file_location(f"reactor_app_r29b_{tag}", _ROOT / "reactor" / "app.py")
+        mod = u.module_from_spec(spec); spec.loader.exec_module(mod); return mod
+
+    m = boot("a"); c = m.app.test_client()
+    try:
+        c.post("/api/run_settings", json={"arm_mode": "temperature",
+               "arm_wait_s": "120", "run_duration": "60", "flush_rate": "50",
+               "flush_duration": "60", "flush_pump": "ode_dilution"})
+        c.post("/api/spec_settings", json={"exposure_s": "20", "frames": "5",
+               "spec_lead_s": "60", "sample_tag": "smp", "bkg_tag": "blank"})
+    finally:
+        m._ctrl.shutdown(collect_wait_s=0.0)
+
+    m2 = boot("b")
+    try:
+        n = m2.app.test_client().get("/api/restart_notice").get_json()
+        assert n["level"] == "restored"
+        for p in ("arm_mode", "run_duration", "flush_rate",          # run
+                  "exposure_s", "frames", "spec_lead_s"):            # beamline
+            assert p in n["params"], f"{p} missing from the restore banner"
+        assert "data-collection" in n["message"] or "beamline" in n["message"]
+    finally:
+        m2._ctrl.shutdown(collect_wait_s=0.0)

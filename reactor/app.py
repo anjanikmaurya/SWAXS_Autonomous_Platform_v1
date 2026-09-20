@@ -433,6 +433,29 @@ def _restore_spec_settings() -> None:
             ok, msg = _ctrl.set_spec_settings(st)
             if ok:
                 _emit("♻  data-collection settings restored: " + msg, "ok")
+                # Fold the restored beamline params into the SAME restart banner
+                # the run settings raised, so the operator sees one list to
+                # review — exposure/frames/lead/tags/dir alongside arm mode and
+                # flush — instead of the beamline half being silently restored.
+                global _RESTART_NOTICE
+                if _RESTART_NOTICE.get("level") == "restored":
+                    merged = sorted(set(_RESTART_NOTICE.get("params", [])) | set(st))
+                    _RESTART_NOTICE = {
+                        **_RESTART_NOTICE,
+                        "message": "Run and data-collection settings were restored "
+                                   "from your last session. Review arm mode, run "
+                                   "duration, flush and the beamline exposure / "
+                                   "frames / trigger before starting.",
+                        "params": merged}
+                else:
+                    # run settings weren't restored (fresh, or lost) but the
+                    # beamline ones were — still tell the operator.
+                    _RESTART_NOTICE = {
+                        "level": "restored",
+                        "message": "Data-collection settings were restored from "
+                                   "your last session. Review exposure, frames and "
+                                   "trigger-before-end before starting.",
+                        "params": sorted(st.keys())}
     except Exception as exc:
         _emit(f"⚠ could not restore the data-collection settings: {exc}", "warn")
 
