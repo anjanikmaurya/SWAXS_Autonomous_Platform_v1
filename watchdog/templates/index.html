@@ -659,6 +659,7 @@ html,body {
 </style>
 </head>
 <body>
+{% include "_icon_sprite.svg" %}
 <div id="app">
 
 <!-- SIDEBAR -->
@@ -709,7 +710,7 @@ html,body {
   <div id="content">
 
     <div id="stall-banner">
-      <span>⚠</span>
+      <span><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-warning"/></svg></span>
       <span id="stall-text">—</span>
       <span class="stall-sub" id="stall-sub"></span>
     </div>
@@ -914,7 +915,7 @@ html,body {
   <!-- MESSAGES VIEW -->
   <div id="messages-only">
     <div class="card">
-      <div class="card-hd">📜 Recent messages</div>
+      <div class="card-hd"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-log"/></svg> Recent messages</div>
       <div class="messages-list" id="messages-list">
         <div class="message info">
           <div class="message-badge">ℹ️</div>

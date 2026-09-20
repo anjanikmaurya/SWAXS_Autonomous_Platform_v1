@@ -141,6 +141,7 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
 </style>
 </head>
 <body>
+{% include "_icon_sprite.svg" %}
 <div class="topbar">
   <div class="app-lockup">
     {% include "_app_mark.svg" %}
@@ -155,7 +156,7 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
            `loop_faults` and `last_fault` were computed and never shown. -->
   <span class="live-pill" id="livePill" title="Connection to the reactor app">live</span>
   <span class="live-pill sup-bad" id="supPill" style="display:none"
-        title="The control loop supervises temperature, pressure, delivered volume and flow. If it is not running, nothing is watching the rig.">⚠ NOT SUPERVISING</span>
+        title="The control loop supervises temperature, pressure, delivered volume and flow. If it is not running, nothing is watching the rig."><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-warning"/></svg> NOT SUPERVISING</span>
   <div style="flex:1"></div>
   <span class="proj" id="proj"></span>
   <button class="theme-toggle" id="themeBtn" onclick="toggleTheme()" title="Toggle light / dark">☾</button>
@@ -167,7 +168,7 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
 </div>
 
 <div class="restart-banner" id="restartBanner">
-  <span class="rb-x" onclick="this.parentElement.classList.remove('show')">✕</span>
+  <span class="rb-x" onclick="this.parentElement.classList.remove('show')"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-close"/></svg></span>
   <span id="restartBannerMsg"></span>
 </div>
 
@@ -181,7 +182,7 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
      command — the other places where "done" must not be printed over a pump
      that is still delivering or a heater that never got the command. -->
 <div class="fault-banner" id="faultBanner">
-  <span class="rb-x" onclick="dismissFault()">✕</span>
+  <span class="rb-x" onclick="dismissFault()"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-close"/></svg></span>
   <span id="faultBannerMsg"></span>
 </div>
 
@@ -189,13 +190,13 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
   <!-- LEFT: recipe + controls -->
   <div>
     <div class="card">
-      <div class="card-hd">📁 Conditions folder (autonomous input)</div>
+      <div class="card-hd"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg> Conditions folder (autonomous input)</div>
       <div style="display:flex;gap:8px;align-items:center">
         <input type="text" id="condFolder" style="flex:1" placeholder="1D/SAXS/Conditions" title="Folder path, relative to the project or absolute. Default: a sibling of Subtracted. The ML/processing pipeline drops .dat/.txt condition files here.">
         <button class="btn btn-accent" onclick="setCondFolder()">Set</button>
       </div>
       <div class="muted" id="condResolved" style="margin-top:4px"></div>
-      <div class="muted" style="margin-top:4px">New <b>.dat/.txt</b> condition files here run oldest-first when <b>▶ Run autonomously</b> is on.</div>
+      <div class="muted" style="margin-top:4px">New <b>.dat/.txt</b> condition files here run oldest-first when <b><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-start"/></svg> Run autonomously</b> is on.</div>
     </div>
 
     <div class="card">
@@ -212,7 +213,7 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
       </div>
       <div class="btn-row">
         <button class="btn btn-accent" id="queueBtn" onclick="submitRecipe()" style="flex:1">＋ Run manually (add to queue)</button>
-        <button class="btn btn-ok" id="autoBtn" onclick="toggleAuto()" style="flex:1">▶ Run autonomously</button>
+        <button class="btn btn-ok" id="autoBtn" onclick="toggleAuto()" style="flex:1"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-start"/></svg> Run autonomously</button>
       </div>
       <div class="muted" id="manualNote" style="font-size:var(--fs-xs);margin-top:4px"></div>
       <div id="form-err" style="color:var(--err);font-size:var(--fs-xs);margin-top:6px"></div>
@@ -281,7 +282,7 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
     </div>
 
     <div class="card">
-      <div class="card-hd">▶ Controls</div>
+      <div class="card-hd"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-start"/></svg> Controls</div>
       <div id="armPanel" class="arm-panel" style="display:none">
         <div class="arm-head">
           <span class="arm-badge" id="armBadge">ARMING</span>
@@ -297,7 +298,7 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
         <button class="btn btn-ok"   id="b-start" onclick="startClicked()"
                 title="Begin the next queued recipe. During arming, skips the wait and starts the pumps now.">Start</button>
         <button class="btn btn-warn"  id="b-stop"  onclick="post('/api/abort')"
-                title="End the current run and flush the line. During a flush, stops the flush and idles.">■ Stop → flush</button>
+                title="End the current run and flush the line. During a flush, stops the flush and idles."><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-stop"/></svg> Stop → flush</button>
         <button class="btn btn-ghost" id="b-flush" onclick="doFlush('/api/flush')"
                 title="Run the solvent/flush pump to clear the line between runs (idle or ready only).">Flush now</button>
         <button class="btn btn-ghost" id="b-reset" onclick="post('/api/reset')"
@@ -378,13 +379,13 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
       <div style="margin-top:6px;display:flex;align-items:center;gap:8px">
         <span class="muted">Queue:</span>
         <div class="chips" id="s-queue" style="flex:1"></div>
-        <button class="btn btn-ghost" id="b-clearq" style="padding:4px 10px;font-size:var(--fs-xs)" onclick="post('/api/queue/clear')" title="Drop every waiting condition and move its file to the done/ folder, so it is not picked up again.">🗑 Clear queue</button>
+        <button class="btn btn-ghost" id="b-clearq" style="padding:4px 10px;font-size:var(--fs-xs)" onclick="post('/api/queue/clear')" title="Drop every waiting condition and move its file to the done/ folder, so it is not picked up again."><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-clear"/></svg> Clear queue</button>
       </div>
       <div class="muted" id="queueNote" style="display:none;margin-top:6px;color:var(--warn)"></div>
     </div>
 
     <div class="card">
-      <div class="card-hd">📜 Activity log</div>
+      <div class="card-hd"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-log"/></svg> Activity log</div>
       <div class="log" id="log"></div>
     </div>
   </div>

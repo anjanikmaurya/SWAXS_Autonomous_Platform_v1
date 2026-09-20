@@ -194,20 +194,30 @@ def test_the_two_hint_classes_render_the_same():
 # ── the Monitor panel ───────────────────────────────────────────────────────
 def test_both_start_controls_live_in_a_titled_monitor_panel():
     """background's Start/Stop sat bare at the bottom of the auto pane while
-    average's lived in a card headed "▶ Monitor", so the same control looked
-    like two different things. Both are panelled now."""
-    for name, html, hd in (("average", _AVG, 'class="card-hd">▶ Monitor<'),
-                           ("background", _BKG, 'class="section-title">▶ Monitor<')):
-        assert hd in html, f"{name} has no ▶ Monitor panel heading"
+    average's lived in a card headed "Monitor", so the same control looked
+    like two different things. Both are panelled now.
+
+    The ▶ that used to prefix the heading is now the shared start-icon (the
+    September 2026 in-app icon pass), so match the heading CLASS + the word
+    'Monitor' rather than the literal ▶, which is no longer a text character."""
+    import re
+    for name, html, cls in (("average", _AVG, "card-hd"),
+                            ("background", _BKG, "section-title")):
+        assert re.search(rf'class="{cls}">(<svg[^>]*>.*?</svg>)?\s*Monitor<', html), \
+            f"{name} has no Monitor panel heading"
 
 
 def test_the_monitor_panel_contains_the_controls_and_the_log():
     """A heading with the controls outside it would look right and group
     nothing."""
-    for name, html, opener in (
-            ("average", _AVG, '<div class="card">\n        <div class="card-hd">▶ Monitor</div>'),
-            ("background", _BKG, '<div class="section">\n              <div class="section-title">▶ Monitor</div>')):
-        i = html.index(opener)
+    import re
+    for name, html, cls in (("average", _AVG, "card-hd"),
+                            ("background", _BKG, "section-title")):
+        # find the Monitor heading whether the ▶ is a text char or the start
+        # icon (September 2026 in-app icon pass), then scan the panel after it.
+        m = re.search(rf'class="{cls}">(?:<svg[^>]*>.*?</svg>)?\s*Monitor<', html)
+        assert m, f"{name}: no Monitor panel heading"
+        i = m.start()
         # the panel runs to the next panel opener or the pane's end
         tail = html[i:i + 1400]
         assert 'class="auto-actions"' in tail, f"{name}: controls are outside the panel"

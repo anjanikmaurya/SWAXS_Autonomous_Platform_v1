@@ -298,6 +298,7 @@ input:focus, select:focus {
 </style>
 </head>
 <body>
+{% include "_icon_sprite.svg" %}
 <div class="shell">
   <header class="topbar">
     <div class="app-lockup">
@@ -311,7 +312,7 @@ input:focus, select:focus {
   </header>
 
   <div class="restart-banner" id="restartBanner">
-    <span class="rb-x" onclick="this.parentElement.classList.remove('show')">✕</span>
+    <span class="rb-x" onclick="this.parentElement.classList.remove('show')"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-close"/></svg></span>
     <span id="restartBannerMsg"></span>
   </div>
 
@@ -320,7 +321,7 @@ input:focus, select:focus {
     <nav class="nav">
       <div class="lbl">Mode</div>
       <button class="navtab active" id="m-individual" onclick="setMode('individual')"><span class="ic">📄</span> Individual</button>
-      <button class="navtab" id="m-batch" onclick="setMode('batch')"><span class="ic">🔗</span> Scan</button>
+      <button class="navtab" id="m-batch" onclick="setMode('batch')"><span class="ic"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-open"/></svg></span> Scan</button>
       <button class="navtab" id="m-suggest" onclick="setMode('suggest')"><span class="ic">✨</span> Suggested</button>
       <button class="navtab" id="m-auto" onclick="setMode('auto')"><span class="ic">🤖</span> Auto-Subtract</button>
       <div class="lbl" id="modeHint" style="text-transform:none;letter-spacing:0;font-weight:400;color:rgba(var(--sf),.65);line-height:1.5;margin-top:8px">Pick specific sample file(s) and one background file.</div>
@@ -374,7 +375,7 @@ input:focus, select:focus {
                 <label>Sample folder</label>
                 <div class="browse-row">
                   <input type="text" id="sam-folder" placeholder="/…/1D/SAXS/Averaged">
-                  <button class="btn btn-sm" onclick="openBrowser('sam-folder')">📁</button>
+                  <button class="btn btn-sm" onclick="openBrowser('sam-folder')"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg></button>
                   <button class="btn btn-sm" onclick="listSamples()">List</button>
                 </div>
               </div>
@@ -382,21 +383,21 @@ input:focus, select:focus {
                 <label>Background folder</label>
                 <div class="browse-row">
                   <input type="text" id="bkg-folder" placeholder="/…/1D/SAXS/Averaged">
-                  <button class="btn btn-sm" onclick="openBrowser('bkg-folder')">📁</button>
+                  <button class="btn btn-sm" onclick="openBrowser('bkg-folder')"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg></button>
                 </div>
               </div>
               <div class="field" id="row-bkg-file">
                 <label>Background file (.dat)</label>
                 <div class="browse-row">
                   <input type="text" id="bkg-file" placeholder="/…/buffer_avg.dat">
-                  <button class="btn btn-sm" onclick="openBrowser('bkg-file',true)">📁</button>
+                  <button class="btn btn-sm" onclick="openBrowser('bkg-file',true)"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg></button>
                 </div>
               </div>
               <div class="field">
                 <label>Output folder (blank = sample/Subtracted)</label>
                 <div class="browse-row">
                   <input type="text" id="out-folder" placeholder="optional">
-                  <button class="btn btn-sm" onclick="openBrowser('out-folder')">📁</button>
+                  <button class="btn btn-sm" onclick="openBrowser('out-folder')"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg></button>
                 </div>
               </div>
             </div>
@@ -500,19 +501,19 @@ input:focus, select:focus {
             </div>
 
             <div class="section">
-              <div class="section-title">📁 Averaged folders to watch</div>
+              <div class="section-title"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg> Averaged folders to watch</div>
               <div class="field">
                 <label>SAXS Averaged folder</label>
                 <div class="browse-row">
                   <input type="text" id="auto-saxs-folder" placeholder="/…/1D/SAXS/Averaged">
-                  <button class="btn btn-sm" onclick="openBrowser('auto-saxs-folder')">📁</button>
+                  <button class="btn btn-sm" onclick="openBrowser('auto-saxs-folder')"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg></button>
                 </div>
               </div>
               <div class="field">
                 <label>WAXS Averaged folder</label>
                 <div class="browse-row">
                   <input type="text" id="auto-waxs-folder" placeholder="/…/1D/WAXS/Averaged">
-                  <button class="btn btn-sm" onclick="openBrowser('auto-waxs-folder')">📁</button>
+                  <button class="btn btn-sm" onclick="openBrowser('auto-waxs-folder')"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg></button>
                 </div>
               </div>
               <div class="hint" style="margin:0">Leave a folder blank to skip that detector. Output goes to <code>1D/&lt;DET&gt;/Subtracted/</code> (a sibling of Averaged).</div>
@@ -578,10 +579,10 @@ input:focus, select:focus {
                  the two apps' Start/Stop looked unrelated. The .auto-* block
                  inside is shared between the apps byte for byte. -->
             <div class="section">
-              <div class="section-title">▶ Monitor</div>
+              <div class="section-title"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-start"/></svg> Monitor</div>
               <div class="auto-actions">
-                <button class="btn btn-primary" id="auto-start" onclick="startAutoSub()">▶ Start auto-subtraction</button>
-                <button class="btn btn-ghost" id="auto-stop" onclick="stopAutoSub()" disabled>⏹ Stop</button>
+                <button class="btn btn-primary" id="auto-start" onclick="startAutoSub()"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-start"/></svg> Start auto-subtraction</button>
+                <button class="btn btn-ghost" id="auto-stop" onclick="stopAutoSub()" disabled><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-stop"/></svg> Stop</button>
                 <span class="auto-state" id="auto-state">Idle</span>
                 <span class="auto-count" id="auto-count"></span>
               </div>
@@ -645,7 +646,7 @@ input:focus, select:focus {
 <!-- browser modal -->
 <div class="modal-backdrop" id="browserModal">
   <div class="modal">
-    <div class="modal-head"><h2 id="modalTitle">Browse</h2><button class="modal-close" onclick="closeBrowser()">✕</button></div>
+    <div class="modal-head"><h2 id="modalTitle">Browse</h2><button class="modal-close" onclick="closeBrowser()"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-close"/></svg></button></div>
     <div class="modal-body"><div id="dirList" style="display:flex;flex-direction:column;gap:3px"></div></div>
     <div class="modal-foot"><span class="curr-path" id="currPath"></span>
       <button class="btn btn-sm" onclick="closeBrowser()">Cancel</button>

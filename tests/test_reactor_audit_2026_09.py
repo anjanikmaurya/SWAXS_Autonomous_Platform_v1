@@ -808,8 +808,10 @@ import importlib.util as _u
 
 def _boot_app(tmp_path, monkeypatch):
     """Import reactor/app.py against a throwaway project folder."""
+    # exist_ok: the R28 tests seed leftover condition files BEFORE booting, so
+    # the folder is already there by the time we get here.
     conds = tmp_path / "1D" / "SAXS" / "Conditions"
-    conds.mkdir(parents=True)
+    conds.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("SWAXS_PROJECT", str(tmp_path))
     monkeypatch.setenv("SWAXS_REACTOR_BACKEND", "mock")
     spec = _u.spec_from_file_location(
@@ -1150,3 +1152,137 @@ def test_r27_the_ui_distinguishes_pausing_from_paused_from_running():
     assert "st.pausing" in tpl, "the UI cannot tell 'pausing' from 'off'"
     assert "Pausing after this condition" in tpl
     assert "st.paused_with_queue" in tpl
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# R28 — a restart starts with an empty queue
+# ═════════════════════════════════════════════════════════════════════════════
+# Operator: "i would like to clear the queue automatically if reactor app was
+# stopped from hub and restarted it."
+#
+# This is the deliberate counterpart to R26. Condition files stay in the
+# watched folder until the reactor has finished with them, which makes a queue
+# survive a crash — and means a restart would otherwise inherit whatever the
+# optimizer had proposed before the stop. Those proposals are stale: they were
+# computed against the data available then.
+#
+# Clearing the in-memory queue alone achieves nothing, because the watcher
+# re-reads the same files within one poll. The FILES have to be set aside.
+# Nothing is deleted.
+
+def test_r28_a_restart_sets_aside_conditions_left_over_from_before(tmp_path, monkeypatch):
+    conds = tmp_path / "1D" / "SAXS" / "Conditions"
+    conds.mkdir(parents=True)
+    for rid in ("r001", "r002"):
+        _drop(conds, rid)
+
+    mod, _ = _boot_app(tmp_path, monkeypatch)
+    try:
+        assert list(mod._ctrl.status()["queue"]) == [], "the restart inherited the queue"
+        assert _txt(conds) == [], "the leftover files are still waiting to be read"
+        assert _txt(conds / "done") == ["r001.txt", "r002.txt"]
+    finally:
+        mod._ctrl.shutdown(collect_wait_s=0.0)
+
+
+def test_r28_nothing_is_deleted_and_the_file_says_why(tmp_path, monkeypatch):
+    """A cleared condition has to be recoverable — move it back and it runs."""
+    conds = tmp_path / "1D" / "SAXS" / "Conditions"
+    conds.mkdir(parents=True)
+    _drop(conds, "r010")
+
+    mod, _ = _boot_app(tmp_path, monkeypatch)
+    try:
+        body = (conds / "done" / "r010.txt").read_text()
+        assert "T_reac = 240" in body, "the recipe itself was not preserved"
+        assert "NOT RUN" in body
+        assert "clear_queue_on_restart" in body, \
+            "the file does not say which setting cleared it"
+        assert "Move this file back" in body, "no route back for the operator"
+    finally:
+        mod._ctrl.shutdown(collect_wait_s=0.0)
+
+
+def test_r28_it_is_announced_not_silent(tmp_path, monkeypatch):
+    """Two conditions vanishing at start-up must not be a quiet event.
+
+    This assertion is why the first version of the feature was caught: it
+    referenced _watch_handled, which was declared FURTHER DOWN the module than
+    the start-up helper that used it, so the NameError went into a broad
+    `except` and the log said "could not clear leftover conditions" while the
+    files had in fact already been moved. The success line never printed."""
+    conds = tmp_path / "1D" / "SAXS" / "Conditions"
+    conds.mkdir(parents=True)
+    for rid in ("r020", "r021"):
+        _drop(conds, rid)
+
+    mod, _ = _boot_app(tmp_path, monkeypatch)
+    try:
+        lines = [e["msg"] for _s, e in mod._log]
+        assert any("empty queue" in m for m in lines), \
+            "the clear-out was silent, or it failed and reported a warning"
+        assert not any("could not clear" in m for m in lines)
+        assert any("set aside 2 leftover" in m for m in lines), \
+            "the count is not in the log"
+    finally:
+        mod._ctrl.shutdown(collect_wait_s=0.0)
+
+
+def test_r28_a_condition_arriving_after_startup_is_still_picked_up(tmp_path, monkeypatch):
+    """Only the leftovers are cleared. The watcher must carry on normally, or
+    this feature would stop the campaign rather than resetting it."""
+    mod, conds = _boot_app(tmp_path, monkeypatch)
+    try:
+        _drop(conds, "r030")
+        assert _wait_queue(mod._ctrl, 1) == ["r030"]
+        assert _txt(conds) == ["r030.txt"], "a fresh condition was set aside too"
+    finally:
+        mod._ctrl.shutdown(collect_wait_s=0.0)
+
+
+def test_r28_the_behaviour_can_be_turned_off(tmp_path, monkeypatch):
+    """`run.clear_queue_on_restart: false` restores crash-resume."""
+    conds = tmp_path / "1D" / "SAXS" / "Conditions"
+    conds.mkdir(parents=True)
+    _drop(conds, "r040")
+
+    mod, _ = _boot_app(tmp_path, monkeypatch)
+    try:
+        mod._CFG.setdefault("run", {})["clear_queue_on_restart"] = False
+        _drop(conds, "r041")                      # a second leftover
+        assert mod._clear_stale_conditions() == 0, \
+            "the setting is not honoured — leftovers are cleared regardless"
+        assert "r041.txt" in _txt(conds)
+    finally:
+        mod._ctrl.shutdown(collect_wait_s=0.0)
+
+
+def test_r28_the_shipped_default_is_on():
+    cfg = yaml.safe_load((_ROOT / "reactor" / "config.yml").read_text())
+    assert cfg["run"]["clear_queue_on_restart"] is True
+
+
+def test_r28_no_function_in_the_reactor_app_is_defined_twice():
+    """Guard for a mistake made while writing this feature: I added
+    _clear_stale_conditions twice — two different bodies, the second silently
+    winning — and only noticed because the surviving copy used a different
+    config key than the one I had put in config.yml. Python does not complain
+    about a redefinition, and neither does any linter in this repo's config."""
+    src = (_ROOT / "reactor" / "app.py").read_text()
+    names = re.findall(r"^def (\w+)", src, re.M)
+    dupes = sorted({n for n in names if names.count(n) > 1})
+    assert not dupes, f"defined more than once in reactor/app.py: {dupes}"
+
+
+def test_r28_startup_helpers_do_not_reference_state_declared_below_them():
+    """The other half of that mistake, generalised. Anything the module calls
+    DURING execution can only use state declared above it; getting this wrong
+    raises NameError into whatever except-block happens to be nearby."""
+    src = (_ROOT / "reactor" / "app.py").read_text()
+    for name in ("_watch_handled", "_watch_lastsig"):
+        decl = re.search(rf"^{name}: dict", src, re.M)
+        assert decl, f"{name} is no longer declared at module level"
+        for fn in ("_retire_condition_file", "_clear_stale_conditions"):
+            use = src.index(f"def {fn}")
+            assert decl.start() < use, \
+                f"{name} is declared after {fn}, which touches it"

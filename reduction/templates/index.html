@@ -434,6 +434,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
 </style>
 </head>
 <body>
+{% include "_icon_sprite.svg" %}
 <div id="app">
 
 <!-- ── Sidebar ──────────────────────────────────────────────────────────── -->
@@ -452,7 +453,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
     <span class="nav-icon">⚙</span> Setup
   </button>
   <button class="nav-btn" data-tab="run" onclick="switchTab('run')">
-    <span class="nav-icon">▶</span> Run &amp; Monitor
+    <span class="nav-icon"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-start"/></svg></span> Run &amp; Monitor
   </button>
 
   <div id="sidebar-foot">
@@ -488,7 +489,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
 
     <!-- Directories -->
     <div class="card">
-      <div class="card-hd">📁 Directories</div>
+      <div class="card-hd"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg> Directories</div>
       <div class="fg">
         <label>Data Directory (2D)</label>
         <div class="cell">
@@ -728,7 +729,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
 
           <!-- Non-physical combination warning -->
           <div id="norm-warn" class="norm-warn">
-            ⚠ Warning: I₀ + Bstop together is non-physical —
+            <svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-warning"/></svg> Warning: I₀ + Bstop together is non-physical —
             B<sub>stop</sub> already contains the I₀ signal (B<sub>stop</sub> ∝ Φ₀·T),
             so selecting both double-counts incident flux. Use one or the other.
           </div>
@@ -945,7 +946,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
 
     <!-- Save / Load -->
     <div class="card">
-      <div class="card-hd">💾 Save / Load Configuration (YAML)</div>
+      <div class="card-hd"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-drive"/></svg> Save / Load Configuration (YAML)</div>
       <div class="fg">
         <label>Config file path</label>
         <div class="cell">
@@ -973,9 +974,9 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
     <div class="card">
       <div class="card-hd">Controls</div>
       <div id="run-bar">
-        <button class="btn btn-primary" id="btn-run" onclick="startRun()">▶ Run Now</button>
+        <button class="btn btn-primary" id="btn-run" onclick="startRun()"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-start"/></svg> Run Now</button>
         <button class="btn btn-err"     id="btn-stop" onclick="stopRun()"
-                style="display:none;">⏹ Stop</button>
+                style="display:none;"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-stop"/></svg> Stop</button>
         <span id="run-badge" class="badge b-green">Ready</span>
         <div class="vdiv"></div>
         <div class="tog-wrap">
@@ -1028,7 +1029,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
                 align-items:center; justify-content:space-between;">
       <span style="font-size:15px; font-weight:600; color:#fff;">Browse</span>
       <button class="btn btn-sm" onclick="closeBrow()"
-              style="background:rgba(255,255,255,.15); color:#fff; border:none;">✕</button>
+              style="background:rgba(255,255,255,.15); color:#fff; border:none;"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-close"/></svg></button>
     </div>
     <div id="brow-path"
          style="padding:9px 16px; background:var(--surface2); border-bottom:1px solid var(--border);

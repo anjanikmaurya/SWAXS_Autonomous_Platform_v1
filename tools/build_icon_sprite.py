@@ -115,9 +115,35 @@ def main() -> int:
         print(f"✓ wrote {dst.relative_to(root)}")
 
     n_marks = _write_app_marks(root)
+    n_sprites = _write_app_sprites(root, sprite)
     print(f"  {len(ids)} symbols: {', '.join(ids[:4])} … {ids[-1]}")
     print(f"  {n_marks} per-app mark partials + token sheets")
+    print(f"  {n_sprites} per-app full-sprite partials (for in-UI <use>)")
     return 0
+
+
+def _write_app_sprites(root: Path, sprite: str) -> int:
+    """The FULL sprite into each app's templates/_icon_sprite.svg.
+
+    Distinct from _app_mark (one symbol, the app's own tab/card icon): once an
+    app's own UI uses the shared glyphs — a folder icon on a folder button, a
+    stop icon on Stop — it needs every symbol it references available to
+    `<use href="#…">`, and `<use>` only resolves symbols in the SAME document.
+    Flask serves each app from its own folder, so a <link> or URL <use> to the
+    hub's copy 404s on port 5103; the sprite has to be inlined per app. The hub
+    already inlines its own copy from hub/templates/_icon_sprite.svg — these are
+    the same bytes for the other ten.
+    """
+    import yaml
+    apps = yaml.safe_load((root / "apps.yml").read_text())["apps"]
+    n = 0
+    for a in apps:
+        tpl_dir = root / a["id"] / "templates"
+        if not tpl_dir.is_dir():
+            continue
+        (tpl_dir / "_icon_sprite.svg").write_text(sprite, encoding="utf-8")
+        n += 1
+    return n
 
 
 def _write_app_marks(root: Path) -> int:

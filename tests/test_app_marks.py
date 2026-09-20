@@ -108,9 +108,22 @@ def test_the_mark_reaches_the_rendered_page(app_id, pages):
     html, _c = pages[app_id]
     body = html[html.index("<body>"):]
     assert 'class="app-mark"' in body, f"{app_id} renders no mark"
-    assert "<use" not in body, (
-        f"{app_id} references a sprite symbol — the sprite is inlined on the "
-        f"HUB's page, so that resolves to nothing here")
+    # CONTRACT CHANGED (September 2026). Apps used to be forbidden from
+    # <use>-ing sprite symbols, because only the hub inlined the sprite and a
+    # cross-document <use> resolves to nothing. Now each app inlines its OWN
+    # copy (templates/_icon_sprite.svg) so its UI can use the shared glyphs on
+    # folder/stop/clear buttons and card headers. So <use> is allowed — but
+    # ONLY when the sprite that defines those symbols is inlined on the same
+    # page, or every reference is a blank square.
+    if "<use" in body:
+        assert "_icon_sprite" in html or "<symbol" in body, (
+            f"{app_id} references a sprite symbol with <use> but does not inline "
+            f"the sprite — those glyphs will render as nothing")
+        # and every referenced id must actually be a symbol in that sprite
+        import re as _re
+        defined = set(_re.findall(r'<symbol[^>]*\bid="([^"]+)"', body))
+        for ref in _re.findall(r'<use href="#([^"]+)"', body):
+            assert ref in defined, f"{app_id}: <use href=#{ref}> has no matching symbol"
 
 
 @pytest.mark.parametrize("app_id", _IDS)

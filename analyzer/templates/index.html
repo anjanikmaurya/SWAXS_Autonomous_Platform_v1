@@ -180,6 +180,7 @@ td.name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .app-lockup { display:flex; align-items:center; gap:10px; min-width:0 }
 </style></head>
 <body>
+{% include "_icon_sprite.svg" %}
 <div class="topbar">
   <div class="app-lockup">
     {% include "_app_mark.svg" %}
@@ -192,7 +193,7 @@ td.name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 </div>
 
 <div class="restart-banner" id="restartBanner">
-  <span class="rb-x" onclick="this.parentElement.classList.remove('show')">✕</span>
+  <span class="rb-x" onclick="this.parentElement.classList.remove('show')"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-close"/></svg></span>
   <span id="restartBannerMsg"></span>
 </div>
 
@@ -211,7 +212,7 @@ td.name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   <div>
     <div class="card fold" id="fold-setup">
       <div class="card-hd" onclick="toggleFold('fold-setup')">
-        <span class="chev">▾</span> 📁 Watched folder
+        <span class="chev">▾</span> <svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg> Watched folder
         <span class="hd-right sub" id="setupHint"></span>
       </div>
       <div class="foldbody">
@@ -237,9 +238,9 @@ td.name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
         <div><label>Run budget</label><input id="c_budget" type="number" value="25" step="1" min="1"></div>
       </div>
       <div class="btn-row">
-        <button class="btn btn-accent" id="c_start" onclick="startCampaign()">▶ Start campaign</button>
+        <button class="btn btn-accent" id="c_start" onclick="startCampaign()"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-start"/></svg> Start campaign</button>
         <button class="btn btn-ghost" id="c_continue" onclick="continueCampaign()" style="display:none"></button>
-        <button class="btn btn-ghost" id="c_abort" onclick="abortCampaign()" disabled>⏹ Abort</button>
+        <button class="btn btn-ghost" id="c_abort" onclick="abortCampaign()" disabled><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-stop"/></svg> Abort</button>
         <!-- Why Continue is unavailable. A blank space where a button was
              reads as "broken"; the reason reads as "Start a new one". -->
         <span class="hint" id="c_continue_hint"></span>
@@ -285,7 +286,7 @@ td.name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
     <div class="card fold" id="fold-log">
       <div class="card-hd" onclick="toggleFold('fold-log')">
-        <span class="chev">▾</span> 📜 Log
+        <span class="chev">▾</span> <svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-log"/></svg> Log
         <span class="hd-right sub" id="logHint"></span>
       </div>
       <div class="foldbody"><div class="log" id="log"></div></div>

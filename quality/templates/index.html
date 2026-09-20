@@ -98,6 +98,7 @@ select{background:var(--surface2);border:1px solid var(--border-strong);border-r
 </style>
 </head>
 <body>
+{% include "_icon_sprite.svg" %}
 <div class="topbar">
   <div class="app-lockup">
     {% include "_app_mark.svg" %}
@@ -110,7 +111,7 @@ select{background:var(--surface2);border:1px solid var(--border-strong);border-r
 </div>
 
 <div class="restart-banner" id="restartBanner">
-  <span class="rb-x" onclick="this.parentElement.classList.remove('show')">✕</span>
+  <span class="rb-x" onclick="this.parentElement.classList.remove('show')"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-close"/></svg></span>
   <span id="restartBannerMsg"></span>
 </div>
 
@@ -134,8 +135,8 @@ select{background:var(--surface2);border:1px solid var(--border-strong);border-r
       </div>
     </div>
     <div class="row" style="margin-top:10px">
-      <button class="btn btn-ok"   id="startBtn" onclick="startMon()">▶ Start grading</button>
-      <button class="btn btn-ghost" id="stopBtn" onclick="stopMon()" disabled>⏹ Stop</button>
+      <button class="btn btn-ok"   id="startBtn" onclick="startMon()"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-start"/></svg> Start grading</button>
+      <button class="btn btn-ghost" id="stopBtn" onclick="stopMon()" disabled><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-stop"/></svg> Stop</button>
       <button class="btn btn-ghost" onclick="gradeNow()">⚡ Grade now</button>
       <button class="btn btn-ghost" onclick="exportReport()">⬇ Export report</button>
       <span class="pill" id="state">Idle</span>
@@ -216,7 +217,7 @@ select{background:var(--surface2);border:1px solid var(--border-strong);border-r
 
   <!-- Log -->
   <div class="card">
-    <div class="card-hd">📜 Activity log</div>
+    <div class="card-hd"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-log"/></svg> Activity log</div>
     <div class="log" id="log"></div>
     <div class="muted" id="log-empty">Live grading activity will appear here.</div>
   </div>

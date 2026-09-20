@@ -717,6 +717,7 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
 </head>
 
 <body>
+{% include "_icon_sprite.svg" %}
 <!-- Full-width header, matching background/templates/index.html: app name on
      the left, project path / theme / port+hub on the right. average used to
      carry its branding in the sidebar (a SLAC·SSRL badge over a two-line
@@ -787,7 +788,7 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
         <div class="two-col">
           <!-- Raw folders -->
           <div class="card">
-            <div class="card-hd">📁 Raw Data Folders</div>
+            <div class="card-hd"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg> Raw Data Folders</div>
             <div class="fg">
               <label>SAXS raw folder</label>
               <div class="cell">
@@ -931,9 +932,9 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
           <div class="img-sep" style="margin-left:auto"></div>
           <button class="img-nav-btn" onclick="ovNav('saxs',-1)">◀ Prev</button>
           <span class="img-count" id="ov-saxs-count">—</span>
-          <button class="img-nav-btn" onclick="ovNav('saxs',+1)">Next ▶</button>
+          <button class="img-nav-btn" onclick="ovNav('saxs',+1)">Next <svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-start"/></svg></button>
           <div class="img-sep"></div>
-          <button class="img-load-btn" id="ov-saxs-load-btn" onclick="loadOvFiles('saxs')">📂 Load all</button>
+          <button class="img-load-btn" id="ov-saxs-load-btn" onclick="loadOvFiles('saxs')"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg> Load all</button>
         </div>
         <div class="img-display" id="ov-saxs-body">
           <div class="img-placeholder">
@@ -943,7 +944,7 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
         </div>
         <!-- Save actions -->
         <div class="img-save-bar">
-          <span class="save-lbl">💾 Save:</span>
+          <span class="save-lbl"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-drive"/></svg> Save:</span>
           <button class="btn-save-cur" id="saxs-save-cur"
                   onclick="saveCurrentImage('saxs')" disabled>
             Current image
@@ -980,9 +981,9 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
           <div class="img-sep" style="margin-left:auto"></div>
           <button class="img-nav-btn" onclick="ovNav('waxs',-1)">◀ Prev</button>
           <span class="img-count" id="ov-waxs-count">—</span>
-          <button class="img-nav-btn" onclick="ovNav('waxs',+1)">Next ▶</button>
+          <button class="img-nav-btn" onclick="ovNav('waxs',+1)">Next <svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-start"/></svg></button>
           <div class="img-sep"></div>
-          <button class="img-load-btn" id="ov-waxs-load-btn" onclick="loadOvFiles('waxs')">📂 Load all</button>
+          <button class="img-load-btn" id="ov-waxs-load-btn" onclick="loadOvFiles('waxs')"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg> Load all</button>
         </div>
         <div class="img-display" id="ov-waxs-body">
           <div class="img-placeholder">
@@ -992,7 +993,7 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
         </div>
         <!-- Save actions -->
         <div class="img-save-bar">
-          <span class="save-lbl">💾 Save:</span>
+          <span class="save-lbl"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-drive"/></svg> Save:</span>
           <button class="btn-save-cur" id="waxs-save-cur"
                   onclick="saveCurrentImage('waxs')" disabled>
             Current image
@@ -1039,7 +1040,7 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
         <div class="two-col">
           <!-- Folders -->
           <div class="card">
-            <div class="card-hd">📁 Processed Data Folders</div>
+            <div class="card-hd"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg> Processed Data Folders</div>
             <div class="fg">
               <label>SAXS Reduction folder</label>
               <div class="cell">
@@ -1090,7 +1091,7 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
               <button class="btn btn-ghost btn-xs" onclick="togglePaste()">Paste list…</button>
               <button class="btn btn-xs"
                       style="background:var(--err-lt);color:var(--err);border:1px solid var(--err-lt)"
-                      onclick="clearKw()">✕ Clear all</button>
+                      onclick="clearKw()"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-close"/></svg> Clear all</button>
             </div>
             <div id="paste-wrap">
               <textarea id="paste-ta" placeholder="One keyword per line…"></textarea>
@@ -1156,7 +1157,7 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
           <!-- footer: select-all / add button -->
           <div id="disc-footer">
             <button class="btn btn-ghost btn-xs" onclick="discSelectAll(true)">✓ All</button>
-            <button class="btn btn-ghost btn-xs" onclick="discSelectAll(false)">✕ None</button>
+            <button class="btn btn-ghost btn-xs" onclick="discSelectAll(false)"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-close"/></svg> None</button>
             <button class="btn btn-sm" id="disc-add-btn"
                     style="background:var(--ok);color:#fff;border:none;cursor:pointer;padding:6px 14px;border-radius:var(--radius);font-size:15px;font-weight:600"
                     onclick="discAddSelected()">
@@ -1258,7 +1259,7 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
 
         <!-- Actions -->
         <div class="card">
-          <div class="card-hd">▶ Actions</div>
+          <div class="card-hd"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-start"/></svg> Actions</div>
           <div class="btn-grp">
             <button class="btn btn-ghost" id="btn-scan" onclick="scanFiles()" disabled>
               <span class="spin" id="sp-scan"></span>🔍 Scan Files
@@ -1371,7 +1372,7 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
       </div>
 
       <div class="card">
-        <div class="card-hd">📁 Reduction folders</div>
+        <div class="card-hd"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg> Reduction folders</div>
         <div class="fg">
           <label>SAXS Reduction folder</label>
           <div class="cell"><div class="ir">
@@ -1392,7 +1393,7 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
       </div>
 
       <div class="restart-banner" id="restartBanner">
-        <span class="rb-x" onclick="this.parentElement.classList.remove('show')">✕</span>
+        <span class="rb-x" onclick="this.parentElement.classList.remove('show')"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-close"/></svg></span>
         <span id="restartBannerMsg"></span>
       </div>
 
@@ -1428,14 +1429,14 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
       </div>
 
       <div class="card">
-        <div class="card-hd">▶ Monitor</div>
+        <div class="card-hd"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-start"/></svg> Monitor</div>
         <!-- Shared with background/templates/index.html — the two apps do the
              same job (watch a folder, process in batches, log it) and had
              drifted: green Start here vs cardinal there, buttons content-width
              here vs stretched there, two different log heights and fonts. -->
         <div class="auto-actions">
-          <button class="btn btn-primary" id="aa-start" onclick="startAutoAvg()">▶ Start auto-averaging</button>
-          <button class="btn btn-ghost" id="aa-stop" onclick="stopAutoAvg()" disabled>⏹ Stop</button>
+          <button class="btn btn-primary" id="aa-start" onclick="startAutoAvg()"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-start"/></svg> Start auto-averaging</button>
+          <button class="btn btn-ghost" id="aa-stop" onclick="stopAutoAvg()" disabled><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-stop"/></svg> Stop</button>
           <span class="auto-state" id="aa-state">Idle</span>
           <span class="auto-count" id="aa-count"></span>
         </div>
@@ -1453,8 +1454,8 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
 <div id="modal-bg" onclick="if(event.target===this)closeBrowser()">
   <div id="modal-box">
     <div id="modal-head">
-      <span id="modal-title">📂 Select Folder</span>
-      <button onclick="closeBrowser()">✕</button>
+      <span id="modal-title"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg> Select Folder</span>
+      <button onclick="closeBrowser()"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-close"/></svg></button>
     </div>
     <div id="modal-nav">
       <button id="modal-up" onclick="browseUp()">↑ Up</button>

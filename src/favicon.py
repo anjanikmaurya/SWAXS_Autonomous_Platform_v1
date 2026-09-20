@@ -178,15 +178,21 @@ def register_favicon(flask_app, app_id: str) -> None:
         if candidate.is_file():
             png_dir, png_name = str(candidate.parent), candidate.name
 
+    # No day-long cache. A favicon cached for 86400 s is why a changed icon
+    # kept showing the OLD art for up to a day after a restart — the browser
+    # never re-fetched. `no-cache` makes it revalidate on every load, which for
+    # a ~1 KB SVG is free, so a rebuilt icon appears the next time the tab loads
+    # instead of tomorrow.
+    _NO_CACHE = {"Cache-Control": "no-cache, no-store, must-revalidate"}
+
     def _send():
         if mark:
-            return Response(mark, mimetype="image/svg+xml",
-                            headers={"Cache-Control": "public, max-age=86400"})
+            return Response(mark, mimetype="image/svg+xml", headers=_NO_CACHE)
         if png_name:
             return send_from_directory(png_dir, png_name,
-                                       mimetype="image/png", max_age=86400)
+                                       mimetype="image/png", max_age=0)
         return Response(favicon_svg(emoji, color), mimetype="image/svg+xml",
-                        headers={"Cache-Control": "public, max-age=86400"})
+                        headers=_NO_CACHE)
 
     # Distinct endpoint names: several apps are imported into one process by
     # the test suite, and Flask rejects a duplicate endpoint on the same app.

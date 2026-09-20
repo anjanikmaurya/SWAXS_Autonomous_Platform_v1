@@ -115,6 +115,7 @@ code{background:var(--surface2);padding:2px 6px;border-radius:4px;font-family:va
 </style>
 </head>
 <body>
+{% include "_icon_sprite.svg" %}
 <div id="app">
 
 <!-- ── Sidebar ── -->
@@ -185,8 +186,8 @@ code{background:var(--surface2);padding:2px 6px;border-radius:4px;font-family:va
           <span class="fnote">Files copied at once (1–16). Raise to 8 for many small files on a fast link; lower to 1–2 if the server throttles.</span></div>
       </div>
       <div class="btn-row">
-        <button class="btn btn-primary" id="s_start" onclick="sftpStart()">▶ Start copy</button>
-        <button class="btn btn-err" id="s_stop" onclick="sftpStop()" disabled>■ Stop</button>
+        <button class="btn btn-primary" id="s_start" onclick="sftpStart()"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-start"/></svg> Start copy</button>
+        <button class="btn btn-err" id="s_stop" onclick="sftpStop()" disabled><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-stop"/></svg> Stop</button>
         <button class="btn btn-ghost" onclick="sftpTest()">Test connection</button>
         <span style="margin-left:auto;align-self:center"><span class="pill muted" id="sftp-status">Not running</span></span>
       </div>
@@ -259,7 +260,7 @@ code{background:var(--surface2);padding:2px 6px;border-radius:4px;font-family:va
   <div style="background:#fff;border:1px solid var(--border);border-radius:10px;width:540px;max-height:78vh;display:flex;flex-direction:column;box-shadow:0 16px 48px rgba(0,0,0,.2);overflow:hidden;">
     <div style="padding:14px 18px;background:var(--accent);display:flex;align-items:center;justify-content:space-between;">
       <span style="font-size:15px;font-weight:600;color:#fff;">Browse</span>
-      <button class="btn btn-sm" onclick="closeBrow()" style="background:rgba(255,255,255,.15);color:#fff;border:none;">✕</button>
+      <button class="btn btn-sm" onclick="closeBrow()" style="background:rgba(255,255,255,.15);color:#fff;border:none;"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-close"/></svg></button>
     </div>
     <div id="brow-path" style="padding:9px 16px;background:var(--surface2);border-bottom:1px solid var(--border);font-family:var(--mono);font-size:13px;color:var(--accent);word-break:break-all;"></div>
     <div id="brow-body" style="flex:1;overflow-y:auto;"></div>
