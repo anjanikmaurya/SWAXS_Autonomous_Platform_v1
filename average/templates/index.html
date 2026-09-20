@@ -161,6 +161,11 @@ html,body {
   border-bottom:1px solid var(--border);
 }
 .two-col { display:grid; grid-template-columns:1fr 1fr; gap:18px }
+/* A card that must span the whole two-col row — used for the folder cards,
+   whose path boxes need the full window width to show a real path. Without
+   this they sit in one 1fr column (~half width) and clip the path even with
+   the input filling the card. */
+.two-col > .span-2 { grid-column:1 / -1 }
 
 .fg {
   display:grid; grid-template-columns:var(--lw) 1fr;
@@ -793,7 +798,7 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
 
         <div class="two-col">
           <!-- Raw folders -->
-          <div class="card">
+          <div class="card span-2">
             <div class="card-hd"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg> Raw Data Folders</div>
             <div class="fg">
               <label>SAXS raw folder</label>
@@ -1045,7 +1050,7 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
 
         <div class="two-col">
           <!-- Folders -->
-          <div class="card">
+          <div class="card span-2">
             <div class="card-hd"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg> Processed Data Folders</div>
             <div class="fg">
               <label>SAXS Reduction folder</label>
