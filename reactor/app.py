@@ -163,6 +163,22 @@ def _resolve(folder_key: str) -> Path:
 
 
 
+# ── recipes-folder watcher state ─────────────────────────────────────────────
+# Declared HERE, above every function that touches it. _clear_stale_conditions
+# runs during module execution — i.e. before the bottom of this file has been
+# reached — so with these defined further down it raised NameError straight
+# into a broad `except`, which reported "could not clear leftover conditions"
+# and swallowed the fact that the files HAD already been moved. A start-up
+# helper cannot reference state declared after it.
+#
+# A file is ingested only once it is STABLE (size+mtime unchanged across two
+# polls), so a recipe still being written by the ML pipeline is never parsed
+# mid-write and lost. Handled files are remembered by signature, so a corrected
+# re-write of the same filename is picked up again.
+_watch_handled: dict = {}    # path -> signature of the version already ingested/rejected
+_watch_lastsig: dict = {}    # path -> signature seen on the previous poll
+
+
 # ── controller callbacks ──────────────────────────────────────────────────────
 def _event_cb(etype: str, data: dict) -> None:
     if _bus is not None:
@@ -375,6 +391,52 @@ def _save_run_settings(d: dict) -> None:
         pass
 
 
+#: The beamline data-collection settings (exposure, frames, trigger-before-end,
+#: the sample/background keywords, the SPEC save folder) were IN-MEMORY ONLY,
+#: exactly as the run settings once were: an operator who set exposure 20 s × 5
+#: got those until the next restart, after which the reactor silently reverted
+#: to reactor/config.yml. Persist them the same way.
+_SPEC_SETTINGS_STATE = "reactor_spec_settings"
+
+
+def _save_spec_settings(d: dict) -> None:
+    try:
+        from src.runstate import save_state
+        # keep only the fields set_spec_settings understands; a blank value is
+        # dropped so it never overwrites a good stored one with nothing.
+        keep = ("exposure_s", "frames", "spec_lead_s",
+                "sample_tag", "bkg_tag", "data_dir")
+        clean = {k: d[k] for k in keep
+                 if k in (d or {}) and str(d.get(k)).strip() != ""}
+        if clean:
+            save_state(_project_root, _SPEC_SETTINGS_STATE, clean)
+    except Exception:
+        pass
+
+
+def _restore_spec_settings() -> None:
+    """Re-apply the beamline data-collection settings after a restart.
+
+    Same contract as _restore_run_settings: read unconditionally
+    (honour_no_resume=False) so the displayed and executed acquisition matches
+    what the operator last chose, rather than reverting to config defaults with
+    the UI still showing the old values. set_spec_settings validates each field
+    (e.g. exposure_s > 0), so a corrupt stored value is refused, not trusted."""
+    try:
+        from src.runstate import load_state
+        st = load_state(_project_root, _SPEC_SETTINGS_STATE, max_age_s=48 * 3600,
+                        honour_no_resume=False)
+        if st:
+            st = {k: v for k, v in st.items()
+                  if not k.startswith("_") and v is not None}
+        if st:
+            ok, msg = _ctrl.set_spec_settings(st)
+            if ok:
+                _emit("♻  data-collection settings restored: " + msg, "ok")
+    except Exception as exc:
+        _emit(f"⚠ could not restore the data-collection settings: {exc}", "warn")
+
+
 #: Restart notice for the UI banner. Two tiers, deliberately distinct:
 #:   "restored" — last session's values came back; a calm "review before running".
 #:   "lost"     — a saved file existed but could NOT be restored (too old/unreadable),
@@ -477,6 +539,68 @@ def _save_recipes_folder(folder: str) -> None:
         _emit(f"⚠ could not save reactor_settings.json: {exc}", "warn")
 
 
+def _clear_stale_conditions() -> int:
+    """Start each session with an empty queue — set aside anything left over.
+
+    Condition files now stay in the watched folder until the reactor has
+    finished with them (R26), which is what makes a queue survive a crash. The
+    operator asked for the opposite on a DELIBERATE restart: stop the app from
+    the hub, start it again, and begin from a clean slate rather than
+    inheriting whatever the optimizer had proposed before.
+
+    Both are right, for different reasons, and the difference is intent — but
+    a process cannot tell a crash from a hub Stop after the fact, so this takes
+    the operator's instruction literally: EVERY start clears. Clearing the
+    in-memory queue alone would achieve nothing, because the watcher would
+    re-read the same files within one poll; the files have to be set aside too.
+
+    NOTHING IS DELETED. Files are moved to the processed folder with a line
+    saying why, so a condition can be put back by moving it out again, and the
+    count is logged loudly rather than slipping past in a quiet start-up.
+
+    Turn it off with ``run.clear_queue_on_restart: false`` to get the
+    crash-resumes-where-it-left-off behaviour instead.
+    """
+    if not bool((_CFG.get("run", {}) or {}).get("clear_queue_on_restart", True)):
+        return 0
+    try:
+        rdir = _resolve("recipes")
+        if not rdir.is_dir():
+            return 0
+        stale = sorted(list(rdir.glob("*.dat")) + list(rdir.glob("*.txt"))
+                       + list(rdir.glob("*.json")))
+        if not stale:
+            return 0
+        done = _resolve("processed")
+        done.mkdir(parents=True, exist_ok=True)
+        moved = []
+        for f in stale:
+            try:
+                dest = done / f.name
+                f.replace(dest)
+                with dest.open("a", encoding="utf-8") as fh:
+                    fh.write(f"\n# ── NOT RUN — cleared when the reactor app started "
+                             f"at {datetime.datetime.now().isoformat(timespec='seconds')}\n"
+                             f"# Every app start begins with an empty queue "
+                             f"(run.clear_queue_on_restart). Move this file back "
+                             f"into the conditions folder to run it.\n")
+                moved.append(f.name)
+            except Exception as exc:
+                _emit(f"⚠ could not set aside {f.name}: {exc}", "warn")
+        _watch_handled.clear()
+        _watch_lastsig.clear()
+        if moved:
+            _emit(f"🧹 started with an empty queue — set aside "
+                  f"{len(moved)} leftover condition(s) from the previous session "
+                  f"({', '.join(moved[:6])}{' …' if len(moved) > 6 else ''}). "
+                  f"They are in {done} and were NOT run; move one back to run it.",
+                  "warn")
+        return len(moved)
+    except Exception as exc:
+        _emit(f"⚠ could not clear leftover conditions: {exc}", "warn")
+        return 0
+
+
 def _load_recipes_folder() -> None:
     p = _settings_path()
     if p is None or not p.is_file():
@@ -516,9 +640,11 @@ if _project_root:
     # every persisted safety value is in force.
     _load_limits()
     _load_recipes_folder()
+    _clear_stale_conditions()
     # Restore the operator's run settings BEFORE auto-run may start a recipe, so a
     # resumed campaign uses the durations they actually chose.
     _restore_run_settings()
+    _restore_spec_settings()
     _restore_auto_run()
 
 
@@ -551,8 +677,6 @@ if _bus is not None:
 # polls), so a recipe still being written by the ML pipeline is never parsed
 # mid-write and lost. Handled files are remembered by signature, so a corrected
 # re-write of the same filename is picked up again.
-_watch_handled: dict = {}    # path -> signature of the version already ingested/rejected
-_watch_lastsig: dict = {}    # path -> signature seen on the previous poll
 
 
 def _folder_watcher() -> None:
@@ -856,7 +980,13 @@ def api_auto_run():
 
 @app.route("/api/spec_settings", methods=["POST"])
 def api_spec_settings():
-    ok, msg = _ctrl.set_spec_settings(request.get_json(silent=True) or {})
+    body = request.get_json(silent=True) or {}
+    ok, msg = _ctrl.set_spec_settings(body)
+    # Persist only what the controller accepted, so a restart keeps the
+    # beamline settings instead of reverting to config.yml. Nothing is saved on
+    # a refusal (409) — a rejected value must not become the stored one.
+    if ok:
+        _save_spec_settings(body)
     # Refused while a run or campaign is in flight. 409, not 400: the request
     # is well-formed, it just conflicts with the current state.
     return jsonify({"ok": ok} if ok else {"ok": False, "error": msg}), \

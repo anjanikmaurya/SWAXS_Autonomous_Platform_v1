@@ -1286,3 +1286,60 @@ def test_r28_startup_helpers_do_not_reference_state_declared_below_them():
             use = src.index(f"def {fn}")
             assert decl.start() < use, \
                 f"{name} is declared after {fn}, which touches it"
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# R29 — beamline data-collection settings persist across a restart
+# ═════════════════════════════════════════════════════════════════════════════
+# Operator request. Run settings (arm_mode, run_duration, flush_*) were restored
+# on restart (R7-adjacent); the SPEC data-collection settings — exposure, frames,
+# trigger-before-end, tags, save folder — were IN-MEMORY ONLY, so exposure 20s×5
+# reverted to config.yml's 10s×10 on the next start with the UI none the wiser.
+
+def test_r29_spec_settings_survive_a_restart(tmp_path, monkeypatch):
+    (tmp_path / "1D" / "SAXS" / "Conditions").mkdir(parents=True)
+    monkeypatch.setenv("SWAXS_PROJECT", str(tmp_path))
+    monkeypatch.setenv("SWAXS_REACTOR_BACKEND", "mock")
+
+    def boot(tag):
+        import importlib.util as u
+        spec = u.spec_from_file_location(f"reactor_app_r29_{tag}", _ROOT / "reactor" / "app.py")
+        mod = u.module_from_spec(spec); spec.loader.exec_module(mod)
+        return mod
+
+    m = boot("a")
+    try:
+        r = m.app.test_client().post("/api/spec_settings", json={
+            "exposure_s": "20", "frames": "5", "spec_lead_s": "60",
+            "sample_tag": "smp", "bkg_tag": "blank"})
+        assert r.get_json()["ok"] is True
+    finally:
+        m._ctrl.shutdown(collect_wait_s=0.0)
+
+    m2 = boot("b")                                    # the "restart"
+    try:
+        sp = m2._ctrl.status()["spec"]
+        assert (sp["exposure_s"], sp["frames"], sp["spec_lead_s"]) == (20.0, 5, 60.0)
+        assert (sp["sample_tag"], sp["bkg_tag"]) == ("smp", "blank")
+    finally:
+        m2._ctrl.shutdown(collect_wait_s=0.0)
+
+
+def test_r29_a_refused_spec_change_is_not_persisted(tmp_path, monkeypatch):
+    """A 409 (settings frozen mid-campaign, or exposure 0) must not become the
+    stored value — only what the controller accepted is saved."""
+    (tmp_path / "1D" / "SAXS" / "Conditions").mkdir(parents=True)
+    monkeypatch.setenv("SWAXS_PROJECT", str(tmp_path))
+    monkeypatch.setenv("SWAXS_REACTOR_BACKEND", "mock")
+    import importlib.util as u
+    spec = u.spec_from_file_location("reactor_app_r29c", _ROOT / "reactor" / "app.py")
+    m = u.module_from_spec(spec); spec.loader.exec_module(m)
+    try:
+        m._ctrl.set_auto_run(True)                    # freezes spec settings
+        r = m.app.test_client().post("/api/spec_settings", json={"exposure_s": "99"})
+        assert r.status_code == 409
+        from src.runstate import load_state
+        assert not load_state(str(tmp_path), "reactor_spec_settings",
+                              honour_no_resume=False), "a refused change was saved"
+    finally:
+        m._ctrl.shutdown(collect_wait_s=0.0)
