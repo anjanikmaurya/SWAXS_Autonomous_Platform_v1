@@ -683,6 +683,16 @@ input:focus, select:focus {
 }
 .fnote, .hint { font-size:var(--fs-sm); color:var(--muted); margin-top:2px }
 
+/* THE folder-width fix (average only — kept OUT of the shared form spec above
+   so it stays byte-identical to background). .fg is a flex COLUMN, but the
+   older grid rule left `align-items:start` on it, and in a flex column that is
+   a CROSS-axis rule: children align to the start at their content width instead
+   of stretching. So every .cell shrank to ~214px and the path box was clipped
+   no matter how wide the card. Stretch them to the full card width. Measured
+   headless: input 178px → 1082px. */
+.fg { align-items:stretch }
+.fg > .cell, .fg > .ir { width:100% }
+
 /* ── Content gutter — reduction · average · background ────────────────────
    All three had `padding: 22px 22px 22px 48px` (background 18px on the right)
    on their scrolling content pane: a 48px inset on the LEFT against 18-22px on
