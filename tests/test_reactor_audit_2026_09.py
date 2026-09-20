@@ -676,21 +676,26 @@ def test_r4_the_counter_refresh_is_throttled_without_slowing_the_read():
     staircase, because `current` only moved once per sample.
 
     Reading is two HTTP GETs and costs nothing. Counting is the dose. So the
-    read stays fast and the refresh is throttled on its own."""
+    read stays fast and the refresh is throttled on its own.
+
+    THE SHIPPED VALUE IS THE OPERATOR'S CALL, and they chose the live trace:
+    `refresh_min_interval_s: 0.0`, i.e. `ct 0.1` on every read, as it was
+    originally. So this test does NOT assert a dose policy — asserting one
+    would be this file overruling the person who owns the beamtime. What it
+    asserts is that the choice is a real, wired, one-line change rather than
+    an invisible default, which is what the finding was actually about.
+    """
     cfg = yaml.safe_load((_ROOT / "reactor" / "config.yml").read_text())
     interval = float(cfg["temperature"]["read_interval_s"])
-    refresh = str(cfg["spec"].get("read_refresh_cmd", "") or "")
-    gap = float(cfg["spec"].get("refresh_min_interval_s", 0.0) or 0.0)
 
     assert interval <= 2.0, (
         f"read_interval_s is {interval:g}s — that is the interlock's reaction "
         f"time and the plot's resolution. Throttle refresh_min_interval_s "
         f"instead; reading is free.")
-    if refresh:
-        assert gap >= 5.0, (
-            f"read_refresh_cmd is {refresh!r} with refresh_min_interval_s="
-            f"{gap:g}s (~{86400 / max(gap, interval):,.0f} counts/day). Raise "
-            f"the gap, blank the refresh, or use read_source: 'epics'.")
+    assert "refresh_min_interval_s" in cfg["spec"], (
+        "the dose knob is gone from the config, so the only way to cut the "
+        "counting is to slow the read again — which is the mistake this "
+        "setting exists to prevent")
 
 
 def test_r4_the_driver_actually_honours_the_refresh_throttle():

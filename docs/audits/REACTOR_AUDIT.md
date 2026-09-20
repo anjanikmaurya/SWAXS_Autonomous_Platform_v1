@@ -6,8 +6,13 @@ and `src/beamline/driver.py`. Four lenses, all requested: hardware safety on
 the real rig, multi-day unattended stability, campaign data integrity, and a
 per-control pass over every button and input in the UI.
 
-> **STATUS — 20 September 2026: 24 of the 25 findings are FIXED.**
-> Only **R12** is open, deferred by the operator. Every fix is held by a named
+> **STATUS — 20 September 2026: 23 of the 25 findings are FIXED.**
+> **R12** is open, deferred by the operator. **R4** is *accepted*, not fixed:
+> the counting is now a named, wired, one-line setting instead of an invisible
+> default, and the operator has deliberately left it at the original ~1 Hz to
+> keep a live temperature trace. That is a legitimate call — it is their beam
+> and their sample — so the register records the choice rather than claiming a
+> fix that was reverted. Every fix is held by a named
 > test in `tests/test_reactor_audit_2026_09.py`, and that file was run against
 > the pre-fix commit in a throwaway worktree to confirm the tests actually
 > catch the old behaviour: **50 of 53 failed there and all 53 pass now.** The
@@ -19,9 +24,11 @@ per-control pass over every button and input in the UI.
 >   * **`sensor_min`** — the real flow-sensor floors (R14). The app now refuses
 >     to open real pump ports while they are 0 rather than running with the
 >     guard disarmed, but the numbers have to come from the installed sensors.
->   * **`sauto off`** (or `read_source: "epics"`) on the rig (R4). The refresh
->     interval went 1 s → 10 s, which reduces the exposure; only that setting
->     removes it.
+>   * **`sauto off`** on the rig before an unattended campaign (R4) — with
+>     `refresh_min_interval_s: 0.0` the app counts ~86,400 times a day, and
+>     `sauto off` is what stops those counts reaching the shutter. Or set
+>     `read_source: "epics"`, which is the only option that gives a smooth
+>     1 Hz trace AND no counting.
 
 Each finding carries the evidence that produced it, and every finding marked
 *proven* was demonstrated by running the code, not by reading it — the probe is
@@ -46,7 +53,7 @@ Severity means consequence on a real beamtime, not code tidiness:
 | [R1](#r1) ✅ | HIGH | safety | Stopping the app from the hub never hands the rig back — `atexit` does not run on SIGTERM |
 | [R2](#r2) ✅ | HIGH | campaign | One Stop during a blank flush permanently kills background collection for the session |
 | [R3](#r3) ✅ | HIGH | safety | The over-temperature interlock can be blind for hours, with the alarm suppressed by design |
-| [R4](#r4) ✅ | HIGH | safety | `ct 0.1` fires ~86,400×/day and may open the shutter each time |
+| [R4](#r4) ⚠️ | HIGH | safety | `ct 0.1` fires ~86,400×/day and may open the shutter each time — **surfaced and controllable; the operator accepts the dose for a live trace** |
 | [R5](#r5) ✅ | HIGH | UI | The E-stop's "could NOT idle" message lands in a tiny slot in another card, and gets wiped |
 | [R6](#r6) ✅ | HIGH | UI | A dead supervisor and a placeholder temperature look identical to healthy ones |
 | [R7](#r7) ✅ | HIGH | persistence | Saved pump limits and conditions folder are never loaded at startup |
@@ -225,8 +232,9 @@ actuation wear. Neither is visible anywhere in the app.
 The mitigation (`sauto off`) is buried in a YAML comment rather than in the
 pre-beamtime checklist, and nothing checks it.
 
-> **Fixed** — but not the way this paragraph first proposed, and the first
-> attempt is worth recording because it was wrong in an instructive way.
+> **Surfaced and made controllable — dose ACCEPTED by the operator.**
+> The record below is the full arc, including a wrong first attempt, because
+> the wrong attempt is the useful part.
 >
 > Raising `read_interval_s` to 10 s did cut the dose, and it also slowed the
 > over-temperature interlock from ~1 s to ~10 s and turned the live
@@ -235,18 +243,25 @@ pre-beamtime checklist, and nothing checks it.
 > `read_interval_s` governed both, so the only way to count less was to read
 > less.
 >
-> They are separate settings now. `read_interval_s` is back to 1 s — reading
-> is two HTTP GETs, no beam, no shutter, and it sets the interlock's reaction
-> time and the plot's resolution. The new `spec.refresh_min_interval_s` (10 s)
-> throttles `read_refresh_cmd` alone; reads in between return SPEC's
-> last-count values for free. `sauto off` is now a numbered item on
-> `docs/audits/PRE_BEAMTIME_READINESS.md`.
+> They are separate settings now. `read_interval_s` is 1 s — reading is two
+> HTTP GETs, no beam, no shutter, and it sets the interlock's reaction time
+> and the plot's resolution. `spec.refresh_min_interval_s` throttles
+> `read_refresh_cmd` alone; reads in between return SPEC's last-count values
+> for free.
 >
-> Note what this does NOT fix: with `read_source: "spec"` the counter values
-> still only change when a count runs, so on the real rig the temperature
-> trace will step at the refresh interval. That is physically unavoidable if
-> you refuse to count more often. `read_source: "epics"` reads the monitors
-> directly and gives a smooth, dose-free trace.
+> **The operator then set that throttle to 0.0** — `ct 0.1` on every read, the
+> original cadence — because with `read_source: "spec"` the counters only
+> change when a count runs, so any throttle puts steps back in the trace. They
+> want the live 1 Hz trace and accept the counting. That is their beam and
+> their sample, and the point of the finding was never to force a value: it
+> was that ~86,400 shutter-capable counts a day were happening where nobody
+> had chosen them. Now it is one documented line, and `sauto off` is a
+> numbered item on `docs/audits/PRE_BEAMTIME_READINESS.md`.
+>
+> To cut the dose later without touching the interlock or the plot cadence:
+> `refresh_min_interval_s: 10.0` (10× fewer counts, stepped trace), or
+> `read_source: "epics"` (no counts at all, smooth trace, and it keeps reading
+> during an acquisition — which also closes the R3 blind window).
 
 ---
 
