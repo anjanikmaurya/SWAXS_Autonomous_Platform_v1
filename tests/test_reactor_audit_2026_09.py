@@ -665,18 +665,70 @@ def test_r25_set_project_refuses_a_path_that_is_not_there():
 # ═════════════════════════════════════════════════════════════════════════════
 # R4 / R18 — the settings and the slow leaks
 # ═════════════════════════════════════════════════════════════════════════════
-def test_r4_the_counter_refresh_is_not_fired_every_second():
-    """read_refresh_cmd runs once per read_interval_s for the whole beamtime,
-    and `ct` obeys sauto — so at 1 Hz that was ~86,400 shutter-capable counts a
-    day on whatever was in the beam, between runs included."""
+def test_r4_the_counter_refresh_is_throttled_without_slowing_the_read():
+    """Two settings, two jobs — and the first fix conflated them.
+
+    `read_refresh_cmd` is `ct 0.1`: it obeys sauto, so it may open the fast
+    shutter, and it used to run once per READ — ~86,400 times a day on whatever
+    was in the beam, between runs included. The first fix throttled the READ
+    (1 s → 10 s), which did cut the dose but also slowed the over-temperature
+    interlock to 10 s and turned the live temperature trace into a visible
+    staircase, because `current` only moved once per sample.
+
+    Reading is two HTTP GETs and costs nothing. Counting is the dose. So the
+    read stays fast and the refresh is throttled on its own."""
     cfg = yaml.safe_load((_ROOT / "reactor" / "config.yml").read_text())
     interval = float(cfg["temperature"]["read_interval_s"])
     refresh = str(cfg["spec"].get("read_refresh_cmd", "") or "")
+    gap = float(cfg["spec"].get("refresh_min_interval_s", 0.0) or 0.0)
+
+    assert interval <= 2.0, (
+        f"read_interval_s is {interval:g}s — that is the interlock's reaction "
+        f"time and the plot's resolution. Throttle refresh_min_interval_s "
+        f"instead; reading is free.")
     if refresh:
-        assert interval >= 5.0, (
-            f"read_refresh_cmd is {refresh!r} and fires every {interval:g}s "
-            f"(~{86400 / interval:,.0f}/day). Raise read_interval_s, blank the "
-            f"refresh, or use read_source: 'epics'.")
+        assert gap >= 5.0, (
+            f"read_refresh_cmd is {refresh!r} with refresh_min_interval_s="
+            f"{gap:g}s (~{86400 / max(gap, interval):,.0f} counts/day). Raise "
+            f"the gap, blank the refresh, or use read_source: 'epics'.")
+
+
+def test_r4_the_driver_actually_honours_the_refresh_throttle():
+    """The config value has to be wired, not just documented."""
+    import src.beamline.driver as drv
+    src = (_ROOT / "src" / "beamline" / "driver.py").read_text()
+    # SpecBeamline's, not the base class's one-line stub — which is what the
+    # first version of this slice picked up.
+    spec_cls = src[src.index("class SpecBeamline"):]
+    fn = spec_cls[spec_cls.index("def _do_read_counters"):]
+    fn = fn[:fn.index("\n    def ", 10)]
+    assert "refresh_min_interval_s" in fn, \
+        "the refresh is not throttled — it still runs on every read"
+    assert "_last_refresh" in fn
+    assert drv._DEFAULTS.get("refresh_min_interval_s", 0) > 0
+
+
+def test_r4_a_fast_read_does_not_mean_a_fast_count():
+    """The behaviour itself: many reads, few counts."""
+    from src.beamline.driver import SpecBeamline
+    counted, read = [], []
+
+    bl = SpecBeamline.__new__(SpecBeamline)          # no HTTP session needed
+    bl.cfg = {"read_refresh_cmd": "ct 0.1", "refresh_min_interval_s": 10.0,
+              "temp_counter": "CTEMP", "bstop_counter": "bstop", "i0_counter": "i0"}
+    bl._collecting = False
+    bl._last_refresh = 0.0
+    bl._cmd = lambda c: counted.append(c)
+    bl._wait = lambda **kw: None
+    bl._sis = lambda c, **kw: (read.append(c), ["CTEMP"] if "mnemonics" in c else [25.0])[1]
+
+    for _ in range(20):                               # 20 reads back to back
+        bl._do_read_counters()
+
+    assert len(counted) == 1, (
+        f"20 reads fired {len(counted)} counting commands; the throttle is not "
+        f"working")
+    assert len(read) == 40, "the reads themselves were throttled too"
 
 
 def test_r4_the_shutter_risk_is_on_the_pre_beamtime_checklist():

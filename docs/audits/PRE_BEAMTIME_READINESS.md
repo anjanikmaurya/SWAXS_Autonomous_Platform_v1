@@ -56,11 +56,14 @@ Test suite: `python -m pytest -q` — run it and expect zero failures.
    `/msd_data/...` folder.
 3. **`sauto off` in SPEC — or blank `read_refresh_cmd`, or `read_source: "epics"`.**
    Promoted out of a parenthesis because it is a dose decision, not a preference.
-   `read_refresh_cmd` runs once per `temperature.read_interval_s` for the entire
-   beamtime, between runs included, and `ct` obeys `sauto`. At the old 1 s
-   interval that was ~86,400 shutter-capable counts a day on whatever was in the
-   beam. The interval now ships at 10 s, which reduces it; only one of the three
-   options above removes it. (Audit R4.)
+   `read_refresh_cmd` is `ct 0.1`, which obeys `sauto` and may open the fast
+   shutter. It used to run once per READ — ~86,400 shutter-capable counts a day
+   on whatever was in the beam, between runs included. It is now throttled on
+   its own by `spec.refresh_min_interval_s` (10 s), which cuts that by 10×
+   WITHOUT slowing the temperature read; only one of the three options above
+   removes it entirely. Note that with `read_source: "spec"` the temperature
+   trace steps at the refresh interval — that is the counter, not the app.
+   `"epics"` gives a smooth trace and no dose. (Audit R4.)
 4. **Every pump's `sensor_min` is a real number, not 0.** With 0 the documented
    "nonzero-below-minimum is rejected" check cannot fire, so a recipe can command
    a flow the installed LG16 cannot meter. The app refuses to start on the real

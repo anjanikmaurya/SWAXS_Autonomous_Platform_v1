@@ -65,6 +65,9 @@ _DEFAULTS = {
     "qdo_cmd": 'qdo "{file}"',                       # how SPEC runs the filled macro file (qdo mode)
     "newfile_cmd": "newfile {path}",                # sets save dir + prefix (named-cmd mode)
     "collect_cmd": "ct {exposure}",                 # 2D acquisition (named-cmd mode)
+    "refresh_min_interval_s": 10.0,                 # s: minimum gap between read_refresh_cmd
+                                                    #   invocations. Throttles the COUNTING (dose,
+                                                    #   shutter) without throttling the reading.
     "read_during_collect": False,                   # True → keep polling counters DURING a collection
     "cmd_wait_s": 600.0,                             # max wait for SPEC-not-busy between streamed macro lines
     "http_timeout_s": 10.0,
@@ -512,13 +515,26 @@ class SpecBeamline(BeamlineDriver):
         # get_all_counters returns the values from SPEC's LAST count, so they're
         # stale until something counts. Optionally run a refresh command first to
         # update them (skipped during a collection — never count mid-acquisition).
+        #
+        # THE REFRESH IS THROTTLED SEPARATELY FROM THE READ (audit R4).
+        # `read_refresh_cmd` is usually `ct 0.1`, which obeys sauto and may open
+        # the fast shutter — so it is dose on whatever is in the beam, and one
+        # more actuation, every single time. READING is nearly free (two GETs).
+        # Conflating the two meant the only way to cut the dose was to read less
+        # often, which also slowed the over-temperature interlock and turned the
+        # live plot into a staircase. They are independent now: read as often as
+        # you like, count as rarely as you can stand.
         refresh = self.cfg.get("read_refresh_cmd")
         if refresh and not self._collecting:
-            try:
-                self._cmd(str(refresh))
-                self._wait(timeout=30.0)   # let the count finish before reading (cf. MSD.execute_and_read_count)
-            except Exception:
-                pass
+            gap = float(self.cfg.get("refresh_min_interval_s", 0.0) or 0.0)
+            now = time.time()
+            if now - getattr(self, "_last_refresh", 0.0) >= gap:
+                self._last_refresh = now
+                try:
+                    self._cmd(str(refresh))
+                    self._wait(timeout=30.0)   # let the count finish before reading (cf. MSD.execute_and_read_count)
+                except Exception:
+                    pass
         names = self._sis("get_all_counter_mnemonics") or []
         vals = self._sis("get_all_counters") or []
         return dict(zip(names, vals))

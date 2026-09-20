@@ -225,10 +225,28 @@ actuation wear. Neither is visible anywhere in the app.
 The mitigation (`sauto off`) is buried in a YAML comment rather than in the
 pre-beamtime checklist, and nothing checks it.
 
-> **Fixed** — raise `read_interval_s` to 5–10 s (the temperature plot does not need
-> 1 Hz), or switch to `read_source: "epics"`, which needs no refresh command
-> at all. Whichever is chosen, add `sauto off` to
-> `docs/audits/PRE_BEAMTIME_READINESS.md` as a checked item.
+> **Fixed** — but not the way this paragraph first proposed, and the first
+> attempt is worth recording because it was wrong in an instructive way.
+>
+> Raising `read_interval_s` to 10 s did cut the dose, and it also slowed the
+> over-temperature interlock from ~1 s to ~10 s and turned the live
+> temperature trace into a visible staircase — the operator spotted the
+> staircase in the UI within minutes. Reading and counting had been conflated:
+> `read_interval_s` governed both, so the only way to count less was to read
+> less.
+>
+> They are separate settings now. `read_interval_s` is back to 1 s — reading
+> is two HTTP GETs, no beam, no shutter, and it sets the interlock's reaction
+> time and the plot's resolution. The new `spec.refresh_min_interval_s` (10 s)
+> throttles `read_refresh_cmd` alone; reads in between return SPEC's
+> last-count values for free. `sauto off` is now a numbered item on
+> `docs/audits/PRE_BEAMTIME_READINESS.md`.
+>
+> Note what this does NOT fix: with `read_source: "spec"` the counter values
+> still only change when a count runs, so on the real rig the temperature
+> trace will step at the refresh interval. That is physically unavoidable if
+> you refuse to count more often. `read_source: "epics"` reads the monitors
+> directly and gives a smooth, dose-free trace.
 
 ---
 
