@@ -959,8 +959,19 @@ def _loop_state(probes: dict) -> dict:
         sub_node = {"state": "done", "detail": "subtracted"}
     else:
         sub_node = {"state": "idle", "detail": "no averages yet"}
-    sub_node.update(recipe_id=sub_rid or (bkg_rid or smp_rid or ""),
-                    have_background=bool(bkg_rid), have_sample=bool(smp_rid))
+    # Scope the two ✓ boxes to the CURRENT condition, exactly as the reactor
+    # phase tracker scopes bkg_done/smp_done to active_rid above. bkg_rid/smp_rid
+    # are the LATEST averaged rid per lane, so once condition r001 produced both
+    # averages, bool(bkg_rid)/bool(smp_rid) stayed True for r002, r003, … — the
+    # dashboard showed "background average ✓ / sample average ✓" for every later
+    # condition before any of its frames existed. Tick a box only when that
+    # lane's average is for the condition now in progress; the boxes reset when
+    # a new condition starts and fill as its own averages arrive.
+    cur_rid = active_rid or sub_rid or bkg_rid or smp_rid or ""
+    sub_node.update(
+        recipe_id=cur_rid,
+        have_background=bool(bkg_rid) and bkg_rid == cur_rid,
+        have_sample=bool(smp_rid) and smp_rid == cur_rid)
 
     # ── fit + predict — one app: fits, then writes the next condition ─────────
     ev_fit = _newest("fit.complete")

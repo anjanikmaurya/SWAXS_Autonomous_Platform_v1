@@ -790,3 +790,44 @@ def test_nothing_at_all_still_reads_idle_with_the_right_reason():
     assert loop["average"]["state"] == "idle"
     assert loop["average"]["detail"] == "no frames yet", \
         "distinct from 'nothing recent' — one has never run, the other has"
+
+
+# ── the subtract ✓ boxes must reset per condition ──────────────────────────
+# Reported: "background average ✓ / sample average ✓" stayed ticked for every
+# condition after the first. have_background/have_sample read bool(bkg_rid) —
+# the LATEST averaged rid per lane — so once r001 averaged both lanes they
+# showed green for r002, r003, … before any of those frames existed. Scope to
+# the condition now in progress (active_rid), like the phase tracker.
+def _averaged(lane: str, rid: str) -> None:
+    ts = _dt.datetime.now(_dt.timezone.utc).isoformat()
+    wd._last_averaged[lane] = {"recipe_id": rid, "timestamp": ts}
+
+
+def test_subtract_boxes_are_ticked_only_for_the_current_condition():
+    _averaged("background", "Run33_r001")
+    _averaged("sample", "Run33_r001")
+    # reactor has moved on to r002; its averages do not exist yet
+    probes = _bare_probes()
+    probes["reactor"] = {"current_recipe": {"recipe_id": "Run33_r002"}}
+    sub = wd._loop_state(probes)["subtract"]
+    assert sub["recipe_id"] == "Run33_r002"
+    assert sub["have_background"] is False, "stale r001 background ticked for r002"
+    assert sub["have_sample"] is False, "stale r001 sample ticked for r002"
+
+
+def test_subtract_boxes_fill_when_the_current_conditions_averages_arrive():
+    _averaged("background", "Run33_r002")
+    _averaged("sample", "Run33_r002")
+    probes = _bare_probes()
+    probes["reactor"] = {"current_recipe": {"recipe_id": "Run33_r002"}}
+    sub = wd._loop_state(probes)["subtract"]
+    assert sub["have_background"] is True and sub["have_sample"] is True
+
+
+def test_subtract_one_box_fills_before_the_other_within_a_condition():
+    _averaged("background", "Run33_r003")     # background in, sample not yet
+    probes = _bare_probes()
+    probes["reactor"] = {"current_recipe": {"recipe_id": "Run33_r003"}}
+    sub = wd._loop_state(probes)["subtract"]
+    assert sub["have_background"] is True
+    assert sub["have_sample"] is False
