@@ -326,6 +326,18 @@ but harmless and self-documenting where it sits.
 
 ## Open — not fixed, ranked by expected loss
 
+> **The reactor's own 25 open findings (R1–R25) live in a separate file.**
+> A September 2026 deep audit of `reactor/` + `src/reactor/` + `src/beamline/`
+> produced its own register with severity, evidence and a proposed fix per
+> item: **[REACTOR_AUDIT.md](REACTOR_AUDIT.md)**. They are kept there rather
+> than merged here because they share a subsystem and a remediation order, and
+> because eight of them are backed by executable probes that only make sense
+> read together. Nothing in that file is fixed yet. The three that gate a
+> beamtime are R1 (stopping the app from the hub never idles the pumps),
+> R2 (one Stop during a blank flush kills background collection for the whole
+> session) and R3 (the over-temperature interlock can be blind for hours with
+> its alarm suppressed).
+
 > **N1–N4 are FIXED** (September 2026, before beta): the reduction processed-set
 > and the average batch state now persist across a restart, batch membership is
 > tracked by filename rather than by a count that a failed read could shift, and
