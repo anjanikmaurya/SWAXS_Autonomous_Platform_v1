@@ -210,16 +210,73 @@ def _manifest_cb(record: dict) -> None:
 try:
     _ctrl = ReactorController(_CFG, backend=_BACKEND, log_cb=_emit,
                               event_cb=_event_cb, feedback_cb=_feedback_cb,
-                              manifest_cb=_manifest_cb)
+                              manifest_cb=_manifest_cb,
+                              # The E-stop disables auto-run. Without this the
+                              # saved state still said ON, so the restart
+                              # banner — and run.resume_auto_run — acted on a
+                              # value the E-stop had already revoked.
+                              auto_run_cb=lambda on: _persist_auto_run(on))
 except Exception as exc:
     print("\n[Autonomous Synthesis] Startup failed:\n  " + str(exc) +
           "\n\nIn real mode, close the Dolomite GUI and any other program using "
           "the pump COM ports, then restart.\n", file=sys.stderr)
     sys.exit(1)
 _emit(f"Autonomous Synthesis ready — backend={_BACKEND}", "ok")
-# On exit, hand the rig back: idle pumps, close shutter, release SPEC control.
+
+# ── handing the rig back on exit ─────────────────────────────────────────────
+# shutdown() idles the pumps, closes the shutter and releases SPEC remote
+# control so beamline staff can drive SPEC again.
+#
+# atexit ALONE WAS NOT ENOUGH, and the gap was the worst kind (audit R1):
+# atexit handlers do not run on SIGTERM, and SIGTERM is exactly how the hub
+# stops every app (src/proc_lifecycle.kill_tree — SIGTERM, then SIGKILL after
+# 5 s). So pressing Stop on the reactor card in the hub left every pump holding
+# its last commanded flow with NOTHING supervising it — the control loop was
+# gone, so the over-temperature, over-pressure, volume and flow-fault checks
+# were gone with it — and left SPEC locked to a process that no longer existed.
+#
+# Both paths are wired, and _shutdown_once makes them idempotent so the signal
+# handler running first does not mean atexit repeats the work on the way out.
 import atexit as _atexit                                             # noqa: E402
-_atexit.register(lambda: _ctrl.shutdown())
+import signal as _signal                                             # noqa: E402
+
+_shutdown_done = threading.Event()
+
+
+def _shutdown_once(why: str = "exit") -> None:
+    if _shutdown_done.is_set():
+        return
+    _shutdown_done.set()
+    try:
+        _emit(f"⏻ shutting down ({why}) — idling pumps, closing the shutter, "
+              f"releasing SPEC control", "warn")
+    except Exception:
+        pass
+    try:
+        _ctrl.shutdown()
+    except Exception:
+        pass
+
+
+def _on_signal(signum, _frame):
+    _shutdown_once(_signal.Signals(signum).name)
+    # Restore the default disposition and re-raise, so the process still dies
+    # the way the sender asked and the hub sees the exit it expects.
+    try:
+        _signal.signal(signum, _signal.SIG_DFL)
+        os.kill(os.getpid(), signum)
+    except Exception:
+        os._exit(0)
+
+
+_atexit.register(_shutdown_once, "atexit")
+for _sig in (_signal.SIGTERM, _signal.SIGINT):
+    try:
+        _signal.signal(_sig, _on_signal)
+    except (ValueError, OSError):
+        # Not the main thread (a test importing this module, say) — atexit
+        # still covers the polite path.
+        pass
 # Point the SPEC save folder at the hub's project folder at startup (translated
 # Windows→Linux via spec.hub_path_map). The user can still override in the app.
 # ── restart recovery (platform audit O1) ─────────────────────────────────────
@@ -325,12 +382,92 @@ def _restore_run_settings() -> None:
 
 
 
+# ── persisted per-project settings (pump limits, conditions folder) ─────────
+# Defined HERE, above the startup block, because that block now calls them
+# (audit R7). They used to live below the routes, which is why the only
+# caller could be /api/set_project.
+def _limits_path() -> Path | None:
+    return Path(_project_root) / "reactor_limits.json" if _project_root else None
+
+
+def _save_limits(limits: dict) -> None:
+    p = _limits_path()
+    if p is None:
+        return
+    try:
+        p.write_text(json.dumps({"limits": limits}, indent=2), encoding="utf-8")
+    except Exception as exc:
+        _emit(f"⚠ could not save reactor_limits.json: {exc}", "warn")
+
+
+def _load_limits() -> None:
+    p = _limits_path()
+    if p is None or not p.is_file():
+        return
+    try:
+        data = json.loads(p.read_text(encoding="utf-8") or "{}").get("limits", {})
+        if data:
+            _ctrl.set_pump_limits(data)
+            _emit(f"loaded saved pump flow limits for {len(data)} pump(s)", "info")
+    except Exception as exc:
+        _emit(f"⚠ could not load reactor_limits.json: {exc}", "warn")
+
+
+def _settings_path() -> Path | None:
+    return Path(_project_root) / "reactor_settings.json" if _project_root else None
+
+
+def _save_recipes_folder(folder: str) -> None:
+    p = _settings_path()
+    if p is None:
+        return
+    try:
+        cur = json.loads(p.read_text(encoding="utf-8") or "{}") if p.is_file() else {}
+        cur["recipes_folder"] = folder
+        p.write_text(json.dumps(cur, indent=2), encoding="utf-8")
+    except Exception as exc:
+        _emit(f"⚠ could not save reactor_settings.json: {exc}", "warn")
+
+
+def _load_recipes_folder() -> None:
+    p = _settings_path()
+    if p is None or not p.is_file():
+        return
+    try:
+        f = json.loads(p.read_text(encoding="utf-8") or "{}").get("recipes_folder")
+        if f:
+            _CFG.setdefault("folders", {})["recipes"] = f
+            _CFG["folders"]["processed"] = str(Path(f) / "done")
+            _emit(f"conditions folder set to: {f}", "info")
+    except Exception as exc:
+        _emit(f"⚠ could not load reactor_settings.json: {exc}", "warn")
+
+
 if _project_root:
     # The project root holds config.yml (poni_files / detector_shapes). The 2D
     # simulator needs it to reuse the SAME geometry the reduction app uses —
     # without it, frames were generated with a synthetic fallback geometry.
     _ctrl.set_project_root(_project_root)
     _sync_data_dir_from_hub(_project_root)
+    # PERSISTED SETTINGS, BEFORE ANYTHING CAN RUN (audit R7).
+    #
+    # These two were reachable only from /api/set_project, which the hub POSTs
+    # only when the folder CHANGES while apps are already running — on launch
+    # it just puts SWAXS_PROJECT in the child's environment. So on every normal
+    # start they never ran, and:
+    #
+    #   * the conditions-folder override silently reverted to config.yml,
+    #     making reactor/knowledge.md's "reloaded on the next start" false;
+    #   * worse, PUMP FLOW LIMITS reverted too — and those are the hard limits
+    #     that reject an unsafe recipe at intake. An operator who narrowed a
+    #     limit after a bad batch got it back only if they happened to re-pick
+    #     the project folder in the hub.
+    #
+    # Ordered before the run settings and auto-run restore for the same reason
+    # those are ordered before each other: nothing may start a recipe until
+    # every persisted safety value is in force.
+    _load_limits()
+    _load_recipes_folder()
     # Restore the operator's run settings BEFORE auto-run may start a recipe, so a
     # resumed campaign uses the durations they actually chose.
     _restore_run_settings()
@@ -352,8 +489,6 @@ def _on_bus_event(event: dict) -> None:
         if is_background(key):
             return
         _ctrl.signal_measurement_complete(fp, recipe_id=rid or "")
-    elif etype == "fit.complete":
-        pass
 
 
 if _bus is not None:
@@ -451,70 +586,33 @@ def health():
                     "runs": s["runs_completed"]})
 
 
-def _limits_path() -> Path | None:
-    return Path(_project_root) / "reactor_limits.json" if _project_root else None
-
-
-def _save_limits(limits: dict) -> None:
-    p = _limits_path()
-    if p is None:
-        return
-    try:
-        p.write_text(json.dumps({"limits": limits}, indent=2), encoding="utf-8")
-    except Exception as exc:
-        _emit(f"⚠ could not save reactor_limits.json: {exc}", "warn")
-
-
-def _load_limits() -> None:
-    p = _limits_path()
-    if p is None or not p.is_file():
-        return
-    try:
-        data = json.loads(p.read_text(encoding="utf-8") or "{}").get("limits", {})
-        if data:
-            _ctrl.set_pump_limits(data)
-            _emit(f"loaded saved pump flow limits for {len(data)} pump(s)", "info")
-    except Exception as exc:
-        _emit(f"⚠ could not load reactor_limits.json: {exc}", "warn")
-
-
-def _settings_path() -> Path | None:
-    return Path(_project_root) / "reactor_settings.json" if _project_root else None
-
-
-def _save_recipes_folder(folder: str) -> None:
-    p = _settings_path()
-    if p is None:
-        return
-    try:
-        cur = json.loads(p.read_text(encoding="utf-8") or "{}") if p.is_file() else {}
-        cur["recipes_folder"] = folder
-        p.write_text(json.dumps(cur, indent=2), encoding="utf-8")
-    except Exception as exc:
-        _emit(f"⚠ could not save reactor_settings.json: {exc}", "warn")
-
-
-def _load_recipes_folder() -> None:
-    p = _settings_path()
-    if p is None or not p.is_file():
-        return
-    try:
-        f = json.loads(p.read_text(encoding="utf-8") or "{}").get("recipes_folder")
-        if f:
-            _CFG.setdefault("folders", {})["recipes"] = f
-            _CFG["folders"]["processed"] = str(Path(f) / "done")
-            _emit(f"conditions folder set to: {f}", "info")
-    except Exception as exc:
-        _emit(f"⚠ could not load reactor_settings.json: {exc}", "warn")
-
-
 @app.route("/api/recipes_folder", methods=["GET", "POST"])
 def api_recipes_folder():
     """GET the watched conditions folder; POST {folder} to change it live."""
     if request.method == "POST":
         b = request.get_json(force=True) or {}
         folder = str(b.get("folder", "")).strip()
-        if folder:
+        if not folder:
+            return jsonify({"ok": False,
+                            "error": "give a folder path",
+                            "folder": _CFG.get("folders", {}).get("recipes", ""),
+                            "resolved": str(_resolve("recipes"))}), 400
+        # Refuse a path that is not already there (audit R20). The watcher
+        # CREATES its folder if missing, so a typo used to be accepted in
+        # silence: an empty directory appeared, the campaign stopped receiving
+        # conditions, and nothing anywhere said so. A relative path is resolved
+        # against the project root first, exactly as the watcher will.
+        probe = Path(folder)
+        if not probe.is_absolute():
+            probe = (Path(_project_root) if _project_root else Path.cwd()) / folder
+        if not probe.is_dir():
+            _emit(f"⚠ conditions folder NOT changed — {probe} does not exist. "
+                  f"Create it first, or check the spelling.", "warn")
+            return jsonify({"ok": False,
+                            "error": f"no such folder: {probe}",
+                            "folder": _CFG.get("folders", {}).get("recipes", ""),
+                            "resolved": str(_resolve("recipes"))}), 400
+        if True:
             _CFG.setdefault("folders", {})["recipes"] = folder
             _CFG["folders"]["processed"] = str(Path(folder) / "done")
             # re-scan the new folder from scratch (these are the real watcher
@@ -523,7 +621,8 @@ def api_recipes_folder():
             _watch_lastsig.clear()
             _save_recipes_folder(folder)
             _emit(f"📁 conditions folder → {folder}", "info")
-    return jsonify({"folder": _CFG.get("folders", {}).get("recipes", ""),
+    return jsonify({"ok": True,
+                    "folder": _CFG.get("folders", {}).get("recipes", ""),
                     "resolved": str(_resolve("recipes"))})
 
 
@@ -532,6 +631,12 @@ def set_project():
     global _project_root
     body = request.get_json(force=True)
     p = (body.get("path", "") or "").strip()
+    if p and not Path(p).is_dir():
+        # The hub checks this before propagating, but the route is reachable
+        # directly and a bad root silently misdirects the 2D save folder and
+        # every persisted settings file (audit R25).
+        _emit(f"⚠ refused project folder that does not exist: {p}", "warn")
+        return jsonify({"ok": False, "error": f"not a folder: {p}"}), 400
     if p:
         os.environ["SWAXS_PROJECT"] = p
         _project_root = p
@@ -582,19 +687,37 @@ def api_recipe():
         return jsonify({"ok": False, "error": str(e)}), 400
 
 
-def _simple(fn):
+def _simple(fn, refused: str = "the reactor refused — check its state"):
+    """Run a controller action that answers True/False.
+
+    ``refused`` matters: a bare ``{"ok": false}`` with no message is invisible
+    in the UI, because post() only renders r.error. That is how Flush now came
+    to be a silent no-op in four of six states (audit R16)."""
     try:
-        return jsonify({"ok": bool(fn())})
+        ok = bool(fn())
+        return jsonify({"ok": ok} if ok else {"ok": False, "error": refused})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 400
 
 
+def _acted(result):
+    """Render an (acted, reason) pair from the controller. `acted` False is not
+    an error — the button was pressed in a state where it does nothing — but it
+    must still reach the operator rather than reporting a green tick."""
+    ok, why = result
+    return jsonify({"ok": bool(ok), "error": None if ok else why,
+                    "note": why if ok else None})
+
+
 @app.route("/api/start", methods=["POST"])
-def api_start():   return _simple(_ctrl.start)
+def api_start():
+    return _simple(_ctrl.start,
+                   "nothing to start — the queue is empty, or a run is already "
+                   "in progress")
 
 
 @app.route("/api/abort", methods=["POST"])
-def api_abort():   _ctrl.abort();  return jsonify({"ok": True})
+def api_abort():   return _acted(_ctrl.abort())
 
 
 @app.route("/api/estop", methods=["POST"])
@@ -608,11 +731,18 @@ def api_estop():
 
 
 @app.route("/api/reset", methods=["POST"])
-def api_reset():   _ctrl.reset();  return jsonify({"ok": True})
+def api_reset():   return _acted(_ctrl.reset())
 
 
 @app.route("/api/vent", methods=["POST"])
-def api_vent():    _ctrl.vent_all(); return jsonify({"ok": True})
+def api_vent():
+    # Reports which pumps (if any) refused to idle, for the same reason the
+    # E-stop route does — venting is the other path where "done" must not be
+    # printed over a pump that is still delivering.
+    failed = _ctrl.vent_all() or []
+    return jsonify({"ok": not failed, "failed_to_idle": failed,
+                    "error": (f"vented, but could NOT idle: {', '.join(failed)} "
+                              f"— check these pumps") if failed else None})
 
 
 @app.route("/api/backend", methods=["POST"])
@@ -643,7 +773,12 @@ def api_flush():
     b = request.get_json(silent=True) or {}
     rate = b.get("rate"); dur = b.get("duration")
     ok = _ctrl.flush_now(float(rate) if rate else None, float(dur) if dur else None)
-    return jsonify({"ok": ok})
+    # A refusal used to be a bare {"ok": false} with no message, and the UI only
+    # renders r.error — so in the four states where flush_now returns False the
+    # button was a silent no-op that read as success (audit R16).
+    return jsonify({"ok": ok, "error": None if ok else
+                    (f"can't flush while {_ctrl.status()['state']} — a flush runs "
+                     f"only from idle or ready")})
 
 
 @app.route("/api/auto_run", methods=["POST"])
@@ -683,12 +818,40 @@ def api_run_settings():
 def api_tare():
     b = request.get_json(force=True) or {}
     ok, msg = _ctrl.tare_pump(str(b.get("pump", "")), kind=str(b.get("kind", "pressure")))
-    return jsonify({"ok": ok, "msg": msg})
+    # "error" as well as "msg": the UI's generic post() handler only looks at
+    # r.error, and tare() threw the whole reply away, so a refusal ("can't tare
+    # while running") never reached the operator at all (audit R16).
+    return jsonify({"ok": ok, "msg": msg, "error": None if ok else msg})
+
+
+#: status() takes the controller lock and calls beamline.is_collecting(), and
+#: /api/stream rebuilt it twice a second FOR EVERY CONNECTED BROWSER (audit
+#: R22) — five tabs left open overnight is ten of those a second competing with
+#: the control loop for the same lock. One shared snapshot, refreshed at most
+#: this often, serves every client and every poll.
+_STATUS_TTL_S = 0.4
+_status_cache: tuple = (0.0, None)
+_status_lock = threading.Lock()
+
+
+def _status_cached() -> dict:
+    global _status_cache
+    now = time.time()
+    ts, snap = _status_cache
+    if snap is not None and (now - ts) < _STATUS_TTL_S:
+        return snap
+    with _status_lock:
+        ts, snap = _status_cache            # re-check: another thread may have
+        if snap is not None and (time.time() - ts) < _STATUS_TTL_S:
+            return snap                     # refreshed it while we waited
+        snap = _ctrl.status()
+        _status_cache = (time.time(), snap)
+        return snap
 
 
 @app.route("/api/status")
 def api_status():
-    return jsonify(_ctrl.status())
+    return jsonify(_status_cached())
 
 
 @app.route("/api/restart_notice")
@@ -708,7 +871,7 @@ def api_stream():
                 new = [ln for (s, ln) in _log if s > last]
                 if _log:
                     last = _log[-1][0]
-            yield "data: " + json.dumps({"status": _ctrl.status(), "logs": new}) + "\n\n"
+            yield "data: " + json.dumps({"status": _status_cached(), "logs": new}) + "\n\n"
             time.sleep(0.5)
     return Response(gen(), mimetype="text/event-stream")
 

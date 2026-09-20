@@ -71,13 +71,31 @@ class Recipe:
         arm_wait_s = num("arm_wait_s", required=False)
         if arm_wait_s is not None and arm_wait_s < 0:
             raise RecipeError(f"arm_wait_s must be ≥ 0 (got {arm_wait_s})")
+
+        # The duration/rate overrides had NO sign check, while arm_wait_s
+        # beside them did (audit R8). A condition file carrying
+        # `flush_rate = 0` produced a full-length flush that moved no liquid —
+        # so the next background was measured on a dirty capillary, and every
+        # log line said the flush had completed normally. `run_duration = 0`
+        # was falsy and silently fell back to the config default, which reads
+        # as "my setting was ignored". Refuse all three outright: an override
+        # that cannot mean anything is a mistake in the file, not a preference.
+        def positive(k):
+            v = num(k, required=False)
+            if v is not None and v <= 0:
+                raise RecipeError(
+                    f"{k} must be > 0 when given (got {v}). Leave it out to use "
+                    f"the app or config default — a zero or negative "
+                    f"{'flush moves no liquid' if 'flush' in k else 'run collects nothing'}.")
+            return v
+
         return cls(
             T_reac=num("T_reac"), F_tot=num("F_tot"),
             x_ODE=num("x_ODE"), x_TOP=num("x_TOP"), x_oley=num("x_oley"),
             recipe_id=rid,
-            run_duration=num("run_duration", required=False),
-            flush_rate=num("flush_rate", required=False),
-            flush_duration=num("flush_duration", required=False),
+            run_duration=positive("run_duration"),
+            flush_rate=positive("flush_rate"),
+            flush_duration=positive("flush_duration"),
             arm_mode=arm_mode,
             arm_wait_s=arm_wait_s,
             source=str(d.get("source", "api")),

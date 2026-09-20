@@ -290,7 +290,7 @@ def test_the_audits_folder_stays_consolidated():
     got = sorted(p.name for p in d.glob("*.md"))
     assert got == ["AUTO_WATCH_AUDIT.md", "BEAMLINE_SAFETY_AUDIT.md",
                    "OPEN_DEFECTS.md", "PRE_BEAMTIME_READINESS.md",
-                   "README.md"], got
+                   "REACTOR_AUDIT.md", "README.md"], got
 
 
 def test_every_subsystem_audit_files_its_residuals_in_the_register():

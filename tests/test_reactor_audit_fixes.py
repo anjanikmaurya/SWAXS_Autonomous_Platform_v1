@@ -17,7 +17,12 @@ from src.reactor.controller import ReactorController
 from src.reactor.hardware import PumpBank
 
 BASE_CFG = {
-    "pumps": {n: {"max_flow": 1000.0} for n in PUMP_NAMES},
+    # sensor_min is explicit because the real backend now REFUSES to open ports
+    # while any pump's minimum is 0 — a zero minimum disables the documented
+    # low-flow rejection (2026-09 audit R14, tests/test_reactor_audit_2026_09.py).
+    # Without it the backend-normalisation test below would trip on that guard
+    # instead of reaching the serial layer it is actually about.
+    "pumps": {n: {"max_flow": 1000.0, "sensor_min": 1.0} for n in PUMP_NAMES},
     "bounds": {"T_reac": [180, 300], "F_tot": [40, 120],
                "x_each": [0, 0.3], "x_sum_max": 0.9},
     "run": {"default_duration": 5.0},

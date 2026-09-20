@@ -326,17 +326,18 @@ but harmless and self-documenting where it sits.
 
 ## Open — not fixed, ranked by expected loss
 
-> **The reactor's own 25 open findings (R1–R25) live in a separate file.**
+> **The reactor's findings (R1–R25) live in a separate file — 24 of 25 FIXED.**
 > A September 2026 deep audit of `reactor/` + `src/reactor/` + `src/beamline/`
 > produced its own register with severity, evidence and a proposed fix per
 > item: **[REACTOR_AUDIT.md](REACTOR_AUDIT.md)**. They are kept there rather
 > than merged here because they share a subsystem and a remediation order, and
 > because eight of them are backed by executable probes that only make sense
-> read together. Nothing in that file is fixed yet. The three that gate a
-> beamtime are R1 (stopping the app from the hub never idles the pumps),
-> R2 (one Stop during a blank flush kills background collection for the whole
-> session) and R3 (the over-temperature interlock can be blind for hours with
-> its alarm suppressed).
+> read together. All but **R12** (a rejected condition file is a log line
+> only — the optimizer never hears) were fixed on 2026-09-20 and are held by
+> `tests/test_reactor_audit_2026_09.py`, which was run against the pre-fix
+> commit to confirm it catches the old behaviour: 50 of its 52 tests failed
+> there. Two items still need the rig rather than code — the real `sensor_min`
+> values (R14) and `sauto off` (R4); both are on the pre-beamtime checklist.
 
 > **N1–N4 are FIXED** (September 2026, before beta): the reduction processed-set
 > and the average batch state now persist across a restart, batch membership is

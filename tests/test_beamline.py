@@ -333,6 +333,8 @@ def test_spec_can_be_disabled():
         ctl.submit({"T_reac": 240, "F_tot": 80, "x_ODE": 0.2, "x_TOP": 0.1, "x_oley": 0.1})
         ctl.start()
         time.sleep(2.5)
-        assert ctl.beamline.collections == []            # no acquisition when disabled
+        # len(), not == []: collections is a bounded deque since the R18 fix
+        # (it grew for the life of the process, one dict per acquisition).
+        assert len(ctl.beamline.collections) == 0        # no acquisition when disabled
     finally:
         ctl.shutdown()

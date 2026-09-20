@@ -52,14 +52,28 @@ def test_the_analyzer_does_not_reuse_the_data_analysis_apps_event_name():
         "the analyzer must not reuse the Data Analysis app's event name"
 
 
-def test_the_reactor_listens_for_the_analyzers_actual_event_name():
-    """The reactor's Slack notifier must key off fit.complete -- keying off
+def test_the_notifier_listens_for_the_analyzers_actual_event_name():
+    """Whatever notifies must key off fit.complete -- keying off
     analysis.complete would also fire (with a garbage/empty message) on every
     Guinier/Porod/Kratky/peak/model result from the Data Analysis app, which
-    publishes genuine analysis.complete events with a different shape."""
-    src = (ROOT / "reactor" / "app.py").read_text()
-    assert 'etype == "fit.complete"' in src
-    assert 'etype == "analysis.complete"' not in src
+    publishes genuine analysis.complete events with a different shape.
+
+    THE OWNER MOVED, THE REQUIREMENT DID NOT. This used to assert against
+    reactor/app.py, which held the Slack notifier. Notifications are Auto
+    Watch's alone now (docs/NOTIFICATIONS.md), and the reactor's leftover
+    `elif etype == "fit.complete": pass` -- a branch that had done nothing
+    since the move -- was deleted as dead code (audit R23). So the assertion
+    follows the behaviour to where it actually lives rather than pinning a
+    corpse in place."""
+    src = (ROOT / "watchdog" / "app.py").read_text()
+    assert '"fit.complete"' in src, \
+        "Auto Watch no longer keys off fit.complete"
+    policy = (ROOT / "src" / "watchdog" / "policy.py").read_text()
+    assert '"fit.complete"' in policy
+
+    # and the reactor must not have quietly grown one back
+    rsrc = (ROOT / "reactor" / "app.py").read_text()
+    assert 'etype == "analysis.complete"' not in rsrc
 
 
 def test_the_hub_can_render_a_fit_complete_event_without_undefined_fields():

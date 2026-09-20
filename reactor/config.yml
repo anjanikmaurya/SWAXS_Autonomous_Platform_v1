@@ -96,7 +96,12 @@ safety:
   # Flow-health monitoring during a run (paws-style):
   flow_sensitivity: 1.0       # µL/min: below this setpoint, judge flow by absolute error
   flow_tol:        0.2        # fractional band: |actual−target|/target within this = OK
-  bad_flow_tol:    3          # consecutive out-of-band ticks before a pump is flagged
+  bad_flow_s:     12.0        # SECONDS continuously out of band before a pump is flagged.
+                              # Replaces bad_flow_tol, which counted TICKS — and a tick is
+                              # 0.2 s in mock but 3 s on real hardware, so the same number
+                              # meant 0.8 s in rehearsal and 12 s on the rig. 12.0 keeps
+                              # the rig behaviour and makes mock match it.
+  bad_flow_tol:    3          # legacy tick count; used only if bad_flow_s is unset
   flow_settle_s:  10.0        # grace period after a setpoint CHANGE before flow health
                               # is judged — a pump can't reach a new setpoint instantly,
                               # and without this every run logs a false flow fault
@@ -113,7 +118,20 @@ temperature:
   stable_hold:  5.0           # s: must stay in-band this long before flowing
   timeout:      900.0         # s: give up arming after this → abort
   mock_ramp:    5.0           # °C/s convergence rate for the MOCK reading only
-  read_interval_s: 1.0        # s: throttle live beamline temperature/bstop reads
+  read_interval_s: 10.0       # s: throttle live beamline temperature/bstop reads.
+                              # ⚠ THIS IS A DOSE SETTING, not a plot setting, whenever
+                              # read_refresh_cmd is set: every read runs that command
+                              # first. At the old 1.0 s this app fired ~86,400 counting
+                              # operations a DAY — and `ct` obeys sauto, so each one may
+                              # open the fast shutter, including overnight between runs
+                              # with nobody measuring anything. 10 s is ample for a
+                              # temperature that moves in minutes. Lower it ONLY with
+                              # read_refresh_cmd blank or read_source: "epics".
+  collect_pause_grace_s: 60.0 # s: how far a 2D acquisition may overrun its own
+                              # exposure × frames before "the collect is holding the SPEC
+                              # lock" stops excusing a frozen temperature and is reported
+                              # as a fault. A hung macro used to suppress the staleness
+                              # alarm for as long as it hung — up to cmd_wait_s per line.
   cooldown_c:   25.0          # °C: cool the reactor to this the moment a synthesis run ends
                               # (csettemp sent at run→flush). null/blank = leave temperature as-is.
 
@@ -154,7 +172,11 @@ spec:
     # Accepts a FILE or a FOLDER (a folder picks the .poni whose name mentions
     # the detector, e.g. *SAXS*.poni). Blank → project config.yml
     # poni_directory + poni_files.saxs, then <project>/poni/*.poni.
-    poni:         "/Users/akmaurya/Desktop/Data_local/Auto_Run/poni"
+    poni:         ""          # blank = resolve from the PROJECT folder (see below).
+                              # Do not hard-code an absolute path here: on any other
+                              # machine it silently falls back to synthetic geometry, and
+                              # a wrong q-scale makes the recovered particle size wrong
+                              # without anything saying so.
     mask:         ""          # blank → project config poni_directory + mask_files.saxs
     metadata_format: ""       # blank → project config metadata_format ("csv" or "pdi")
     # Where the 2D tree goes under the save folder. The folders are CREATED if
@@ -272,8 +294,17 @@ spec:
   # prefer a shutter-free temperature-query macro if the beamline has one.
   # Leave blank to read raw last-count values (no refresh).
   read_refresh_cmd: "ct 0.1"  # refresh counters before each read so the live plot is LIVE
-                              # (blank = show stale last-count values). ⚠ obeys sauto —
-                              # run "sauto off" if you don't want ct opening the shutter.
+                              # (blank = show stale last-count values).
+                              # ⚠ THIS COMMAND OBEYS sauto AND MAY OPEN THE FAST SHUTTER.
+                              # Every refresh is dose on whatever is in the beam, and one
+                              # more actuation of the shutter. It runs once per
+                              # read_interval_s for the whole beamtime, between runs
+                              # included. Before an unattended campaign either:
+                              #   • run "sauto off" in SPEC (checked in
+                              #     docs/audits/PRE_BEAMTIME_READINESS.md), or
+                              #   • set read_source: "epics" above, which needs no refresh
+                              #     at all and keeps reading during a collection, or
+                              #   • leave this blank and accept last-count values.
   set_temp_cmd: "csettemp {T}"        # ramp command (from MSD.py)
   # ── data collection: preferred = a .txt SPEC macro that we fill in ──────────
   # The macro owns exposure/frames/detector setup; the reactor substitutes these

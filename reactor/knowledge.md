@@ -64,10 +64,19 @@ EPICS when `spec.read_source: "epics"` — the app is not gate-only.
   the pumps regardless of temperature. Use this when no thermocouple is connected
   to this machine.
 
-The **shipped default is `timed` with a 120 s wait**. A recipe may override with
-`arm_mode` / `arm_wait_s`. Anything other than `temperature` or `timed` —
-including `"ramp"` — is REJECTED at intake and will stall the queue. There is no
-ramp arming mode.
+The **shipped default is `temperature`** (`arming.default_mode` in
+`reactor/config.yml`); `arming.default_wait_s` (120 s) applies only in timed
+mode. This file used to say the opposite, which mattered: temperature arming
+cannot succeed without a live reading, so on a machine whose thermocouple is
+not reporting every condition waits out `temperature.timeout` (900 s) and is
+then abandoned. Since September 2026 the app says so at the START of arming
+rather than at the end of the wait — if `arm_mode` is `temperature` and the
+temperature is not a trustworthy live reading, it warns immediately and names
+the remedy.
+
+A recipe may override with `arm_mode` / `arm_wait_s`. Anything other than
+`temperature` or `timed` — including `"ramp"` — is REJECTED at intake and will
+stall the queue. There is no ramp arming mode.
 
 ### Ending a run
 The PRIMARY end condition is `run.end_on_measurement: true` — the run ends when a

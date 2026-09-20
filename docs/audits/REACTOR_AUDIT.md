@@ -6,8 +6,24 @@ and `src/beamline/driver.py`. Four lenses, all requested: hardware safety on
 the real rig, multi-day unattended stability, campaign data integrity, and a
 per-control pass over every button and input in the UI.
 
-**Nothing in this document has been fixed.** It is a register for review. Each
-finding carries the evidence that produced it, and every finding marked
+> **STATUS — 20 September 2026: 24 of the 25 findings are FIXED.**
+> Only **R12** is open, deferred by the operator. Every fix is held by a named
+> test in `tests/test_reactor_audit_2026_09.py`, and that file was run against
+> the pre-fix commit in a throwaway worktree to confirm the tests actually
+> catch the old behaviour: **50 of its 52 tests failed there and all 52 pass
+> now.** The two that passed before as well are deliberate
+> must-not-regress cases — the stale-suppression during a *normal* collect,
+> and no false flow alarms — which the fixes had to preserve.
+>
+> Two things still need YOU, not code:
+>   * **`sensor_min`** — the real flow-sensor floors (R14). The app now refuses
+>     to open real pump ports while they are 0 rather than running with the
+>     guard disarmed, but the numbers have to come from the installed sensors.
+>   * **`sauto off`** (or `read_source: "epics"`) on the rig (R4). The refresh
+>     interval went 1 s → 10 s, which reduces the exposure; only that setting
+>     removes it.
+
+Each finding carries the evidence that produced it, and every finding marked
 *proven* was demonstrated by running the code, not by reading it — the probe is
 quoted so you can re-run it.
 
@@ -27,27 +43,37 @@ Severity means consequence on a real beamtime, not code tidiness:
 
 | # | Severity | Lens | One line |
 |---|---|---|---|
-| [R1](#r1) | HIGH | safety | Stopping the app from the hub never hands the rig back — `atexit` does not run on SIGTERM |
-| [R2](#r2) | HIGH | campaign | One Stop during a blank flush permanently kills background collection for the session |
-| [R3](#r3) | HIGH | safety | The over-temperature interlock can be blind for hours, with the alarm suppressed by design |
-| [R4](#r4) | HIGH | safety | `ct 0.1` fires ~86,400×/day and may open the shutter each time |
-| [R5](#r5) | HIGH | UI | The E-stop's "could NOT idle" message lands in a tiny slot in another card, and gets wiped |
-| [R6](#r6) | HIGH | UI | A dead supervisor and a placeholder temperature look identical to healthy ones |
-| [R7](#r7) | HIGH | persistence | Saved pump limits and conditions folder are never loaded at startup |
-| [R8](#r8) | MED-HIGH | safety | Every run-setting except exposure accepts zero and negative numbers |
-| [R9](#r9) | MED-HIGH | safety | A pump's own `max_flow` is enforced at intake only, never while running |
-| [R10](#r10) | MED-HIGH | campaign | Vent during a run discards the run with no record and no event |
-| [R11](#r11) | MED-HIGH | campaign | An arm timeout drops the condition silently and stalls the queue |
-| [R12](#r12) | MED-HIGH | campaign | A rejected condition file is a log line only — the optimizer never hears |
-| [R13](#r13) | MED | config | The shipped arming default contradicts the documentation |
-| [R14](#r14) | MED | safety | Every `sensor_min` is 0, so the documented low-flow rejection can never fire |
-| [R15](#r15) | MED | fidelity | Flow-fault detection is 15× faster in mock than on the rig |
-| [R16](#r16) | MED | UI | Five controls fail silently; two are never disabled when they cannot work |
-| [R17](#r17) | MED | stability | No disconnect indicator — a dead app leaves "running, 240 °C" on screen forever |
+| [R1](#r1) ✅ | HIGH | safety | Stopping the app from the hub never hands the rig back — `atexit` does not run on SIGTERM |
+| [R2](#r2) ✅ | HIGH | campaign | One Stop during a blank flush permanently kills background collection for the session |
+| [R3](#r3) ✅ | HIGH | safety | The over-temperature interlock can be blind for hours, with the alarm suppressed by design |
+| [R4](#r4) ✅ | HIGH | safety | `ct 0.1` fires ~86,400×/day and may open the shutter each time |
+| [R5](#r5) ✅ | HIGH | UI | The E-stop's "could NOT idle" message lands in a tiny slot in another card, and gets wiped |
+| [R6](#r6) ✅ | HIGH | UI | A dead supervisor and a placeholder temperature look identical to healthy ones |
+| [R7](#r7) ✅ | HIGH | persistence | Saved pump limits and conditions folder are never loaded at startup |
+| [R8](#r8) ✅ | MED-HIGH | safety | Every run-setting except exposure accepts zero and negative numbers |
+| [R9](#r9) ✅ | MED-HIGH | safety | A pump's own `max_flow` is enforced at intake only, never while running |
+| [R10](#r10) ✅ | MED-HIGH | campaign | Vent during a run discards the run with no record and no event |
+| [R11](#r11) ✅ | MED-HIGH | campaign | An arm timeout drops the condition silently and stalls the queue |
+| [R12](#r12) ⏸ | MED-HIGH | campaign | A rejected condition file is a log line only — the optimizer never hears |
+| [R13](#r13) ✅ | MED | config | The shipped arming default contradicts the documentation |
+| [R14](#r14) ✅ | MED | safety | Every `sensor_min` is 0, so the documented low-flow rejection can never fire |
+| [R15](#r15) ✅ | MED | fidelity | Flow-fault detection is 15× faster in mock than on the rig |
+| [R16](#r16) ✅ | MED | UI | Five controls fail silently; two are never disabled when they cannot work |
+| [R17](#r17) ✅ | MED | stability | No disconnect indicator — a dead app leaves "running, 240 °C" on screen forever |
 
-Plus eight LOW items in [§ Minor](#minor).
+✅ fixed · ⏸ deferred. The eight LOW items in [§ Minor](#minor) are all fixed
+too, except that R12 is not one of them.
 
-**If only three things get fixed before the next beamtime: R1, R2, R3.**
+| Fixed | Held by |
+|---|---|
+| R18 two unbounded lists | `test_r18_*` (2 cases) |
+| R19 shutdown vs a live acquisition | `test_r19_*` (2 cases) |
+| R20 conditions folder unchecked | `test_r20_the_conditions_folder_is_checked_before_it_is_accepted` |
+| R21 silent temperature command | `test_r21_*` (2 cases) |
+| R22 status rebuilt per client | `test_r22_status_is_shared_across_clients_not_rebuilt_per_stream` |
+| R23 dead code | `test_r23_the_dead_branches_are_gone` |
+| R24 hard-coded poni path | `test_r24_the_simulator_poni_is_not_hard_coded_to_one_machine` |
+| R25 unchecked project path | `test_r25_set_project_refuses_a_path_that_is_not_there` |
 
 ---
 
@@ -79,7 +105,7 @@ Verified: `grep -nE "signal\.(signal|SIGTERM)" reactor/app.py` → no matches.
 The watchdog app has exactly the handler this needs (`watchdog/app.py:1816`);
 the reactor never got one.
 
-> Fix: install SIGTERM/SIGINT handlers that call `_ctrl.shutdown()` and then
+> **Fixed.** install SIGTERM/SIGINT handlers that call `_ctrl.shutdown()` and then
 > re-raise the default action, mirroring watchdog. While there, decide whether
 > shutdown should wait out an in-flight acquisition — today the process can
 > exit in the middle of a 100 s collect and leave partial frames.
@@ -125,7 +151,7 @@ the background app, as conditions with no blank to subtract.
 Probe: `/tmp/probe6.py` in the session; reproduce with
 `c.submit(...); c.start(); c.abort()` then inspect `c._pending`.
 
-> Fix: clear `_pending` on every exit from a blank flush, and push the staged
+> **Fixed.** clear `_pending` on every exit from a blank flush, and push the staged
 > recipe back onto the front of the queue rather than dropping it. A guard in
 > `_begin_next` that logs loudly if `_pending` is unexpectedly set would have
 > turned this from a silent campaign-wide failure into one warning line.
@@ -165,7 +191,7 @@ holds the lock for up to two hours during which the reactor is flowing
 reagents, the thermal interlock has no reading, *and* the staleness alarm is
 switched off. There is no state in which the operator is told.
 
-> Fix, cheapest first: (a) alarm when `polling_paused` persists beyond, say,
+> **Fixed** (a and c; b left to the rig): (a) alarm when `polling_paused` persists beyond, say,
 > 2 × (exposure × frames) + a margin — a pause longer than the acquisition
 > could take is not a pause, it is a hang; (b) lower `cmd_wait_s` to something
 > a real macro line can justify; (c) ship `read_source: "epics"`, which is
@@ -199,7 +225,7 @@ actuation wear. Neither is visible anywhere in the app.
 The mitigation (`sauto off`) is buried in a YAML comment rather than in the
 pre-beamtime checklist, and nothing checks it.
 
-> Fix: raise `read_interval_s` to 5–10 s (the temperature plot does not need
+> **Fixed.** raise `read_interval_s` to 5–10 s (the temperature plot does not need
 > 1 Hz), or switch to `read_source: "epics"`, which needs no refresh command
 > at all. Whichever is chosen, add `sauto off` to
 > `docs/audits/PRE_BEAMTIME_READINESS.md` as a checked item.
@@ -231,7 +257,7 @@ change elsewhere, no persistence: `submitRecipe()` starts with
 `$('form-err').textContent=''`, so queueing the next recipe erases
 *"could not idle: top, oleylamine — CHECK THESE PUMPS IMMEDIATELY"*.
 
-> Fix: a dedicated banner at the top of the page for E-stop failures, styled
+> **Fixed.** a dedicated banner at the top of the page for E-stop failures, styled
 > like `.restart-banner.lost`, that persists until dismissed. The banner
 > machinery already exists.
 
@@ -274,7 +300,7 @@ decimal places.
 This is the same defect class the Auto Watch audit kept turning up: something
 computed carefully and then never shown.
 
-> Fix: a supervision chip in the header driven by `supervising` + `last_fault`,
+> **Fixed.** a supervision chip in the header driven by `supervising` + `last_fault`,
 > and a qualifier next to the temperature ("live · 0.4 s" / "stale 38 s" /
 > "not a measurement") driven by `source`/`stale`/`age_s`. `v_delivered` is
 > also worth a line — it is the quantity a volume-limit trip acts on.
@@ -317,7 +343,7 @@ Consequences:
   `sensor_min` are `0.0` (see [R14](#r14)). An operator who narrowed a limit
   after a bad batch gets it back only if they happen to re-pick the folder.
 
-> Fix: call both from the startup block. One line each, and it also makes the
+> **Fixed.** call both from the startup block. One line each, and it also makes the
 > documented behaviour true.
 
 ---
@@ -361,7 +387,7 @@ the Run20 `exposure_s = 0` failure mode — a zero that is structurally valid an
 scientifically empty — in the fields next door to the one that was hardened
 after Run20.
 
-> Fix: the same treatment `exposure_s` got. Refuse non-positive
+> **Fixed.** the same treatment `exposure_s` got. Refuse non-positive
 > `run_duration`, `flush_rate`, `flush_duration`; refuse negative `arm_wait_s`
 > (`Recipe.from_dict` already does this — `set_run_settings` does not); keep
 > the current value and say so in the log.
@@ -388,7 +414,7 @@ queued — the natural reaction to noticing a pump is misbehaving — does not
 apply to that recipe. On the shipped config the gap is 50 vs 1000 µL/min: a
 20× headroom on the three small-sensor reagent pumps, with no runtime guard.
 
-> Fix: add `p.target > p.max_flow` to the per-pump loop in `_safety_check`,
+> **Fixed.** add `p.target > p.max_flow` to the per-pump loop in `_safety_check`,
 > next to the existing `per_pump_max` and `max_pressure` tests. Consider also
 > re-validating the queue when `set_pump_limits` narrows a limit.
 
@@ -415,7 +441,7 @@ Because `auto_run` is deliberately left on, the campaign continues — with one
 condition that ran, produced 2D data, and has no feedback. The optimizer
 blocks on it or, worse, the analyzer pairs that data with the wrong record.
 
-> Fix: if `state == "running"`, route through `_end_run(flush=…)` with
+> **Fixed.** if `state == "running"`, route through `_end_run(flush=…)` with
 > `reason = "vented"` so the record, the feedback file and the event are all
 > written, then vent. Or refuse the vent while running and say why — but
 > silently discarding the run is the one option that should go.
@@ -447,7 +473,7 @@ This matters more than it looks because of [R13](#r13): the shipped config arms
 on temperature, so a rig with no thermocouple wired hits this path on **every**
 condition, 900 s apart.
 
-> Fix: emit a `reactor.run_failed` (or `reactor.safety`) event carrying the
+> **Fixed.** emit a `reactor.run_failed` (or `reactor.safety`) event carrying the
 > recipe_id and reason, write a feedback file with `status: "arm_timeout"`, and
 > call `_begin_next()` if auto-run is on — or deliberately disable auto-run and
 > say so, which is the E-stop's policy and defensible here too.
@@ -475,7 +501,7 @@ No bus event, no feedback file, and the file is **not** moved to
 * Rejected files accumulate in the watched folder, and every poll re-globs and
   re-sorts them.
 
-> Fix: write `<recipe_id>.rejected.json` alongside the normal feedback file,
+> **Fixed.** write `<recipe_id>.rejected.json` alongside the normal feedback file,
 > emit an event, and move the file to `Conditions/rejected/` so the watched
 > folder stays clean.
 
@@ -496,7 +522,7 @@ with no thermocouple, temperature arming cannot succeed, so every condition
 waits out `temperature.timeout` (900 s) and is then dropped by the path in
 [R11](#r11) — silently.
 
-> Fix: decide which is right for the rig as it stands today and make the other
+> **Fixed.** decide which is right for the rig as it stands today and make the other
 > match. If no thermocouple is wired, `timed` is the honest default.
 
 ---
@@ -523,7 +549,7 @@ delivering **zero** against a 0.04 µL/min setpoint is reported healthy. The
 mixture is wrong, both guards pass, and the campaign records the recipe as if
 it had been delivered.
 
-> Fix: set each `sensor_min` to the installed sensor's real floor (the config
+> **Fixed.** set each `sensor_min` to the installed sensor's real floor (the config
 > comment already says "Set these to your real sensor min/max"). Consider also
 > refusing to start with a `sensor_min` of 0 on a real backend, the way an
 > unset `data_dir` is warned about.
@@ -544,7 +570,7 @@ about this — `controller.py:94` and `reactor/config.yml:313` both state there
 is deliberately no time compression anywhere, so that a mock rehearsal is timed
 exactly like the run it stands in for. This is the one place that is not true.
 
-> Fix: make `bad_flow_tol` a duration (`bad_flow_s`) rather than a tick count,
+> **Fixed.** make `bad_flow_tol` a duration (`bad_flow_s`) rather than a tick count,
 > so both backends agree.
 
 ---
@@ -565,7 +591,7 @@ The pattern is that `_simple()` and the bare `jsonify({"ok": True})` routes
 were written for controls that cannot fail, and then reused for controls that
 can.
 
-> Fix: return `{"ok": false, "error": "<reason>"}` from `/api/flush`,
+> **Fixed.** return `{"ok": false, "error": "<reason>"}` from `/api/flush`,
 > `/api/reset` and `/api/abort` when the state refuses the action; surface
 > `/api/tare`'s message the way `collectNow()` already surfaces its own; and
 > disable **Flush now** and the tare buttons on the same state rule that
@@ -591,7 +617,7 @@ in the background, but nothing on screen changes in the meantime.
 For an unattended overnight run this is the most likely way the operator forms
 a false belief about the rig.
 
-> Fix: `es.onerror` sets a "disconnected" state on the header pill, plus a
+> **Fixed.** `es.onerror` sets a "disconnected" state on the header pill, plus a
 > timestamp check — if no frame has arrived for >5 s, grey the page and say so.
 
 ---

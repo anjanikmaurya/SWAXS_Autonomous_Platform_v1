@@ -117,6 +117,27 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
    tools/build_icon_sprite.py. */
 .app-mark { width:26px; height:26px; flex-shrink:0; color:var(--swaxs-synthesis); }
 .app-lockup { display:flex; align-items:center; gap:10px; min-width:0 }
+
+/* ── Live-ness and fault surfacing (audit R5, R6, R17) ───────────────────── */
+.live-pill{padding:3px 10px;border-radius:999px;font-size:var(--fs-xs);font-weight:700;
+  letter-spacing:.03em;background:#1f3a29;color:var(--ok);white-space:nowrap}
+.live-pill.stale{background:#3a3120;color:var(--warn)}
+.live-pill.down{background:#3a2023;color:var(--err)}
+.live-pill.sup-bad{background:var(--err);color:#fff}
+
+/* Loudest element on the page. A pump that would not idle is not a footnote. */
+.fault-banner{display:none;padding:14px 18px;line-height:1.45;
+  background:var(--err);color:#fff;font-weight:700;font-size:var(--fs-md);
+  border-bottom:3px solid #000}
+.fault-banner.show{display:block}
+.fault-banner .rb-x{float:right;cursor:pointer;opacity:.85;margin-left:12px}
+
+/* A temperature that is NOT a live measurement must not read like one. */
+.t-src{font-size:var(--fs-xs);font-weight:700;padding:1px 8px;border-radius:999px;
+  margin-left:8px;vertical-align:middle;white-space:nowrap}
+.t-src.live{background:#1f3a29;color:var(--ok)}
+.t-src.warn{background:#3a3120;color:var(--warn)}
+.t-src.bad{background:#3a2023;color:var(--err)}
 </style>
 </head>
 <body>
@@ -126,6 +147,15 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
     <h1>SWAXS <span>Autonomous Synthesis</span></h1>
   </div>
   <span class="state-pill" id="state">idle</span>
+  <!-- Live-ness, in the header where it cannot be missed. Two separate
+       questions the page could not answer before (audit R6, R17):
+         · is the page still receiving frames? (a dead app used to leave
+           "running · 240 °C" frozen on screen for as long as you left it)
+         · is the control loop still supervising the rig? `supervising`,
+           `loop_faults` and `last_fault` were computed and never shown. -->
+  <span class="live-pill" id="livePill" title="Connection to the reactor app">live</span>
+  <span class="live-pill sup-bad" id="supPill" style="display:none"
+        title="The control loop supervises temperature, pressure, delivered volume and flow. If it is not running, nothing is watching the rig.">⚠ NOT SUPERVISING</span>
   <div style="flex:1"></div>
   <span class="proj" id="proj"></span>
   <button class="theme-toggle" id="themeBtn" onclick="toggleTheme()" title="Toggle light / dark">☾</button>
@@ -139,6 +169,20 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
 <div class="restart-banner" id="restartBanner">
   <span class="rb-x" onclick="this.parentElement.classList.remove('show')">✕</span>
   <span id="restartBannerMsg"></span>
+</div>
+
+<!-- FAULT BANNER — the loudest thing on the page, and deliberately so.
+     The E-stop backend refuses to report success when a pump could not be
+     idled ("NEVER report a bare success here"), and the UI then put that
+     message into #form-err: extra-small type at the bottom of the SYNTHESIS
+     RECIPE card, a different card from the E-stop button, wiped by the next
+     recipe submission (audit R5). It now lands here, stays until dismissed,
+     and does not move. Also used for a failed vent and a failed temperature
+     command — the other places where "done" must not be printed over a pump
+     that is still delivering or a heater that never got the command. -->
+<div class="fault-banner" id="faultBanner">
+  <span class="rb-x" onclick="dismissFault()">✕</span>
+  <span id="faultBannerMsg"></span>
 </div>
 
 <div class="wrap">
@@ -254,7 +298,7 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
                 title="Begin the next queued recipe. During arming, skips the wait and starts the pumps now.">Start</button>
         <button class="btn btn-warn"  id="b-stop"  onclick="post('/api/abort')"
                 title="End the current run and flush the line. During a flush, stops the flush and idles.">■ Stop → flush</button>
-        <button class="btn btn-ghost" onclick="doFlush('/api/flush')"
+        <button class="btn btn-ghost" id="b-flush" onclick="doFlush('/api/flush')"
                 title="Run the solvent/flush pump to clear the line between runs (idle or ready only).">Flush now</button>
         <button class="btn btn-ghost" id="b-reset" onclick="post('/api/reset')"
                 title="Clear an EMERGENCY STOP (or a finished run) back to idle.">Reset</button>
@@ -278,7 +322,11 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
 
     <div class="card">
       <div class="card-hd">🌡 Reactor temperature</div>
-      <div class="temp-big"><span id="t-cur">—</span> <span class="temp-sub">/ target <span id="t-tgt">—</span> °C</span></div>
+      <!-- The badge is not decoration. `current` can be a live counter reading,
+           a simulated ramp, or an ambient placeholder that never changes — and
+           they used to render identically, to two decimal places (audit R6).
+           The over-temperature interlock is only as good as this number. -->
+      <div class="temp-big"><span id="t-cur">—</span> <span class="temp-sub">/ target <span id="t-tgt">—</span> °C</span><span class="t-src" id="t-src"></span></div>
       <div class="temp-sub" id="t-stable"></div>
       <div class="temp-sub" id="t-bstop" style="margin-top:4px"></div>
       <div class="muted" style="margin-top:4px">Ramps to the recipe temperature (SPEC) and gates the pumps until it's reached.</div>
@@ -312,6 +360,7 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
     <div class="card">
       <div class="card-hd">🔧 Tare pumps</div>
       <div id="tareRows"></div>
+      <div id="tareMsg" style="font-size:var(--fs-xs);margin-top:5px"></div>
       <div class="muted" style="margin-top:4px">Pressure = zero chamber pressure (disconnect air first). Flow = zero the flow sensor (no flow through it). Both = do both. Available only when idle.</div>
     </div>
 
@@ -322,6 +371,10 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
       <div class="kv"><span>Elapsed / duration</span><b id="s-elapsed">—</b></div>
       <div class="kv"><span>Flush remaining</span><b id="s-flush">—</b></div>
       <div class="kv"><span>Runs completed</span><b id="s-runs">0</b></div>
+      <!-- Delivered volume is what a volume-limit trip acts on, and it was
+           computed per pump and never displayed (audit R6). -->
+      <div class="kv"><span>Delivered this run</span><b id="s-volume">—</b></div>
+      <div class="kv" id="s-suprow" style="display:none"><span>Supervisor</span><b id="s-sup" style="color:var(--err)">—</b></div>
       <div style="margin-top:6px;display:flex;align-items:center;gap:8px">
         <span class="muted">Queue:</span>
         <div class="chips" id="s-queue" style="flex:1"></div>
@@ -340,7 +393,37 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
 let CFG=null;
 function $(id){return document.getElementById(id);}
 async function api(u,b){const o={method:b?'POST':'GET',headers:{}};if(b){o.headers['Content-Type']='application/json';o.body=JSON.stringify(b);}return (await fetch(u,o)).json();}
-async function post(u,b){try{const r=await api(u,b||{});if(r&&r.error)$('form-err').textContent=r.error;}catch(e){}}
+
+/* ── Fault surfacing (audit R5) ──────────────────────────────────────────────
+   post() used to drop every error into #form-err — extra-small type at the
+   bottom of the Synthesis recipe card, which is not where you are looking
+   during an emergency, and which submitRecipe() clears. The E-stop's "could
+   NOT idle: top — CHECK THESE PUMPS IMMEDIATELY" was going there.
+   Anything that idles or vents pumps now raises the banner instead, and the
+   banner stays until it is dismissed by hand. */
+const LOUD = ['/api/estop','/api/vent','/api/abort'];
+function showFault(msg){
+  const b=$('faultBanner'); if(!b) return;
+  $('faultBannerMsg').textContent='🛑 '+msg;
+  b.classList.add('show');
+  window._faultPinned = true;      // survives every later status frame
+}
+function dismissFault(){
+  $('faultBanner').classList.remove('show'); window._faultPinned=false;
+}
+async function post(u,b){
+  try{
+    const r=await api(u,b||{});
+    if(r && r.error){
+      if(LOUD.includes(u)) showFault(r.error);
+      else $('form-err').textContent=r.error;
+    }
+    return r;
+  }catch(e){
+    showFault('the reactor app did not answer '+u+' — it may have stopped');
+    return null;
+  }
+}
 
 /* theme (default dark, remembered) */
 (function(){const K='swaxs-theme';let d=localStorage.getItem(K)?localStorage.getItem(K)==='dark':true;
@@ -465,9 +548,31 @@ function setManualEnabled(on){
     ? ''
     : '⚠ Autonomous mode active — flow & temperature come from the folder file (locked). Arming, duration & flush stay editable here and apply live.';
 }
-async function tare(pump,kind){await api('/api/tare',{pump:pump,kind:kind});}
+/* The reply used to be discarded outright, so "can't tare while running" —
+   which the backend does return — never reached anyone (audit R16). */
+async function tare(pump,kind){
+  const m=$('tareMsg'); if(m){m.style.color='var(--muted)';m.textContent='taring '+pump+'…';}
+  const r=await api('/api/tare',{pump:pump,kind:kind});
+  if(!m) return;
+  if(r&&r.ok){ m.style.color='var(--ok)'; m.textContent='✓ '+pump+' tared ('+kind+')'; }
+  else       { m.style.color='var(--err)'; m.textContent='✗ '+((r&&(r.error||r.msg))||'tare failed'); }
+}
 async function loadCondFolder(){try{const r=await(await fetch('/api/recipes_folder')).json();$('condFolder').value=r.folder||'';$('condResolved').textContent='Watching: '+(r.resolved||'');}catch(e){}}
-async function setCondFolder(){const f=$('condFolder').value.trim();const r=await api('/api/recipes_folder',{folder:f});$('condResolved').textContent='Watching: '+((r&&r.resolved)||'');}
+async function setCondFolder(){
+  const f=$('condFolder').value.trim(), out=$('condResolved');
+  const r=await api('/api/recipes_folder',{folder:f});
+  // The route now refuses a folder that does not exist. It used to accept
+  // anything and the watcher CREATED the directory, so a typo silently pointed
+  // the campaign at an empty folder — and this line then printed the OLD
+  // resolved path, which read as though the change had worked (audit R20).
+  if(r && r.ok===false){
+    out.style.color='var(--err)';
+    out.textContent='✗ '+(r.error||'could not set that folder')+' — still watching: '+(r.resolved||'');
+    return;
+  }
+  out.style.color='';
+  out.textContent='Watching: '+((r&&r.resolved)||'');
+}
 function buildTareRows(st){
   if(window._tareBuilt) return; window._tareBuilt=true;
   $('tareRows').innerHTML=Object.keys(st.pumps).map(n=>
@@ -717,16 +822,79 @@ function render(st){
   pushHist(st);
   drawChart($('flowChart'),'flow',true);
   drawChart($('pressChart'),'press',false);
-  { const cb=$('collectNowBtn'); if(cb) cb.disabled=!['idle','ready','estop'].includes(st.state); }
+  // Controls that CANNOT work in this state are disabled, on the same rule
+  // that already governed Collect now. Flush now and the tare buttons used to
+  // stay clickable in every state and then no-op in silence (audit R16).
+  const _quiet = ['idle','ready','estop'].includes(st.state);
+  { const cb=$('collectNowBtn'); if(cb) cb.disabled=!_quiet; }
+  { const fb=$('b-flush'); if(fb){ fb.disabled=!['idle','ready'].includes(st.state);
+      fb.title = fb.disabled ? ('A flush runs only from idle or ready — the reactor is '+st.state)
+                             : 'Run the solvent/flush pump to clear the line between runs.'; } }
+  document.querySelectorAll('#tareRows button').forEach(b=>{
+    b.disabled=!_quiet;
+    b.title = b.disabled ? ('Taring is refused while '+st.state+' — stop the run first') : '';
+  });
   drawBeamline($('blChart'));
   $('flowLegend').innerHTML=legendHTML(st,'flow','µL/min');
   $('pressLegend').innerHTML=legendHTML(st,'press','mbar');
   $('blLegend').innerHTML=blLegendHTML(st);
   updateCollectBadge();
   buildTareRows(st);
+  // ── supervision, in the header and in Run status (audit R6) ──────────────
+  // `supervising` is the controller's own ground truth: the loop thread is
+  // alive AND has not been told to stop. If it dies, status() keeps answering
+  // and every number on this page keeps rendering — so without this the
+  // operator has no way to know that nothing is watching the rig.
+  {
+    const sup=$('supPill'), row=$('s-suprow');
+    const bad = (st.supervising === false);
+    if(sup) sup.style.display = bad ? '' : 'none';
+    if(row) row.style.display = (bad || st.loop_faults) ? '' : 'none';
+    if(bad || st.loop_faults){
+      $('s-sup').textContent = (bad ? 'NOT RUNNING' : 'running')
+        + (st.loop_faults ? ` · ${st.loop_faults} fault(s)` : '')
+        + (st.last_fault ? ` · ${st.last_fault}` : '');
+      $('s-sup').style.color = bad ? 'var(--err)' : 'var(--warn)';
+    }
+    if(bad && !window._supShouted){
+      window._supShouted = true;
+      showFault('THE CONTROL LOOP HAS STOPPED SUPERVISING THE RIG'
+        + (st.last_fault ? ' — '+st.last_fault : '')
+        + '. Temperature, pressure, delivered-volume and flow checks are not '
+        + 'running. Check the pumps in the hutch.');
+    }
+  }
+  // delivered volume this run, summed across pumps
+  {
+    const v=Object.values(st.pumps).reduce((a,p)=>a+(p.v_delivered||0),0);
+    $('s-volume').textContent = (st.state==='running'||v>0) ? v.toFixed(1)+' µL' : '—';
+  }
   // temp
   $('t-cur').textContent=st.temperature.current.toFixed(2);
   $('t-tgt').textContent=st.temperature.target.toFixed(2);
+  // Say what that number IS (audit R6). The controller ships source / stale /
+  // age_s / trustworthy precisely so a placeholder cannot be displayed as a
+  // measurement, and none of them were being read.
+  {
+    const T=st.temperature, e=$('t-src');
+    if(e){
+      if(T.source==='beamline' && T.stale){
+        e.className='t-src bad';
+        e.textContent='STALE'+(T.age_s!=null?' '+Math.round(T.age_s)+'s':'')+' — interlock blind';
+        e.title='No successful read for this long. The over-temperature cut-out has nothing to compare against.';
+      } else if(T.source==='beamline'){
+        e.className='t-src live';
+        e.textContent='live'+(T.age_s!=null?' · '+T.age_s.toFixed(1)+'s':'');
+        e.title='A real reading from the SPEC/EPICS temperature source.';
+      } else if(T.source==='mock'){
+        e.className='t-src warn'; e.textContent='simulated';
+        e.title='A simulated ramp, not a measurement — mock backend.';
+      } else {
+        e.className='t-src bad'; e.textContent='NOT A MEASUREMENT';
+        e.title='No temperature source is wired. This is the ambient default and never changes, so the over-temperature interlock cannot fire. Do not use temperature arming.';
+      }
+    }
+  }
   $('t-bstop').textContent = (st.temperature.bstop!=null) ? ('bstop '+Number(st.temperature.bstop).toFixed(4)+' (beam)') : '';
   if(st.state==='arming'&&st.arm_mode==='timed'){
     $('t-stable').textContent='⏲ timed start — pumps in '+fmtDur(st.arm_remaining_s)+' (temperature not gating)';
@@ -777,8 +945,42 @@ function logLines(lines){const box=$('log');const c={ok:'var(--ok)',error:'var(-
     d.textContent=`[${l.ts}]  ${l.msg}`;box.appendChild(d);});
   while(box.childNodes.length>500)box.removeChild(box.firstChild);box.scrollTop=box.scrollHeight;}
 
+/* ── Is this page still connected? (audit R17) ───────────────────────────────
+   render() only runs when a frame arrives, so a crash, a hub Stop or a
+   sleeping laptop used to leave the last frame — "running · 240 °C · pumps at
+   setpoint" — frozen on screen indefinitely, with nothing to say it was no
+   longer true. For an unattended overnight run that is the likeliest way to
+   form a false belief about the rig. EventSource retries quietly in the
+   background; the point here is that the SCREEN says so.
+   Frames arrive ~2×/s, so 5 s of silence is already wrong. */
+const STALE_AFTER_MS = 5000, DEAD_AFTER_MS = 20000;
+window._lastFrame = Date.now();
+
+function setLive(){
+  const p=$('livePill'); if(!p) return;
+  const age = Date.now() - window._lastFrame;
+  if(age < STALE_AFTER_MS){
+    p.className='live-pill'; p.textContent='live';
+    p.title='Receiving updates from the reactor app.';
+    document.body.style.opacity='';
+  } else if(age < DEAD_AFTER_MS){
+    p.className='live-pill stale'; p.textContent='no data '+Math.round(age/1000)+'s';
+    p.title='No update has arrived recently. Everything below may be out of date.';
+    document.body.style.opacity='';
+  } else {
+    p.className='live-pill down'; p.textContent='DISCONNECTED '+Math.round(age/1000)+'s';
+    p.title='The reactor app is not answering. Nothing on this page is current — '
+          + 'it is the last frame that arrived. Check whether the app is running.';
+    // Dim the whole page so a stale reading cannot be mistaken for a live one.
+    document.body.style.opacity='.55';
+  }
+}
+setInterval(setLive, 1000);
+
 const es=new EventSource('/api/stream');
-es.onmessage=e=>{try{const d=JSON.parse(e.data);if(d.status)render(d.status);if(d.logs&&d.logs.length)logLines(d.logs);}catch(_){}};
+es.onmessage=e=>{window._lastFrame=Date.now();setLive();try{const d=JSON.parse(e.data);if(d.status)render(d.status);if(d.logs&&d.logs.length)logLines(d.logs);}catch(_){}};
+es.onerror=()=>setLive();
+es.onopen=()=>{window._lastFrame=Date.now();setLive();};
 armModeChange();
 loadCondFolder();
 async function showRestartNotice(){

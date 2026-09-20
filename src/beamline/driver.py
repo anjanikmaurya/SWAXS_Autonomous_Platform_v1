@@ -31,6 +31,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from collections import deque
 
 logger = logging.getLogger(__name__)
 from pathlib import Path
@@ -132,6 +133,8 @@ class BeamlineDriver:
         self.cfg = dict(_DEFAULTS); self.cfg.update(cfg or {})
         self._lock = threading.RLock()
         self._collecting = False
+        self._collect_started = 0.0      # wall clock of the acquisition in flight
+        self._collect_expected_s = 0.0   # exposure × frames for that acquisition
 
     # -- guarded public API ---------------------------------------------------
     def take_control(self) -> None:
@@ -153,13 +156,51 @@ class BeamlineDriver:
             self._do_close_shutter()
 
     def collect(self, **params) -> None:
-        """Run a 2D acquisition, holding the SPEC lock for the whole thing."""
+        """Run a 2D acquisition, holding the SPEC lock for the whole thing.
+
+        Records when it started and how long it SHOULD take, so a consumer can
+        tell a normal acquisition from a hung one. That distinction is a safety
+        matter, not bookkeeping: while this lock is held the reactor cannot read
+        the temperature, and TempController deliberately suppresses its
+        staleness alarm for the duration. Without a yardstick for "too long",
+        that suppression had no ceiling — see collect_overrun_s (audit R3)."""
+        expected = 0.0
+        try:
+            expected = float(params.get("exposure", 0.0) or 0.0) * \
+                       max(1, int(params.get("frames", 1) or 1))
+        except (TypeError, ValueError):
+            expected = 0.0
         with self._lock:
             self._collecting = True
+            self._collect_started = time.time()
+            self._collect_expected_s = expected
             try:
                 self._do_collect(**params)
             finally:
                 self._collecting = False
+                self._collect_started = 0.0
+
+    def collect_expected_s(self) -> float:
+        """How long the acquisition in progress was supposed to take (s), or 0."""
+        return float(getattr(self, "_collect_expected_s", 0.0) or 0.0)
+
+    def collect_overrun_s(self) -> float:
+        """Seconds by which the acquisition in progress has exceeded its own
+        expected duration, or 0.0 when nothing is collecting / it is on time.
+
+        An acquisition that has run well past exposure × frames is not a pause,
+        it is a hang — a detector that never reports not-busy, or a SPEC macro
+        line sitting inside its ``cmd_wait_s`` (600 s each, 12 lines in the
+        shipped macro: two hours). Everything that treats "collecting" as a
+        benign reason to stop watching needs to stop treating it that way past
+        this point."""
+        if not self._collecting:
+            return 0.0
+        started = float(getattr(self, "_collect_started", 0.0) or 0.0)
+        expected = self.collect_expected_s()
+        if not started or not expected:
+            return 0.0
+        return max(0.0, (time.time() - started) - expected)
 
     def set_recipe(self, recipe) -> None:
         """Tell the backend which recipe is running.
@@ -270,7 +311,10 @@ class MockBeamline(BeamlineDriver):
         self._last = time.time()
         self._ramp = float(self.cfg.get("mock_ramp_c_per_s", 5.0))
         self._collect_s = float(self.cfg.get("mock_collect_s", 0.0))   # simulate acquisition time
-        self.collections: list[dict] = []
+        # Bounded (audit R18). Two acquisitions per condition, each a dict
+        # that can carry a rendered macro — over a multi-day mock rehearsal
+        # this grew without limit, and only the LAST entry is ever read.
+        self.collections: deque = deque(maxlen=200)
         self.shutter = "closed"
         # ── synthetic 2D data generator ──
         # Bound to the BACKEND, not to a free-standing flag: this class is only

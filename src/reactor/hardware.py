@@ -51,12 +51,31 @@ def _fit_flow_power(table) -> float | None:
         return float(np.sum(ls * lm) / denom) if denom > 0 else None
 
 
+#: A pump commanded to flow but delivering at or below this fraction of its
+#: setpoint is not "within tolerance", it is not pumping. See _flow_ok.
+_DEAD_FLOW_FRACTION = 0.1
+
+
 def _flow_ok(actual: float, target: float, sensitivity: float, tol: float) -> bool:
     """True if the true flow is close enough to the true setpoint (paws logic):
     within ``tol`` (fractional) when the setpoint is above ``sensitivity``, else
-    within ``sensitivity`` absolute."""
+    within ``sensitivity`` absolute.
+
+    With one addition (audit R14). The absolute band below ``sensitivity`` had
+    a hole: with the shipped ``flow_sensitivity: 1.0`` a pump commanded to
+    0.04 µL/min and delivering EXACTLY ZERO was inside ±1.0 µL/min, so it
+    reported healthy. The bounds allow setpoints that small (x_each down to 0
+    × F_tot 40), the config ships every ``sensor_min`` at 0 so the intake
+    rejection cannot fire either, and the result was a wrong mixture that
+    passed both guards and was recorded as if it had been delivered.
+
+    A commanded pump delivering essentially nothing is a fault at any setpoint
+    — that judgement needs no knowledge of the installed sensor's real floor,
+    which is why it can be made today."""
     if target <= 0:
         return True
+    if actual <= target * _DEAD_FLOW_FRACTION:
+        return False          # commanded to flow, delivering ~nothing
     if target > sensitivity:
         return abs(actual - target) / target <= tol
     return abs(actual - target) <= sensitivity
@@ -71,13 +90,29 @@ class _CalibratedPump:
 
     def _init_cal(self, calibration_factor=1.0, flowrate_table=None,
                   flow_sensitivity=1.0, flow_tol=0.2, bad_flow_tol=3,
-                  volume_limit=None, flow_settle_s=10.0):
+                  volume_limit=None, flow_settle_s=10.0, bad_flow_s=None):
         self.calibration_factor = float(calibration_factor) if calibration_factor else 1.0
         self.flowrate_table = flowrate_table
         self.flow_power = _fit_flow_power(flowrate_table)   # None → use linear cf
         self.flow_sensitivity = float(flow_sensitivity)
         self.flow_tol = float(flow_tol)
         self.bad_flow_tol = int(bad_flow_tol)
+        #: How long flow must stay out of band before the pump is flagged.
+        #:
+        #: This used to be the TICK COUNT above, and a tick is a different
+        #: length per backend (audit R15): MockPump ticks from the control loop
+        #: at ~5 Hz, RealPump only evaluates health on a successful status poll
+        #: every 3 s. Three ticks therefore meant 0.8 s in rehearsal and 12 s on
+        #: the rig — a fifteenfold difference in how fast a flow fault is
+        #: caught, in a platform that is otherwise deliberate about a mock
+        #: rehearsal being timed exactly like the run it stands in for.
+        #:
+        #: Measuring seconds makes both backends agree. bad_flow_tol is kept as
+        #: the fallback (× the real-pump 3 s poll) so an existing config that
+        #: only sets the tick count keeps its rig-side behaviour.
+        self.bad_flow_s = float(bad_flow_s if bad_flow_s is not None
+                                else self.bad_flow_tol * 3.0)
+        self._bad_flow_for = 0.0      # seconds spent continuously out of band
         #: grace period after a setpoint change before flow health is judged
         self.flow_settle_s = float(flow_settle_s)
         self._settle_left = 0.0
@@ -119,13 +154,18 @@ class _CalibratedPump:
             if self._settle_left > 0.0:
                 self._settle_left = max(0.0, self._settle_left - dt)
                 self.flow_ok, self.flow_bad_count, self.flow_fault = True, 0, False
+                self._bad_flow_for = 0.0
             else:
                 ok = _flow_ok(self.actual, self.target, self.flow_sensitivity, self.flow_tol)
                 self.flow_ok = ok
                 self.flow_bad_count = 0 if ok else self.flow_bad_count + 1
-                self.flow_fault = self.flow_bad_count > self.bad_flow_tol
+                # Accumulate SECONDS out of band, not ticks — so the fault
+                # fires after the same wall-clock delay on both backends (R15).
+                self._bad_flow_for = 0.0 if ok else self._bad_flow_for + max(0.0, dt)
+                self.flow_fault = self._bad_flow_for >= self.bad_flow_s
         else:
             self.flow_ok, self.flow_bad_count, self.flow_fault = True, 0, False
+            self._bad_flow_for = 0.0
         self.v_delivered += max(0.0, self.actual) * (dt / 60.0)   # µL (rate µL/min × min)
         if self.volume_limit and self.v_delivered > self.volume_limit:
             self.volume_exceeded = True
@@ -142,7 +182,7 @@ class MockPump(_CalibratedPump):
                  max_pressure: float = 10000.0, calibration_factor: float = 1.0,
                  flowrate_table=None, flow_sensitivity: float = 1.0,
                  flow_tol: float = 0.2, bad_flow_tol: int = 3, volume_limit=None,
-                 flow_settle_s: float = 10.0):
+                 flow_settle_s: float = 10.0, bad_flow_s=None):
         self.name = name
         self.max_flow = float(max_flow)
         self.sensor_min = float(sensor_min)
@@ -156,7 +196,8 @@ class MockPump(_CalibratedPump):
         self.fault = False
         self.stale = False
         self._init_cal(calibration_factor, flowrate_table, flow_sensitivity,
-                       flow_tol, bad_flow_tol, volume_limit, flow_settle_s)
+                       flow_tol, bad_flow_tol, volume_limit, flow_settle_s,
+                       bad_flow_s)
 
     def set_flow(self, rate: float) -> None:
         self._arm_settle(rate)          # ramp grace before flow health is judged
@@ -191,7 +232,7 @@ class RealPump(_CalibratedPump):
                  max_pressure: float = 10000.0, calibration_factor: float = 1.0,
                  flowrate_table=None, flow_sensitivity: float = 1.0,
                  flow_tol: float = 0.2, bad_flow_tol: int = 3, volume_limit=None,
-                 flow_settle_s: float = 10.0):
+                 flow_settle_s: float = 10.0, bad_flow_s=None):
         self.name = name
         self.max_flow = float(max_flow)
         self.sensor_min = float(sensor_min)
@@ -201,7 +242,8 @@ class RealPump(_CalibratedPump):
         # instrument setpoint (_to_setpt) and report true fluid flow (_to_true), so
         # the app's target/actual are TRUE fluid µL/min.
         self._init_cal(calibration_factor, flowrate_table, flow_sensitivity,
-                       flow_tol, bad_flow_tol, volume_limit, flow_settle_s)
+                       flow_tol, bad_flow_tol, volume_limit, flow_settle_s,
+                       bad_flow_s)
         self.target = 0.0
         self.actual = 0.0
         self.pressure = 0.0
@@ -348,7 +390,9 @@ class PumpBank:
         # global flow-health thresholds (paws-style), overridable per pump
         fsens = float(safety.get("flow_sensitivity", 1.0))   # µL/min low-flow floor
         ftol = float(safety.get("flow_tol", 0.2))            # fractional flow-OK band
-        bft = int(safety.get("bad_flow_tol", 3))             # consecutive bad ticks before fault
+        bft = int(safety.get("bad_flow_tol", 3))             # legacy tick count (× the 3 s real poll)
+        bfs = safety.get("bad_flow_s")                       # preferred: SECONDS out of band (R15)
+        bfs = float(bfs) if bfs not in (None, "") else None
         fset = float(safety.get("flow_settle_s", 10.0))      # ramp grace after a setpoint change
         # Only build the pumps that are actually used: the reagents plus the SELECTED
         # flush pump. The dedicated ode_flush is skipped entirely when a reagent pump
@@ -370,8 +414,29 @@ class PumpBank:
             vlim = pc.get("volume_limit")                         # per-pump delivered-volume cap
             cal = dict(calibration_factor=cf, flowrate_table=tbl, flow_sensitivity=fsens,
                        flow_tol=ftol, bad_flow_tol=bft, volume_limit=vlim,
-                       flow_settle_s=fset)
+                       flow_settle_s=fset, bad_flow_s=bfs)
             if backend == "real":
+                # A zero minimum DISARMS the documented low-flow rejection
+                # (audit R14). recipe_to_setpoints refuses a nonzero setpoint
+                # below sensor_min — with 0 that branch is unreachable, so a
+                # recipe can command a flow the installed LG16 cannot meter,
+                # the pump delivers nothing, and the mixture is wrong. Refuse
+                # to open real ports rather than run with the guard switched
+                # off; the number has to come from the installed sensor and
+                # cannot be guessed here.
+                if mn <= 0:
+                    for q in self.pumps.values():
+                        try:
+                            q.close()
+                        except Exception:
+                            pass
+                    raise RuntimeError(
+                        f"pump '{name}': sensor_min is {mn:g} in reactor/config.yml. "
+                        f"A zero minimum silently disables the low-flow rejection — "
+                        f"a recipe could command a rate the {pc.get('sensor', 'flow')} "
+                        f"sensor cannot measure and the pump would deliver nothing, "
+                        f"with no warning anywhere. Set every pump's sensor_min to its "
+                        f"installed sensor's real floor before running on hardware.")
                 try:
                     addr = pc.get("address", "")
                     serial = str(pc.get("serial", "") or "")
@@ -524,15 +589,22 @@ class TempController:
     """Reactor-temperature *reader* with a target setpoint used only to gate the
     run.  This app does not drive a heater."""
 
-    def __init__(self, cfg: dict, backend: str = "mock", beamline=None):
+    def __init__(self, cfg: dict, backend: str = "mock", beamline=None, log=None):
         t = cfg.get("temperature", {})
         self.backend = backend
         self.beamline = beamline          # if set, temperature is commanded/read via it
+        #: Operator log. A temperature COMMAND that fails must be audible —
+        #: see set_temperature (audit R21).
+        self._log = log or (lambda msg, tag="info": None)
         self.tolerance = float(t.get("tolerance", 2.0))
         self.stable_hold = float(t.get("stable_hold", 5.0))
         self.timeout = float(t.get("timeout", 900.0))
         self._mock_ramp = float(t.get("mock_ramp", 5.0))
         self._read_interval = float(t.get("read_interval_s", 1.0))   # throttle beamline reads
+        #: How far past its own exposure × frames an acquisition may run before
+        #: "the collect is holding the SPEC lock" stops excusing a frozen
+        #: temperature and becomes a reportable fault. See polling_paused (R3).
+        self.collect_pause_grace_s = float(t.get("collect_pause_grace_s", 60.0))
         self._read_accum = self._read_interval
         self.target = 0.0
         self.current = 25.0           # ambient (see `stale` — never trust blindly)
@@ -567,14 +639,50 @@ class TempController:
         temperature source (spec.temp_counter / spec.epics_pvs)"
         on every acquisition, sending the operator to inspect a counter that was
         working perfectly.
+
+        BUT THE SUPPRESSION IS BOUNDED (audit R3). It used to last exactly as
+        long as the lock was held, with no ceiling — and a hung SPEC macro can
+        hold that lock for up to ``cmd_wait_s`` per line (12 × 600 s = two hours
+        on the shipped macro). For all of it the reactor was flowing reagents,
+        the temperature reading was frozen, the T_max cut-out could not fire,
+        and the alarm that would have said so was switched off. Once the
+        acquisition has overrun its own exposure × frames by more than
+        ``collect_pause_grace_s``, this stops being a pause and becomes a
+        fault: the property goes False, the reading is allowed to go stale, and
+        the existing loud alarm fires.
         """
         bl = self.beamline
         if bl is None:
             return False
         try:
-            return bool(bl.is_collecting())
+            if not bl.is_collecting():
+                return False
         except Exception:
             return False
+        # Nothing is collecting → not paused (above). From here we ARE
+        # collecting, so the answer defaults to True and only the overrun can
+        # overturn it. A backend that cannot report an overrun (no expected
+        # duration, or an older driver with no such method) keeps the original
+        # behaviour — an unjudgeable pause must not be alarmed on blindly, and
+        # must not be silently treated as a hang either.
+        try:
+            overrun = float(bl.collect_overrun_s())
+        except Exception:
+            return True
+        if overrun <= 0.0:
+            return True
+        return overrun <= self.collect_pause_grace_s
+
+    @property
+    def collect_overrun_s(self) -> float:
+        """How far the acquisition in flight has run past its own duration."""
+        bl = self.beamline
+        if bl is None:
+            return 0.0
+        try:
+            return float(bl.collect_overrun_s())
+        except Exception:
+            return 0.0
 
     @property
     def stale(self) -> bool:
@@ -645,18 +753,39 @@ class TempController:
         """True when `current` is a live reading worth gating a run on."""
         return self.source == "beamline" and not self.stale
 
-    def set_temperature(self, T: float) -> None:
+    def set_temperature(self, T: float) -> bool:
         """Set the reactor temperature. When a beamline is wired, this COMMANDS
         the controller to ramp to T (csettemp); otherwise it only records the
-        target (mock/legacy)."""
+        target (mock/legacy). Returns True when the command was accepted.
+
+        The exception used to be swallowed with a bare ``pass`` (audit R21), so
+        a failed ``csettemp`` was completely invisible. Three places that
+        matters:
+
+          * arming — in TIMED mode the pumps start after the fixed wait no
+            matter what, so a heater that never got the command means reagents
+            flowing at whatever temperature the reactor happens to be;
+          * the end-of-run cooldown — the reactor silently stays hot;
+          * vent_all's ramp to 0 — same, right after a fault.
+
+        The target is still recorded either way (the UI and the arming gate
+        need it), but the failure is now said out loud and reported to the
+        caller."""
         with self._lock:
             self.target = float(T)
             self._in_band_since = None
-        if self.beamline is not None:
-            try:
-                self.beamline.set_temperature(T)      # ⟵ real ramp command
-            except Exception:
-                pass
+        if self.beamline is None:
+            return True
+        try:
+            self.beamline.set_temperature(T)      # ⟵ real ramp command
+            return True
+        except Exception as exc:
+            self._log(f"🛑 TEMPERATURE COMMAND FAILED — could not set "
+                      f"{float(T):g} °C ({exc.__class__.__name__}: {exc}). The "
+                      f"reactor is NOT ramping to this setpoint; the app is "
+                      f"showing a target it never reached the heater. Check "
+                      f"SPEC/bServer and spec.set_temp_cmd.", "error")
+            return False
 
     def read(self) -> float:
         # ⟵ REAL DRIVER HOOK — reactor temperature source.

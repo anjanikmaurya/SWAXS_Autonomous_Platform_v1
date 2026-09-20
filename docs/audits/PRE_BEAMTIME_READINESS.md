@@ -19,7 +19,7 @@ Test suite: `python -m pytest -q` — run it and expect zero failures.
 | Live reads stay responsive during collection | `read_state` non-blocking try-lock → `{}` | same test |
 | Optional read-during-collect | `read_during_collect` flag | `test_read_during_collect_keeps_polling` |
 | Auto-acquire SPEC remote control before commands | `SpecBeamline._ensure_control` | (real-path) |
-| Release control + close shutter + idle pumps on exit | `controller.shutdown()` + `atexit` in app | code-verified |
+| Release control + close shutter + idle pumps on exit | `controller.shutdown()`, wired to **both** `atexit` and SIGTERM/SIGINT in the app | `test_reactor_hands_the_rig_back_on_sigterm` |
 | No config changes / motor moves / beamline file writes | only csettemp/ct/sopen/sclose/collect macro | `BEAMLINE_SAFETY_AUDIT.md` |
 | Pipeline apps never touch the bServer | `make_beamline` only in reactor + tools | grep-verified |
 
@@ -53,10 +53,25 @@ Test suite: `python -m pytest -q` — run it and expect zero failures.
 1. Backend toggle = **Real** (pumps + beamline).
 2. `reactor/config.yml` spec: `temp_counter: CTEMP`, `read_refresh_cmd: "ct 0.1"`,
    `collect_mode: commands`, `macro_file: …flat.template.txt`, `data_dir` = the SPEC
-   `/msd_data/...` folder. (`sauto off` if you don't want `ct` pulsing the shutter.)
-3. One SPEC client only — no standalone test tool running alongside the app.
-4. Do one **📷 Collect now** from the app to confirm the app path (not just the CLI).
-5. Confirm the reduction pipeline sees the new `.raw` under `data_dir/2D/SAXS` via `X:\`.
+   `/msd_data/...` folder.
+3. **`sauto off` in SPEC — or blank `read_refresh_cmd`, or `read_source: "epics"`.**
+   Promoted out of a parenthesis because it is a dose decision, not a preference.
+   `read_refresh_cmd` runs once per `temperature.read_interval_s` for the entire
+   beamtime, between runs included, and `ct` obeys `sauto`. At the old 1 s
+   interval that was ~86,400 shutter-capable counts a day on whatever was in the
+   beam. The interval now ships at 10 s, which reduces it; only one of the three
+   options above removes it. (Audit R4.)
+4. **Every pump's `sensor_min` is a real number, not 0.** With 0 the documented
+   "nonzero-below-minimum is rejected" check cannot fire, so a recipe can command
+   a flow the installed LG16 cannot meter. The app refuses to start on the real
+   backend with a zero minimum — if it refuses, put the installed sensors'
+   floors in `reactor/config.yml`, do not zero them to get past it. (Audit R14.)
+5. **Arming mode matches the rig.** `arming.default_mode: temperature` needs a
+   live thermocouple; the app now warns at the START of arming if the reading is
+   not trustworthy, but check the Timing card before you leave. (Audit R13.)
+6. One SPEC client only — no standalone test tool running alongside the app.
+7. Do one **📷 Collect now** from the app to confirm the app path (not just the CLI).
+8. Confirm the reduction pipeline sees the new `.raw` under `data_dir/2D/SAXS` via `X:\`.
 
 ## Open items (not code — rig/ops)
 
@@ -66,9 +81,9 @@ Test suite: `python -m pytest -q` — run it and expect zero failures.
 ## Reactor checks — verify, do not assume
 
 1. **`spec.simulator.enabled: false`** — *verify it.* The committed default is
-   `true`, and the simulator writes synthetic frames that look entirely real. Also
-   check `spec.simulator.poni`, which is committed as a machine-specific absolute
-   path.
+   `true`, and the simulator writes synthetic frames that look entirely real.
+   (`spec.simulator.poni` now ships blank and resolves from the project folder;
+   it used to be a machine-specific absolute path — audit R24.)
 2. **Confirm the temperature reading is changing.** A frozen value means the
    over-temperature interlock is blind. With the shipped `spec.read_source: "spec"`
    the reading also stops for the whole ~100 s of every acquisition — expected, but
@@ -77,9 +92,15 @@ Test suite: `python -m pytest -q` — run it and expect zero failures.
 3. **`resume_auto_run: false`** — auto-run is deliberately not resumed after a
    restart, because resuming moves pumps. After any restart, re-arm
    **▶ Run autonomously** by hand. E-stop also clears it.
-4. **Pump limits.** `sensor_min` ships as `0.0` on all five pumps, which disables
-   the below-range rejection. Set each pump's real sensor minimum or a sub-range
-   setpoint is accepted with unknown delivered flow.
+4. **Pump limits.** `sensor_min` still ships as `0.0` on all five pumps, which
+   disables the below-range rejection. Since September 2026 the app **refuses to
+   open real pump ports** in that state rather than running with the guard off,
+   so this is now a blocker rather than a footnote — put the installed sensors'
+   real floors in `reactor/config.yml`. Separately, a pump commanded to flow but
+   delivering ≤10 % of its setpoint is now a flow fault at any setpoint, which
+   catches the same failure without needing the sensor numbers (audit R14).
+   Saved limits are also reloaded at startup now; they used to revert to
+   `config.yml` on every restart (audit R7).
 5. **Flush pump.** The shipped `flush.pump` is `ode_dilution` (a reagent pump,
    capped at 50 µL/min), not `ode_flush`. Confirm that is what you want.
 6. **A calibration edited on disk needs an app restart.** Flipping the Mock↔Real
