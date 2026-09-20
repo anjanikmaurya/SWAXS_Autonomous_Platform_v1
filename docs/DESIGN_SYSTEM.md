@@ -13,9 +13,10 @@ do not assume conformance.
 
 ---
 
-## The shared layout spec (reduction · average · background)
+## The shared layout spec (reduction · average · background · watchdog)
 
-These three apps are the same kind of page — a column of panels, each a
+These apps carry one byte-identical panel spec. The first three are the same
+kind of page — a column of panels, each a
 heading over a form — and now carry one byte-identical CSS block, checked by
 `tests/test_shared_layout_spec.py`:
 
@@ -38,6 +39,11 @@ Three things it fixed:
   20/22px, and a 12/8px heading rule rather than 16/10px. About 14px back per
   panel, so roughly 140–250px per screen depending on the app. No text got
   smaller to achieve it.
+
+watchdog's 17px is a deliberate exception, stated at the top of its template:
+it is usually a wall display and has to read from two metres. Its panel
+padding and heading size were arbitrary drift and now match the others; only
+the root differs.
 
 **Guideline for any new app:** 16px base, the `--fs-*` scale as defined in
 section 1, and this layout block copied verbatim. A different base size is the
@@ -76,7 +82,7 @@ text on a white box. The shared focus rule restates `background:var(--surface2)`
 | average | 5103 | all 8 | yes | Inter | 8px | (inherits 16px) | toggle + OS | yes |
 | assistant | 5109 | all 8 | yes | Inter | 8px | **18px** | toggle + OS | yes |
 | hub | 5100 | all 8 | yes | Inter | 8px | 16px | dark only, no toggle | yes |
-| watchdog | 5110 | all 8 | yes | Inter | 8px | 16px | toggle, defaults dark | yes |
+| watchdog | 5110 | all 8 | yes | Inter | 8px | **17px** | toggle, defaults dark | yes |
 | background | 5104 | 7 of 8 (`--fs-2xl` missing) | `--fw-*` partial; no `--lh-*`, no `--sp-*` | Inter | 8px | 16px | toggle + OS | 1 rule |
 | analysis | 5106 | 5 of 8 | none | Inter | 8px | **18px** | toggle + OS | **none** |
 | quality | 5105 | 6 of 8 | none | **unset** (system-ui literal) | **9px** | 16px | toggle + OS | **none** |
@@ -127,7 +133,7 @@ Consequences worth knowing before you write CSS:
 | `--lh-normal` | 1.5 | Body copy |
 
 - **Base size is not uniform.** 16px in reduction, average, background, hub,
-  quality, calibration, watchdog; **18px** in analysis and assistant;
+  quality, calibration; **17px** in watchdog; **18px** in analysis and assistant;
   `1.02rem` in reactor and analyzer. Because `--fs-*` are `rem`-based, the
   18px apps render the whole scale ~12% larger than the table above — the same
   token, a different size. background was one of them until September 2026;

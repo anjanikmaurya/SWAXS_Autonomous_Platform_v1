@@ -38,7 +38,12 @@ from pathlib import Path
 import pytest
 
 _ROOT = Path(__file__).resolve().parent.parent
-_APPS = ("reduction", "average", "background")
+#: watchdog joined in September 2026. Its 17px root is a DELIBERATE
+#: exception (wall display, must read from two metres) and is excluded
+#: from the base-size check below; its panel padding and heading size
+#: were arbitrary drift and now match.
+_APPS = ("reduction", "average", "background", "watchdog")
+_BASE_16 = ("reduction", "average", "background")
 
 _BLOCK = re.compile(
     r"/\* ── Shared layout spec.*?\n\.two-col, \.row \{.*?\n\}", re.S)
@@ -54,11 +59,23 @@ def _block(app: str) -> str:
     return m.group(0)
 
 
-def test_all_three_carry_the_identical_block():
-    blocks = {a: _block(a) for a in _APPS}
-    first = blocks["reduction"]
-    for app, b in blocks.items():
-        assert b == first, f"{app}'s copy of the shared layout block has drifted"
+def _rules(app: str) -> str:
+    """The block's DECLARATIONS, comment stripped and whitespace flattened.
+
+    Byte-identity is the wrong invariant here: watchdog's copy carries an extra
+    paragraph explaining why its 17px root is exempt, and forcing it to drop
+    that — so four files could match to the byte — would delete the one note
+    that stops someone "fixing" a wall display down to 16px. What has to match
+    is the CSS."""
+    return re.sub(r"\s+", " ",
+                  re.sub(r"/\*.*?\*/", "", _block(app), flags=re.S)).strip()
+
+
+def test_every_app_carries_the_identical_rules():
+    base = _rules("reduction")
+    for app in _APPS:
+        assert _rules(app) == base, \
+            f"{app}'s copy of the shared layout rules has drifted"
 
 
 @pytest.mark.parametrize("app", _APPS)
@@ -78,7 +95,7 @@ def test_the_block_is_the_last_word_on_those_selectors(app):
         f"{app}: {later} appear after the shared block and will override it")
 
 
-@pytest.mark.parametrize("app", _APPS)
+@pytest.mark.parametrize("app", _BASE_16)
 def test_every_app_uses_the_same_base_font_size(app):
     """The one setting that makes every other token lie. background ran 18px,
     so --fs-sm was 14.6px there and 13px everywhere else."""
@@ -88,6 +105,25 @@ def test_every_app_uses_the_same_base_font_size(app):
     assert base == 16, (
         f"{app} sets a {base}px base; the --fs-* scale is defined against 16px, "
         f"so every token renders {base / 16:.0%} of its documented size")
+
+
+def test_watchdogs_larger_root_is_still_deliberate():
+    """It is 17px on purpose and the reason is written in the template. If that
+    comment goes, the next person will "fix" it to 16px and shrink a wall
+    display nobody is standing next to."""
+    css = _tpl("watchdog")
+    assert "font-size:17px" in css
+    assert "two metres" in css, \
+        "the 17px root has lost the comment explaining why it is not 16px"
+
+
+def test_the_shared_block_is_absolute_px_so_the_root_does_not_matter(): 
+    """watchdog runs a 17px root; the block must render the same there as in
+    the 16px apps, which only holds if it uses no rem/em."""
+    block = _block("watchdog")
+    rules = re.sub(r"/\*.*?\*/", "", block, flags=re.S)
+    assert "rem" not in rules and "--fs-" not in rules, \
+        "the shared block is root-relative; it will render larger in watchdog"
 
 
 def test_row_actually_has_a_rule_now():

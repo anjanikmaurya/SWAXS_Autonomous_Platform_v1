@@ -624,6 +624,38 @@ html,body {
    tools/build_icon_sprite.py. */
 .app-mark { width:26px; height:26px; flex-shrink:0; color:var(--swaxs-watch); }
 .app-lockup { display:flex; align-items:center; gap:10px; min-width:0 }
+
+/* ── Shared layout spec — reduction · average · background · watchdog ─────
+   The same block the other three carry, so a panel looks like a panel across
+   the platform. Adopted here for the parts that were arbitrary drift:
+
+     panel padding    12px 14px  ->  16px 18px
+     panel heading    14px       ->  15px
+     heading rule     --accent-lt -> --border
+     content gutter   14px 16px  ->  18px
+
+   NOT adopted: the 17px root. That is a deliberate exception with a reason
+   written at the top of this file — Auto Watch is usually a wall display and
+   has to read from two metres. Everything here is absolute px, so it is
+   unaffected by the root and renders at the same size as in the other three.
+
+   The earlier .card-hd rule sets display:flex for the hd-note's margin-left:
+   auto; this block does not touch `display`, so that survives. */
+.card, .section {
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:var(--radius); padding:16px 18px;
+}
+.card-hd, .section-title {
+  font-size:15px; font-weight:700; letter-spacing:.08em;
+  text-transform:uppercase; color:var(--accent);
+  margin-bottom:12px; padding-bottom:8px;
+  border-bottom:1px solid var(--border);
+}
+.two-col, .row {
+  display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr));
+  gap:12px 18px; align-items:start;
+}
+#content, #messages-only, #alerts-only { padding:18px }
 </style>
 </head>
 <body>
