@@ -123,18 +123,32 @@ def test_the_reactor_does_not_offer_to_arm_notifications():
         assert gone not in body, f"{gone} survived the move to Auto Watch"
 
 
-def test_the_reactor_points_at_auto_watch_instead():
-    """Deleting the card would have left the operator with no answer to "how
-    do I get told about this run?" — the intent was always right, only the
-    owner changed."""
+def test_the_reactor_carries_no_notification_ui_at_all():
+    """This assertion is the inverse of the one it replaced, deliberately.
+
+    The dead card was first REPLACED by a pointer card — "notifications live in
+    Auto Watch, here is the link" — on the reasoning that deleting it outright
+    leaves the operator with no answer to "how do I get told about this run?".
+    The operator disagreed, and was right: notifications are one feature with
+    one owner, and a second place that talks about them is a second place that
+    can drift out of date, contradict the first, or be mistaken for a second
+    switch that also needs arming. Auto Watch is the whole answer.
+
+    So the reactor's template must not mention notifications in any form —
+    not a route, not a handler, not a link, not a sentence."""
     tpl = (_ROOT / "reactor" / "templates" / "index.html").read_text()
-    assert "5110" in tpl and "Auto Watch" in tpl
+    body = strip_comments(tpl)
+    for gone in ("/api/slack", "Slack", "slack",
+                 "Auto Watch", "5110", "Notify", "notification"):
+        assert gone not in body, (
+            f"{gone!r} is back in the reactor UI; notifications belong to "
+            f"Auto Watch alone")
 
 
 def test_auto_watch_honours_the_deep_link():
-    """The reactor links to #alerts. Without hash handling that lands on the
-    overview and the operator has to know to click Alerts — which is how a
-    pointer degrades back into a dead end."""
+    """Auto Watch's own nav writes #alerts into the URL, so a reloaded or
+    bookmarked Alerts page must come back to Alerts. Without hash handling it
+    lands on the overview and the operator has to know to click through."""
     tpl = (_ROOT / "watchdog" / "templates" / "index.html").read_text()
     assert "applyHashView" in tpl
     assert "hashchange" in tpl

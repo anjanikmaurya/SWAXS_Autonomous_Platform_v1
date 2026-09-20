@@ -615,8 +615,6 @@ def api_reset():   _ctrl.reset();  return jsonify({"ok": True})
 def api_vent():    _ctrl.vent_all(); return jsonify({"ok": True})
 
 
-# ── Slack notifications: arm on the way out of the hutch ──────────────────────
-
 @app.route("/api/backend", methods=["POST"])
 def api_backend():
     mode = str((request.get_json(silent=True) or {}).get("backend", "")).lower()

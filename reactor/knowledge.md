@@ -192,9 +192,13 @@ measurement), so the optimizer can never train on a synthesis that did not happe
 
 ## Notifications
 
-`GET/POST /api/slack` reads and sets the Slack webhook configuration;
-`POST /api/slack/test` sends a test message. Notification failures never disturb
-the reactor.
+The reactor sends none, and has no endpoint for them. Every platform
+notification is Auto Watch's (port 5110) — it subscribes to the same bus events
+and applies one policy for the whole loop, so a stall in reduction or fitting
+reaches the operator as well as a reactor fault. See docs/NOTIFICATIONS.md.
+
+`/api/slack` and `/api/slack/test` were documented here long after the routes
+were deleted.
 
 ## Other endpoints
 

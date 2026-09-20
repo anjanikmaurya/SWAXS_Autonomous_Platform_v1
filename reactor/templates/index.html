@@ -265,27 +265,6 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
               title="Fault or danger: idle ALL pumps immediately and lock the panel until you press Reset.">🛑 EMERGENCY STOP</button>
     </div>
 
-    <!-- Notifications live in Auto Watch (port 5110). This card used to arm
-         them here; the backend moved and the markup did not, so it kept
-         offering an armed-looking button backed by a route that returns 404 —
-         see the comment on the deleted renderSlack() in the script below. -->
-    <div class="card">
-      <div class="card-hd">🔔 Leaving the beamline</div>
-      <div class="muted" style="font-size:var(--fs-sm);margin-bottom:8px">
-        Notifications are set up in <b>Auto Watch</b>, which watches the whole
-        loop rather than the reactor alone — so a stall in reduction, averaging
-        or fitting reaches you too, not just a reactor fault.
-      </div>
-      <a class="btn btn-primary" style="width:100%;display:block;text-align:center"
-         href="http://localhost:5110/#alerts" target="_blank" rel="noopener"
-         title="Auto Watch → Alerts: master switch, categories, quiet hours, and a test message.">
-        🔔 Open Auto Watch → Alerts
-      </a>
-      <div class="muted" style="font-size:var(--fs-xs);margin-top:6px">
-        Send a test message from there <b>before</b> you leave.
-      </div>
-    </div>
-
     <div class="card">
       <div class="card-hd">🎚 Pump flow limits (µL/min) &amp; calibration</div>
       <div class="lim-row muted"><span>pump</span><span>min</span><span>max</span><span>cal ×</span></div>
@@ -679,17 +658,6 @@ async function setBackend(mode){
   if(r && !r.ok){ alert('Could not switch to '+mode.toUpperCase()+':\n\n'+(r.error||'unknown error')); }
   // the pill updates from the next status frame
 }
-/* renderSlack/toggleSlack/testSlack lived here and were removed with the card
-   above. Notifications moved to Auto Watch; reactor/app.py stopped serving
-   /api/slack and stopped importing src.notify, but this JS and its markup
-   stayed. The failure mode was quiet and bad: the boot call
-   `api('/api/slack').then(renderSlack).catch(()=>{})` hit a 404, .json() threw
-   on the HTML error page, the .catch swallowed it, renderSlack never ran — so
-   the card kept the ENABLED-looking button and "Arm Slack notifications once
-   the measurement is running" text baked into the HTML. Clicking it 404'd into
-   another empty catch and changed nothing. An operator could arm notifications
-   and leave for the night with none armed. */
-
 function updateBackendPill(backend, state){
   window._backend=backend;
   const busy=!['idle','ready','estop'].includes(state);

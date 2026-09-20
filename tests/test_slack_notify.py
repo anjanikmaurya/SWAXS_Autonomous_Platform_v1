@@ -299,7 +299,10 @@ def test_upload_png_ignores_a_missing_file(monkeypatch):
     n.close()                                   # must not raise
 
 
-# ── runtime arm/disarm (the "leaving the beamline" button) ───────────────────
+# ── runtime arm/disarm ───────────────────────────────────────────────────────
+# No UI drives this any more: the reactor's "Leaving the beamline" button was
+# deleted in September 2026 and Auto Watch owns arming. src/notify is legacy
+# (CLAUDE.md), kept for tools/notify_test.py, so these cover the library only.
 def test_configured_but_disabled_can_be_armed_at_runtime(monkeypatch):
     """Credentials present + config enabled:false → armable from the UI without
     restarting the app."""
