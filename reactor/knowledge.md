@@ -32,9 +32,24 @@ Three ways in:
    (`folders.recipes` in `reactor/config.yml`) — a sibling of
    `1D/SAXS/Subtracted`, resolved relative to the PROJECT ROOT unless absolute.
    It accepts `*.dat` and `*.txt` files written by the ML/optimizer pipeline as
-   well as `*.json`. Consumed files are moved to `folders.processed`
-   (`1D/SAXS/Conditions/done`). The folder can be changed live from the app's
-   "📁 Conditions folder" card; the override is persisted in
+   well as `*.json`, oldest first (filename breaks a tie).
+
+   **A file is moved to `folders.processed` (`1D/SAXS/Conditions/done`) only
+   when the reactor is FINISHED with that condition** — it ran, it was
+   abandoned, or the operator cleared it from the queue. It is *not* moved when
+   the watcher parses it. That matters in two ways:
+
+   * the watcher runs regardless of the Auto-run toggle (the toggle decides
+     whether a recipe STARTS, not whether it is read), so with auto-run off
+     conditions still queue — but the folder is no longer quietly emptied
+     behind the operator's back;
+   * a queued-but-not-yet-run condition still exists on disk, so restarting
+     the app re-reads it instead of losing it. Before September 2026 the file
+     was moved at parse time and the queue lived only in memory, so a restart
+     lost every waiting condition from both places, silently.
+
+   The folder can be changed live from the app's "📁 Conditions folder" card
+   (the path must already exist); the override is persisted in
    `reactor_settings.json` at the project root and reloaded on the next start.
 2. `POST /api/recipe` — JSON, for the BO/SAXS side.
 3. The manual form in the UI.

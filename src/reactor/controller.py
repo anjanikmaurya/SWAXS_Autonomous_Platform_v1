@@ -282,15 +282,24 @@ class ReactorController:
             self._log(f"🔧 tared {name} ({kind}) — needs {note}", "info")
             return True, "ok"
 
-    def clear_queue(self) -> int:
+    def clear_queue(self) -> list[dict]:
         """Empty the pending-recipe queue (does not affect a running recipe).
-        Returns the number of recipes removed."""
+
+        Returns ``[{recipe_id, source}, …]`` for what was removed, NOT just a
+        count. The caller needs the sources: a folder-sourced condition still
+        has its file sitting in the watched folder — the file is only retired
+        once the reactor is finished with it — so clearing the queue without
+        also retiring those files would leave them to be re-ingested on the
+        next restart, and Clear queue would not actually clear anything.
+        """
         with self._lock:
-            n = len(self.queue)
+            removed = [{"recipe_id": r.recipe_id, "source": r.source}
+                       for r, _ in self.queue]
             self.queue.clear()
-            if n:
-                self._log(f"🗑 cleared {n} queued recipe(s)", "info")
-            return n
+            if removed:
+                self._log(f"🗑 cleared {len(removed)} queued recipe(s): "
+                          + ", ".join(d["recipe_id"] for d in removed), "info")
+            return removed
 
     def set_auto_run(self, on: bool) -> None:
         with self._lock:

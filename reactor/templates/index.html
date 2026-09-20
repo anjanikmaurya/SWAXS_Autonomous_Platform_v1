@@ -378,8 +378,9 @@ input{width:100%;background:var(--surface2);border:1px solid var(--border-strong
       <div style="margin-top:6px;display:flex;align-items:center;gap:8px">
         <span class="muted">Queue:</span>
         <div class="chips" id="s-queue" style="flex:1"></div>
-        <button class="btn btn-ghost" id="b-clearq" style="padding:4px 10px;font-size:var(--fs-xs)" onclick="post('/api/queue/clear')">🗑 Clear queue</button>
+        <button class="btn btn-ghost" id="b-clearq" style="padding:4px 10px;font-size:var(--fs-xs)" onclick="post('/api/queue/clear')" title="Drop every waiting condition and move its file to the done/ folder, so it is not picked up again.">🗑 Clear queue</button>
       </div>
+      <div class="muted" id="queueNote" style="display:none;margin-top:6px;color:var(--warn)"></div>
     </div>
 
     <div class="card">
@@ -908,6 +909,21 @@ function render(st){
   $('s-flush').textContent=st.flush_remaining_s!=null?fmtDur(st.flush_remaining_s):'—';
   $('s-runs').textContent=st.runs_completed;
   $('s-queue').innerHTML=st.queue.length?st.queue.map(q=>`<span class="chip">${q}</span>`).join(''):'<span class="muted">empty</span>';
+  // Conditions keep ARRIVING with autonomous mode off — the toggle decides
+  // whether a recipe starts, not whether the folder is read. Say so, or the
+  // queue silently grows and it looks like the reactor stopped taking work.
+  {
+    const qn = $('queueNote');
+    if(qn){
+      const waiting = st.queue.length;
+      if(waiting && !st.auto_run){
+        qn.style.display='';
+        qn.textContent = `⏸ ${waiting} condition${waiting>1?'s':''} waiting — autonomous mode is OFF, `
+          + `so nothing will start on its own. Their files stay in the conditions folder until they run. `
+          + `Press Start for the next one, or turn on Run autonomously to work through them.`;
+      } else { qn.style.display='none'; }
+    }
+  }
   // disable start when busy
   _uiState=st.state;
   const _ba=$('b-start');

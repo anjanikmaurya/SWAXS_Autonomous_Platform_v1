@@ -6,7 +6,12 @@ and `src/beamline/driver.py`. Four lenses, all requested: hardware safety on
 the real rig, multi-day unattended stability, campaign data integrity, and a
 per-control pass over every button and input in the UI.
 
-> **STATUS — 20 September 2026: 23 of the 25 findings are FIXED.**
+> **STATUS — 20 September 2026: 24 of 26 findings FIXED, 1 accepted, 1 deferred.**
+> **R26 was found by the operator after the audit closed** — turning autonomous
+> mode off did not stop the reactor consuming condition files. Recorded here
+> rather than quietly patched, because it says something about the audit's
+> blind spot: the per-control pass traced every button to its route and asked
+> whether the route matched the label, and the folder watcher is not a button.
 > **R12** is open, deferred by the operator. **R4** is *accepted*, not fixed:
 > the counting is now a named, wired, one-line setting instead of an invisible
 > default, and the operator has deliberately left it at the original ~1 Hz to
@@ -46,7 +51,7 @@ Severity means consequence on a real beamtime, not code tidiness:
 
 ## Summary
 
-17 substantive findings, 8 of them proven by execution.
+18 substantive findings, 9 of them proven by execution.
 
 | # | Severity | Lens | One line |
 |---|---|---|---|
@@ -67,9 +72,10 @@ Severity means consequence on a real beamtime, not code tidiness:
 | [R15](#r15) ✅ | MED | fidelity | Flow-fault detection is 15× faster in mock than on the rig |
 | [R16](#r16) ✅ | MED | UI | Five controls fail silently; two are never disabled when they cannot work |
 | [R17](#r17) ✅ | MED | stability | No disconnect indicator — a dead app leaves "running, 240 °C" on screen forever |
+| [R26](#r26) ✅ | MED-HIGH | campaign | Turning autonomous mode OFF did not stop the reactor consuming condition files — **found by the operator, not by this audit** |
 
-✅ fixed · ⏸ deferred. The eight LOW items in [§ Minor](#minor) are all fixed
-too, except that R12 is not one of them.
+✅ fixed · ⚠️ accepted · ⏸ deferred. The eight LOW items in
+[§ Minor](#minor) are all fixed too.
 
 | Fixed | Held by |
 |---|---|
@@ -652,6 +658,60 @@ a false belief about the rig.
 
 > **Fixed.** `es.onerror` sets a "disconnected" state on the header pill, plus a
 > timestamp check — if no frame has arrived for >5 s, grey the page and say so.
+
+---
+
+### R26 — Turning autonomous mode OFF did not stop the reactor taking work {#r26}
+
+**Proven.** Reported by the operator, and missed by the original pass — the
+per-control audit traced every button to its route and asked whether the route
+did what the label said. It did. What it did not ask was what the FOLDER
+WATCHER does while that button is off, because the watcher is not a control.
+
+With auto-run off, three condition files dropped into the watched folder:
+
+```
+reactor state        : idle
+queued in memory     : ['r001', 'r003', 'r002']
+still in Conditions/ : ['done']          <- empty
+MOVED to done/       : ['r001.txt', 'r002.txt', 'r003.txt']
+```
+
+The watcher runs regardless of the toggle, which is deliberate — the toggle
+decides whether a recipe STARTS. But it also moved each file into `done/` the
+instant it parsed it, and that is not deliberate, it is just where the move
+happened to sit. Three consequences:
+
+1. **The folder is emptied behind the operator.** They turn autonomous mode
+   off to stop the reactor taking work; it keeps swallowing it.
+2. **The queued conditions exist only in memory.** The files are already in
+   `done/`, so an app restart loses them from both places with no trace. This
+   one is a bug under any reading of the design.
+3. **Re-arming floods.** Switching auto-run back on started the oldest waiting
+   condition immediately and held the rest — so after a pause the rig works
+   through a backlog the optimizer proposed against data that has since been
+   superseded.
+
+A fourth thing fell out of the probe: the queue came back `r001, r003, r002`.
+Intake sorts by mtime, and three files written in the same instant tie, so the
+order was whatever the filesystem returned.
+
+> **Fixed** — the operator chose the behaviour (both questions asked, neither
+> assumed): keep queueing, so the queue can be reviewed and started by hand,
+> but do not consume the file until the reactor is finished with the
+> condition; and keep starting a backlog immediately on re-arm.
+>
+> `_retire_condition_file()` moves a file to `done/` at exactly three moments —
+> the run completes, the condition is abandoned, or the operator clears the
+> queue — and nowhere else. **The file is the durable queue**: a restart with
+> conditions waiting simply re-reads them. `clear_queue()` returns what it
+> removed rather than a bare count, because the caller needs the sources to
+> retire the files; without that, Clear queue would have cleared nothing
+> durable. Intake ties break on filename. The Run-status card says how many
+> conditions are waiting and that nothing will start on its own.
+>
+> Point 3 is unchanged, at the operator's request: re-arming still starts the
+> backlog at once.
 
 ---
 

@@ -172,29 +172,77 @@ def _event_cb(etype: str, data: dict) -> None:
             pass
 
 
+def _retire_condition_file(source: str, why: str = "") -> Path | None:
+    """Move a consumed condition file out of the watched folder into processed/.
+
+    THE FILE IS THE DURABLE QUEUE. It used to be moved the instant the watcher
+    parsed it, which had two consequences the operator hit directly:
+
+      * turning **Run autonomously** OFF did not stop the reactor taking work.
+        The watcher runs regardless of the toggle (by design — the toggle
+        decides whether a recipe STARTS, not whether it is read), so conditions
+        kept being swallowed out of Conditions/ into done/ while nothing ran;
+      * those queued conditions then existed ONLY in memory. The source files
+        were already in done/, so an app restart lost them from both places,
+        silently.
+
+    So a file now leaves Conditions/ when the reactor is FINISHED with it —
+    it ran, it was abandoned, or the operator cleared it from the queue. Until
+    then it stays on disk, in order, and a restart simply re-reads it.
+
+    ``source`` is the recipe's ``folder:<name>``; anything else (the manual
+    form, POST /api/recipe) has no file and is a no-op. Returns the new path.
+    """
+    if not str(source).startswith("folder:"):
+        return None
+    name = str(source).split("folder:", 1)[1]
+    try:
+        src_file = _resolve("recipes") / name
+        done_dir = _resolve("processed")
+        done_dir.mkdir(parents=True, exist_ok=True)
+        dest = done_dir / name
+        if src_file.is_file():
+            # replace() (not rename()) overwrites an existing dest — rename()
+            # raises on Windows if done/<name> already exists.
+            src_file.replace(dest)
+            _watch_handled.pop(str(src_file), None)   # moved away; a re-drop is new
+            _watch_lastsig.pop(str(src_file), None)
+            if why:
+                _emit(f"📁 {name} → done/ ({why})", "info")
+        return dest if dest.is_file() else None
+    except Exception as exc:
+        _emit(f"⚠ could not move {name} to done/: {exc}", "warn")
+        return None
+
+
 def _feedback_cb(recipe_id: str, payload: dict) -> None:
     """Write <recipe_id>.done.json so the BO/SAXS side knows the run finished."""
     try:
         fb = _resolve("feedback")
         fb.mkdir(parents=True, exist_ok=True)
         (fb / f"{recipe_id}.done.json").write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
-        # append the measured flow-sensor readings as a footer to the consumed
-        # condition file (in the processed/done folder) — commanded vs delivered.
+        # The reactor is finished with this condition (it ran, or it was
+        # abandoned), so retire its file now — see _retire_condition_file.
         rec = payload.get("recipe") or {}
-        src = str(rec.get("source", ""))
-        if src.startswith("folder:"):
-            done_file = _resolve("processed") / src.split("folder:", 1)[1]
-            if done_file.is_file():
-                sp = payload.get("setpoints", {})
-                meas = payload.get("measured_flows", {})
-                foot = ["", "# ── RESULT (measured, appended by reactor) ──────────────",
-                        f"# ended:       {datetime.datetime.now().isoformat(timespec='seconds')}",
-                        f"# duration_s:  {payload.get('duration_s')}",
-                        f"# reason:      {payload.get('reason')}"]
-                for pump in sp:
-                    foot.append(f"# {pump}: setpoint={sp.get(pump)} measured={meas.get(pump)} uL/min")
-                with done_file.open("a", encoding="utf-8") as fh:
-                    fh.write("\n".join(foot) + "\n")
+        status = str(payload.get("status", "ran"))
+        done_file = _retire_condition_file(str(rec.get("source", "")), status)
+        # append the measured flow-sensor readings as a footer to the consumed
+        # condition file — commanded vs delivered.
+        if done_file is not None:
+            sp = payload.get("setpoints", {})
+            meas = payload.get("measured_flows", {})
+            head = ("# ── RESULT (measured, appended by reactor) ──────────────"
+                    if status == "ran" else
+                    "# ── NOT RUN (appended by reactor) ───────────────────────")
+            foot = ["", head,
+                    f"# ended:       {datetime.datetime.now().isoformat(timespec='seconds')}",
+                    f"# status:      {status}",
+                    f"# duration_s:  {payload.get('duration_s')}",
+                    f"# reason:      {payload.get('reason')}"]
+            for pump in sp:
+                foot.append(f"# {pump}: setpoint={sp.get(pump)} measured={meas.get(pump)} uL/min")
+            with done_file.open("a", encoding="utf-8") as fh:
+                fh.write("\n".join(foot) + "\n")
     except Exception as exc:
         _emit(f"⚠ could not write feedback file: {exc}", "warn")
 
@@ -518,9 +566,15 @@ def _folder_watcher() -> None:
                 pass
             if rdir.is_dir():
                 # .dat/.txt (ML pipeline params) and .json (app format), oldest first
+                # Oldest first, with the FILENAME as the tie-break. Sorting on
+                # mtime alone left the order to the filesystem whenever two
+                # conditions shared a timestamp — three files written in the
+                # same instant came back r001, r003, r002 — and a campaign is
+                # supposed to run the optimizer's proposals in the order it
+                # proposed them.
                 files = sorted(list(rdir.glob("*.dat")) + list(rdir.glob("*.txt"))
                                + list(rdir.glob("*.json")),
-                               key=lambda p: p.stat().st_mtime)
+                               key=lambda p: (p.stat().st_mtime, p.name))
                 present = set()
                 for f in files:
                     key = str(f)
@@ -545,12 +599,15 @@ def _folder_watcher() -> None:
                             data = parse_param_file(text)
                         data.setdefault("recipe_id", f.stem)
                         _ctrl.submit(data, source=f"folder:{f.name}")
-                        done = _resolve("processed"); done.mkdir(parents=True, exist_ok=True)
-                        # replace() (not rename()) overwrites an existing dest —
-                        # rename() raises on Windows if done/<name> already exists.
-                        f.replace(done / f.name)
+                        # DO NOT move the file here. It is retired only once the
+                        # reactor is finished with the condition — see
+                        # _retire_condition_file. Marking it handled is what
+                        # stops it being re-ingested on every poll while it
+                        # waits in the queue; the file staying put is what makes
+                        # the queue survive a restart, and what stops an
+                        # auto-run-off reactor from quietly emptying the folder.
+                        _watch_handled[key] = sig
                         _watch_lastsig.pop(key, None)
-                        _watch_handled.pop(key, None)   # moved away; a re-drop is new
                     except RecipeError as e:
                         _emit(f"✗ rejected {f.name}: {e}", "error")
                         _watch_handled[key] = sig       # genuinely bad — don't retry this version
@@ -765,7 +822,15 @@ def api_start_now():
 
 @app.route("/api/queue/clear", methods=["POST"])
 def api_queue_clear():
-    return jsonify({"ok": True, "cleared": _ctrl.clear_queue()})
+    removed = _ctrl.clear_queue()
+    # Retire their files too. A folder-sourced condition keeps its file in the
+    # watched folder until the reactor is finished with it, so without this the
+    # cleared conditions would simply be re-ingested on the next restart and
+    # Clear queue would not have cleared anything durable.
+    for d in removed:
+        _retire_condition_file(d.get("source", ""), "cleared from the queue")
+    return jsonify({"ok": True, "cleared": len(removed),
+                    "recipe_ids": [d.get("recipe_id") for d in removed]})
 
 
 @app.route("/api/flush", methods=["POST"])

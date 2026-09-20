@@ -784,3 +784,178 @@ def test_r21_a_working_temperature_command_stays_quiet():
     c.logs.clear()
     assert c.temp.set_temperature(200.0) is True
     assert not any(t == "error" for t, _ in c.logs)
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# R26 — turning autonomous mode OFF did not stop the reactor taking work
+# ═════════════════════════════════════════════════════════════════════════════
+# Reported by the operator: "when i stop run autonomously is stopped then also
+# run is not stop accepting the new conditions."
+#
+# Correct, and worse than it sounds. The folder watcher runs regardless of the
+# toggle — by design, the toggle decides whether a recipe STARTS — but it also
+# MOVED each file into done/ the instant it parsed it. So with autonomous mode
+# off the reactor kept swallowing conditions out of the watched folder, and the
+# only record of them was an in-memory queue. An app restart lost them from
+# both places, silently.
+#
+# The operator's call (asked, not assumed): keep queueing so the queue can be
+# reviewed and started by hand, but DO NOT consume the file until the reactor
+# is actually finished with the condition. The file is the durable queue.
+import importlib.util as _u
+
+
+def _boot_app(tmp_path, monkeypatch):
+    """Import reactor/app.py against a throwaway project folder."""
+    conds = tmp_path / "1D" / "SAXS" / "Conditions"
+    conds.mkdir(parents=True)
+    monkeypatch.setenv("SWAXS_PROJECT", str(tmp_path))
+    monkeypatch.setenv("SWAXS_REACTOR_BACKEND", "mock")
+    spec = _u.spec_from_file_location(
+        f"reactor_app_{tmp_path.name}", _ROOT / "reactor" / "app.py")
+    mod = _u.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    mod._ctrl.cfg.setdefault("spec", {})["enabled"] = False
+    mod._ctrl._spec_enabled = False
+    return mod, conds
+
+
+def _drop(folder: Path, rid: str) -> None:
+    (folder / f"{rid}.txt").write_text(
+        "T_reac = 240\nF_tot = 80\nx_ODE = 0.2\nx_TOP = 0.1\nx_oley = 0.1\n")
+
+
+def _txt(folder: Path) -> list[str]:
+    return sorted(p.name for p in folder.glob("*.txt")) if folder.is_dir() else []
+
+
+def test_r26_conditions_are_queued_but_their_files_are_not_consumed(tmp_path, monkeypatch):
+    """The operator's report. Autonomous mode off: still queued (so it can be
+    reviewed and started by hand) but the FILES STAY, so nothing is lost."""
+    mod, conds = _boot_app(tmp_path, monkeypatch)
+    try:
+        assert mod._ctrl.auto_run is False
+        for rid in ("r001", "r002", "r003"):
+            _drop(conds, rid)
+        time.sleep(9)                       # 3 s poll, needs 2 to call it stable
+
+        assert list(mod._ctrl.status()["queue"]) == ["r001", "r002", "r003"]
+        assert _txt(conds) == ["r001.txt", "r002.txt", "r003.txt"], \
+            "the watcher consumed the files with autonomous mode off"
+        assert _txt(conds / "done") == [], \
+            "files were retired before the reactor had finished with them"
+    finally:
+        mod._ctrl.shutdown(collect_wait_s=0.0)
+
+
+def test_r26_the_intake_order_is_deterministic(tmp_path, monkeypatch):
+    """Oldest first is the rule, and it held. What did NOT hold was the TIE.
+
+    The optimizer can easily write several conditions in the same instant, and
+    sorting on mtime alone then left the order to whatever the filesystem
+    happened to return — the probe that found this got r001, r003, r002 from
+    three files stamped identically. A campaign must run the proposals in the
+    order they were proposed, so the filename is now the tie-break.
+
+    The mtimes are forced equal here; writing three files in a loop is not a
+    reliable way to collide them, and a test that only sometimes exercises the
+    thing it is named for is worse than none."""
+    mod, conds = _boot_app(tmp_path, monkeypatch)
+    try:
+        for rid in ("r003", "r001", "r002"):      # created out of order …
+            _drop(conds, rid)
+        stamp = time.time() - 60
+        for p in conds.glob("*.txt"):             # … and stamped identically
+            os.utime(p, (stamp, stamp))
+        time.sleep(9)
+        assert list(mod._ctrl.status()["queue"]) == ["r001", "r002", "r003"], \
+            "identical timestamps still leave the order to the filesystem"
+    finally:
+        mod._ctrl.shutdown(collect_wait_s=0.0)
+
+
+def test_r26_a_condition_that_runs_has_its_file_retired(tmp_path, monkeypatch):
+    """The other half — the file must not stay forever, or it is re-ingested on
+    the next restart and the condition runs twice."""
+    mod, conds = _boot_app(tmp_path, monkeypatch)
+    try:
+        _drop(conds, "r010")
+        time.sleep(9)
+        assert _txt(conds) == ["r010.txt"]
+
+        r, sp = mod._ctrl.queue.popleft()
+        mod._ctrl._pending = None
+        mod._ctrl._start_recipe(r, sp)
+        mod._ctrl._enter_running()
+        mod._ctrl._run_reason = "test"
+        mod._ctrl._end_run(flush=False)
+        time.sleep(0.4)
+
+        assert _txt(conds) == [], "the file was not retired after the run"
+        assert _txt(conds / "done") == ["r010.txt"]
+        body = (conds / "done" / "r010.txt").read_text()
+        assert "RESULT (measured" in body, "the delivered-flow footer is missing"
+    finally:
+        mod._ctrl.shutdown(collect_wait_s=0.0)
+
+
+def test_r26_an_abandoned_condition_has_its_file_retired_too(tmp_path, monkeypatch):
+    """An arm timeout is 'finished with' as much as a completed run is. Leaving
+    the file would re-run a condition that already failed to arm."""
+    mod, conds = _boot_app(tmp_path, monkeypatch)
+    try:
+        _drop(conds, "r020")
+        time.sleep(9)
+        r, sp = mod._ctrl.queue.popleft()
+        mod._ctrl._pending = None
+        mod._ctrl._start_recipe(r, sp)
+        mod._ctrl._abandon_condition("r020", "arm timeout")
+        time.sleep(0.4)
+
+        assert _txt(conds) == []
+        body = (conds / "done" / "r020.txt").read_text()
+        assert "NOT RUN" in body and "arm timeout" in body, \
+            "the file does not say why it never ran"
+    finally:
+        mod._ctrl.shutdown(collect_wait_s=0.0)
+
+
+def test_r26_clear_queue_actually_clears(tmp_path, monkeypatch):
+    """Because the file now outlives the queue entry, Clear queue has to retire
+    the files as well — otherwise the next restart re-reads them and the button
+    did nothing durable."""
+    mod, conds = _boot_app(tmp_path, monkeypatch)
+    try:
+        for rid in ("r030", "r031"):
+            _drop(conds, rid)
+        time.sleep(9)
+        assert len(mod._ctrl.queue) == 2
+
+        client = mod.app.test_client()
+        resp = client.post("/api/queue/clear", json={})
+        assert resp.get_json()["cleared"] == 2
+
+        assert list(mod._ctrl.status()["queue"]) == []
+        assert _txt(conds) == [], "cleared conditions would be re-ingested on restart"
+        assert _txt(conds / "done") == ["r030.txt", "r031.txt"]
+    finally:
+        mod._ctrl.shutdown(collect_wait_s=0.0)
+
+
+def test_r26_clear_queue_reports_what_it_removed():
+    """It returned a bare count, so the caller could not retire the files."""
+    c = make_controller()
+    c.submit(recipe("r040"))
+    c.submit(recipe("r041"))
+    removed = c.clear_queue()
+    assert [d["recipe_id"] for d in removed] == ["r040", "r041"]
+    assert all("source" in d for d in removed), \
+        "without the source the app cannot find the file to retire"
+
+
+def test_r26_the_ui_says_conditions_are_waiting_while_autonomous_is_off():
+    """Silence here is how the queue grows unnoticed, which is the shape of the
+    original complaint."""
+    tpl = (_ROOT / "reactor" / "templates" / "index.html").read_text()
+    assert 'id="queueNote"' in tpl
+    assert "autonomous mode is OFF" in tpl
