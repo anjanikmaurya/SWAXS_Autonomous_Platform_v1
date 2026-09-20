@@ -56,6 +56,12 @@ except Exception:
     _bus = None
 
 app = Flask(__name__)
+# Reload templates when the file changes, even with debug off. Without this
+# Jinja compiles index.html once at startup and caches it, so an edit to the
+# UI only showed after the whole app process was restarted — which is why
+# repeated layout fixes appeared not to land on a browser refresh alone.
+app.config["TEMPLATES_AUTO_RELOAD"] = True
+app.jinja_env.auto_reload = True
 
 # Per-app browser-tab icon, from apps.yml — ten apps on ten ports
 # otherwise give ten identical tabs. See src/favicon.py.
