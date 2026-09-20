@@ -805,7 +805,7 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
               <div class="cell">
                 <div class="ir">
                   <input type="text" id="raw-saxs-dir" placeholder="/…/2D/SAXS">
-                  <button class="btn btn-ghost btn-sm" onclick="openBrowser('raw-saxs-dir')">Browse…</button>
+                  <button class="btn btn-ghost btn-sm" title="Browse…" onclick="openBrowser('raw-saxs-dir')"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg></button>
                 </div>
                 <span class="fnote">Folder containing SAXS .raw detector files</span>
               </div>
@@ -814,7 +814,7 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
               <div class="cell">
                 <div class="ir">
                   <input type="text" id="raw-waxs-dir" placeholder="/…/2D/WAXS">
-                  <button class="btn btn-ghost btn-sm" onclick="openBrowser('raw-waxs-dir')">Browse…</button>
+                  <button class="btn btn-ghost btn-sm" title="Browse…" onclick="openBrowser('raw-waxs-dir')"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg></button>
                 </div>
                 <span class="fnote">Folder containing WAXS .raw detector files</span>
               </div>
@@ -1057,7 +1057,7 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
               <div class="cell">
                 <div class="ir">
                   <input type="text" id="saxs-dir" placeholder="/…/1D/SAXS/Reduction">
-                  <button class="btn btn-ghost btn-sm" onclick="openBrowser('saxs-dir')">Browse…</button>
+                  <button class="btn btn-ghost btn-sm" title="Browse…" onclick="openBrowser('saxs-dir')"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg></button>
                 </div>
                 <span class="fnote">.dat files from SAXS detector</span>
               </div>
@@ -1066,7 +1066,7 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
               <div class="cell">
                 <div class="ir">
                   <input type="text" id="waxs-dir" placeholder="/…/1D/WAXS/Reduction">
-                  <button class="btn btn-ghost btn-sm" onclick="openBrowser('waxs-dir')">Browse…</button>
+                  <button class="btn btn-ghost btn-sm" title="Browse…" onclick="openBrowser('waxs-dir')"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg></button>
                 </div>
                 <span class="fnote">.dat files from WAXS detector</span>
               </div>
@@ -1075,7 +1075,7 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
               <div class="cell">
                 <div class="ir">
                   <input type="text" id="out-dir" placeholder="(same as source)">
-                  <button class="btn btn-ghost btn-sm" onclick="openBrowser('out-dir')">Browse…</button>
+                  <button class="btn btn-ghost btn-sm" title="Browse…" onclick="openBrowser('out-dir')"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg></button>
                 </div>
                 <span class="fnote">Where averaged files are written</span>
               </div>
@@ -1388,17 +1388,17 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
           <label>SAXS Reduction folder</label>
           <div class="cell"><div class="ir">
             <input type="text" id="aa-saxs-dir" placeholder="/…/1D/SAXS/Reduction">
-            <button class="btn btn-ghost btn-sm" onclick="openBrowser('aa-saxs-dir')">Browse…</button>
+            <button class="btn btn-ghost btn-sm" title="Browse…" onclick="openBrowser('aa-saxs-dir')"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg></button>
           </div></div>
           <label>WAXS Reduction folder</label>
           <div class="cell"><div class="ir">
             <input type="text" id="aa-waxs-dir" placeholder="/…/1D/WAXS/Reduction">
-            <button class="btn btn-ghost btn-sm" onclick="openBrowser('aa-waxs-dir')">Browse…</button>
+            <button class="btn btn-ghost btn-sm" title="Browse…" onclick="openBrowser('aa-waxs-dir')"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg></button>
           </div></div>
           <label>Output folder (blank = each detector's Averaged/)</label>
           <div class="cell"><div class="ir">
             <input type="text" id="aa-out-dir" placeholder="(default: …/Averaged)">
-            <button class="btn btn-ghost btn-sm" onclick="openBrowser('aa-out-dir')">Browse…</button>
+            <button class="btn btn-ghost btn-sm" title="Browse…" onclick="openBrowser('aa-out-dir')"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg></button>
           </div></div>
         </div>
       </div>
