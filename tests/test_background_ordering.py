@@ -40,7 +40,13 @@ def _run(cfg, n=2, dur=0.35, wait=20.0):
     try:
         for i in range(1, n + 1):
             ctl.submit({**RECIPE, "recipe_id": f"r{i}", "run_duration": dur})
-        ctl.start()
+        # ARM THE LOOP, don't just Start. These tests drive a multi-condition
+        # campaign, and since the R27 fix that is what auto-run means: with it
+        # off, Start runs exactly ONE condition and the loop pauses after its
+        # flush instead of chaining through the queue. `_end_flush` used to
+        # advance regardless of the toggle, which is why plain start() used to
+        # be enough here — and also why "Stop autonomous" stopped nothing.
+        ctl.set_auto_run(True)
         t0 = time.time()
         while time.time() - t0 < wait and not (ctl.state in ("ready", "idle")
                                                and time.time() - t0 > 1.2):

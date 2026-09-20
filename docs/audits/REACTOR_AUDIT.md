@@ -6,12 +6,15 @@ and `src/beamline/driver.py`. Four lenses, all requested: hardware safety on
 the real rig, multi-day unattended stability, campaign data integrity, and a
 per-control pass over every button and input in the UI.
 
-> **STATUS — 20 September 2026: 24 of 26 findings FIXED, 1 accepted, 1 deferred.**
-> **R26 was found by the operator after the audit closed** — turning autonomous
-> mode off did not stop the reactor consuming condition files. Recorded here
-> rather than quietly patched, because it says something about the audit's
-> blind spot: the per-control pass traced every button to its route and asked
-> whether the route matched the label, and the folder watcher is not a button.
+> **STATUS — 20 September 2026: 25 of 27 findings FIXED, 1 accepted, 1 deferred.**
+> **R26 and R27 were found by the operator after the audit closed** — turning
+> autonomous mode off neither stopped the reactor consuming condition files
+> (R26) nor stopped the loop itself (R27). Recorded here rather than quietly
+> patched, because together they name the audit's blind spot: the per-control
+> pass traced every button to its route and asked whether the route matched
+> the label. It did. What it never asked was what the BACKGROUND LOOP does
+> while that button is off — and neither the folder watcher nor `_end_flush`
+> is a button.
 > **R12** is open, deferred by the operator. **R4** is *accepted*, not fixed:
 > the counting is now a named, wired, one-line setting instead of an invisible
 > default, and the operator has deliberately left it at the original ~1 Hz to
@@ -51,7 +54,7 @@ Severity means consequence on a real beamtime, not code tidiness:
 
 ## Summary
 
-18 substantive findings, 9 of them proven by execution.
+19 substantive findings, 10 of them proven by execution.
 
 | # | Severity | Lens | One line |
 |---|---|---|---|
@@ -73,6 +76,7 @@ Severity means consequence on a real beamtime, not code tidiness:
 | [R16](#r16) ✅ | MED | UI | Five controls fail silently; two are never disabled when they cannot work |
 | [R17](#r17) ✅ | MED | stability | No disconnect indicator — a dead app leaves "running, 240 °C" on screen forever |
 | [R26](#r26) ✅ | MED-HIGH | campaign | Turning autonomous mode OFF did not stop the reactor consuming condition files — **found by the operator, not by this audit** |
+| [R27](#r27) ✅ | HIGH | campaign | **"Stop autonomous" did not stop the autonomous loop** — `auto_run` was never read by the loop, only at intake — **found by the operator** |
 
 ✅ fixed · ⚠️ accepted · ⏸ deferred. The eight LOW items in
 [§ Minor](#minor) are all fixed too.
@@ -712,6 +716,59 @@ order was whatever the filesystem returned.
 >
 > Point 3 is unchanged, at the operator's request: re-arming still starts the
 > backlog at once.
+
+---
+
+### R27 — "Stop autonomous" did not stop the autonomous loop {#r27}
+
+**Proven.** Found by the operator, and the larger half of what R26 was really
+about. Their words:
+
+> when i stop autonomous, I just want to pause the autonomous after the current
+> conditions, then flushing. Keep queuing the new condition only. at this time
+> i would like change the beamline frame time wait time input and set once
+> autonomous run is started again and it take the new conditions.
+
+`auto_run` was read in exactly two places — `submit()` (start an arriving
+recipe if the rig is free) and `set_auto_run()` (start one on the re-arm). The
+LOOP never read it. So once a campaign was rolling:
+
+```
+_end_flush → _begin_next → _start_recipe → _end_run → _enter_flush → _end_flush → …
+```
+
+chained through the entire queue regardless of the toggle. Turning it off
+mid-campaign changed one thing: a newly arriving condition no longer
+auto-started *if the reactor happened to be idle at that instant*. The rig
+kept going.
+
+Because of that, the settings the operator wanted to change were unreachable.
+They are deliberately frozen while a campaign is live (`spec_lock_reason` —
+they define what an acquisition *is*), and the campaign never ended, so there
+was no moment at which they unlocked.
+
+> **Fixed** — the loop reads the flag. `_end_flush` advances only while
+> auto-run is on; otherwise it idles the pumps, goes to `ready`, keeps the
+> queue and says so. `_end_run` no longer stages the next condition's blank
+> into a paused flush — that blank would be paired with a sample collected
+> after the exposure changed, which is the thing the pause exists to prevent.
+>
+> `set_auto_run(False)` now says *when* the pause takes effect ("r001 will
+> FINISH and its line will flush, then the loop pauses. Nothing is
+> interrupted."), and `status()` gained `pausing` and `paused_with_queue` so
+> the UI can show three states instead of two — the button reads
+> "⏳ Pausing after this condition" for the whole time the rig is still
+> working, where it used to read "▶ Run autonomously" as though nothing were
+> happening.
+>
+> Manual mode falls out of the same change: with auto-run off, **Start** runs
+> exactly one condition and stops again after its flush, instead of running
+> away with the queue.
+>
+> The full round trip, verified end to end: stop mid-run → condition finishes
+> → flush → `ready`, pumps idle, queue kept → settings unlock → exposure 20 s
+> ×5, lead 60 s accepted → re-arm → resumes on the next condition with the new
+> values, and logs them.
 
 ---
 

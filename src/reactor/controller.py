@@ -302,11 +302,40 @@ class ReactorController:
             return removed
 
     def set_auto_run(self, on: bool) -> None:
+        """Arm / disarm the autonomous loop.
+
+        Turning it OFF never interrupts what is already happening — it lets the
+        current condition finish and its line flush, then stops at `ready`
+        instead of starting the next one. Say WHEN the pause will take effect,
+        because "OFF" on its own reads as "stopping now" and the rig may have
+        ten more minutes of synthesis in front of it."""
         with self._lock:
+            was = self.auto_run
             self.auto_run = bool(on)
-            self._log(f"⚙ auto-run {'ON' if on else 'OFF'}", "info")
+            if on:
+                self._log("⚙ auto-run ON", "info")
+            elif self.state in ("arming", "running", "flushing"):
+                rid = self.current.recipe_id if self.current else "the current condition"
+                self._log(f"⏸ auto-run OFF — {rid} will FINISH and its line will "
+                          f"flush, then the loop pauses. Nothing is interrupted. "
+                          f"New conditions keep queueing; their files stay in the "
+                          f"conditions folder until they run.", "warn")
+            else:
+                self._log("⚙ auto-run OFF" + (f" — {len(self.queue)} condition(s) "
+                          f"waiting" if self.queue else ""), "info")
+            if on and not was and self.state in ("idle", "ready") and self.queue:
+                self._log(f"▶ resuming with {len(self.queue)} queued condition(s) "
+                          f"— exposure {self._spec_exposure:g}s ×{self._spec_frames}, "
+                          f"lead {self._spec_lead:g}s", "ok")
             if on and self.state in ("idle", "ready") and self.queue:
                 self._begin_next()
+
+    def pausing(self) -> bool:
+        """True when auto-run is off but a condition is still finishing — the
+        loop will stop once this one's flush completes. Distinct from 'paused'
+        (already stopped) and from 'running' (will continue). Caller need not
+        hold the lock."""
+        return (not self.auto_run) and self.state in ("arming", "running", "flushing")
 
     def set_run_settings(self, d: dict) -> None:
         """Apply live run settings from the app inputs — everything EXCEPT the
@@ -1037,8 +1066,15 @@ class ReactorController:
             # running two back-to-back would waste a full flush duration between
             # every pair of runs. Stage the next recipe and collect its blank at
             # the end of this one.
+            # `and self.auto_run`: with the loop paused, do NOT stage the next
+            # condition's blank into this flush. Staging it would collect a
+            # background for a condition that is not going to run until the
+            # operator re-arms — possibly after they have changed the exposure,
+            # which would pair a sample with a blank taken under different
+            # settings. Paused means a plain clean-out; the next condition gets
+            # its own blank when it actually starts.
             if (self.background_when == "before" and self._spec_enabled
-                    and self.queue and self._pending is None):
+                    and self.queue and self._pending is None and self.auto_run):
                 nxt_recipe, nxt_setpoints = self.queue.popleft()
                 self._pending = (nxt_recipe, nxt_setpoints)
                 self._log(f"🧪 this flush doubles as the blank for the next "
@@ -1137,20 +1173,48 @@ class ReactorController:
             self._start_recipe(recipe, setpoints)
             return
 
-        nxt = (f"starting next of {len(self.queue)} queued condition(s)"
-               if self.queue else "no conditions queued — going idle")
-        self._log(f"✓ {self._flush_kind} complete ({self._flush_pump} stopped) — {nxt}", "ok")
+        # THE AUTONOMOUS LOOP ADVANCES ONLY WHEN AUTO-RUN IS ON.
+        #
+        # This check did not exist, and its absence is what made "Stop
+        # autonomous" do nothing: the flag was only ever read at INTAKE
+        # (submit) and on the re-arm, never here — so once a campaign was
+        # rolling, _end_flush → _begin_next → … chained through the entire
+        # queue whatever the toggle said. Turning it off mid-campaign changed
+        # precisely one thing: newly arriving conditions no longer auto-started
+        # if the reactor happened to be idle at that moment. The rig kept
+        # going.
+        #
+        # What the operator asked for, and what this gives: pause AFTER the
+        # current condition has run and its line has been flushed. The rig is
+        # left clean and idle at `ready`, the queue is kept, and the
+        # data-collection settings unlock (spec_lock_reason clears once
+        # auto-run is off and the state is quiet) so exposure / frames / lead
+        # can be changed. Re-arming picks the queue up with the new values.
+        advancing = bool(self.queue) and self.auto_run
+        if self.queue and not self.auto_run:
+            nxt = (f"⏸ PAUSED — autonomous mode is off. {len(self.queue)} "
+                   f"condition(s) waiting; the line is flushed and the pumps "
+                   f"are idle. Data-collection settings can be changed now. "
+                   f"Press Start for one, or Run autonomously for all.")
+        else:
+            nxt = (f"starting next of {len(self.queue)} queued condition(s)"
+                   if self.queue else "no conditions queued — going idle")
+        self._log(f"✓ {self._flush_kind} complete ({self._flush_pump} stopped) — {nxt}",
+                  "warn" if (self.queue and not self.auto_run) else "ok")
         if self.current is not None:
-            self._event("reactor.ready", {"recipe_id": self.current.recipe_id})
+            self._event("reactor.ready", {"recipe_id": self.current.recipe_id,
+                                          "paused": not self.auto_run,
+                                          "queued": len(self.queue)})
         # advance to the next queued recipe, or idle/vent the pumps and wait
-        if self.queue:
+        if advancing:
             self._begin_next()
         else:
             self.pumps.idle_all()   # vent all pumps (P0) — not just hold flow 0
             self.state = "ready"
             self.current = None
             self.setpoints = {}
-            self._log("💤 no more conditions — pumps idled, waiting for next", "info")
+            if not self.queue:
+                self._log("💤 no more conditions — pumps idled, waiting for next", "info")
 
     def _to_idle(self) -> None:
         failed = self.pumps.idle_all()
@@ -1660,6 +1724,15 @@ class ReactorController:
                 "loop_faults": self._loop_faults,
                 "last_fault": self._last_fault,
                 "auto_run": self.auto_run,
+                # auto-run is off but a condition is still finishing: the loop
+                # stops after this one's flush. The UI must be able to tell
+                # "pausing" from "paused" and from "running", or Stop
+                # autonomous looks like it did nothing for the next ten minutes.
+                "pausing": self.pausing(),
+                # paused AND there is work waiting for a deliberate Start
+                "paused_with_queue": bool(
+                    (not self.auto_run) and self.queue
+                    and self.state in ("idle", "ready")),
                 "arm_mode": self._arm_mode if self.state == "arming" else None,
                 "arm_remaining_s": arm_left,
                 "arm_total_s": arm_total,

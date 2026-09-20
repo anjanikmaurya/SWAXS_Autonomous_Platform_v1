@@ -54,9 +54,40 @@ Three ways in:
 2. `POST /api/recipe` — JSON, for the BO/SAXS side.
 3. The manual form in the UI.
 
-An **Auto-run** toggle decides whether an arriving recipe starts automatically or
-waits for operator Start. Recipes that arrive while busy are **queued (FIFO)**;
-`POST /api/queue/clear` empties the queue.
+An **Auto-run** toggle arms the autonomous loop. Recipes that arrive while busy
+are **queued (FIFO)**; `POST /api/queue/clear` empties the queue (and retires
+those files — see above).
+
+### Stopping autonomous mode = PAUSE, not abort
+
+Turning Auto-run **off** never interrupts anything. The current condition
+finishes, its line flushes, and *then* the loop stops at `ready` with the pumps
+idle and the queue kept. Three states, and `status()` distinguishes all three:
+
+| | `auto_run` | `pausing` | `paused_with_queue` |
+|---|---|---|---|
+| running the campaign | true | false | false |
+| stopping after this one | false | **true** | false |
+| stopped, work waiting | false | false | **true** |
+
+That middle row is the one worth having: "off" on its own reads as "stopping
+now" while the rig may have ten more minutes of synthesis ahead of it.
+
+**Why pause at all:** the data-collection settings (`exposure_s`, `frames`,
+`spec_lead_s`, tags, `data_dir`) are frozen while a campaign is live — they
+define what an acquisition *is*, so changing one mid-campaign makes the
+conditions either side incomparable. Pausing is the supported way to change
+them: stop autonomous, let the condition finish, edit the fields (they unlock
+the moment the loop is genuinely stopped), then re-arm. The resumed run uses
+the new values and the log says so.
+
+A paused flush is a plain clean-out — it does **not** stage the next
+condition's blank. Staging it would pair a sample with a background taken
+before the exposure changed, which is exactly what the pause exists to avoid.
+
+Before September 2026 none of this worked: `auto_run` was read at intake and
+on the re-arm, and never by the loop, so `_end_flush` chained straight into the
+next queued condition whatever the toggle said.
 
 Folder polling interval is `poll_interval` (default 3.0 s).
 
@@ -198,7 +229,9 @@ down; switch back to `ode_flush` in the app once it is fixed. A reagent pump use
 for flushing is capped at its own `max_flow` (`ode_dilution` ≤ 50 µL/min,
 auto-clamped), so a flush rate above that is not honoured.
 
-After flushing it **auto-advances** to the next queued recipe. On completion it:
+After flushing it **auto-advances to the next queued recipe only while
+Auto-run is on** — otherwise it stops there (see "Stopping autonomous mode"
+above). On completion it:
 - records the run in `manifest.json` under the `reactor` key
   (`reactor.runs.<recipe_id>`),
 - writes `<feedback folder>/<recipe_id>.done.json`. `folders.feedback` is

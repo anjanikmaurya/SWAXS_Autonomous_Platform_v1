@@ -128,13 +128,13 @@ def test_r2_later_conditions_still_get_a_background_after_an_abort():
     c.submit(recipe("r002"))
     c.submit(recipe("r003"))
 
+    # Driven with auto-run OFF, so since the R27 fix each Start takes exactly
+    # one condition and the loop pauses after its flush. That is what makes
+    # this readable: every iteration is one full blank → synthesis → flush.
     ran = []
     for _ in range(3):
-        if c.state in ("idle", "ready"):
-            c.start()
-        # In "before" mode the post-synthesis flush of one condition doubles as
-        # the blank for the next, so from the second iteration on we are
-        # already standing in that flush.
+        assert c.state in ("idle", "ready"), f"unexpected {c.state} before Start"
+        c.start()
         assert c.state == "flushing" and c._flush_kind == "blank", \
             "a condition skipped its pre-synthesis blank"
         rid = c._bkg_recipe_id
@@ -146,7 +146,8 @@ def test_r2_later_conditions_still_get_a_background_after_an_abort():
         ran.append(rid)
         c._enter_running()
         c._run_reason = "test"
-        c._end_run(flush=True)
+        c._end_run(flush=True)                  # → plain clean-out flush
+        c._end_flush()                          # → ready, paused
 
     assert ran == ["r001", "r002", "r003"], \
         f"expected the recovered condition to run first, got {ran}"
@@ -829,6 +830,24 @@ def _txt(folder: Path) -> list[str]:
     return sorted(p.name for p in folder.glob("*.txt")) if folder.is_dir() else []
 
 
+def _wait_queue(ctrl, n: int, timeout: float = 40.0) -> list[str]:
+    """Wait until the folder watcher has queued `n` conditions.
+
+    A flat nine-second sleep was enough for the 3 s poll when these tests ran
+    alone, and not when the suite ran them alongside everything else — they
+    passed in isolation and failed in the batch, which is the worst kind of
+    test to leave behind. Poll for the outcome instead of guessing how long
+    the machine will take. Also takes about 40 s off this file.
+    """
+    end = time.time() + timeout
+    while time.time() < end:
+        if len(ctrl.queue) >= n:
+            time.sleep(0.3)               # let the watcher finish its pass
+            break
+        time.sleep(0.2)
+    return list(ctrl.status()["queue"])
+
+
 def test_r26_conditions_are_queued_but_their_files_are_not_consumed(tmp_path, monkeypatch):
     """The operator's report. Autonomous mode off: still queued (so it can be
     reviewed and started by hand) but the FILES STAY, so nothing is lost."""
@@ -837,7 +856,7 @@ def test_r26_conditions_are_queued_but_their_files_are_not_consumed(tmp_path, mo
         assert mod._ctrl.auto_run is False
         for rid in ("r001", "r002", "r003"):
             _drop(conds, rid)
-        time.sleep(9)                       # 3 s poll, needs 2 to call it stable
+        _wait_queue(mod._ctrl, 3)
 
         assert list(mod._ctrl.status()["queue"]) == ["r001", "r002", "r003"]
         assert _txt(conds) == ["r001.txt", "r002.txt", "r003.txt"], \
@@ -867,7 +886,7 @@ def test_r26_the_intake_order_is_deterministic(tmp_path, monkeypatch):
         stamp = time.time() - 60
         for p in conds.glob("*.txt"):             # … and stamped identically
             os.utime(p, (stamp, stamp))
-        time.sleep(9)
+        _wait_queue(mod._ctrl, 3)
         assert list(mod._ctrl.status()["queue"]) == ["r001", "r002", "r003"], \
             "identical timestamps still leave the order to the filesystem"
     finally:
@@ -880,7 +899,7 @@ def test_r26_a_condition_that_runs_has_its_file_retired(tmp_path, monkeypatch):
     mod, conds = _boot_app(tmp_path, monkeypatch)
     try:
         _drop(conds, "r010")
-        time.sleep(9)
+        _wait_queue(mod._ctrl, 1)
         assert _txt(conds) == ["r010.txt"]
 
         r, sp = mod._ctrl.queue.popleft()
@@ -905,7 +924,7 @@ def test_r26_an_abandoned_condition_has_its_file_retired_too(tmp_path, monkeypat
     mod, conds = _boot_app(tmp_path, monkeypatch)
     try:
         _drop(conds, "r020")
-        time.sleep(9)
+        _wait_queue(mod._ctrl, 1)
         r, sp = mod._ctrl.queue.popleft()
         mod._ctrl._pending = None
         mod._ctrl._start_recipe(r, sp)
@@ -928,7 +947,7 @@ def test_r26_clear_queue_actually_clears(tmp_path, monkeypatch):
     try:
         for rid in ("r030", "r031"):
             _drop(conds, rid)
-        time.sleep(9)
+        _wait_queue(mod._ctrl, 2)
         assert len(mod._ctrl.queue) == 2
 
         client = mod.app.test_client()
@@ -959,3 +978,175 @@ def test_r26_the_ui_says_conditions_are_waiting_while_autonomous_is_off():
     tpl = (_ROOT / "reactor" / "templates" / "index.html").read_text()
     assert 'id="queueNote"' in tpl
     assert "autonomous mode is OFF" in tpl
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# R27 — "Stop autonomous" did not stop the autonomous loop
+# ═════════════════════════════════════════════════════════════════════════════
+# The operator's clarification of R26, and the bigger half of it:
+#
+#   "when i stop autonomous, I just want to pause the autonomous after the
+#    current conditions, then flushing. Keep queuing the new condition only.
+#    at this time i would like change the beamline frame time wait time input
+#    and set once autonomous run is started again and it take the new
+#    conditions."
+#
+# `auto_run` was read in exactly two places — at intake (submit) and on the
+# re-arm — and NEVER by the loop itself. So once a campaign was rolling,
+# _end_flush → _begin_next → _end_run → _end_flush → … chained through the
+# whole queue no matter what the toggle said. Turning it off mid-campaign
+# changed one thing only: a newly arriving condition no longer auto-started if
+# the reactor happened to be idle at that instant. The rig kept going.
+
+def _armed_and_running(c, rid="r001", extra=()):
+    """Get to 'r001 is synthesising' with auto-run on and `extra` queued."""
+    c.set_auto_run(True)
+    c.submit(recipe(rid))
+    for e in extra:
+        c.submit(recipe(e))
+    c._end_flush()                 # blank done -> arming
+    assert c.state == "arming"
+    c._enter_running()
+    assert c.state == "running"
+    return c
+
+
+def test_r27_stopping_autonomous_lets_the_current_condition_finish():
+    """Explicitly NOT an abort. Nothing is interrupted."""
+    c = make_controller()
+    _armed_and_running(c, "r001", extra=("r002",))
+    c.set_auto_run(False)
+    assert c.state == "running", "stopping autonomous interrupted the run"
+    assert c.pausing() is True
+    assert c.status()["pausing"] is True
+
+
+def test_r27_the_loop_pauses_after_that_conditions_flush():
+    """The whole point: run → flush → STOP, with the queue kept."""
+    c = make_controller()
+    _armed_and_running(c, "r001", extra=("r002", "r003"))
+    c.set_auto_run(False)
+
+    c._run_reason = "test"
+    c._end_run(flush=True)
+    assert c.state == "flushing"
+    c._end_flush()
+
+    assert c.state == "ready", f"the loop carried on into {c.state}"
+    assert c.current is None
+    assert list(c.status()["queue"]) == ["r002", "r003"], "the queue was not kept"
+    assert all(p.target == 0 for p in c.pumps.pumps.values()), "pumps left flowing"
+    assert c.status()["paused_with_queue"] is True
+    assert said(c, "PAUSED"), "the pause was silent"
+
+
+def test_r27_a_paused_flush_does_not_stage_the_next_conditions_blank():
+    """With the loop paused, staging the next blank would pair a sample with a
+    background taken BEFORE the operator changed the exposure — which is the
+    very thing they stop the loop to do."""
+    c = make_controller()
+    _armed_and_running(c, "r001", extra=("r002",))
+    c.set_auto_run(False)
+    c._run_reason = "test"
+    c._end_run(flush=True)
+    assert c._flush_kind == "flush", "a blank was staged while paused"
+    assert c._pending is None
+    assert c._bkg_recipe_id == ""
+
+
+def test_r27_the_data_collection_settings_unlock_while_paused():
+    """The reason the operator wants the pause. Frozen during a campaign by
+    design (they define what an acquisition IS); editable the moment the loop
+    has actually stopped."""
+    c = make_controller()
+    _armed_and_running(c, "r001", extra=("r002",))
+    c.set_auto_run(False)
+    assert c.status()["spec"]["locked"] is True, "settings unlocked mid-run"
+
+    c._run_reason = "test"
+    c._end_run(flush=True)
+    c._end_flush()
+
+    assert c.status()["spec"]["locked"] is False, \
+        "still frozen after the loop paused — the operator cannot change anything"
+    ok, msg = c.set_spec_settings({"exposure_s": "20", "frames": "5",
+                                   "spec_lead_s": "60"})
+    assert ok, msg
+    assert (c._spec_exposure, c._spec_frames, c._spec_lead) == (20.0, 5, 60.0)
+
+
+def test_r27_resuming_uses_the_new_settings_and_the_kept_queue():
+    """End to end, the operator's sentence."""
+    c = make_controller()
+    _armed_and_running(c, "r001", extra=("r002", "r003"))
+    c.set_auto_run(False)
+    c._run_reason = "test"
+    c._end_run(flush=True)
+    c._end_flush()
+    c.set_spec_settings({"exposure_s": "20", "frames": "5", "spec_lead_s": "60"})
+
+    c.logs.clear()
+    c.set_auto_run(True)
+
+    assert c.state == "flushing" and c._flush_kind == "blank", \
+        "resuming did not pick the queue back up"
+    assert c._bkg_recipe_id == "r002", "resumed on the wrong condition"
+    assert list(c.status()["queue"]) == ["r003"]
+    assert (c._spec_exposure, c._spec_frames, c._spec_lead) == (20.0, 5, 60.0), \
+        "the new acquisition settings were not carried into the resumed run"
+    assert said(c, "resuming with 2 queued"), \
+        "resuming did not say what it was about to do, or with what settings"
+
+
+def test_r27_conditions_still_queue_while_paused():
+    """'Keep queuing the new condition only.' Intake is unaffected by the
+    pause — it just must not START anything."""
+    c = make_controller()
+    _armed_and_running(c, "r001")
+    c.set_auto_run(False)
+    c._run_reason = "test"
+    c._end_run(flush=True)
+    c._end_flush()
+    assert c.state == "ready"
+
+    c.submit(recipe("r050"))          # arrives while paused
+    assert list(c.status()["queue"]) == ["r050"]
+    assert c.state == "ready", "a condition arriving while paused started itself"
+
+
+def test_r27_start_runs_exactly_one_condition_while_paused():
+    """Manual mode falls out of the same change: Start takes one, and the loop
+    stops again after its flush instead of running away with the queue."""
+    c = make_controller()
+    c.submit(recipe("r060"))
+    c.submit(recipe("r061"))
+    assert c.auto_run is False
+
+    c.start()
+    c._end_flush()                      # blank -> arming r060
+    c._enter_running()
+    c._run_reason = "test"
+    c._end_run(flush=True)
+    c._end_flush()
+
+    assert c.state == "ready"
+    assert list(c.status()["queue"]) == ["r061"], \
+        "Start ran on past the one condition it was asked for"
+
+
+def test_r27_turning_it_off_says_when_the_pause_takes_effect():
+    """'OFF' alone reads as 'stopping now' while the rig has ten more minutes
+    of synthesis in front of it."""
+    c = make_controller()
+    _armed_and_running(c, "r001")
+    c.logs.clear()
+    c.set_auto_run(False)
+    assert said(c, "will FINISH"), "the operator is not told the pause is deferred"
+    assert said(c, "Nothing is interrupted")
+
+
+def test_r27_the_ui_distinguishes_pausing_from_paused_from_running():
+    tpl = (_ROOT / "reactor" / "templates" / "index.html").read_text()
+    assert "st.pausing" in tpl, "the UI cannot tell 'pausing' from 'off'"
+    assert "Pausing after this condition" in tpl
+    assert "st.paused_with_queue" in tpl

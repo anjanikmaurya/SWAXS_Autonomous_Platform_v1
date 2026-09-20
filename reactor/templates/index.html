@@ -780,8 +780,22 @@ function render(st){
   $('s-state').textContent=st.state;
   _autoOn=st.auto_run;
   const _ab=$('autoBtn');
-  if(_ab){_ab.textContent=st.auto_run?'⏸ Stop autonomous':'▶ Run autonomously';
-          _ab.className='btn '+(st.auto_run?'btn-warn':'btn-ok');}
+  // Three states, not two. "Pausing" is the one that was missing: auto-run is
+  // off but the current condition is still running, so the button said
+  // "Run autonomously" while the rig carried on for another ten minutes.
+  if(_ab){
+    if(st.pausing){
+      _ab.textContent='⏳ Pausing after this condition';
+      _ab.className='btn btn-warn';
+      _ab.title='Auto-run is off. The current condition will finish and its line will flush, then the loop stops. Click to resume without pausing.';
+    } else {
+      _ab.textContent=st.auto_run?'⏸ Stop autonomous':'▶ Run autonomously';
+      _ab.className='btn '+(st.auto_run?'btn-warn':'btn-ok');
+      _ab.title=st.auto_run
+        ? 'Stop after the current condition finishes and flushes. Nothing is interrupted; the queue is kept.'
+        : 'Start working through the queue automatically, using the data-collection settings as they are now.';
+    }
+  }
   // Reflect the EFFECTIVE run settings from the server ONCE on load, so every
   // field shows what a run would actually use (restored value or config default)
   // — never a stale value or an HTML default that silently diverges. After this
@@ -916,7 +930,17 @@ function render(st){
     const qn = $('queueNote');
     if(qn){
       const waiting = st.queue.length;
-      if(waiting && !st.auto_run){
+      if(st.pausing){
+        qn.style.display='';
+        qn.textContent = `⏳ Pausing — ${st.current_recipe ? st.current_recipe.recipe_id : 'the current condition'} `
+          + `will finish and flush, then the loop stops. Nothing is being interrupted.`
+          + (waiting ? ` ${waiting} more waiting.` : '');
+      } else if(st.paused_with_queue){
+        qn.style.display='';
+        qn.textContent = `⏸ Paused — ${waiting} condition${waiting>1?'s':''} waiting, line flushed, pumps idle. `
+          + `This is the moment to change exposure / frames / trigger-before-end: they are unlocked now and `
+          + `the new values apply when you resume. Press Start for one, or Run autonomously for all.`;
+      } else if(waiting && !st.auto_run){
         qn.style.display='';
         qn.textContent = `⏸ ${waiting} condition${waiting>1?'s':''} waiting — autonomous mode is OFF, `
           + `so nothing will start on its own. Their files stay in the conditions folder until they run. `
