@@ -356,6 +356,7 @@ Encoding failures drop the single event, not the connection.
 |---|---|
 | [QUICKSTART.md](QUICKSTART.md) | Install and first run, all platforms |
 | [README.md](README.md) | What the platform does, app-by-app |
+| `docs/CHANGELOG.md` | Running summary of notable changes — start here to catch up |
 | [SECURITY.md](SECURITY.md) | AI token handling |
 | [SYNC.md](SYNC.md) | Working across two laptops |
 | `docs/ARCHITECTURE.md` | System design, event bus, manifest v2 |

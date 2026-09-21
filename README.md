@@ -34,6 +34,8 @@ For self-driving nanoparticle synthesis at the beamline, the reactor and analyze
 
 **Autonomous Synthesis** sets the temperature and flows for a recipe → triggers a SPEC 2D collection of the reacting sample (and a background during flush), tagged by `recipe_id` → the data pipeline reduces/averages/subtracts it → the **Analyzer** fits size/PDI/phase and the **optimizer** (`src/optimizer`) proposes the next conditions → the reactor runs them. Temperature and beamline actions go through the SPEC bServer; Stop/E-stop act on pumps only and never interrupt an in-progress X-ray collection. See the reactor doc set under `docs/` before a run.
 
+**Run vs. pause vs. stop.** *Run autonomously* arms the loop. *Stopping* it **pauses** rather than aborting: the current condition finishes and its line flushes, then the loop waits at *ready* with the queue kept — and that paused window is when the beamline settings (exposure, frames, trigger-before-end) unlock for editing, applied when you re-arm. New condition files keep queuing while paused; their files stay in the watched folder until the reactor has actually run them, and a restart starts from a clean queue. Run and beamline settings both persist across a restart. Notifications are Auto Watch's alone (port 5110). Full history: `docs/CHANGELOG.md`; correctness/safety detail: `docs/audits/REACTOR_AUDIT.md`.
+
 ---
 
 ## Quick start
@@ -340,7 +342,8 @@ is, and the safety notes for anything that can drive the reactor.
 ### Reference
 
 - **`CLAUDE.md`** — developer guide and full `config.yml` reference.
-- **`docs/`** — extended documentation: `ARCHITECTURE.md` (system design), `DESIGN_SYSTEM.md`, app specs, and `docs/audits/` (point-in-time correctness/safety audits).
+- **`docs/CHANGELOG.md`** — running summary of notable changes (start here to catch up on recent development).
+- **`docs/`** — extended documentation: `ARCHITECTURE.md` (system design), `DESIGN_SYSTEM.md`, app specs, and `docs/audits/` (point-in-time correctness/safety audits, incl. `REACTOR_AUDIT.md`).
 - **Reactor / beamtime docs** — `docs/REACTOR_SETUP.md` (software install/run), `docs/REACTOR_HARDWARE_SETUP.md` (fluidics + temperature + beamline wiring), `docs/REACTOR_MAP.md` (code map / troubleshooting), `tools/BEAMLINE_TESTING.md` (bench-test runbook), and `docs/audits/PRE_BEAMTIME_READINESS.md` + `BEAMLINE_SAFETY_AUDIT.md`.
 - **`apps.yml`** — the app registry. Add an app here and the hub picks it up; no hub code changes needed.
 - **`check_imports.py`** — `python check_imports.py` audits which `src/` modules each app uses.
