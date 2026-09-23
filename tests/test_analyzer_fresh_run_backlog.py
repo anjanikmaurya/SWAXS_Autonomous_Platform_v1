@@ -305,3 +305,49 @@ def test_the_route_says_why_continue_is_unavailable(tmp_path, monkeypatch):
     _campaign_rec(tmp_path, cid="c12", run_no=12, started="2026-09-04T00:00:00")
     r = client.get("/api/campaign/incomplete").get_json()
     assert r["run_tag"] == "Run12" and "reason" not in r, r
+
+
+# ── a profile that already has a Fit record is never re-fit ──────────────────
+# Reported from the live log: on restart the analyzer re-fit the ENTIRE history
+# (Run2…Run36) in one burst. Cause: decide_intake keys on the file SIGNATURE, so
+# an upstream re-subtract/re-classify pass (or a reseed with a stale signature)
+# makes an already-fit profile look new. The durable Fit record is the correct
+# idempotency key: if fit_<stem>.dat exists, the profile has been fit — skip it
+# regardless of signature.
+def test_a_profile_with_a_fit_record_is_not_refit_when_it_is_retouched(tmp_path, monkeypatch):
+    sub, fit = _sub_dir(tmp_path), _fit_dir(tmp_path)
+    s = "Run6_r012_sample"
+    p = _profile(sub, s, age_s=7200)
+    _with_fit_record(fit, s)                       # already fit last session
+    az._reseed_intake("boot")
+
+    fitted: list = []
+    monkeypatch.setattr(az, "_analyze_file", lambda x: fitted.append(x.name))
+
+    # an upstream reprocess rewrites the subtracted file → new signature
+    import os
+    p.write_text("# header\n1.0 2.1 0.1\n", encoding="utf-8")
+    os.utime(p, None)                              # touch → mtime now
+    az._watch_once(); az._watch_once()
+    assert fitted == [], "an already-fit profile was re-fit after being re-touched"
+
+
+def test_a_restart_reprocess_storm_does_not_refit_the_back_catalogue(tmp_path, monkeypatch):
+    """The whole-history burst from the log: 40 old profiles, all with Fit
+    records, all freshly re-touched (recent mtime) so _triage_backlog's 'recent'
+    escape would otherwise keep them. None may be re-fit; only a genuinely new
+    profile is."""
+    sub, fit = _sub_dir(tmp_path), _fit_dir(tmp_path)
+    import os
+    for i in range(40):
+        s = f"Run6_r{i:03d}_sample"
+        p = _profile(sub, s, age_s=1.0)            # re-touched just now
+        _with_fit_record(fit, s)                   # but already fit
+        os.utime(p, None)
+    new = _profile(sub, "Run36_r014_sample", age_s=1.0)   # never fit
+
+    fitted: list = []
+    monkeypatch.setattr(az, "_analyze_file", lambda x: fitted.append(x.name))
+    az._watch_once(); az._watch_once()
+    assert fitted == [new.name], \
+        f"expected only the new profile, re-fit {len(fitted)}: {fitted[:5]}"

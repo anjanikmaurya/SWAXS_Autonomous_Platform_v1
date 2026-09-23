@@ -1200,6 +1200,7 @@ def _watch_once() -> None:
         # non-recursive: analyze only the flat Subtracted/*.dat, NOT the
         # Good/ & NeedsReview/ copies the Quality app makes (avoids re-analysis)
         files = sorted(d.glob("*.dat"), key=lambda p: p.stat().st_mtime)
+        fit_dir = _resolve_fit()
         present = set()
         # Decide for every file FIRST, fit second: the fit-me list has to be
         # known in full before any fitting starts, or _triage_backlog can't
@@ -1210,6 +1211,20 @@ def _watch_once() -> None:
             try:
                 st = f.stat(); sig = (st.st_size, st.st_mtime_ns)
             except OSError:
+                continue
+            # IDEMPOTENT ON THE DURABLE FIT RECORD. decide_intake keys on the
+            # file SIGNATURE (size+mtime), so anything that re-touches a
+            # subtracted profile — an upstream re-subtract/re-classify storm on
+            # restart, a folder resync, a reseed with a stale signature — makes
+            # the profile look new and the analyzer re-fits it. That is the
+            # reported "autofit keeps loading the old runs": the whole
+            # back-catalogue re-fit while a live run waited behind it. A profile
+            # that already has Results/Fit/fit_<stem>.dat has been fit; skip it
+            # for good, whatever its signature. New profiles (no record yet) are
+            # untouched, and rebuilding a past campaign reads these records
+            # directly (_load_fit_records_for_campaign), not through this watcher.
+            if (fit_dir / f"fit_{f.stem}.dat").is_file():
+                _handled[key] = sig; _lastsig.pop(key, None)
                 continue
             action = decide_intake(key, sig, _handled, _lastsig)
             if action == "skip":
