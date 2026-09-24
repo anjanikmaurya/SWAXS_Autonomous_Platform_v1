@@ -139,7 +139,18 @@ def _resolve_sub() -> Path:
     The Quality Gate COPIES profiles into Good/ and NeedsReview/ and leaves the
     original in place, so watching the flat folder meant every rejected profile
     was still fitted and fed to the Bayesian campaign — the gate had no effect on
-    the data path at all. Prefer Good/ whenever it exists.
+    the data path at all. So we prefer Good/ — but ONLY when it actually holds
+    data.
+
+    The trap this avoids: a bare, empty Good/ (left over from a past run, or
+    present because the Quality Gate app simply isn't running this session)
+    used to divert the analyzer to it the moment the *directory* existed. With
+    the gate not populating it, the analyzer then watched an empty folder,
+    never saw the profiles sitting in the flat Subtracted/, fitted nothing, and
+    the optimizer starved — the loop silently stalled. Auto mode now keys on
+    Good/ HAVING .dat data, not merely existing. `mode="good"` stays strict
+    (require Good/ even if empty) for operators who opt into hard gating;
+    `mode="off"` always reads the flat folder.
     """
     global _gate_note_shown
     base = _resolve_sub_base()
@@ -147,7 +158,16 @@ def _resolve_sub() -> Path:
     if mode == "off":
         return base
     good = base / "Good"
-    if mode == "good" or good.is_dir():
+    if mode == "good":
+        if not _gate_note_shown:
+            _gate_note_shown = True
+            _emit(f"🔒 quality gate REQUIRED — analysing {good} only "
+                  f"(rejected/unclassified profiles are never fitted)", "ok")
+        return good
+    # auto: honour the gate only when it is actually producing Good/ profiles.
+    # Re-evaluated every poll, so if the gate starts later the analyzer switches
+    # to Good/ on the next poll with no restart.
+    if good.is_dir() and any(good.glob("*.dat")):
         if not _gate_note_shown:
             _gate_note_shown = True
             _emit(f"🔒 quality gate honoured — analysing {good} only "
@@ -155,9 +175,16 @@ def _resolve_sub() -> Path:
         return good
     if not _gate_note_shown:
         _gate_note_shown = True
-        _emit(f"⚠ no Good/ folder yet — analysing every subtracted profile in "
-              f"{base}. Start the Quality Gate so bad profiles can't reach the "
-              f"optimizer.", "warn")
+        if good.is_dir():
+            _emit(f"⚠ Good/ exists but holds no profiles — the Quality Gate "
+                  f"isn't populating it, so analysing the flat {base} instead "
+                  f"(otherwise the optimizer would starve and the loop stall). "
+                  f"Run the Quality Gate to gate, or set gate mode 'off' to "
+                  f"silence this.", "warn")
+        else:
+            _emit(f"⚠ no Good/ folder — analysing every subtracted profile in "
+                  f"{base}. Start the Quality Gate so bad profiles can't reach "
+                  f"the optimizer.", "warn")
     return base
 
 
@@ -1197,8 +1224,10 @@ def _watch_once() -> None:
     tests can drive a single poll directly, with no thread and no Flask app."""
     d = _resolve_sub()
     if d.is_dir():
-        # non-recursive: analyze only the flat Subtracted/*.dat, NOT the
-        # Good/ & NeedsReview/ copies the Quality app makes (avoids re-analysis)
+        # non-recursive glob of the WATCHED dir (from _resolve_sub: Good/ when
+        # the gate is populating it, else the flat Subtracted/). Non-recursive so
+        # the Good/ & NeedsReview/ copies never get double-analysed alongside the
+        # flat originals.
         files = sorted(d.glob("*.dat"), key=lambda p: p.stat().st_mtime)
         fit_dir = _resolve_fit()
         present = set()
