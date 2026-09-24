@@ -532,7 +532,8 @@ _TOOLS: list[dict] = [
     {
         "name":        "fit_model",
         "description": (
-            "Run a sasmodels form-factor fit on ONE averaged sample and return "
+            "Run a sasmodels form-factor fit on ONE sample (the subtracted curve "
+            "when one matches, else the averaged) and return "
             "the fitted parameters, reduced chi-square, and an inline data+fit "
             "plot with a residuals panel. Only call this AFTER the user has "
             "agreed to a recommended model and starting parameters (recommend → "
@@ -543,7 +544,9 @@ _TOOLS: list[dict] = [
             "type": "object",
             "properties": {
                 "keyword":    {"type": "string",
-                               "description": "Substring selecting the sample (averaged file)."},
+                               "description": "Substring selecting the sample "
+                               "(subtracted preferred, else averaged; most recent "
+                               "when several match)."},
                 "model_name": {"type": "string",
                                "description": "sasmodels model (e.g. 'sphere', 'lamellar', 'broad_peak')."},
                 "params": {
@@ -702,7 +705,10 @@ _TOOLS: list[dict] = [
             "type": "object",
             "properties": {
                 "keyword":  {"type": "string",
-                             "description": "Sample name substring (matches an averaged sample)."},
+                             "description": "Sample name substring. The subtracted "
+                             "curve is used when one matches, else the averaged; "
+                             "when several match (or the keyword is broad) the most "
+                             "recent is used. Leave broad for 'the latest run'."},
                 "detector": {"type": "string", "enum": ["SAXS", "WAXS"]},
                 "dmax":     {"type": "number",
                              "description": "Optional Dmax hint (nm); auto-estimated if omitted."},
@@ -1889,22 +1895,58 @@ class SWAXSAssistant:
             msg += f", truncated to {qtxt}"
         return msg + ".", b64
 
-    def _find_averaged_sample(self, project_root, keyword: str, detector: str):
-        """Locate ONE averaged file entry matching keyword+detector.
-        Returns (entry_dict, manifest, all_matches) or (None, manifest, matches)."""
-        from src.manifest import load_manifest, manifest_path_for
+    def _find_sample(self, project_root, keyword: str, detector: str,
+                     stages=("subtracted", "averaged")):
+        """Locate ONE data-file entry matching keyword+detector, searching
+        `stages` in preference order (default: the subtracted curve first —
+        that is what you analyse — then the averaged one). Within the first
+        stage that has any match, the MOST RECENT file (by manifest
+        ``created_at``, then name) is returned, so "the latest run" resolves
+        even when the keyword is broad or omitted.
+
+        Returns (entry, manifest, matches, stage) where `matches` are all the
+        candidates in the winning stage, newest-first, and `stage` is which
+        stage won (None when nothing matched)."""
+        from src.manifest import manifest_path_for
         root  = Path(project_root)
         mpath = root if root.is_file() else manifest_path_for(root)
         mf    = _load_manifest_cached(mpath)
         kw    = (keyword or "").lower()
         det   = (detector or "saxs").lower()
-        matches = [
-            v for k, v in mf.get("files", {}).items()
-            if v.get("stage") == "averaged"
-            and (v.get("detector") or "").lower() == det
-            and (not kw or kw in Path(k).name.lower())
-        ]
-        return (matches[0] if matches else None), mf, matches
+        items = mf.get("files", {}).items()
+
+        def _recency(kv):
+            k, v = kv
+            return (v.get("created_at") or "", Path(k).name)
+
+        for stage in stages:
+            matches = [
+                v for k, v in sorted(items, key=_recency, reverse=True)
+                if v.get("stage") == stage
+                and (v.get("detector") or "").lower() == det
+                and (not kw or kw in Path(k).name.lower())
+            ]
+            if matches:
+                return matches[0], mf, matches, stage
+        return None, mf, [], None
+
+    @staticmethod
+    def _pick_note(matches, entry, detector, stage, keyword):
+        """One-line note when several files matched and the newest was chosen,
+        so the auto-pick is never silent. Empty string for a single match."""
+        if len(matches) <= 1:
+            return ""
+        return (f"({len(matches)} {detector.upper()} {stage} files matched "
+                f"'{keyword}'; using the most recent, "
+                f"{Path(entry.get('path','')).name} — give a more specific "
+                f"keyword to pick another.) ")
+
+    def _find_averaged_sample(self, project_root, keyword: str, detector: str):
+        """Back-compat wrapper: averaged stage only, newest-first.
+        Returns (entry_dict, manifest, all_matches)."""
+        entry, mf, matches, _stage = self._find_sample(
+            project_root, keyword, detector, stages=("averaged",))
+        return entry, mf, matches
 
     def _tool_fit_model(
         self, inp: dict, project_root: str | Path | None,
@@ -1922,13 +1964,11 @@ class SWAXSAssistant:
         if not keyword or not model or not params:
             return "fit_model needs keyword, model_name, and params.", None
 
-        entry, _mf, matches = self._find_averaged_sample(project_root, keyword, det)
+        entry, _mf, matches, stage = self._find_sample(project_root, keyword, det)
         if entry is None:
-            return (f"No averaged {det.upper()} sample matched '{keyword}'."), None
-        if len(matches) > 1:
-            names = ", ".join(Path(m["path"]).name for m in matches[:5])
-            return (f"'{keyword}' matched {len(matches)} {det.upper()} samples "
-                    f"({names}…). Please narrow the keyword to one sample."), None
+            return (f"No subtracted or averaged {det.upper()} sample matched "
+                    f"'{keyword}'."), None
+        pick_note = self._pick_note(matches, entry, det, stage, keyword)
 
         q, I, sigma = _load_dat(entry.get("path", ""))
         if q is None:
@@ -1964,8 +2004,8 @@ class SWAXSAssistant:
             p.get("q_fit", q),  p.get("I_fit", I),
             sigma=sigma, model=model, chi2=res.get("chi2"), axis=axis)
         pstr = ", ".join(f"{k}={v:.4g}" for k, v in res.get("params", {}).items())
-        return (f"Fitted '{model}' to {Path(entry['path']).name}: "
-                f"reduced χ² = {res.get('chi2')}. Parameters: {pstr}. "
+        return (f"{pick_note}Fitted '{model}' to {Path(entry['path']).name} "
+                f"({stage}): reduced χ² = {res.get('chi2')}. Parameters: {pstr}. "
                 "Review the residuals; tell me to iterate (adjust guesses/free "
                 "params) or try another model if they're not flat."), b64
 
@@ -2042,13 +2082,11 @@ class SWAXSAssistant:
         if not keyword:
             return "compute_pr needs a keyword to locate the sample.", None
 
-        entry, _mf, matches = self._find_averaged_sample(project_root, keyword, det)
+        entry, _mf, matches, stage = self._find_sample(project_root, keyword, det)
         if entry is None:
-            return (f"No averaged {det.upper()} sample matched '{keyword}'."), None
-        if len(matches) > 1:
-            names = ", ".join(Path(m["path"]).name for m in matches[:5])
-            return (f"'{keyword}' matched {len(matches)} {det.upper()} samples "
-                    f"({names}…). Narrow the keyword to one sample."), None
+            return (f"No subtracted or averaged {det.upper()} sample matched "
+                    f"'{keyword}'."), None
+        pick_note = self._pick_note(matches, entry, det, stage, keyword)
 
         q, I, sigma = _load_dat(entry.get("path", ""))
         if q is None:
@@ -2066,7 +2104,7 @@ class SWAXSAssistant:
         from src.ai.plots import plot_pair_distance
         b64 = plot_pair_distance(res["r"], res["pr"], Dmax=res.get("Dmax"),
                                  title=f"p(r): {Path(entry['path']).name}")
-        return (f"p(r) for {Path(entry['path']).name}: "
+        return (f"{pick_note}p(r) for {Path(entry['path']).name} ({stage}): "
                 f"Rg = {res['Rg']} nm, Dmax = {res['Dmax']} nm, I0 = {res['I0']} "
                 f"(IFT reduced χ² = {res['chi2']}). "
                 "Check that p(r) returns smoothly to zero at Dmax — if it's "
