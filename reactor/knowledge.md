@@ -48,6 +48,21 @@ Three ways in:
      was moved at parse time and the queue lived only in memory, so a restart
      lost every waiting condition from both places, silently.
 
+   **The reactor is a pure consumer — startup order does not matter.** As of
+   late September 2026 the reactor no longer clears its queue on boot (shipped
+   `run.clear_queue_on_restart: false`). It reads and runs whatever is queued,
+   in order, whenever it comes up, so you can start the reactor and the
+   optimizer in either order: a cold-start condition the optimizer writes before
+   the reactor boots is simply picked up when the watcher goes live, and a
+   mid-campaign reactor restart resumes the queue where it left off. Staleness is
+   now the optimizer's job — when it starts a NEW campaign it sets aside any
+   leftover conditions from a previous run (they would otherwise be dosed against
+   the new target). Nothing is deleted; a set-aside file lands in `done/` with a
+   note and can be moved back to run it. Setting `run.clear_queue_on_restart:
+   true` restores the old "every start begins with an empty queue" behaviour, but
+   do NOT combine it with starting the optimizer first — it would sweep away the
+   first cold-start condition.
+
    The folder can be changed live from the app's "📁 Conditions folder" card
    (the path must already exist); the override is persisted in
    `reactor_settings.json` at the project root and reloaded on the next start.

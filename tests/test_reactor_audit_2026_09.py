@@ -1155,22 +1155,39 @@ def test_r27_the_ui_distinguishes_pausing_from_paused_from_running():
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# R28 — a restart starts with an empty queue
+# R28 / order-free startup — the reactor is a PURE CONSUMER
 # ═════════════════════════════════════════════════════════════════════════════
-# Operator: "i would like to clear the queue automatically if reactor app was
-# stopped from hub and restarted it."
+# The original R28 cleared the queue on EVERY start. That made startup
+# ORDER-DEPENDENT: starting the optimizer first — so it wrote the first
+# cold-start condition before the reactor booted — meant the reactor swept that
+# condition into done/ as "NOT RUN" and the loop stalled.
 #
-# This is the deliberate counterpart to R26. Condition files stay in the
-# watched folder until the reactor has finished with them, which makes a queue
-# survive a crash — and means a restart would otherwise inherit whatever the
-# optimizer had proposed before the stop. Those proposals are stale: they were
-# computed against the data available then.
-#
-# Clearing the in-memory queue alone achieves nothing, because the watcher
-# re-reads the same files within one poll. The FILES have to be set aside.
-# Nothing is deleted.
+# New policy (order-free): the reactor never clears on boot by default. It
+# consumes whatever is queued, in order, whenever it comes up, so the reactor
+# and the optimizer can be started in either order. Staleness is the PRODUCER's
+# job now: the optimizer sets aside leftovers when it starts a NEW campaign (see
+# test_optimiser_new_campaign_clears_leftovers). The legacy every-start clear
+# stays available as an explicit opt-in (run.clear_queue_on_restart: true).
 
-def test_r28_a_restart_sets_aside_conditions_left_over_from_before(tmp_path, monkeypatch):
+def test_orderfree_a_condition_present_at_boot_is_consumed(tmp_path, monkeypatch):
+    """Optimiser-first startup: a cold-start condition already in the folder when
+    the reactor boots must be picked up and run, not swept away."""
+    conds = tmp_path / "1D" / "SAXS" / "Conditions"
+    conds.mkdir(parents=True)
+    _drop(conds, "r001")                     # written before the reactor is up
+
+    mod, _ = _boot_app(tmp_path, monkeypatch)
+    try:
+        assert _wait_queue(mod._ctrl, 1) == ["r001"], \
+            "the reactor did not pick up a condition that predated its boot"
+        assert _txt(conds / "done") == [], \
+            "a fresh cold-start condition was swept to done/"
+    finally:
+        mod._ctrl.shutdown(collect_wait_s=0.0)
+
+
+def test_orderfree_restart_resumes_the_queue_by_default(tmp_path, monkeypatch):
+    """Default is now consume/resume, not clear — nothing goes to done/ on boot."""
     conds = tmp_path / "1D" / "SAXS" / "Conditions"
     conds.mkdir(parents=True)
     for rid in ("r001", "r002"):
@@ -1178,88 +1195,50 @@ def test_r28_a_restart_sets_aside_conditions_left_over_from_before(tmp_path, mon
 
     mod, _ = _boot_app(tmp_path, monkeypatch)
     try:
-        assert list(mod._ctrl.status()["queue"]) == [], "the restart inherited the queue"
-        assert _txt(conds) == [], "the leftover files are still waiting to be read"
-        assert _txt(conds / "done") == ["r001.txt", "r002.txt"]
+        assert _wait_queue(mod._ctrl, 2) == ["r001", "r002"]
+        assert _txt(conds / "done") == [], "the default start wrongly cleared the queue"
     finally:
         mod._ctrl.shutdown(collect_wait_s=0.0)
 
 
-def test_r28_nothing_is_deleted_and_the_file_says_why(tmp_path, monkeypatch):
-    """A cleared condition has to be recoverable — move it back and it runs."""
+def test_orderfree_default_off_when_flag_absent(tmp_path, monkeypatch):
+    """With no explicit flag, the clear helper is a no-op (order-free default)."""
+    conds = tmp_path / "1D" / "SAXS" / "Conditions"
+    conds.mkdir(parents=True)
+    _drop(conds, "r040")
+    mod, _ = _boot_app(tmp_path, monkeypatch)
+    try:
+        mod._CFG.setdefault("run", {}).pop("clear_queue_on_restart", None)
+        assert mod._clear_stale_conditions() == 0, "default must be OFF (no clear)"
+        assert "r040.txt" in _txt(conds)
+    finally:
+        mod._ctrl.shutdown(collect_wait_s=0.0)
+
+
+def test_orderfree_legacy_optin_still_clears_and_is_recoverable(tmp_path, monkeypatch):
+    """run.clear_queue_on_restart: true restores the old every-start clear — the
+    file is moved to done/ with a recoverable note. Called directly with the flag
+    on, since boot no longer does it by default."""
     conds = tmp_path / "1D" / "SAXS" / "Conditions"
     conds.mkdir(parents=True)
     _drop(conds, "r010")
 
     mod, _ = _boot_app(tmp_path, monkeypatch)
     try:
+        mod._CFG.setdefault("run", {})["clear_queue_on_restart"] = True
+        assert mod._clear_stale_conditions() == 1
         body = (conds / "done" / "r010.txt").read_text()
         assert "T_reac = 240" in body, "the recipe itself was not preserved"
         assert "NOT RUN" in body
-        assert "clear_queue_on_restart" in body, \
-            "the file does not say which setting cleared it"
+        assert "clear_queue_on_restart" in body
         assert "Move this file back" in body, "no route back for the operator"
     finally:
         mod._ctrl.shutdown(collect_wait_s=0.0)
 
 
-def test_r28_it_is_announced_not_silent(tmp_path, monkeypatch):
-    """Two conditions vanishing at start-up must not be a quiet event.
-
-    This assertion is why the first version of the feature was caught: it
-    referenced _watch_handled, which was declared FURTHER DOWN the module than
-    the start-up helper that used it, so the NameError went into a broad
-    `except` and the log said "could not clear leftover conditions" while the
-    files had in fact already been moved. The success line never printed."""
-    conds = tmp_path / "1D" / "SAXS" / "Conditions"
-    conds.mkdir(parents=True)
-    for rid in ("r020", "r021"):
-        _drop(conds, rid)
-
-    mod, _ = _boot_app(tmp_path, monkeypatch)
-    try:
-        lines = [e["msg"] for _s, e in mod._log]
-        assert any("empty queue" in m for m in lines), \
-            "the clear-out was silent, or it failed and reported a warning"
-        assert not any("could not clear" in m for m in lines)
-        assert any("set aside 2 leftover" in m for m in lines), \
-            "the count is not in the log"
-    finally:
-        mod._ctrl.shutdown(collect_wait_s=0.0)
-
-
-def test_r28_a_condition_arriving_after_startup_is_still_picked_up(tmp_path, monkeypatch):
-    """Only the leftovers are cleared. The watcher must carry on normally, or
-    this feature would stop the campaign rather than resetting it."""
-    mod, conds = _boot_app(tmp_path, monkeypatch)
-    try:
-        _drop(conds, "r030")
-        assert _wait_queue(mod._ctrl, 1) == ["r030"]
-        assert _txt(conds) == ["r030.txt"], "a fresh condition was set aside too"
-    finally:
-        mod._ctrl.shutdown(collect_wait_s=0.0)
-
-
-def test_r28_the_behaviour_can_be_turned_off(tmp_path, monkeypatch):
-    """`run.clear_queue_on_restart: false` restores crash-resume."""
-    conds = tmp_path / "1D" / "SAXS" / "Conditions"
-    conds.mkdir(parents=True)
-    _drop(conds, "r040")
-
-    mod, _ = _boot_app(tmp_path, monkeypatch)
-    try:
-        mod._CFG.setdefault("run", {})["clear_queue_on_restart"] = False
-        _drop(conds, "r041")                      # a second leftover
-        assert mod._clear_stale_conditions() == 0, \
-            "the setting is not honoured — leftovers are cleared regardless"
-        assert "r041.txt" in _txt(conds)
-    finally:
-        mod._ctrl.shutdown(collect_wait_s=0.0)
-
-
-def test_r28_the_shipped_default_is_on():
+def test_orderfree_the_shipped_default_is_off():
     cfg = yaml.safe_load((_ROOT / "reactor" / "config.yml").read_text())
-    assert cfg["run"]["clear_queue_on_restart"] is True
+    assert cfg["run"]["clear_queue_on_restart"] is False
 
 
 def test_r28_no_function_in_the_reactor_app_is_defined_twice():

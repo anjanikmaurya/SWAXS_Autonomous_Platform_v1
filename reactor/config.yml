@@ -379,6 +379,25 @@ run:
   # reports that auto-run was on and waits for a deliberate Start.
   # Set true only when you want fully unattended recovery.
   resume_auto_run: false
+  # Drop conditions that were still pending when the app stopped.
+  # STARTUP-ORDER POLICY. A condition file stays in the watched folder until the
+  # reactor has finished with it, so the reactor is a PURE CONSUMER: it reads and
+  # runs whatever is queued, in order, whenever it comes up. This makes the
+  # startup order of the reactor and the optimizer irrelevant — start either
+  # first. A cold-start condition the optimizer writes before the reactor boots
+  # is simply picked up when the reactor's watcher goes live.
+  #
+  # Staleness is now the PRODUCER's job: the optimizer sets aside any leftover
+  # conditions when it starts a NEW campaign (it is the only party that knows a
+  # new campaign invalidates old proposals). So a fresh campaign still begins
+  # clean without the reactor having to guess.
+  #
+  #   false (default) — reactor never clears on boot; resumes/consumes the queue
+  #                     (order-free; a mid-campaign reactor restart resumes work)
+  #   true            — legacy: reactor sweeps the queue to done/ on EVERY start.
+  #                     Do NOT combine with optimizer-first startup — it would
+  #                     sweep away the first cold-start condition.
+  clear_queue_on_restart: false
 
 # ── Flush / clean ────────────────────────────────────────────────────────────
 flush:

@@ -6,7 +6,8 @@ and `src/beamline/driver.py`. Four lenses, all requested: hardware safety on
 the real rig, multi-day unattended stability, campaign data integrity, and a
 per-control pass over every button and input in the UI.
 
-> **STATUS — 20 September 2026: 25 of 27 findings FIXED, 1 accepted, 1 deferred.**
+> **STATUS — 20 September 2026: 25 of 27 findings FIXED, 1 accepted, 1 deferred**,
+> plus **R28**, an operator request rather than a finding.
 > **R26 and R27 were found by the operator after the audit closed** — turning
 > autonomous mode off neither stopped the reactor consuming condition files
 > (R26) nor stopped the loop itself (R27). Recorded here rather than quietly
@@ -77,6 +78,7 @@ Severity means consequence on a real beamtime, not code tidiness:
 | [R17](#r17) ✅ | MED | stability | No disconnect indicator — a dead app leaves "running, 240 °C" on screen forever |
 | [R26](#r26) ✅ | MED-HIGH | campaign | Turning autonomous mode OFF did not stop the reactor consuming condition files — **found by the operator, not by this audit** |
 | [R27](#r27) ✅ | HIGH | campaign | **"Stop autonomous" did not stop the autonomous loop** — `auto_run` was never read by the loop, only at intake — **found by the operator** |
+| [R28](#r28) ✅ | — | request | A restart now begins with an empty queue — **operator request**, the deliberate counterpart to R26 |
 
 ✅ fixed · ⚠️ accepted · ⏸ deferred. The eight LOW items in
 [§ Minor](#minor) are all fixed too.
@@ -769,6 +771,66 @@ was no moment at which they unlocked.
 > → flush → `ready`, pumps idle, queue kept → settings unlock → exposure 20 s
 > ×5, lead 60 s accepted → re-arm → resumes on the next condition with the new
 > values, and logs them.
+
+---
+
+### R28 — A restart begins with an empty queue {#r28}
+
+> **SUPERSEDED (late September 2026) by the order-free startup policy.** R28's
+> "every start clears" made startup ORDER-DEPENDENT: starting the optimizer
+> first, so it wrote the first cold-start condition before the reactor booted,
+> meant the reactor swept that condition into `done/` as NOT RUN and the loop
+> stalled. The reactor is now a **pure consumer** — it never clears on boot
+> (shipped `run.clear_queue_on_restart: false`) and consumes the queue in order
+> whenever it comes up, so the reactor and optimizer can start in either order.
+> Staleness moved to the producer: the optimizer sets aside leftovers when it
+> starts a NEW campaign (`analyzer/app.py::_clear_conditions_for_new_campaign`).
+> The every-start clear below remains as an explicit opt-in
+> (`run.clear_queue_on_restart: true`). Held by the `test_orderfree_*` tests and
+> `test_optimiser_new_campaign_clear.py`.
+
+Original request (the deliberate counterpart to [R26](#r26)):
+
+> i would like to clear the queue automatically if reactor app was stopped from
+> hub and restarted it.
+
+R26 made a condition file stay in the watched folder until the reactor has
+finished with it, which is what lets a queue survive a crash — and which also
+meant a restart inherited whatever the optimizer had proposed before the stop.
+Those proposals are stale by then: they were computed against the data
+available at the time.
+
+A process cannot tell a crash from a hub Stop after the fact, so this takes the
+instruction literally — **every** start clears. Note that clearing the
+in-memory queue alone would achieve nothing: the watcher would re-read the same
+files within one poll, so the files have to be set aside too.
+
+> **Implemented** — `_clear_stale_conditions()`, run at start-up after the
+> saved conditions-folder override is loaded (so it clears the right folder)
+> and before the watcher thread starts (so it does not race it). Files move to
+> `done/` with a line naming the setting that cleared them and how to put one
+> back; the count is logged as a warning rather than slipping past in a quiet
+> start-up. Nothing is deleted. A condition arriving *after* start-up is
+> picked up normally. `run.clear_queue_on_restart: false` restores
+> crash-resume.
+>
+> **Two mistakes made writing it, both caught, both now tested:**
+>
+> I added `_clear_stale_conditions` **twice** — two different bodies, the
+> second silently winning — and only noticed because the surviving copy read a
+> different config key than the one I had put in `config.yml`. Python does not
+> complain about a redefinition and nor does any linter configured here, so
+> `test_r28_no_function_in_the_reactor_app_is_defined_twice` now does.
+>
+> The surviving copy cleared the watcher's caches, which are declared **further
+> down the module** than a helper that runs *during* module execution. That
+> raised `NameError` into a broad `except`, which reported "could not clear
+> leftover conditions" while the files had in fact already been moved — the
+> success line never printed. Exactly the swallowed-exception shape this audit
+> spent its time on, committed by me, in the fix for it. The declarations moved
+> above their users and
+> `test_r28_startup_helpers_do_not_reference_state_declared_below_them` keeps
+> them there.
 
 ---
 

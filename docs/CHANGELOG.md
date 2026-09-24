@@ -7,6 +7,25 @@ this file is the running summary. Dates are when the work landed on `main`.
 
 ## September 2026
 
+### Order-free reactor/optimiser startup (supersedes R28)
+
+The reactor is now a **pure consumer**: it no longer clears its queue on boot
+(shipped `run.clear_queue_on_restart: false`) and runs whatever is queued, in
+order, whenever it comes up. The reactor and the optimiser can be started in
+**either order** — a cold-start condition written before the reactor boots is
+picked up when the watcher goes live, and a mid-campaign reactor restart resumes
+the queue. Staleness moved to the producer: the optimiser sets aside leftover
+conditions when it starts a NEW campaign
+(`analyzer/app.py::_clear_conditions_for_new_campaign`). This fixes the stall
+where starting the optimiser first got the first condition swept away as NOT RUN.
+The old "every start begins empty" behaviour is still available as an opt-in
+(`run.clear_queue_on_restart: true`). Held by `test_orderfree_*` in
+`tests/test_reactor_audit_2026_09.py` and `tests/test_optimiser_new_campaign_clear.py`.
+
+Also: the analyzer no longer starves when a stale/empty `Subtracted/Good/` folder
+exists — auto gate mode keys on `Good/` having data, else reads the flat
+`Subtracted/` folder (`tests/test_analyzer_gate_folder.py`).
+
 ### Reactor — deep audit and hardening
 
 A full audit of the reactor app, `src/reactor/`, and `src/beamline/driver.py`

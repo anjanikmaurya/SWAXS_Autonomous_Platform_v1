@@ -563,28 +563,29 @@ def _save_recipes_folder(folder: str) -> None:
 
 
 def _clear_stale_conditions() -> int:
-    """Start each session with an empty queue — set aside anything left over.
+    """Legacy boot-time queue clear — OFF by default (order-free policy).
 
-    Condition files now stay in the watched folder until the reactor has
-    finished with them (R26), which is what makes a queue survive a crash. The
-    operator asked for the opposite on a DELIBERATE restart: stop the app from
-    the hub, start it again, and begin from a clean slate rather than
-    inheriting whatever the optimizer had proposed before.
+    The reactor is now a PURE CONSUMER: condition files stay in the watched
+    folder until the reactor has finished with them (R26), and on boot it simply
+    reads and runs whatever is queued, in order. That makes the startup order of
+    the reactor and the optimizer irrelevant — a cold-start condition written
+    before the reactor boots is picked up when the watcher goes live, instead of
+    being swept away.
 
-    Both are right, for different reasons, and the difference is intent — but
-    a process cannot tell a crash from a hub Stop after the fact, so this takes
-    the operator's instruction literally: EVERY start clears. Clearing the
-    in-memory queue alone would achieve nothing, because the watcher would
-    re-read the same files within one poll; the files have to be set aside too.
+    Staleness moved to the PRODUCER: the optimizer sets aside leftover conditions
+    when it starts a NEW campaign (it alone knows a new campaign invalidates old
+    proposals), so a fresh campaign still begins clean without the reactor
+    guessing. A mid-campaign reactor restart therefore RESUMES the queue, which
+    is what you want.
 
-    NOTHING IS DELETED. Files are moved to the processed folder with a line
-    saying why, so a condition can be put back by moving it out again, and the
-    count is logged loudly rather than slipping past in a quiet start-up.
-
-    Turn it off with ``run.clear_queue_on_restart: false`` to get the
-    crash-resumes-where-it-left-off behaviour instead.
+    This function is retained for operators who explicitly opt back into the old
+    "every start begins with an empty queue" behaviour via
+    ``run.clear_queue_on_restart: true`` — but that must NOT be combined with
+    starting the optimizer first, or it sweeps away the first cold-start
+    condition. When it does run, NOTHING IS DELETED: files are moved to the
+    processed folder with a note and the count is logged.
     """
-    if not bool((_CFG.get("run", {}) or {}).get("clear_queue_on_restart", True)):
+    if not bool((_CFG.get("run", {}) or {}).get("clear_queue_on_restart", False)):
         return 0
     try:
         rdir = _resolve("recipes")

@@ -335,6 +335,60 @@ def _write_condition(rid: str, params: dict) -> None:
     _emit(f"➡ proposed {rid}: {sp}", "ok")
 
 
+def _clear_conditions_for_new_campaign() -> int:
+    """Set aside any leftover condition files before a NEW campaign proposes its
+    first one.
+
+    The reactor is a pure consumer and no longer clears its queue on boot (that
+    is what makes startup order-free), so the responsibility for staleness sits
+    here, with the producer: when the operator starts a NEW campaign, whatever
+    conditions are still queued belong to an old/aborted run and must not be
+    dosed against the new target. This is called ONLY from campaign *start* —
+    never from resume/continue, which deliberately re-issues its own in-flight
+    conditions.
+
+    NOTHING IS DELETED. Leftovers are moved into Conditions/done/ with a note,
+    mirroring how the reactor retires a consumed condition, so one can be put
+    back by moving it out again.
+    """
+    try:
+        cond = _resolve_cond()
+        if not cond.is_dir():
+            return 0
+        done = cond / "done"
+        leftovers = sorted(list(cond.glob("*.dat")) + list(cond.glob("*.txt"))
+                           + list(cond.glob("*.json")))
+        if not leftovers:
+            return 0
+        done.mkdir(parents=True, exist_ok=True)
+        moved = []
+        for f in leftovers:
+            if f.is_dir():
+                continue
+            try:
+                dest = done / f.name
+                f.replace(dest)
+                with dest.open("a", encoding="utf-8") as fh:
+                    fh.write(f"\n# ── NOT RUN — set aside when a new campaign "
+                             f"started at "
+                             f"{time.strftime('%Y-%m-%dT%H:%M:%S')}\n"
+                             f"# A new campaign invalidates conditions proposed by "
+                             f"a previous run. Move this file back into the "
+                             f"Conditions folder to run it.\n")
+                moved.append(f.name)
+            except Exception as exc:
+                _emit(f"⚠ could not set aside {f.name}: {exc}", "warn")
+        if moved:
+            _emit(f"🧹 new campaign — set aside {len(moved)} leftover "
+                  f"condition(s) from a previous run "
+                  f"({', '.join(moved[:6])}{' …' if len(moved) > 6 else ''}); "
+                  f"they are in {done} and were NOT run.", "info")
+        return len(moved)
+    except Exception as exc:
+        _emit(f"⚠ could not clear leftover conditions: {exc}", "warn")
+        return 0
+
+
 def _advance_campaign() -> None:
     """Emit the next condition, or report the campaign has stopped. Lock held by caller."""
     if _campaign is None:
@@ -1535,6 +1589,11 @@ def api_campaign_start():
                 return jsonify({"ok": False, "error": "a campaign is already "
                                 "running — abort it before starting a new one"}), 409
             _pending.clear()
+            # Producer owns staleness: a new campaign invalidates any conditions
+            # left queued from a previous/aborted run, so set them aside before we
+            # propose the first one. (The reactor no longer clears on boot — this
+            # is what keeps the pipeline clean while startup stays order-free.)
+            _clear_conditions_for_new_campaign()
             _campaign = CampaignController(
                 space,
                 target_size=float(b.get("target_size", 5.0)),
