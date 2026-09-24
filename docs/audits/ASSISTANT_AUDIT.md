@@ -18,6 +18,28 @@ Severity: **HIGH** = data loss or a real security hole on the beamline LAN ·
 **MED** = a plausible local exploit or a leak of internal detail · **LOW** =
 defence-in-depth / cost.
 
+> **RE-VERIFICATION (2026-09-24, pre-demo).** Second executable pass, focused on
+> "does it run as expected for the demo":
+> - `assistant/app.py` and all of `src/ai/` **byte-compile and import clean**.
+> - **All 19 tools in `_TOOLS` route** through `_run_tool` (`if name == …`,
+>   lines ~1629–1683) — one branch each, no missing or orphaned name.
+> - **The 9 sidebar demo prompts each map to a wired tool** (plot_metadata,
+>   overlay_curves, generate_plot ×2, query_manifest, fit_model, compute_pr,
+>   list_saxs_models) plus one pure-knowledge chat prompt.
+> - **P(r) fix holds**: realistic scaled+background sphere (R=4 nm) recovers
+>   Rg = 3.098 (truth 3.098), I0 = 10000 (truth 1e4), χ² = 0.024 — the old
+>   π/q_min ceiling of 63 nm is gone.
+> - **43 assistant/AI/analysis tests pass** (tool contract, P(r), code_exec
+>   sandbox, knowledge mgmt, analysis io/guidelines).
+> - **One thing I cannot verify from here** and the operator must check on the
+>   demo Mac: that `~/.claude/settings.json` (or the environment) actually holds
+>   a valid gateway token/API key — without it every chat turn fails at the
+>   model call. This is the single most likely demo-morning failure and is a
+>   config prerequisite, not a code defect.
+>
+> No new code defects found. A1–A3 remain as previously recorded (hardening,
+> not demo-blocking).
+
 ---
 
 ## Summary
