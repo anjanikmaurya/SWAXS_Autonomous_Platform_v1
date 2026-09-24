@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-calibration/app.py — Calibration & raw-prep Flask backend (port 5101)
+calibration/app.py — Geometry Calibration Flask backend (port 5101)
 =====================================================================
 Pre-reduction utility:
   1. find calibrant .raw files by keyword and convert them to CBF (fabio),
@@ -289,6 +289,6 @@ def api_sftp_status():
 if __name__ == "__main__":
     _project_root = os.environ.get("SWAXS_PROJECT", "")
     print("━" * 52)
-    print("  Calibration & raw-prep  ·  http://localhost:5101")
+    print("  Geometry Calibration  ·  http://localhost:5101")
     print("━" * 52)
     app.run(host="127.0.0.1", port=5101, debug=False, threaded=True)

@@ -15,7 +15,7 @@ The platform is organized as ten small web apps, launched from one central hub. 
 
 | # | App | Port | What it's for |
 |---|-----|------|---------------|
-| 🎯 | **Calibration & Raw Prep** | 5101 | Convert calibrant `.raw` → CBF and generate the pyFAI `.poni` files everything downstream needs; optional SFTP pull from the beamline host |
+| 🎯 | **Geometry Calibration** | 5101 | Convert calibrant `.raw` → CBF and generate the pyFAI `.poni` geometry files everything downstream needs; optional SFTP pull from the beamline host |
 | 🌀 | **Reduction & Correction** | 5102 | Convert raw 2D detector images → 1D I(q) curves (PyFAI integration, transmission/normalization corrections) |
 | 📊 | **Visualisation & Average** | 5103 | Visualise 2D & 1D data, average repeated scans, view SAXS and WAXS together |
 | ➖ | **Background Subtraction** | 5104 | Subtract buffer/background by keyword, scan-matching, or manual selection |

@@ -291,7 +291,7 @@ green, then **↗ Open**. Work left to right:
 
 | # | App | Port | Does |
 |---|-----|------|------|
-| 1 | Calibration & Raw Prep | 5101 | copy data off the beamline, check calibration |
+| 1 | Geometry Calibration | 5101 | copy data off the beamline, check calibration |
 | 2 | Reduction & Correction | 5102 | 2D images → 1D curves |
 | 3 | Visualisation & Average | 5103 | average the curves |
 | 4 | Background Subtraction | 5104 | subtract the blank |

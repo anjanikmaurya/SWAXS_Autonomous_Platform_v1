@@ -1,7 +1,7 @@
-# Calibration & Raw Prep — knowledge
+# Geometry Calibration — knowledge
 
 ## Purpose and position in the pipeline
-The Calibration & Raw Prep app (port 5101) is a **pre-reduction utility** — the
+The Geometry Calibration app (port 5101) is a **pre-reduction utility** — the
 step BEFORE the Reduction app (5102). Its job is to produce the `.poni` PyFAI
 calibration files that reduction consumes, and to pull raw data across from the
 beamline machine.

@@ -19,8 +19,8 @@
 
 apps:
   - id:           calibration
-    name:         "Calibration & Raw Prep"
-    description:  "Convert calibrant .raw → CBF and generate pyFAI .poni files (pre-reduction)"
+    name:         "Geometry Calibration"
+    description:  "Convert calibrant .raw → CBF and generate pyFAI .poni geometry files (pre-reduction)"
     port:         5101
     entry:        "calibration/app.py"
     icon:         "🎯"
