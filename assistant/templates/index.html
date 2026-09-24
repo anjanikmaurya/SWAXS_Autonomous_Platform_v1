@@ -390,14 +390,21 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
         <!-- Quick prompts -->
         <div class="scard">
           <div class="stitle">Quick Prompts</div>
-          <div class="qp" onclick="usePrompt(this)">Plot i0 and bstop vs Timer for the averaged samples with "Run1" in the filename.</div>
-          <div class="qp" onclick="usePrompt(this)">Compare and overlay all averaged files with "Run1" in the filename.</div>
-          <div class="qp" onclick="usePrompt(this)">Plot the last subtracted SAXS curve over q = 0.07–2 nm⁻¹ on a log–log scale.</div>
-          <div class="qp" onclick="usePrompt(this)">My background scale factor is 1.3 — is that reasonable?</div>
-          <div class="qp" onclick="usePrompt(this)">What files have been processed, and are there any quality issues?</div>
-          <div class="qp" onclick="usePrompt(this)">Run a Guinier analysis and check if the qRg range is valid.</div>
-          <div class="qp" onclick="usePrompt(this)">Generate a Guinier plot with the fit line for the last file.</div>
-          <div class="qp" onclick="usePrompt(this)">Analyse the latest SAXS profile and suggest which SASview model best describes the scattering features.</div>
+          <!-- Prompts revised Sep 2026 for the demo: multi-sample tools (overlay,
+               metadata, manifest) take a broad keyword like "Run36"; single-sample
+               tools (Guinier, p(r), model fit) need a keyword that matches ONE
+               averaged sample, so they name a specific "..._sample" — the assistant
+               refuses a keyword that matches several. Edit "Run36" / the sample id
+               to one that exists in the demo project before presenting. -->
+          <div class="qp" onclick="usePrompt(this)">Plot i0 and bstop vs Timer for the averaged samples with "Run36" in the filename.</div>
+          <div class="qp" onclick="usePrompt(this)">Compare and overlay all averaged SAXS curves with "Run36" in the filename.</div>
+          <div class="qp" onclick="usePrompt(this)">Plot the most recent subtracted SAXS curve over q = 0.07–2 nm⁻¹ on a log–log scale.</div>
+          <div class="qp" onclick="usePrompt(this)">My background scale factor is 1.3 — is that reasonable for transmission-normalised data?</div>
+          <div class="qp" onclick="usePrompt(this)">What files have been processed so far, and are there any quality flags?</div>
+          <div class="qp" onclick="usePrompt(this)">Run a Guinier fit on the averaged SAXS sample "Run36_r014_sample" and tell me whether the qRg range is valid.</div>
+          <div class="qp" onclick="usePrompt(this)">Generate a Guinier plot with the fit line for the averaged SAXS sample "Run36_r014_sample".</div>
+          <div class="qp" onclick="usePrompt(this)">Compute the pair-distance distribution p(r) and Dmax for the averaged SAXS sample "Run36_r014_sample".</div>
+          <div class="qp" onclick="usePrompt(this)">For the averaged SAXS sample "Run36_r014_sample", suggest which SASview model best describes the scattering.</div>
         </div>
       </div>
 
