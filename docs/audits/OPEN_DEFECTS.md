@@ -339,6 +339,16 @@ but harmless and self-documenting where it sits.
 > there. Two items still need the rig rather than code — the real `sensor_min`
 > values (R14) and `sauto off` (R4); both are on the pre-beamtime checklist.
 
+> **The assistant's findings (A1–A6) live in
+> [ASSISTANT_AUDIT.md](ASSISTANT_AUDIT.md).** A September 2026 audit of
+> `assistant/` + `src/ai/` fixed **A6** (P(r) auto-Dmax returned meaningless
+> Dmax/Rg — the "enable Pr analysis" request; held by
+> `tests/test_pr_ift.py`). Three hardening items are OPEN, all local
+> single-user and low blast radius: **A1** PDF-ingest path traversal (raw
+> client filename), **A2** no upload size cap, **A3** raw `str(exc)` returned
+> to the client across nine routes. **A4** (run_python is a guard, not a jail)
+> is an accepted, human-gated residual.
+
 > **N1–N4 are FIXED** (September 2026, before beta): the reduction processed-set
 > and the average batch state now persist across a restart, batch membership is
 > tracked by filename rather than by a count that a failed read could shift, and

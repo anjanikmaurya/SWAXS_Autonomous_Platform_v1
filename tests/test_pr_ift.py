@@ -70,6 +70,36 @@ def test_pr_auto_dmax_runs():
     assert res["Dmax"] > 0 and res["Rg"] > 0
 
 
+def test_pr_auto_dmax_is_accurate_not_the_qmin_ceiling():
+    """The auto-Dmax REGRESSION: it used to be set to π/q_min — the largest
+    resolvable size, a ~10-40× overestimate — so Rg came out meaningless (a
+    4 nm sphere reported Dmax≈157 nm, Rg≈5.7). Auto Dmax must now SCAN and land
+    near the true size, with an accurate Rg.
+
+    Rg is the well-determined quantity and is checked tightly; Dmax is the
+    least-determined quantity in any IFT, so it is only bounded to a sane
+    multiple of the true 2R (never the π/q_min ceiling)."""
+    # Realistic subtracted SAXS: a scaled curve on a flat background with
+    # Poisson-like errors — the regime the app actually feeds compute_pr. (The
+    # bug was independent of the weighting; π/q_min was used no matter what.)
+    R = 4.0
+    q = np.linspace(0.02, 3.0, 400)
+    I = 1e4 * _sphere_I(q, R) + 1.0
+    sigma = np.sqrt(np.abs(I)) * 0.02 + 1e-3
+    res = pair_distance_ift(q, I, sigma, dmax=None)   # AUTO
+    assert "error" not in res, res
+
+    Rg_true = R * np.sqrt(3 / 5)
+    assert abs(res["Rg"] - Rg_true) / Rg_true < 0.05, \
+        f"auto-Dmax Rg {res['Rg']} far from {Rg_true:.2f} — the qmin-ceiling bug"
+
+    ceiling = np.pi / q.min()          # the old (wrong) value, ~157 nm
+    assert res["Dmax"] < 0.5 * ceiling, \
+        f"Dmax {res['Dmax']} is still near the π/q_min ceiling {ceiling:.0f}"
+    assert 2 * R * 0.6 < res["Dmax"] < 2 * R * 2.2, \
+        f"Dmax {res['Dmax']} not in a sane range around 2R={2*R}"
+
+
 def test_pr_too_few_points():
     res = pair_distance_ift(np.array([0.1, 0.2]), np.array([1.0, 0.5]), None)
     assert "error" in res

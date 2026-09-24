@@ -354,54 +354,110 @@ def pair_distance_ift(
     else:
         sigma = np.ones_like(I)
 
-    if dmax is None or dmax <= 0:
-        dmax = float(np.pi / q.min())
+    w = 1.0 / sigma
 
-    r  = np.linspace(0.0, dmax, n_r)
-    dr = r[1] - r[0]
+    def _solve(dmax_try: float) -> dict | None:
+        """One regularized-IFT solve at a fixed Dmax. Returns a bundle, or None
+        if the solution is unusable (non-positive)."""
+        r  = np.linspace(0.0, float(dmax_try), n_r)
+        dr = r[1] - r[0]
+        # Design matrix A[i,j] = 4π · sinc(q_i r_j) · dr  (sinc(0)=1)
+        qr = np.outer(q, r)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            K = np.where(qr > 0, np.sin(qr) / qr, 1.0)
+        A = 4.0 * np.pi * K * dr
+        Aw = A * w[:, None]
+        Iw = I * w
+        # Second-difference smoothness operator
+        L = np.zeros((n_r, n_r))
+        for i in range(1, n_r - 1):
+            L[i, i - 1], L[i, i], L[i, i + 1] = 1.0, -2.0, 1.0
+        AtA = Aw.T @ Aw
+        LtL = L.T @ L
+        a = alpha
+        if a is None:
+            a = 1e-2 * np.trace(AtA) / max(np.trace(LtL), 1e-30)
+        M = AtA + a * LtL
+        # Boundary conditions p(0)=p(Dmax)=0 via strong penalty
+        bc = np.zeros((2, n_r)); bc[0, 0] = 1.0; bc[1, -1] = 1.0
+        M = M + (1e6 * np.trace(M) / n_r) * (bc.T @ bc)
+        b = Aw.T @ Iw
+        try:
+            p_raw = np.linalg.solve(M, b)
+        except np.linalg.LinAlgError:
+            p_raw = np.linalg.lstsq(M, b, rcond=None)[0]
+        p = np.clip(p_raw, 0.0, None)          # p(r) ≥ 0
+        integ = _trapezoid(p, r)
+        if integ <= 0:
+            return None
+        I_fit = A @ p
+        chi2  = float(np.sum(((I - I_fit) / sigma) ** 2) / max(len(I) - 1, 1))
+        # Over-large Dmax betrays itself two ways BEFORE the ≥0 clip: p_raw
+        # develops negative lobes, and p(r) fails to return to ~0 approaching
+        # the edge (a flat non-zero tail). Quantify both as fractions so the
+        # selector can prefer the smallest Dmax that fits without them.
+        neg_frac  = float(np.sum(np.abs(np.clip(p_raw, None, 0.0)))
+                          / (np.sum(np.abs(p_raw)) + 1e-30))
+        pmax = float(np.max(p)) or 1.0
+        tail_frac = float(np.mean(p[int(0.9 * n_r):]) / pmax)
+        return {"r": r, "p": p, "integ": integ, "I_fit": I_fit,
+                "chi2": chi2, "neg_frac": neg_frac, "tail_frac": tail_frac,
+                "dmax": float(dmax_try)}
 
-    # Design matrix A[i,j] = 4π · sinc(q_i r_j) · dr  (sinc(0)=1)
-    qr = np.outer(q, r)
-    with np.errstate(invalid="ignore", divide="ignore"):
-        K = np.where(qr > 0, np.sin(qr) / qr, 1.0)
-    A = 4.0 * np.pi * K * dr
+    if dmax is not None and dmax > 0:
+        # Operator gave a Dmax — honour it exactly, single solve (unchanged).
+        sol = _solve(dmax)
+        if sol is None:
+            return {"error": "p(r) solution non-positive — try a different Dmax."}
+    else:
+        # AUTO Dmax. The old code used π/q_min — the LARGEST resolvable size, an
+        # overestimate by 10–20× for a compact particle (a 4 nm sphere came out
+        # at Dmax≈157 nm with a meaningless Rg). Instead SCAN Dmax and pick the
+        # smallest that fits: χ² falls as Dmax grows, then plateaus once Dmax
+        # exceeds the true size; past that, p(r) only adds a spurious near-zero
+        # tail and negative lobes. Choose the smallest Dmax within a small
+        # tolerance of the best χ², penalising tail/negativity — the standard
+        # GNOM-style criterion, done numerically.
+        d_hi = float(np.pi / q.min())                 # upper ceiling (old value)
+        d_lo = max(float(2.0 * np.pi / q.max()), d_hi / 60.0)
 
-    # Weighted rows (inverse-variance)
-    w  = 1.0 / sigma
-    Aw = A * w[:, None]
-    Iw = I * w
+        def _scan(grid):
+            return [s for s in (_solve(d) for d in grid) if s is not None]
 
-    # Second-difference smoothness operator
-    L = np.zeros((n_r, n_r))
-    for i in range(1, n_r - 1):
-        L[i, i - 1], L[i, i], L[i, i + 1] = 1.0, -2.0, 1.0
+        def _pick(sols):
+            """Smallest Dmax whose fit is within a tight band of the best χ²,
+            among those without heavy negativity — 'the most compact p(r) that
+            still fits'. A tight band (not the old 15 %) matters because for
+            near-noise-free data χ² is almost flat over a wide Dmax range, and a
+            loose band there spans an order of magnitude in Dmax."""
+            chi_min = min(s["chi2"] for s in sols)
+            tol = max(1.03 * chi_min, chi_min + 1.0)
+            good = [s for s in sols
+                    if s["chi2"] <= tol and s["neg_frac"] < 0.15] \
+                or [s for s in sols if s["chi2"] <= tol] or sols
+            return min(good, key=lambda s: s["dmax"])
 
-    AtA = Aw.T @ Aw
-    LtL = L.T @ L
-    if alpha is None:
-        # scale smoothness to the data/operator magnitudes
-        alpha = 1e-2 * np.trace(AtA) / max(np.trace(LtL), 1e-30)
+        # COARSE scan to locate the χ²-minimum region, then a FINE scan around
+        # it — a single 40-point grid over [d_lo, π/q_min] is far too coarse
+        # near the true Dmax (steps of ~4 nm), so the recovered Rg lands between
+        # grid points. Refine ±1 coarse step around the coarse pick.
+        coarse = np.linspace(d_lo, d_hi, 40)
+        sols_c = _scan(coarse)
+        if not sols_c:
+            return {"error": "p(r) solution non-positive at every trial Dmax."}
+        c_pick = _pick(sols_c)
+        step = coarse[1] - coarse[0]
+        lo = max(d_lo, c_pick["dmax"] - 1.5 * step)
+        hi = min(d_hi, c_pick["dmax"] + 1.5 * step)
+        sols = _scan(np.linspace(lo, hi, 25)) or sols_c
+        sol = _pick(sols)
 
-    M = AtA + alpha * LtL
-    # Boundary conditions p(0)=p(Dmax)=0 via strong penalty
-    bc = np.zeros((2, n_r)); bc[0, 0] = 1.0; bc[1, -1] = 1.0
-    M = M + (1e6 * np.trace(M) / n_r) * (bc.T @ bc)
-    b = Aw.T @ Iw
-
-    try:
-        p = np.linalg.solve(M, b)
-    except np.linalg.LinAlgError:
-        p = np.linalg.lstsq(M, b, rcond=None)[0]
-    p = np.clip(p, 0.0, None)          # p(r) ≥ 0
-
-    integ = _trapezoid(p, r)
-    if integ <= 0:
-        return {"error": "p(r) solution non-positive — try a different Dmax."}
+    r, p, integ = sol["r"], sol["p"], sol["integ"]
+    dmax = sol["dmax"]
     I0 = float(4.0 * np.pi * integ)
     Rg = float(np.sqrt(_trapezoid(p * r**2, r) / (2.0 * integ)))
-
-    I_fit = A @ p
-    chi2  = float(np.sum(((I - I_fit) / sigma) ** 2) / max(len(I) - 1, 1))
+    I_fit = sol["I_fit"]
+    chi2  = sol["chi2"]
 
     return {
         "r":     r.tolist(),

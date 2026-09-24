@@ -288,9 +288,10 @@ def test_the_audits_folder_stays_consolidated():
     keeps that file the single place to look."""
     d = ROOT / "docs" / "audits"
     got = sorted(p.name for p in d.glob("*.md"))
-    assert got == ["AUTO_WATCH_AUDIT.md", "BEAMLINE_SAFETY_AUDIT.md",
-                   "OPEN_DEFECTS.md", "PRE_BEAMTIME_READINESS.md",
-                   "REACTOR_AUDIT.md", "README.md"], got
+    assert got == ["ASSISTANT_AUDIT.md", "AUTO_WATCH_AUDIT.md",
+                   "BEAMLINE_SAFETY_AUDIT.md", "OPEN_DEFECTS.md",
+                   "PRE_BEAMTIME_READINESS.md", "REACTOR_AUDIT.md",
+                   "README.md"], got
 
 
 def test_every_subsystem_audit_files_its_residuals_in_the_register():

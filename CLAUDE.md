@@ -364,6 +364,7 @@ Encoding failures drop the single event, not the connection.
 | `docs/AUTONOMOUS_RUN_STEPS.md` | Operator runbook for a closed-loop run |
 | `docs/audits/OPEN_DEFECTS.md` | **The register of known open defects** |
 | `docs/audits/REACTOR_AUDIT.md` | Deep audit of the reactor app + `src/reactor/` + `src/beamline/` (R1–R25): hardware safety, unattended stability, campaign integrity, every control traced |
+| `docs/audits/ASSISTANT_AUDIT.md` | Audit of the assistant app + `src/ai/` (tools, secrets, run_python sandbox, P(r) fix) |
 | `docs/CONTINUOUS_RUN_HARDENING_PLAN.md` | Plan (not yet implemented) for the defects that threaten a multi-day autonomous run — what to fix, in what order, and the test that proves each |
 | `docs/audits/PRE_BEAMTIME_READINESS.md` | Go/no-go checklist |
 | `docs/audits/BEAMLINE_SAFETY_AUDIT.md` | Every SPEC command the platform issues |
