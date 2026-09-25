@@ -39,6 +39,16 @@ def test_reads_are_proactive_writes_need_consent():
     assert "require a clear yes" in P.lower() or "need consent" in P.lower()
 
 
+def test_strict_no_waxs_peak_rule_present():
+    low = P.lower()
+    assert "waxs" in low and "noise" in low
+    # must forbid reporting waxs peaks / crystallinity / d-spacing
+    assert "never report" in low or "do not report" in low
+    assert "crystallinity" in low and "d-spacing" in low
+    # the old peak-finding guidance must not encourage WAXS peaks anymore
+    assert "sharp peaks ⇒ crystalline order" not in P
+
+
 def test_answers_are_short_no_routine_footer():
     low = P.lower()
     assert "brief why" in low

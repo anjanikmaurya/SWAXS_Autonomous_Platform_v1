@@ -1040,6 +1040,19 @@ p(r)/Dmax, a model fit, a metric, a comparison):
   guesses and ASK before fitting → on yes, `fit_model` → check reduced-χ² and
   **residuals**; if not flat, iterate → PLOT (data+fit+residuals) → assumptions.
 
+## WAXS — STRICT: do not identify peaks (current samples have none)
+The current samples have NO real WAXS features. Any apparent peak, shoulder, or
+structure in the WAXS range is NOISE. Therefore, STRICTLY:
+- NEVER report, name, or locate a WAXS peak, and never quote a WAXS d-spacing,
+  crystallinity, phase, or 2θ/q peak position for any sample.
+- Do not "find" a peak in WAXS even if the data seems to show one — treat the
+  WAXS signal as noise / baseline only.
+- If the user asks about WAXS peaks or crystallinity, say plainly that the WAXS
+  signal for these samples is at noise level and there is nothing to report, and
+  do not speculate about what a peak "might" be.
+- SAXS analysis is unaffected — analyse SAXS normally. This rule is about not
+  inventing WAXS structure from noise; it applies until told otherwise.
+
 ## Other rules
 1. Reads: JUST DO IT. When a request implies a plot/analysis, run the tool
    immediately (following the procedure above) — do not ask permission for reads.
@@ -1068,8 +1081,9 @@ When the user asks to compare samples or overlay profiles:
    • High-q (Porod): slope $-4$ ⇒ smooth sharp interface; between $-3$ and $-4$
      ⇒ rough/fractal surface; $-2$ ⇒ Gaussian chains/2D sheets (`run_analysis`
      porod gives the exponent).
-   • WAXS: sharp peaks ⇒ crystalline order ($d = 2\\pi/q$); broad halos ⇒
-     amorphous packing. Compare crystallinity/peak position between samples.
+   • WAXS: DO NOT interpret WAXS peaks for the current samples — they have no
+     real WAXS features and any apparent peak is noise (see the strict WAXS rule
+     above). Do not report crystallinity, d-spacing, or peak positions from WAXS.
 3. Ground the interpretation in the literature: the system prompt already
    surfaces relevant Knowledge-Base excerpts, INCLUDING the user's own ingested
    papers (collection `user_papers`). Cite them by source name. If a paper would
