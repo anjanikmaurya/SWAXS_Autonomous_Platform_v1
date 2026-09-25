@@ -111,9 +111,9 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 
 /* ── Chat area ──────────────────────────────────────────────────────────── */
 .chat-wrap{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;min-height:0}
-.messages{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;padding:24px 36px 24px 72px;display:flex;flex-direction:column;gap:14px}
+.messages{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;padding:24px 32px;display:flex;flex-direction:column;gap:14px}
 
-.msg{display:flex;flex-direction:column;gap:5px;max-width:920px;overflow:hidden;flex:0 0 auto}
+.msg{display:flex;flex-direction:column;gap:5px;max-width:min(1280px,94%);overflow:hidden;flex:0 0 auto}
 .msg.user    {align-self:flex-end; align-items:flex-end}
 .msg.assistant{align-self:flex-start;align-items:flex-start}
 .msg.system  {align-self:center;   align-items:center}
@@ -167,11 +167,11 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 
 /* Inline plots */
 .plot-img{
-  width:100%;max-width:min(900px,100%);border-radius:8px;border:1px solid var(--border);
+  width:100%;max-width:min(1100px,100%);border-radius:8px;border:1px solid var(--border);
   display:block;margin-top:8px;
 }
 .plot-interactive{
-  width:900px;max-width:100%;height:520px;margin-top:8px;flex:0 0 auto;
+  width:1100px;max-width:100%;height:560px;margin-top:8px;flex:0 0 auto;
   border:1px solid var(--border);border-radius:8px;overflow:hidden;
   box-sizing:border-box;position:relative;
 }
