@@ -262,6 +262,20 @@ textarea#msg:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px 
 }
 .send-btn:hover{background:var(--accent-d)}
 .send-btn:disabled{opacity:.4;cursor:not-allowed}
+/* Send button becomes a Stop button while a response is streaming. */
+.send-btn.stopping{background:#b02a37}
+.send-btn.stopping:hover{background:#8f1f2a}
+/* Voice-input (dictate) button. */
+.mic-btn{
+  width:42px;height:42px;flex-shrink:0;border-radius:10px;
+  background:#f3f4f6;border:1.5px solid var(--border-strong);color:var(--muted);
+  font-size:17px;cursor:pointer;display:flex;align-items:center;justify-content:center;
+  transition:background .12s,border-color .12s;
+}
+.mic-btn:hover{border-color:var(--accent);color:var(--accent)}
+.mic-btn.recording{background:#b02a37;border-color:#b02a37;color:#fff;animation:micpulse 1s infinite}
+@keyframes micpulse{0%,100%{box-shadow:0 0 0 0 rgba(176,42,55,.5)}50%{box-shadow:0 0 0 6px rgba(176,42,55,0)}}
+.mic-btn.unsupported{display:none}
 .input-meta{display:flex;gap:10px;align-items:center}
 .input-hint{font-size:var(--fs-xs);color:var(--faint)}
 .pdf-label{
@@ -445,7 +459,8 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
         <div class="input-row">
           <textarea id="msg" rows="1" placeholder="Ask about your scattering data…"
             onkeydown="handleKey(event)" oninput="autoGrow(this)"></textarea>
-          <button class="send-btn" id="sendBtn" onclick="sendMsg()">↑</button>
+          <button class="mic-btn" id="micBtn" onclick="toggleMic()" title="Dictate (voice input)">🎤</button>
+          <button class="send-btn" id="sendBtn" onclick="onSendBtn()" title="Send">↑</button>
         </div>
         <div class="input-meta">
           <span class="input-hint">Enter to send · Shift+Enter for newline</span>
@@ -482,6 +497,8 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
 // ── State ────────────────────────────────────────────────────────────────
 let SESSION_ID   = null;
 let BUSY         = false;
+let ABORT        = null;   // AbortController for the in-flight response (Stop button)
+let RECOG        = null;   // active SpeechRecognition (mic), or null
 let PROJECT_ROOT = localStorage.getItem('swaxs_project') || '';
 let PROJECT_USER_SET = false;   // true once the user types an explicit override
 let _hintCursor  = 0;  // pointer into server hint queue (managed via SSE)
@@ -857,9 +874,11 @@ async function sendMsg() {
   input.style.height = 'auto';
 
   BUSY = true;
-  document.getElementById('sendBtn').disabled = true;
+  ABORT = new AbortController();
+  setSendStop(true);               // send → stop while streaming
 
   const stepsEl = appendSteps();   // live progress area
+  let finalData = null;            // hoisted so the catch can use a partial result
 
   const finish = (data) => {
     stepsEl.remove();
@@ -885,6 +904,7 @@ async function sendMsg() {
     const res = await fetch('/api/chat/stream', {
       method:  'POST',
       headers: {'Content-Type': 'application/json'},
+      signal:  ABORT.signal,
       body:    JSON.stringify({
         message: text, session_id: SESSION_ID,
         project_root: PROJECT_ROOT, app_id: 'assistant',
@@ -897,7 +917,6 @@ async function sendMsg() {
     const reader = res.body.getReader();
     const dec = new TextDecoder();
     let buf = '';
-    let finalData = null;
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
@@ -925,24 +944,73 @@ async function sendMsg() {
     if (!finalData) throw new Error('stream ended without a result');
     finish(finalData);
   } catch (err) {
-    // Fallback to the non-streaming endpoint.
-    try {
-      const res = await fetch('/api/chat', {
-        method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ message: text, session_id: SESSION_ID,
-          project_root: PROJECT_ROOT, app_id: 'assistant',
-          model: (document.getElementById('modelSel').value || '').trim(),
-          effort: document.getElementById('effortSel').value || 'medium' }),
-      });
-      finish(await res.json());
-    } catch (e2) {
-      stepsEl.remove();
-      appendAssistant('⚠ Request failed: ' + err.message, [], null, []);
+    // User pressed Stop: keep whatever we have; do NOT re-send via the fallback.
+    if (err && (err.name === 'AbortError' || (ABORT && ABORT.signal.aborted))) {
+      if (finalData) { finish(finalData); }
+      else { stepsEl.remove(); appendAssistant('⏹ Stopped.', [], null, []); }
+    } else {
+      // Fallback to the non-streaming endpoint.
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ message: text, session_id: SESSION_ID,
+            project_root: PROJECT_ROOT, app_id: 'assistant',
+            model: (document.getElementById('modelSel').value || '').trim(),
+            effort: document.getElementById('effortSel').value || 'medium' }),
+        });
+        finish(await res.json());
+      } catch (e2) {
+        stepsEl.remove();
+        appendAssistant('⚠ Request failed: ' + err.message, [], null, []);
+      }
     }
   } finally {
     BUSY = false;
-    document.getElementById('sendBtn').disabled = false;
+    ABORT = null;
+    setSendStop(false);
   }
+}
+
+// The send button doubles as a Stop button while a response streams.
+function onSendBtn() { if (BUSY) stopMsg(); else sendMsg(); }
+function stopMsg()   { if (ABORT) { try { ABORT.abort(); } catch (e) {} } }
+function setSendStop(streaming) {
+  const b = document.getElementById('sendBtn');
+  if (!b) return;
+  b.disabled = false;
+  b.textContent = streaming ? '⏹' : '↑';
+  b.title = streaming ? 'Stop' : 'Send';
+  b.classList.toggle('stopping', !!streaming);
+}
+
+// ── Voice input (dictation) via the browser's Web Speech API ─────────────────
+function toggleMic() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const micBtn = document.getElementById('micBtn');
+  if (!SR) { alert('Voice input is not supported in this browser.'); return; }
+  if (RECOG) { RECOG.stop(); return; }             // toggle off
+  const ta = document.getElementById('msg');
+  const base = ta.value ? ta.value.trim() + ' ' : '';
+  RECOG = new SR();
+  RECOG.lang = 'en-US';
+  RECOG.interimResults = true;
+  RECOG.continuous = false;
+  micBtn.classList.add('recording');
+  RECOG.onresult = (e) => {
+    let t = '';
+    for (const r of e.results) t += r[0].transcript;
+    ta.value = base + t;
+    autoGrow(ta);
+  };
+  RECOG.onerror = () => {};
+  RECOG.onend = () => { RECOG = null; micBtn.classList.remove('recording'); ta.focus(); };
+  try { RECOG.start(); } catch (e) { RECOG = null; micBtn.classList.remove('recording'); }
+}
+// Hide the mic if the browser can't do speech recognition.
+if (!(window.SpeechRecognition || window.webkitSpeechRecognition)) {
+  document.addEventListener('DOMContentLoaded', () => {
+    const b = document.getElementById('micBtn'); if (b) b.classList.add('unsupported');
+  });
 }
 
 // Live progress area (shows steps as the assistant works).
