@@ -623,9 +623,11 @@ def plot_metric_timeseries(
                 ys = s["values"].get(param)
                 if not ys:
                     continue
-                ax.plot(s["t"], ys, marker="o", ms=4, lw=1.6,
-                        color=_PALETTE[i % len(_PALETTE)], label=s["label"],
-                        linestyle=_LINESTYLES[(i // len(_PALETTE)) % len(_LINESTYLES)])
+                # Markers ONLY — no connecting lines. Connecting per-frame points
+                # across a sample drew misleading straight "bolts" between the
+                # start/end clusters; a scatter shows the actual per-frame spread.
+                ax.plot(s["t"], ys, marker="o", ms=4, lw=0, linestyle="None",
+                        color=_PALETTE[i % len(_PALETTE)], label=s["label"])
             ax.grid(True, **_GRID_KW)
             ax.tick_params(labelsize=11)
             if row == 0:
