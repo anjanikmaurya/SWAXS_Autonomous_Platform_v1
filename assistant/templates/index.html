@@ -425,16 +425,17 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
         <div class="msg assistant">
           <div class="msg-label"><img src="/static/saxs_smiley.png" alt="" style="width:16px;height:16px;border-radius:4px;vertical-align:-3px;margin-right:5px">Guinier</div>
           <div class="bubble">
-            Hi, I'm <b>Guinier</b> — your SAXS/WAXS research assistant. I work on your
-            <b>background-subtracted</b> curves and always show the plot with the result.<br><br>
-            I can:<br>
-            • Plot I(q) (log–log) and check units/q-range first<br>
-            • Run a classical workup — Guinier (R<sub>g</sub>, I₀, qR<sub>g</sub> validity), Porod, Kratky<br>
-            • Compute p(r) and D<sub>max</sub><br>
-            • Recommend &amp; fit SASview models — form factors, plus a structure factor S(q) or a small-angle lattice (lamellar / hexagonal / cubic) when peaks appear — with reasoning<br>
-            • Compare/overlay samples, track beam metrics, and flag quality<br><br>
-            Just name a sample (e.g. <code>Run4_r001</code>) — I'll find its subtracted curve myself, no file path needed.
-            Pick a Quick Prompt on the left or ask in your own words.
+            👋 I'm <b>Guinier</b> — named after the fellow whose approximation you're
+            about to make me run. Point me at a subtracted curve and I'll turn wiggles
+            into numbers.<br><br>
+            Tell me a sample (just the name, e.g. <code>Run4_r001</code> — I'll dig out
+            its subtracted curve, no file paths) and I'll:<br>
+            • plot I(q) and sanity-check the units &amp; q-range,<br>
+            • do the classics — <b>Guinier</b> (R<sub>g</sub>, I₀), <b>Porod</b>, <b>Kratky</b>, and <b>p(r)</b>/D<sub>max</sub>,<br>
+            • read the shape and pick the SASview model that fits — form factor, a structure factor S(q), or a lamellar/hex/cubic lattice if it's self-assembled — and say <i>why</i>,<br>
+            • overlay samples, watch the beam, and call out anything that looks off.<br><br>
+            Every answer comes with the plot. Grab a Quick Prompt on the left, or just ask.
+            What are we looking at today?
           </div>
         </div>
       </div>
