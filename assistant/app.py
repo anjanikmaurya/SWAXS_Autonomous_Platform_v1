@@ -947,11 +947,38 @@ def api_transcribe():
         return jsonify({"text": "", "error": _WHISPER["err"] or
                         "voice transcription is unavailable on the server."}), 503
     try:
-        segments, _info = model.transcribe(audio, language="en", vad_filter=True)
+        # Bias the decoder toward the domain vocabulary so it stops mishearing
+        # "SAXS" as "sex", etc.
+        segments, _info = model.transcribe(
+            audio, language="en", vad_filter=True,
+            initial_prompt=("SAXS WAXS SWAXS Guinier Porod Kratky Rg I0 Dmax q nm "
+                            "structure factor form factor lamellar hexagonal cubic "
+                            "subtracted profile scattering Run5 sasmodels"))
         text = " ".join(s.text.strip() for s in segments).strip()
-        return jsonify({"text": text})
+        return jsonify({"text": _stt_domain_fixup(text)})
     except Exception as exc:
         return _fail(exc)
+
+
+import re as _re
+# Common speech-to-text mis-hears → the intended SAXS term. Whole-word,
+# case-insensitive. "SAXS is NEVER 'sex'": always resolve to SAXS.
+_STT_FIXUPS = [
+    (r"\b(sex|sax|saxe|saxs|sacks|saks|sacs)\b", "SAXS"),
+    (r"\b(wax|waxs|wacks|whacks|wux)\b",          "WAXS"),
+    (r"\b(swax|swaxs|swacks)\b",                  "SWAXS"),
+    (r"\b(kratky|cracky|kratki|kratke)\b",        "Kratky"),
+    (r"\b(porod|porrod|pored|poured)\b",          "Porod"),
+    (r"\bguinier\b",                              "Guinier"),
+    (r"\bd\s*[- ]?\s*max\b",                      "Dmax"),
+    (r"\brun\s+(\d+)\b",                          r"Run\1"),   # "run 5" → Run5
+]
+
+
+def _stt_domain_fixup(text: str) -> str:
+    for pat, repl in _STT_FIXUPS:
+        text = _re.sub(pat, repl, text, flags=_re.IGNORECASE)
+    return text
 
 
 @app.route("/api/health")
