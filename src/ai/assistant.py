@@ -73,11 +73,15 @@ _MAX_TOOL_ROUNDS    = 8          # max recursive tool-use loops per chat turn
 #: API rejects the follow-up — so effort tunes response depth + tool thoroughness,
 #: which is safe with every gateway model and never breaks the loop.
 _EFFORT = {
-    "low":    (4096, "\n\nEFFORT=LOW: answer concisely and quickly — a direct answer "
+    # (response token budget, system-prompt nudge). The budget is a CAP, so a
+    # smaller default keeps typical answers fast; High lifts the cap for the long
+    # full-workup answers but is noticeably slower.
+    "low":    (3072, "\n\nEFFORT=LOW: answer concisely and quickly — a direct answer "
                      "with the fewest tool calls needed."),
-    "medium": (_MAX_TOKENS, ""),
+    "medium": (6144, "\n\nEFFORT=MEDIUM: be efficient — do only the steps the request "
+                     "needs and keep the answer tight."),
     "high":   (16000, "\n\nEFFORT=HIGH: be thorough — verify with the data/analysis "
-                      "tools, cross-check results, and briefly explain your reasoning."),
+                      "tools, cross-check results, and explain your reasoning."),
 }
 # ── Cost / context controls ───────────────────────────────────────────────────
 # The full conversation history is re-sent on every turn, so unbounded history
