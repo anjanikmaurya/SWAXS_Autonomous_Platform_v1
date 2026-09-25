@@ -59,7 +59,7 @@ def _emit_interactive(fig: dict | None) -> None:
 # bare id was why the "default" model failed while explicitly-picked ids worked.
 # The env/settings value still overrides this for any other deployment.
 _DEFAULT_MODEL      = "us.anthropic.claude-sonnet-4-6"
-_MAX_TOKENS         = 4096
+_MAX_TOKENS         = 8192       # default response budget (was 4096) — long answers OK
 _KB_TOP_K           = 6          # knowledge-base hits to include
 _MAX_TOOL_ROUNDS    = 8          # max recursive tool-use loops per chat turn
                                  # (8, not 5: a thorough model-recommendation walks
@@ -73,18 +73,20 @@ _MAX_TOOL_ROUNDS    = 8          # max recursive tool-use loops per chat turn
 #: API rejects the follow-up — so effort tunes response depth + tool thoroughness,
 #: which is safe with every gateway model and never breaks the loop.
 _EFFORT = {
-    "low":    (2048, "\n\nEFFORT=LOW: answer concisely and quickly — a direct answer "
+    "low":    (4096, "\n\nEFFORT=LOW: answer concisely and quickly — a direct answer "
                      "with the fewest tool calls needed."),
     "medium": (_MAX_TOKENS, ""),
-    "high":   (8192, "\n\nEFFORT=HIGH: be thorough — verify with the data/analysis "
-                     "tools, cross-check results, and briefly explain your reasoning."),
+    "high":   (16000, "\n\nEFFORT=HIGH: be thorough — verify with the data/analysis "
+                      "tools, cross-check results, and briefly explain your reasoning."),
 }
 # ── Cost / context controls ───────────────────────────────────────────────────
 # The full conversation history is re-sent on every turn, so unbounded history
 # means ever-growing input-token cost. We keep only the most recent user turns
 # (with their tool exchanges) and bound each tool result's size.
 _MAX_HISTORY_USER_TURNS = 6      # how many recent user prompts to retain
-_MAX_TOOL_RESULT_CHARS  = 8000   # truncate any single tool result beyond this
+# Effectively no cap on a single tool result (was 8000). A very large ceiling
+# remains only as a runaway guard, so nothing the user asked to see gets cut.
+_MAX_TOOL_RESULT_CHARS  = 2_000_000
 
 # ── Manifest read cache ───────────────────────────────────────────────────────
 # Several tools load the manifest within a single chat turn (query_manifest +
@@ -1485,7 +1487,20 @@ class SWAXSAssistant:
                     messages   = messages,
                 )
             except Exception as exc:
-                return _api_error(exc)
+                # A generous max_tokens can exceed a particular gateway/model's
+                # output ceiling. Don't fail the turn — retry once at a safe 8192.
+                if max_toks > 8192 and "max_tokens" in str(exc).lower():
+                    logger.warning("[Assistant] max_tokens=%d rejected; retrying at 8192",
+                                   max_toks)
+                    max_toks = 8192
+                    try:
+                        response = client.messages.create(
+                            model=model_id, max_tokens=max_toks,
+                            system=system_param, tools=_TOOLS, messages=messages)
+                    except Exception as exc2:
+                        return _api_error(exc2)
+                else:
+                    return _api_error(exc)
 
             _u = _usage_dict(response)
             if _u:
