@@ -714,11 +714,14 @@ def _publication_style(fig: "plt.Figure") -> None:
     fig.tight_layout(pad=1.2, h_pad=1.5, w_pad=1.8)
     if entries:
         handles, labels = zip(*entries.values())
-        labels = ["\n".join(textwrap.wrap(label.replace("\n", ""), width=72))
+        # Legend on the RIGHT (outside the axes), not below. Wrap labels shorter
+        # since a side column is narrower; savefig(bbox_inches="tight") expands the
+        # canvas to include it so nothing is clipped.
+        labels = ["\n".join(textwrap.wrap(label.replace("\n", ""), width=34))
                   for label in labels]
-        fig.legend(handles, labels, loc="upper left", bbox_to_anchor=(0.10, -0.01),
+        fig.legend(handles, labels, loc="center left", bbox_to_anchor=(1.005, 0.5),
                    prop={"family": "DejaVu Sans", "size": 9}, frameon=False,
-                   handlelength=2.8, handletextpad=0.8, labelspacing=0.65,
+                   handlelength=2.2, handletextpad=0.7, labelspacing=0.6,
                    borderaxespad=0)
 
 
