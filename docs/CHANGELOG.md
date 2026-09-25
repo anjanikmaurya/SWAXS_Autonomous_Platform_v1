@@ -7,6 +7,17 @@ this file is the running summary. Dates are when the work landed on `main`.
 
 ## September 2026
 
+### Mock SNR raised so the closed loop can converge
+
+The autonomous loop never converged in mock mode even when a run hit the target
+radius and PDI: convergence also requires the fit confidence ≥ 0.5, and the mock
+subtracted curve was noisy enough at high q that a good fit scored only ~0.14.
+Raised the simulator flux (1e6 → 2e7) so a normal acquisition (10×10 s) scores
+~0.68 and clears the gate; the loop now converges on target instead of running
+the whole budget. `simulate_frame` clip ceiling raised to match. Confidence still
+scales with total counts (flux × exposure × frames), so very short acquisitions
+stay (correctly) low-confidence. Held by `tests/test_mock_snr_confidence.py`.
+
 ### Hub waits for an app to be ready before reporting "Started"
 
 Starting the reduction app showed a section failing to load in the tab and then

@@ -189,12 +189,17 @@ spec:
     two_d_subdir: "auto"
     speed_factor: 1.0         # 1.0 = real time (honours exposure × frames);
                               # 10 = 10× faster; 0 = write instantly
-    # ── Brightness ──────────────────────────────────────────────────────────
-    # Counts PER SECOND of exposure. The old values (scale 800, bkg 2) gave a
-    # peak of ~900 counts in a 1 s frame, which renders as a black image on any
-    # linear display — the "file is empty" symptom. These put a 1 s frame in the
-    # 10^4 range, like real detector data.
-    flux:         1.0e6       # overall counts/s scale
+    # ── Brightness / SNR ────────────────────────────────────────────────────
+    # Counts PER SECOND of exposure. More counts = less Poisson noise, especially
+    # in the SUBTRACTED curve at high q (where the particle signal is small and
+    # sample−background is dominated by counting noise). flux was 1e6, which left
+    # the subtracted high-q so noisy that a good fit still scored low CONFIDENCE
+    # (~0.14) — below the campaign's 0.5 convergence gate — so the closed loop
+    # never converged in mock mode. flux 2e7 gives ~4.5× lower relative noise, so a
+    # good in-band fit scores confidence well above the 0.5 gate (verified ~0.68 at
+    # 10×10 s) and the loop actually converges on target instead of running the
+    # whole budget.
+    flux:         2.0e7       # overall counts/s scale (raised from 1e6 for SNR)
     scale:        20000.0     # particle signal at I(0)
     solvent_bkg:  50.0        # flat solvent/incoherent background
     capillary:    120.0       # capillary q^-2 upturn, quoted at q = 0.1 nm^-1

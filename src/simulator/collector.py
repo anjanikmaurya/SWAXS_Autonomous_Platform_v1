@@ -34,7 +34,7 @@ DEFAULTS: dict = {
     "poni":           "",         # blank → resolve from the project config
     "mask":           "",         # blank → resolve from the project config
     "speed_factor":   1.0,        # 1.0 = real time (honours exposure × frames)
-    "flux":           1.0e6,      # counts/s scale at I(0)
+    "flux":           2.0e7,      # counts/s scale at I(0) — raised for subtracted-curve SNR
     #: Particle signal at I(0), in counts per second of exposure. 800 gave a
     #: peak of only ~900 counts, so the frame rendered black on any linear
     #: display; 2e4 puts a 1 s frame in the 10^4 range like real detector data.

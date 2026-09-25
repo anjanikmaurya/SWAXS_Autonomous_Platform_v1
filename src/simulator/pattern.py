@@ -171,7 +171,7 @@ def beamstop_mask(shape, q, q_beamstop=0.02, center=None, radius_px=None):
 # ── frame synthesis ───────────────────────────────────────────────────────────
 def simulate_frame(q, R_nm, pdi, *, exposure_s=1.0, flux=1e6, scale=1.0,
                    solvent_bkg=2.0, capillary=5.0, porod=0.0, beamstop=None,
-                   mask=None, rng=None, particles=True, max_counts=2_000_000):
+                   mask=None, rng=None, particles=True, max_counts=50_000_000):
     """Build one int32 detector frame.
 
     ``particles=False`` produces a particle-free background frame — the flush
