@@ -1073,18 +1073,26 @@ p(r)/Dmax, a model fit, a metric, a comparison):
   reduced-χ² and **residuals**; if not flat, iterate → PLOT (data+fit+residuals)
   → assumptions line.
 
-## WAXS — STRICT: do not identify peaks (current samples have none)
-The current samples have NO real WAXS features. Any apparent peak, shoulder, or
-structure in the WAXS range is NOISE. Therefore, STRICTLY:
-- NEVER report, name, or locate a WAXS peak, and never quote a WAXS d-spacing,
-  crystallinity, phase, or 2θ/q peak position for any sample.
-- Do not "find" a peak in WAXS even if the data seems to show one — treat the
-  WAXS signal as noise / baseline only.
-- If the user asks about WAXS peaks or crystallinity, say plainly that the WAXS
-  signal for these samples is at noise level and there is nothing to report, and
-  do not speculate about what a peak "might" be.
-- SAXS analysis is unaffected — analyse SAXS normally. This rule is about not
-  inventing WAXS structure from noise; it applies until told otherwise.
+## WAXS / structure factor — STRICT
+Do NOT run a WAXS/Bragg peak finder on SAXS data. A SAXS profile is SAXS by
+definition (SAXS detector), so:
+- NEVER classify a SAXS curve as WAXS, and never report a WAXS/Bragg peak,
+  d-spacing, crystallinity, phase, or 2θ position for it. Do not narrate a
+  "modality override" — SAXS is SAXS; just analyse it as SAXS.
+- The current samples also have no real WAXS features anyway: any apparent peak
+  in the true WAXS range is NOISE — nothing to report.
+
+Instead, interpret any real mid-q peak / correlation bump in a SAXS curve as a
+possible STRUCTURE FACTOR S(q) — inter-particle correlations, not crystallography.
+When you see one:
+- Report the correlation length d = 2π/q* from the peak position q*.
+- Recommend a SASview STRUCTURE-FACTOR model as a PRODUCT with the form factor
+  (e.g. sphere·S(q)): `hardsphere` (excluded volume / concentration), `hayter_msa`
+  (screened Coulomb / charged particles), `squarewell` or `stickyhardsphere`
+  (short-range attraction). Give the volume fraction and interaction radius as
+  starting guesses from the peak position and height.
+- If the "peak" is just high-q noise, say so and do not fit a structure factor.
+This applies until told otherwise; SAXS form-factor analysis is unaffected.
 
 ## Other rules
 1. Reads: JUST DO IT. When a request implies a plot/analysis, run the tool
@@ -2662,7 +2670,7 @@ Experiment data was not modified.</p></body></html>"""
 
         from src.analysis import guidelines as _G
 
-        route = _G.route_modality(q, I, sigma)
+        route = _G.route_modality(q, I, sigma, detector=det)
         detected = route["modality"]
         stored   = self._get_modality(user_id)
 
@@ -2710,11 +2718,12 @@ Experiment data was not modified.</p></body></html>"""
         ctx.update(self._preflight_state(q, I, sigma, cand, geo, inp))
 
         # `detector` = which file to load; `modality` = which analysis applies.
-        # They are INDEPENDENT: a SAXS detector routinely records Bragg peaks, so
-        # detector=SAXS -> modality=waxs/both is correct, not a bug. Name both.
-        det_note = (f"`detector`={det} selects the file; `modality`={detected} is "
-                    "what the DATA supports (independent — a SAXS detector can "
-                    "record Bragg peaks).")
+        # A SAXS-detector curve is analysed AS SAXS: peaks are structure-factor
+        # correlations, not WAXS Bragg (operator rule — no WAXS peak finder on
+        # SAXS data). Name both so the distinction is explicit.
+        det_note = (f"`detector`={det} selects the file; `modality`={detected}. A "
+                    "SAXS curve is analysed as SAXS — any mid-q peak is a possible "
+                    "STRUCTURE FACTOR S(q), not a WAXS Bragg reflection.")
 
         # WAXS: SAXS tier-1 (Guinier etc.) does not apply — return the router
         # result + the WAXS gated set (scaffold), don't force a SAXS fit.
@@ -2751,7 +2760,8 @@ Experiment data was not modified.</p></body></html>"""
             "modality": detected,
             "detector_vs_modality": det_note,
             "router": {"modality": route["modality"], "reason": route["reason"],
-                       "n_sharp_peaks": route["n_sharp_peaks"]},
+                       "n_sharp_peaks": route["n_sharp_peaks"],
+                       "structure_factor_peak_q": route.get("structure_factor_peak_q", [])},
             "tier1": t1["summary"],
             "gated": {"proposable": gated["proposable"],
                       "refused": gated["refused"]},

@@ -83,6 +83,19 @@ def test_router_sends_bragg_peaks_to_waxs():
     assert r["n_sharp_peaks"] >= 2
 
 
+def test_saxs_detector_is_never_classified_waxs():
+    # Operator rule: do NOT run a WAXS peak finder on SAXS data. The SAME sharp
+    # peaks that vote WAXS with no detector must be treated as a structure factor
+    # (never Bragg) once the detector is known to be SAXS.
+    q, I, s = _waxs_curve()
+    r = G.route_modality(q, I, s, detector="SAXS")
+    assert r["modality"] == "saxs"
+    assert r["bragg_present"] is False
+    assert r.get("structure_factor_peak_q"), "peaks should be reported as S(q) candidates"
+    # a WAXS detector still classifies WAXS
+    assert G.route_modality(q, I, s, detector="WAXS")["modality"] in ("waxs", "both")
+
+
 # ── (c) tier-1 is ONE local pass with zero model calls ───────────────────────────
 def test_tier1_single_pass_no_model_dependency(monkeypatch):
     # Make ANY attempt to talk to a model blow up: if tier-1 tried, this fails.
@@ -208,16 +221,19 @@ def test_pr_refusal_names_precondition_and_remedy():
     assert "interparticle_free" in text and "dilution" in text
 
 
-# ── (#5) tool re-verifies modality per curve and surfaces a switch ───────────────
-def test_tool_reroutes_and_switches_modality(monkeypatch, tmp_path):
+# ── (#5) SAXS data is analysed AS SAXS — no WAXS reroute (operator rule) ─────────
+def test_saxs_data_is_not_rerouted_to_waxs(monkeypatch, tmp_path):
+    """Even with sharp peaks, a SAXS-detector curve stays SAXS: peaks are treated
+    as a structure factor, NOT WAXS Bragg. No modality switch, no WAXS payload."""
     import tempfile
+    import json
     from src.ai.assistant import SWAXSAssistant
     import src.ai.assistant as A
 
     a = SWAXSAssistant(ai_knowledge_dir=tempfile.mkdtemp(), user_id="u1")
     assert a._get_modality("u1") == "saxs"           # default
 
-    qw, Iw, sw = _waxs_curve()
+    qw, Iw, sw = _waxs_curve()                        # sharp peaks present
     monkeypatch.setattr(A, "_load_dat", lambda p: (qw, Iw, sw))
     monkeypatch.setattr(A, "_load_manifest_cached", lambda p: {
         "files": {"s.dat": {"stage": "subtracted", "detector": "SAXS",
@@ -226,13 +242,14 @@ def test_tool_reroutes_and_switches_modality(monkeypatch, tmp_path):
     })
     out, _ = a._tool_analysis_tier1({"keyword": "s", "detector": "SAXS"},
                                     project_root=str(tmp_path), user_id="u1")
-    import json
     payload = json.loads(out)
-    assert payload["modality"] == "waxs"
-    assert payload["detector"] == "SAXS"            # detector != modality, named separately (#3)
+    assert payload["modality"] == "saxs"             # NOT waxs
+    assert payload["detector"] == "SAXS"
     assert "detector_vs_modality" in payload
-    assert "modality_switch" in payload             # surfaced, not silent
-    assert a._get_modality("u1") == "waxs"          # stored modality switched
+    assert "modality_switch" not in payload          # SAXS stays SAXS — no switch
+    assert a._get_modality("u1") == "saxs"           # stored modality unchanged
+    # the peaks are surfaced as structure-factor candidates, not Bragg
+    assert payload["router"]["structure_factor_peak_q"]
 
 
 def test_tier1_integration_real_dat_and_manifest(tmp_path):

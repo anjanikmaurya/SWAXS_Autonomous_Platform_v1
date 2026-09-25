@@ -7,6 +7,19 @@ this file is the running summary. Dates are when the work landed on `main`.
 
 ## September 2026
 
+### No WAXS peak-finder on SAXS data → structure-factor interpretation
+
+Operator rule: SAXS profiles were being auto-classified as WAXS ("sharp Bragg
+peaks") and then overridden every turn — noisy and wrong. `route_modality` is now
+detector-aware: a SAXS-detector curve is never voted WAXS; any peak is reported as
+a structure-factor correlation (with its q). analysis_tier1 passes the detector,
+keeps modality SAXS, and surfaces `structure_factor_peak_q`. The system prompt now
+tells the assistant to interpret a mid-q SAXS peak as a possible structure factor
+S(q) and recommend the matching sasmodels S(q) (hardsphere, hayter_msa, squarewell,
+stickyhardsphere) as a product with the form factor — never as a WAXS Bragg peak.
+Held by `test_saxs_data_is_not_rerouted_to_waxs` and
+`test_analysis_guidelines.py::test_saxs_detector_is_never_classified_waxs`.
+
 ### Assistant robustness: contain tool failures + retry transient errors
 
 Systematic hardening so a single tool bug can't fail a whole turn: the chat loop

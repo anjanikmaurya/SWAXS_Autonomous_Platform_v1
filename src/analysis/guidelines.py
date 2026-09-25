@@ -159,10 +159,15 @@ _SHARP_REL_WIDTH = 0.06     # FWHM/q below this => crystalline-sharp (Bragg)
 _MIN_PROMINENCE = 0.08      # in log10 units, matches detect_bragg_peaks
 
 
-def route_modality(q, I, sigma=None) -> dict:
+def route_modality(q, I, sigma=None, detector=None) -> dict:
     """Classify the current curve. Returns:
         {modality: 'saxs'|'waxs'|'both'|'ambiguous',
          bragg_present: bool, n_sharp_peaks: int, n_peaks: int, reason: str}
+
+    ``detector`` is authoritative when given: a curve from the SAXS detector IS
+    SAXS, so any peak is an inter-particle STRUCTURE FACTOR, never a WAXS Bragg
+    reflection — we never vote WAXS on SAXS-detector data (operator instruction:
+    do not run a WAXS peak finder on SAXS profiles).
     """
     q = np.asarray(q, float)
     I = np.asarray(I, float)
@@ -186,6 +191,20 @@ def route_modality(q, I, sigma=None) -> dict:
     out["n_peaks"] = int(idx.size)
     if idx.size == 0:
         out["reason"] = "no peaks above the smooth decay => SAXS"
+        return out
+
+    # SAXS detector is authoritative: peaks are structure-factor correlations, not
+    # WAXS Bragg reflections. Never vote WAXS / gate WAXS-crystallography steps on
+    # a SAXS curve. Report the peak q as a structure-factor candidate instead.
+    if str(detector or "").lower() == "saxs":
+        sf_q = sorted(float(q[pk]) for pk in idx)
+        out["modality"] = "saxs"
+        out["bragg_present"] = False
+        out["n_sharp_peaks"] = 0
+        out["structure_factor_peak_q"] = sf_q
+        out["reason"] = (f"SAXS-detector curve with {idx.size} peak(s) at "
+                         f"q≈{[round(x,3) for x in sf_q]} nm⁻¹ => structure-factor "
+                         f"correlation(s), not WAXS Bragg")
         return out
 
     # relative width of each peak: convert scipy's index-space width to q-space.
