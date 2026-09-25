@@ -3517,13 +3517,29 @@ def _sanitize_messages(messages: list[dict]) -> list[dict]:
     return out
 
 
+def _q_is_angstrom(header_lines) -> bool:
+    """True if the .dat q column is in Å⁻¹ (e.g. the background app's ML-truncated
+    files, labelled 'q_A-1'), else nm⁻¹ (the platform default). Same heuristic the
+    analyzer uses, so the assistant recovers the SAME sizes as the analysis app."""
+    txt = " ".join(header_lines or []).lower()
+    return ("q_a-1" in txt) or ("a^-1" in txt) or ("å" in txt)
+
+
 def _load_dat(file_path: str):
-    """Load q, I, sigma from a .dat file. Returns (None, None, None) on error."""
+    """Load q, I, sigma from a .dat file, with q normalised to nm⁻¹.
+
+    Returns (None, None, None) on error. The analyzer converts Å⁻¹→nm⁻¹ before
+    fitting; the assistant did NOT, so a curve stored in Å⁻¹ (q_A-1) gave Rg/Dmax/
+    radius that were 10× too small. Normalise here so compute_pr, fit_model,
+    run_analysis and generate_plot(file_path) all work in nm⁻¹ consistently."""
     import numpy as np
     try:
         from src.utils.read_dat_metadata import read_dat_data_metadata
-        _, q, I, sigma, _ = read_dat_data_metadata(file_path)
-        return np.asarray(q), np.asarray(I), (np.asarray(sigma) if sigma is not None else None)
+        header, q, I, sigma, _ = read_dat_data_metadata(file_path)
+        q = np.asarray(q, float)
+        if _q_is_angstrom(header):
+            q = q * 10.0                       # Å⁻¹ → nm⁻¹
+        return q, np.asarray(I), (np.asarray(sigma) if sigma is not None else None)
     except Exception as exc:
         logger.debug("[Assistant] Cannot load %s: %s", file_path, exc)
         return None, None, None

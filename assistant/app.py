@@ -143,6 +143,22 @@ BEAMLINE_ID   = os.environ.get("SWAXS_BEAMLINE",  "ssrl_1-5")
 SESSION_TTL_S = 7200   # 2-hour session expiry
 
 app = Flask(__name__, template_folder="templates")
+# A2: cap request bodies so a huge PDF upload can't fill the disk (where the
+# experiment data also lives) or OOM the chunk/embed step. 50 MB is generous for
+# a paper; a larger body gets a 413 instead of crashing the process.
+app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024
+
+
+def _fail(exc, code: int = 500):
+    """A3: log the real exception, return a GENERIC message to the client.
+
+    `str(exc)` used to go straight to the browser in nine routes. Most are only
+    untidy, but a gateway/auth error can carry the base URL or context and file
+    errors echo absolute server paths. The full detail stays in the log; the
+    client gets a short message plus an id to correlate with the log."""
+    err_id = uuid.uuid4().hex[:8]
+    logger.exception("[assistant] request failed (id=%s): %s", err_id, exc)
+    return jsonify({"error": f"internal error (id {err_id}) — see the app log"}), code
 
 # Per-app browser-tab icon, from apps.yml — ten apps on ten ports
 # otherwise give ten identical tabs. See src/favicon.py.
@@ -481,7 +497,7 @@ def api_chat():
         )
     except Exception as exc:
         logger.exception("Chat error: %s", exc)
-        return jsonify({"error": str(exc)}), 500
+        return _fail(exc)
 
     # Persist history delta
     with _sessions_lock:
@@ -660,9 +676,21 @@ def api_ingest_pdf():
     if not f.filename or not f.filename.lower().endswith(".pdf"):
         return jsonify({"error": "Only PDF files are accepted"}), 400
 
+    # A1: NEVER trust the client-supplied filename. Werkzeug does not sanitise it,
+    # so "../../../../tmp/x.pdf" would resolve outside ai_knowledge/ — a write
+    # primitive on an HTTP route. secure_filename strips path separators; reject
+    # anything that still isn't a plain <name>.pdf.
+    from werkzeug.utils import secure_filename
+    safe_name = secure_filename(f.filename) or "upload.pdf"
+    if not safe_name.lower().endswith(".pdf") or "/" in safe_name or "\\" in safe_name:
+        return jsonify({"error": "Invalid filename"}), 400
+
     save_dir  = _ROOT / "ai_knowledge" / collection
     save_dir.mkdir(parents=True, exist_ok=True)
-    save_path = save_dir / f.filename
+    save_path = (save_dir / safe_name).resolve()
+    # Defence in depth: the resolved path must stay inside save_dir.
+    if not str(save_path).startswith(str(save_dir.resolve())):
+        return jsonify({"error": "Invalid filename"}), 400
     f.save(str(save_path))
 
     try:
@@ -684,7 +712,7 @@ def api_ingest_pdf():
         })
     except Exception as exc:
         logger.exception("PDF ingest error: %s", exc)
-        return jsonify({"error": str(exc)}), 500
+        return _fail(exc)
 
 
 @app.route("/api/events/stream")
@@ -748,7 +776,7 @@ def api_memory_context():
         )
         return jsonify(ctx)
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return _fail(exc)
 
 
 @app.route("/api/memory/clear", methods=["POST"])
@@ -761,7 +789,7 @@ def api_memory_clear():
         mem.clear_user_context()
         return jsonify({"status": "ok"})
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return _fail(exc)
 
 
 @app.route("/api/knowledge/stats", methods=["GET"])
@@ -777,7 +805,7 @@ def api_knowledge_stats():
             pass
         return jsonify(kb.collection_stats())
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return _fail(exc)
 
 
 @app.route("/api/knowledge/list", methods=["GET"])
@@ -803,7 +831,7 @@ def api_knowledge_list():
                 for it in items]
         return jsonify({"items": view, "counts": stats})
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return _fail(exc)
 
 
 @app.route("/api/knowledge/note", methods=["POST"])
@@ -822,7 +850,7 @@ def api_knowledge_note():
         n = kb.ingest_text(text, name=name, collection=col)
         return jsonify({"status": "ok", "name": name, "chunks": n})
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return _fail(exc)
 
 
 @app.route("/api/knowledge/remove", methods=["POST"])
@@ -840,7 +868,7 @@ def api_knowledge_remove():
         code = 404 if "error" in res else 200
         return jsonify(res), code
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return _fail(exc)
 
 
 @app.route("/api/health")

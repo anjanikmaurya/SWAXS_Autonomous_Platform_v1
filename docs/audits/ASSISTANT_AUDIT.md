@@ -18,6 +18,34 @@ Severity: **HIGH** = data loss or a real security hole on the beamline LAN ·
 **MED** = a plausible local exploit or a leak of internal detail · **LOW** =
 defence-in-depth / cost.
 
+> **SECOND FULL AUDIT (2026-09-24) — appropriateness, functionality, robustness,
+> accuracy.** Execution-based: 63 assistant/AI/analysis tests green; all 19 tools
+> route; run_python sandbox denies every exfiltration/danger vector tried and
+> allows legit code; edge cases (no project, empty manifest, ambiguous/missing
+> sample, offline) degrade gracefully. This round FIXED five issues and recorded
+> two more:
+> - **A8 (HIGH, fixed):** plotting was not thread-safe — concurrent chat turns
+>   corrupted matplotlib (`get_data_path`) and leaked file descriptors ("Too many
+>   open files"). Serialised behind one lock + close-on-error; process FD limit
+>   raised. Held by `tests/test_plots_thread_safety.py`.
+> - **A7 (MED, fixed):** `_load_dat` didn't convert Å⁻¹→nm⁻¹, so a `q_A-1` curve
+>   gave Rg/Dmax/radius 10× too small (the analyzer converted; the assistant did
+>   not). Now normalised in `_load_dat`. Held by `test_assistant_audit_fixes.py`.
+> - **A1 (fixed):** PDF ingest now uses `secure_filename` + a path-containment
+>   check (was a path-traversal write primitive).
+> - **A2 (fixed):** `MAX_CONTENT_LENGTH` = 50 MB caps uploads (was unbounded).
+> - **A3 (fixed):** a shared `_fail()` helper logs the exception and returns a
+>   generic message + error id; the eight `str(exc)`→client leaks are gone.
+> - **A9 (LOW, open):** with NO subtracted file, an ambiguous *averaged* keyword
+>   (matching both `_sample` and `_bkg`) falls back to the newest averaged, which
+>   could be the `_bkg`. The subtracted-required warning fires and the hard
+>   procedure forbids analysing averaged, so impact is low; consider excluding
+>   `_bkg` from the analysis fallback.
+> - **A10 (LOW, by design):** convergence needs confidence ≥ 0.5; mock SNR was
+>   raised (flux 2e7) so good fits clear it. Very short acquisitions stay
+>   low-confidence (correct). See CHANGELOG.
+> A4 (`run_python` is a guard not a jail, human-gated) remains accepted.
+
 > **RE-VERIFICATION (2026-09-24, pre-demo).** Second executable pass, focused on
 > "does it run as expected for the demo":
 > - `assistant/app.py` and all of `src/ai/` **byte-compile and import clean**.
@@ -47,9 +75,13 @@ defence-in-depth / cost.
 | # | Severity | Area | One line |
 |---|---|---|---|
 | [A6](#a6) | HIGH (fixed) | correctness | P(r) auto-Dmax used π/q_min → Dmax and Rg meaningless; now scanned |
-| [A1](#a1) | MED | security | PDF ingest writes the raw client filename — path traversal |
-| [A2](#a2) | MED | stability | PDF ingest has no size cap — a large upload can fill disk / OOM the indexer |
-| [A3](#a3) | MED | leak | Nine routes return `str(exc)` to the client (chat, ingest, memory, knowledge…) |
+| A8 | HIGH (fixed) | robustness | plotting not thread-safe → matplotlib corruption + FD leak ("Too many open files") |
+| A7 | MED (fixed) | accuracy | `_load_dat` didn't convert Å⁻¹→nm⁻¹ → sizes 10× too small on q_A-1 curves |
+| [A1](#a1) | MED (fixed) | security | PDF ingest wrote the raw client filename — path traversal; now `secure_filename` |
+| [A2](#a2) | MED (fixed) | stability | PDF upload was unbounded; now `MAX_CONTENT_LENGTH` = 50 MB |
+| [A3](#a3) | MED (fixed) | leak | 8 routes returned `str(exc)`; now a `_fail()` helper (log + generic id) |
+| A9 | LOW (open) | accuracy | no-subtracted + ambiguous averaged fallback could pick a `_bkg` (warning fires) |
+| A10 | LOW (by design) | tuning | convergence needs confidence ≥ 0.5; mock SNR raised so good fits clear it |
 | [A4](#a4) | LOW | — | `run_python` is a guard, not a jail (documented, human-gated) — accepted |
 
 ---
