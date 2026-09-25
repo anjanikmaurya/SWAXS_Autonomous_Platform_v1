@@ -7,6 +7,19 @@ this file is the running summary. Dates are when the work landed on `main`.
 
 ## September 2026
 
+### Flush no longer doubles in before-mode closed loops
+
+Operator report: the flush after a synthesis ran ~2× the set duration. In
+`background_when: "before"` the next condition isn't queued when synthesis ends
+(closed loop), so the "flush doubles as the next blank" merge never fired — the
+reactor did a full post-synthesis flush *and* then a full pre-synthesis blank
+flush, two full flushes per cycle. Fixed: the line is already clean coming out of
+the post-synthesis flush, so the pre-synthesis blank now does a short solvent
+refresh (`flush.blank_rinse_s`, default 30 s) instead of a second full flush;
+arming keeps the capillary clean while the background collection finishes. A dirty
+line (cold start / post-abort) still does a full flush. Held by
+`tests/test_flush_collapse.py`.
+
 ### Order-free reactor/optimiser startup (supersedes R28)
 
 The reactor is now a **pure consumer**: it no longer clears its queue on boot

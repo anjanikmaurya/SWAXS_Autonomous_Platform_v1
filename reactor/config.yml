@@ -403,6 +403,15 @@ run:
 flush:
   rate:      50.0            # µL/min on the flush pump (ode_dilution max = 50)
   duration:  1200.0          # s = 20 min
+  # Short blank when the line is ALREADY clean (background_when: "before"). In a
+  # closed loop the post-synthesis flush clears the product and the reactor waits
+  # (line stays clean) for the optimizer's next condition; the pre-synthesis blank
+  # then only needs a brief solvent refresh while the clean-capillary background
+  # is collected — not a second full flush. Arming (heating) afterwards gives the
+  # collection time to finish before reagents flow. Set 0 to always do a full
+  # flush (disables the shortcut). Ignored when the line is dirty (cold start,
+  # post-abort → full flush).
+  blank_rinse_s: 30.0        # s
   pump:      "ode_dilution"  # which pump flushes; switchable in the app. Default is
                              # ode_dilution (same ODE) while ode_flush is down; switch
                              # to "ode_flush" once fixed. A reagent flush pump is capped

@@ -162,6 +162,18 @@ and the sample/background pairing is unambiguous. `"after"` is the legacy mode
 finished). Either way the pair shares one `recipe_id`, which is how the
 Background app matches them.
 
+In a closed loop the next condition is not queued when a synthesis ends (it
+depends on that run's result), so the reactor does a full post-synthesis flush to
+clear the product, goes `ready`, and runs the pre-synthesis blank only once the
+optimizer proposes the next condition. Because the line is still clean from that
+post-synthesis flush (nothing flowed while waiting), the blank does **not** repeat
+a full flush — it does a short solvent refresh (`flush.blank_rinse_s`, default
+30 s) while the clean-capillary background is collected, and arming afterwards
+gives the collection time to finish before any reagent flows. This avoids ~one
+full flush duration of wasted time per cycle. When the line is *not* clean (cold
+start, or after an abort) the blank does a full flush. Set `flush.blank_rinse_s:
+0` to always do a full flush.
+
 Filenames carry role tags: `{recipe_id}_{spec.sample_tag}` (default `sample`) and
 `{recipe_id}_{spec.bkg_tag}` (default `bkg`). The sample acquisition fires
 `spec.spec_lead_s` before the run end.

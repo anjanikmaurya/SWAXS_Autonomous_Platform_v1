@@ -129,6 +129,20 @@ class ReactorController:
         fl = cfg.get("flush", {})
         self.flush_rate = float(fl.get("rate", 100.0))
         self.flush_duration = float(fl.get("duration", 300.0))
+        # Short blank when the line is ALREADY clean. In background_when="before"
+        # a closed loop does a full post-synthesis flush (clears the product),
+        # goes ready, and only then — once the optimizer has proposed the next
+        # condition — runs the pre-synthesis blank. The line is still clean from
+        # that post-synthesis flush (nothing flowed while waiting), so re-running
+        # a FULL flush duration wastes a whole flush per cycle. When the line is
+        # clean the blank only needs a brief solvent refresh while the clean-
+        # capillary background is collected; arming (heating) then gives that
+        # collection ample time to finish before any reagent flows. Falls back to
+        # a full flush when the line is NOT clean (cold start, post-abort).
+        self.blank_rinse_s = float(fl.get("blank_rinse_s", 30.0))
+        #: True once a flush has cleaned the line and nothing has flowed since.
+        #: Set at the end of every completed flush; cleared when reagents flow.
+        self._line_clean = False
         # Which pump does the flush. Default the dedicated ode_flush; can be switched
         # to a reagent pump (e.g. ode_dilution — same ODE) from the app if ode_flush
         # is unavailable. Reagent flush pumps are capped at their own max_flow.
@@ -838,9 +852,16 @@ class ReactorController:
         if (self.background_when == "before" and self._spec_enabled
                 and self._pending is None):
             self._pending = (recipe, setpoints)
-            self._log(f"🧪 blank first for {recipe.recipe_id} — flushing, then a "
-                      f"background collection, then the synthesis", "info")
-            self._enter_flush(kind="blank", bkg_recipe_id=recipe.recipe_id)
+            dur = self._blank_flush_duration()
+            if dur is not None:
+                self._log(f"🧪 line already clean — short blank rinse ({dur:g}s) + "
+                          f"background for {recipe.recipe_id}, then the synthesis "
+                          f"(no redundant full flush)", "info")
+            else:
+                self._log(f"🧪 blank first for {recipe.recipe_id} — flushing, then a "
+                          f"background collection, then the synthesis", "info")
+            self._enter_flush(kind="blank", duration=dur,
+                              bkg_recipe_id=recipe.recipe_id)
             return
 
         self._start_recipe(recipe, setpoints)
@@ -911,6 +932,7 @@ class ReactorController:
 
     def _enter_running(self) -> None:
         self.pumps.reset_volumes()          # start counting delivered volume for this run
+        self._line_clean = False            # reagents about to flow — line is now dirty
         self._flow_faulted_prev = set()
         failed_set = self.pumps.set_all(self.setpoints)
         if failed_set:
@@ -1085,6 +1107,17 @@ class ReactorController:
         else:
             self._to_idle()
 
+    def _blank_flush_duration(self) -> float | None:
+        """Duration for a pre-synthesis blank. Returns the short rinse when the
+        line is already clean (skips a redundant full flush), else None so
+        _enter_flush uses the full flush duration. `blank_rinse_s <= 0` disables
+        the shortcut (always full flush). The subsequent arming period keeps the
+        capillary clean while the background collection finishes, so the short
+        rinse does not risk contaminating the background."""
+        if self._line_clean and self.blank_rinse_s > 0:
+            return float(self.blank_rinse_s)
+        return None
+
     def _enter_flush(self, rate: float | None = None, duration: float | None = None,
                      kind: str = "flush", bkg_recipe_id: str = "") -> None:
         """kind: "flush" (post-synthesis clean-out) | "blank" (pre-synthesis
@@ -1159,6 +1192,10 @@ class ReactorController:
 
     def _end_flush(self) -> None:
         self.pumps.set_pump_flow(self._flush_pump, 0.0)
+        # A completed flush leaves the line clean; it stays clean until reagents
+        # flow again (_enter_running). This lets the NEXT pre-synthesis blank skip
+        # a redundant full flush — see _blank_flush_duration.
+        self._line_clean = True
 
         # A "blank" flush is the FIRST half of starting a recipe: the line is now
         # clean and the background has been collected, so run the synthesis it
