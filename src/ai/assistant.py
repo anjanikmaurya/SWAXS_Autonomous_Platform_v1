@@ -60,7 +60,11 @@ def _emit_interactive(fig: dict | None) -> None:
 _DEFAULT_MODEL      = "us.anthropic.claude-sonnet-4-6"
 _MAX_TOKENS         = 4096
 _KB_TOP_K           = 6          # knowledge-base hits to include
-_MAX_TOOL_ROUNDS    = 5          # max recursive tool-use loops per chat turn
+_MAX_TOOL_ROUNDS    = 8          # max recursive tool-use loops per chat turn
+                                 # (8, not 5: a thorough model-recommendation walks
+                                 #  ground → plot → Guinier+Porod+Kratky →
+                                 #  list_saxs_models → web_search before answering;
+                                 #  still bounded, so no runaway recursion.)
 
 #: Per-turn "effort" the UI can pick → (response token budget, system-prompt nudge).
 #: Deliberately NOT Anthropic extended-thinking: the agentic tool loop re-sends the
@@ -1035,10 +1039,26 @@ p(r)/Dmax, a model fit, a metric, a comparison):
 - **p(r) / Dmax:** G1→G3 → `compute_pr` (auto-Dmax unless the user gives one) →
   report Rg, Dmax, I₀ and whether p(r) returns smoothly to zero at Dmax → PLOT →
   assumptions line.
-- **Model (SASview) fit:** G1→G3 → `list_saxs_models`, choose the model matching
-  the features, derive NUMERIC initial guesses from the data → state the model +
-  guesses and ASK before fitting → on yes, `fit_model` → check reduced-χ² and
-  **residuals**; if not flat, iterate → PLOT (data+fit+residuals) → assumptions.
+- **Model (SASview) recommendation & fit:** G1→G3 (confirm units/q-range) →
+  PLOT the SAXS curve (log–log) → run CLASSICAL ANALYSIS to characterise it
+  before choosing a model: Guinier (Rg, I₀, qRg validity), Porod/high-q slope
+  (the exponent: −4 smooth sphere surface, −3…−4 rough/fractal, −2 sheets/chains,
+  −1 rods), and Kratky (globular vs extended/flexible). Note any mid-q peak
+  ($d = 2\\pi/q^*$). THEN choose the model:
+    · Call `list_saxs_models` — this IS the authoritative SASview/sasmodels
+      catalog of what can actually be fitted here; pick from it. Do NOT invent a
+      model name or claim to have browsed the SASview website.
+    · Map the observed features to the model (e.g. Guinier plateau + Porod −4 +
+      globular Kratky ⇒ sphere with $R \\approx R_g\\sqrt{5/3}$; rod slope ⇒
+      cylinder; mid-q peak ⇒ lamellar/broad_peak with spacing $d$).
+    · Optionally call `web_search` for SUPPORTING LITERATURE (Crossref only — it
+      is not a general web browse); cite by DOI/title. If offline, say so and
+      rely on the classical results + sasmodels catalog.
+  Give the recommendation WITH explicit reasoning tied to each classical result,
+  plus 1–2 alternatives and your uncertainty. State NUMERIC initial guesses
+  derived from the data. Then ASK before fitting. On yes → `fit_model` → check
+  reduced-χ² and **residuals**; if not flat, iterate → PLOT (data+fit+residuals)
+  → assumptions line.
 
 ## WAXS — STRICT: do not identify peaks (current samples have none)
 The current samples have NO real WAXS features. Any apparent peak, shoulder, or

@@ -191,7 +191,9 @@ Examined closely and correct:
   (`_expire_sessions`), history is capped per session (60) and again trimmed to
   the last 6 user turns before each model call, so input-token cost and memory
   are both bounded.
-* **The tool loop is bounded** (`_MAX_TOOL_ROUNDS = 5`) — no runaway recursion.
+* **The tool loop is bounded** (`_MAX_TOOL_ROUNDS = 8`) — no runaway recursion.
+  (Raised from 5 so a thorough model recommendation — ground → plot → Guinier +
+  Porod + Kratky → list_saxs_models → web_search — completes in one turn.)
 
 ---
 
