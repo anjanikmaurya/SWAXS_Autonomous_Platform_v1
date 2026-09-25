@@ -2163,12 +2163,10 @@ class SWAXSAssistant:
             hi = f"{qmax:g}" if qmax is not None else "max"
             qtxt = f"q {lo}–{hi} nm⁻¹"
         title = f"Overlay — {', '.join(keywords)} ({stage})" + (f"  ·  {qtxt}" if qtxt else "")
+        # Use the SAME matplotlib renderer as every other plot (publication style,
+        # right-side legend) so overlay quality is consistent. The old interactive
+        # Plotly overlay looked different and put its legend at the bottom.
         b64 = plot_overlay(groups, axis=axis, title=title)
-        try:
-            from src.ai.plots import overlay_plotly
-            _emit_interactive(overlay_plotly(groups, axis=axis, title=title))
-        except Exception as exc:
-            logger.debug("[Assistant] interactive overlay failed: %s", exc)
         per_det = ", ".join(f"{len(groups[d])} {d.upper()}" for d in dets if groups.get(d))
         msg = (f"Overlaid {n} {stage} curve(s) [{per_det}] matching {keywords} "
                f"on {axis} axes")
