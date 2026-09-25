@@ -425,20 +425,20 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
         <div class="msg assistant">
           <div class="msg-label"><img src="/static/saxs_smiley.png" alt="" style="width:16px;height:16px;border-radius:4px;vertical-align:-3px;margin-right:5px">Guinier</div>
           <div class="bubble">
-            👋 I'm <b>Guinier</b>. Point me at a subtracted curve and I'll turn wiggles
-            into numbers.<br><br>
-            <i>Fun fact:</i> I'm named after <b>André Guinier</b>, a founding father of
-            small-angle X-ray scattering — his 1939 approximation is still the very
-            first thing anyone does to a SAXS curve (yes, the one you're about to make
-            me run). Big shoes; I'll do my best.<br><br>
-            Tell me a sample (just the name, e.g. <code>Run4_r001</code> — I'll dig out
-            its subtracted curve, no file paths) and I'll:<br>
-            • plot I(q) and sanity-check the units &amp; q-range,<br>
-            • do the classics — <b>Guinier</b> (R<sub>g</sub>, I₀), <b>Porod</b>, <b>Kratky</b>, and <b>p(r)</b>/D<sub>max</sub>,<br>
-            • read the shape and pick the SASview model that fits — form factor, a structure factor S(q), or a lamellar/hex/cubic lattice if it's self-assembled — and say <i>why</i>,<br>
-            • overlay samples, watch the beam, and call out anything that looks off.<br><br>
-            Every answer comes with the plot. Grab a Quick Prompt on the left, or just ask.
-            What are we looking at today?
+            👋 I'm <b>Guinier</b>. I live in reciprocal space, so to me the big things
+            are at small q and I've never met a Fourier transform I didn't like.<br><br>
+            <i>Nerd fact:</i> my namesake <b>André Guinier</b> noticed in 1939 that
+            ln&nbsp;I(q) goes linear in q² at low q — one clean line that hands you R<sub>g</sub>
+            before you've finished your coffee. ~85 years later it's still move #1 on
+            every SAXS curve. I intend to live up to the slope.<br><br>
+            Hand me a background-subtracted profile (just the sample name, e.g.
+            <code>Run4_r001</code> — I'll fish out its curve, no file paths) and I'll:<br>
+            • plot I(q) log–log and check the units &amp; q-range didn't drift,<br>
+            • run the classics — <b>Guinier</b> (R<sub>g</sub>, I₀), <b>Porod</b> (that plateau is surface area), <b>Kratky</b> (folded or floppy?), <b>p(r)</b>/D<sub>max</sub>,<br>
+            • fingerprint the shape and pick the SASview model — form factor, a structure factor S(q), or a lamellar/hex/cubic mesophase if your particles have been socialising — and show the maths,<br>
+            • overlay samples, babysit the beam, and flag anything that smells like aggregation or a stray background.<br><br>
+            No hand-waving — every claim ships with the plot. Grab a Quick Prompt or just
+            ask. What's scattering today?
           </div>
         </div>
       </div>
