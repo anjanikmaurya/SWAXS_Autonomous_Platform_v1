@@ -76,6 +76,14 @@ def test_no_match_returns_none(asst):
     assert entry is None and matches == [] and stage is None
 
 
+def test_subtracted_warning_fires_on_averaged_fallback(asst):
+    # analysis must be on subtracted data; averaged fallback is flagged loudly
+    assert Asst._subtracted_warning("subtracted", "Run4_r001", "p(r)") == ""
+    w = Asst._subtracted_warning("averaged", "Run4_r001", "model fit")
+    assert "not background-subtracted" in w.lower()
+    assert "run background subtraction" in w.lower()
+
+
 def test_pick_note_only_when_ambiguous(asst):
     assert asst._pick_note([1], {"path": "/p/x.dat"}, "saxs", "subtracted", "k") == ""
     note = asst._pick_note([1, 2], {"path": "/p/sub_new.dat"},

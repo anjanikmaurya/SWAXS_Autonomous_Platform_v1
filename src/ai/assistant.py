@@ -1007,11 +1007,15 @@ p(r)/Dmax, a model fit, a metric, a comparison):
   G1. GROUND — call `query_manifest` (query_type='summary' first; add a
       keyword/detector filter for specifics). Confirm the sample actually exists.
       One manifest read per turn is enough — do not re-query redundantly.
-  G2. RESOLVE ONE FILE — identify exactly ONE data file to use. Prefer the
-      SUBTRACTED curve, else the averaged; when several match or the request is
-      loose, use the MOST RECENT. If the sample is ambiguous OR the needed data
-      is missing, ASK ONE clarifying question and STOP — never guess, never
-      fabricate a number.
+  G2. RESOLVE ONE FILE — identify exactly ONE data file. STRUCTURAL ANALYSIS IS
+      ALWAYS DONE ON THE SUBTRACTED (background-corrected) CURVE. Use the
+      subtracted file; when several match or the request is loose, use the MOST
+      RECENT. If NO subtracted file exists for that sample, do NOT analyse the
+      averaged/reduced data — tell the user to run background subtraction first,
+      and STOP. (Averaged/reduced curves are only for beam-metadata and QC
+      checks, never for Rg, p(r), Porod, Kratky, or model fits.) If the sample is
+      ambiguous OR the needed data is missing, ASK ONE clarifying question and
+      STOP — never guess, never fabricate a number.
   G3. VALIDATE — load the file and check it is sane before computing: units
       (q in nm⁻¹; convert if Å⁻¹), a usable q-range, enough finite points. If the
       data fail validation, say so and stop.
@@ -1954,6 +1958,18 @@ class SWAXSAssistant:
         return None, mf, [], None
 
     @staticmethod
+    def _subtracted_warning(stage, keyword, what):
+        """Loud note when a structural analysis had to fall back to averaged data.
+        Analysis must be done on the SUBTRACTED (background-corrected) curve; if
+        none exists the result is not reliable and the user should subtract first.
+        Empty string when the resolved file is already subtracted."""
+        if stage == "subtracted":
+            return ""
+        return (f"⚠ no subtracted curve matched '{keyword}' — this {what} is on "
+                f"{stage.upper()} (NOT background-subtracted) data and is not "
+                f"reliable. Run background subtraction first, then re-analyse. ")
+
+    @staticmethod
     def _pick_note(matches, entry, detector, stage, keyword):
         """One-line note when several files matched and the newest was chosen,
         so the auto-pick is never silent. Empty string for a single match."""
@@ -1992,6 +2008,7 @@ class SWAXSAssistant:
             return (f"No subtracted or averaged {det.upper()} sample matched "
                     f"'{keyword}'."), None
         pick_note = self._pick_note(matches, entry, det, stage, keyword)
+        subwarn = self._subtracted_warning(stage, keyword, "model fit")
 
         q, I, sigma = _load_dat(entry.get("path", ""))
         if q is None:
@@ -2027,7 +2044,7 @@ class SWAXSAssistant:
             p.get("q_fit", q),  p.get("I_fit", I),
             sigma=sigma, model=model, chi2=res.get("chi2"), axis=axis)
         pstr = ", ".join(f"{k}={v:.4g}" for k, v in res.get("params", {}).items())
-        return (f"{pick_note}Fitted '{model}' to {Path(entry['path']).name} "
+        return (f"{subwarn}{pick_note}Fitted '{model}' to {Path(entry['path']).name} "
                 f"({stage}): reduced χ² = {res.get('chi2')}. Parameters: {pstr}. "
                 "Review the residuals; tell me to iterate (adjust guesses/free "
                 "params) or try another model if they're not flat."), b64
@@ -2110,6 +2127,7 @@ class SWAXSAssistant:
             return (f"No subtracted or averaged {det.upper()} sample matched "
                     f"'{keyword}'."), None
         pick_note = self._pick_note(matches, entry, det, stage, keyword)
+        subwarn = self._subtracted_warning(stage, keyword, "p(r)")
 
         q, I, sigma = _load_dat(entry.get("path", ""))
         if q is None:
@@ -2127,7 +2145,7 @@ class SWAXSAssistant:
         from src.ai.plots import plot_pair_distance
         b64 = plot_pair_distance(res["r"], res["pr"], Dmax=res.get("Dmax"),
                                  title=f"p(r): {Path(entry['path']).name}")
-        return (f"{pick_note}p(r) for {Path(entry['path']).name} ({stage}): "
+        return (f"{subwarn}{pick_note}p(r) for {Path(entry['path']).name} ({stage}): "
                 f"Rg = {res['Rg']} nm, Dmax = {res['Dmax']} nm, I0 = {res['I0']} "
                 f"(IFT reduced χ² = {res['chi2']}). "
                 "Check that p(r) returns smoothly to zero at Dmax — if it's "
