@@ -32,6 +32,18 @@ import uuid
 from pathlib import Path
 from threading import Lock
 
+# Give the process file-descriptor headroom. macOS ships a 256 soft limit, which
+# a long-running plotting/analysis server can exhaust ("Too many open files").
+# Best-effort: raise the soft limit toward the hard cap; never fatal.
+try:
+    import resource as _resource
+    _soft, _hard = _resource.getrlimit(_resource.RLIMIT_NOFILE)
+    _want = 8192 if _hard == _resource.RLIM_INFINITY else min(_hard, 8192)
+    if _soft < _want:
+        _resource.setrlimit(_resource.RLIMIT_NOFILE, (_want, _hard))
+except Exception:
+    pass
+
 from flask import (
     Flask,
     Response,

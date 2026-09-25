@@ -7,6 +7,18 @@ this file is the running summary. Dates are when the work landed on `main`.
 
 ## September 2026
 
+### Assistant plotting made thread-safe (fixes "Too many open files")
+
+The assistant's plot tools failed under load with `matplotlib has no attribute
+'get_data_path'` and then `[Errno 24] Too many open files`. Cause: pyplot keeps
+global, non-thread-safe state, and the assistant plots on a threaded Flask
+server — concurrent turns corrupted matplotlib and a figure orphaned by an error
+leaked file descriptors until the process ran out. `src/ai/plots.py` now
+serialises every plot entry point behind one lock and closes any half-built
+figure on error; the assistant process also raises its file-descriptor soft
+limit at startup. Verified: 200 concurrent plots leak no figures and no FDs. Held
+by `tests/test_plots_thread_safety.py`.
+
 ### Mock SNR raised so the closed loop can converge
 
 The autonomous loop never converged in mock mode even when a run hit the target

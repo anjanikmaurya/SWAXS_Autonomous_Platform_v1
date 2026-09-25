@@ -4,7 +4,9 @@ src/ai/plots.py — AI-Triggered Plot Generation
 Generates matplotlib figures as base64-encoded PNG strings for inline
 display in the AI assistant chat panel.
 
-Every function returns a plain ``str`` (base64 PNG) or raises on failure.
+Static plot functions return a 300-dpi base64 PNG and accept an optional
+``export_path`` ending in .png, .svg, or .pdf. ``overlay_plotly`` returns an
+interactive figure dictionary using the same publication palette and styling.
 The caller embeds it as:  <img src="data:image/png;base64,{result}">
 
 Available plot functions
@@ -31,9 +33,14 @@ Usage
 from __future__ import annotations
 
 import base64
+import functools
 import io
 import logging
+import textwrap
+import threading
+from html import escape
 from typing import Any
+from pathlib import Path
 
 import numpy as np
 
@@ -44,17 +51,43 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+# ── Thread safety ────────────────────────────────────────────────────────────
+# pyplot keeps GLOBAL state and is NOT thread-safe. The assistant serves chat
+# turns on a threaded Flask server, so two turns plotting at once corrupted that
+# state — the symptom was `matplotlib has no attribute 'get_data_path'` — and a
+# figure orphaned by an error under concurrency leaked file descriptors until the
+# process hit "Too many open files". Serialise every entry point that touches
+# matplotlib, and close any half-built figure on error. RLock so the
+# generate_plot dispatcher can call an already-wrapped plot_* without deadlock.
+_MPL_LOCK = threading.RLock()
+
+
+def _serialized(fn):
+    @functools.wraps(fn)
+    def _wrap(*args, **kwargs):
+        with _MPL_LOCK:
+            try:
+                return fn(*args, **kwargs)
+            except Exception:
+                plt.close("all")     # never leak a figure created before the error
+                raise
+    return _wrap
+
 # ── Style constants ────────────────────────────────────────────────────────────
-_FIG_W    = 6.0    # inches
-_FIG_H    = 4.0    # inches
-_DPI      = 130    # render sharper / larger for easier on-screen reading
-_DATA_C   = "#1565C0"
-_FIT_C    = "#E53935"
-_RANGE_C  = "#FFF9C4"
-_GRID_KW  = {"alpha": 0.3, "linewidth": 0.6}
-_ERR_KW   = {"alpha": 0.25, "linewidth": 0}
+_FIG_W    = 6.4    # inches; readable at common manuscript figure widths
+_FIG_H    = 4.4
+_DPI      = 300
+_PALETTE  = ("#0072B2", "#D55E00", "#009E73", "#CC79A7",
+             "#E69F00", "#56B4E9", "#333333", "#777777")
+_LINESTYLES = ("-", "--", "-.", ":")
+_DATA_C   = _PALETTE[0]
+_FIT_C    = _PALETTE[1]
+_RANGE_C  = "#F0E4B8"
+_GRID_KW  = {"alpha": 0.65, "linewidth": 0.5, "color": "#D9DEE3"}
+_ERR_KW   = {"alpha": 0.18, "linewidth": 0}
 
 
+@_serialized
 def generate_plot(plot_type: str, **kwargs: Any) -> str:
     """
     Dispatcher — call the appropriate plot function by name.
@@ -88,6 +121,7 @@ def generate_plot(plot_type: str, **kwargs: Any) -> str:
 
 # ── Individual plot functions ─────────────────────────────────────────────────
 
+@_serialized
 def plot_curve(
     q:       "np.ndarray",
     I:       "np.ndarray",
@@ -95,6 +129,8 @@ def plot_curve(
     label:   str = "I(q)",
     title:   str = "Scattering Curve",
     loglog:  bool = True,
+    *,
+    export_path: str | Path | None = None,
 ) -> str:
     """
     Standard 1D scattering curve: I(q) vs q (log-log by default).
@@ -107,7 +143,7 @@ def plot_curve(
         sig = np.asarray(sigma)
         ax.fill_between(q[mask], (I - sig)[mask], (I + sig)[mask],
                         color=_DATA_C, **_ERR_KW)
-    ax.plot(q[mask], I[mask], color=_DATA_C, linewidth=1.2, label=label)
+    ax.plot(q[mask], I[mask], color=_DATA_C, linewidth=1.6, label=label)
 
     if loglog:
         ax.set_xscale("log")
@@ -117,11 +153,10 @@ def plot_curve(
     ax.set_ylabel("I(q)  (a.u.)")
     ax.set_title(title)
     ax.grid(True, which="both", **_GRID_KW)
-    ax.legend(fontsize=9)
-    plt.tight_layout()
-    return _fig_to_b64(fig)
+    return _fig_to_b64(fig, export_path=export_path)
 
 
+@_serialized
 def plot_guinier(
     q:       "np.ndarray",
     I:       "np.ndarray",
@@ -131,6 +166,8 @@ def plot_guinier(
     Rg:      float | None = None,
     I0:      float | None = None,
     title:   str = "Guinier Analysis",
+    *,
+    export_path: str | Path | None = None,
 ) -> str:
     """
     Guinier plot: ln I vs q².  Fit range highlighted; best-fit line overlaid.
@@ -170,20 +207,19 @@ def plot_guinier(
         # qRg validity markers
         qRg_lo = 0.3 / Rg if Rg > 0 else 0
         qRg_hi = 1.3 / Rg if Rg > 0 else 0
-        ax.axvline(qRg_lo ** 2, color="#4CAF50", linestyle="--",
+        ax.axvline(qRg_lo ** 2, color=_PALETTE[2], linestyle="--",
                    linewidth=0.9, label=f"qRg=0.3  (q={qRg_lo:.4f})")
-        ax.axvline(qRg_hi ** 2, color="#F44336", linestyle="--",
+        ax.axvline(qRg_hi ** 2, color=_FIT_C, linestyle=":",
                    linewidth=0.9, label=f"qRg=1.3  (q={qRg_hi:.4f})")
 
     ax.set_xlabel("q²  (nm⁻²)")
     ax.set_ylabel("ln I(q)")
     ax.set_title(title)
     ax.grid(True, **_GRID_KW)
-    ax.legend(fontsize=8)
-    plt.tight_layout()
-    return _fig_to_b64(fig)
+    return _fig_to_b64(fig, export_path=export_path)
 
 
+@_serialized
 def plot_kratky(
     q:       "np.ndarray",
     I:       "np.ndarray",
@@ -191,6 +227,8 @@ def plot_kratky(
     title:   str = "Kratky Plot",
     Rg:      float | None = None,
     I0:      float | None = None,
+    *,
+    export_path: str | Path | None = None,
 ) -> str:
     """
     Kratky plot: q²I vs q.
@@ -214,10 +252,10 @@ def plot_kratky(
         sig = np.asarray(sigma, dtype=float)
         yerr = q[mask] ** 2 * sig[mask]
         ax.fill_between(q[mask], y - yerr, y + yerr, color=_DATA_C, **_ERR_KW)
-    ax.plot(q[mask], y, color=_DATA_C, linewidth=1.2)
+    ax.plot(q[mask], y, color=_DATA_C, linewidth=1.6)
     ax.set_xlabel("q  (nm⁻¹)")
     ax.set_ylabel("q²·I(q)")
-    ax.set_title("Kratky Plot")
+    ax.set_title("Kratky Plot" if (Rg and I0) else title)
     ax.grid(True, **_GRID_KW)
 
     # Dimensionless Kratky (if Rg and I0 available)
@@ -225,26 +263,28 @@ def plot_kratky(
         ax2   = axes[1]
         qRg   = q[mask] * Rg
         ydk   = (qRg) ** 2 * I[mask] / I0
-        ax2.plot(qRg, ydk, color=_DATA_C, linewidth=1.2,
+        ax2.plot(qRg, ydk, color=_DATA_C, linewidth=1.6,
                  label="Dimensionless Kratky")
         # Ideal globule marker at (√3, 3/e) ≈ (1.732, 1.103)
-        ax2.plot(np.sqrt(3), 3 / np.e, "r*", markersize=12,
+        ax2.plot(np.sqrt(3), 3 / np.e, "*", color=_FIT_C, markersize=10,
                  label=f"Ideal globule (√3, 3/e)")
         ax2.set_xlabel("qRg")
         ax2.set_ylabel("(qRg)²·I/I₀")
         ax2.set_title("Dimensionless Kratky")
-        ax2.legend(fontsize=8)
         ax2.grid(True, **_GRID_KW)
 
-    fig.suptitle(title)
-    plt.tight_layout()
-    return _fig_to_b64(fig)
+    if Rg and I0:
+        fig.suptitle(title)
+    return _fig_to_b64(fig, export_path=export_path)
 
 
+@_serialized
 def plot_porod(
     q:     "np.ndarray",
     I:     "np.ndarray",
     title: str = "Porod Analysis",
+    *,
+    export_path: str | Path | None = None,
 ) -> str:
     """
     Porod plot: q⁴I vs q⁴.
@@ -256,20 +296,22 @@ def plot_porod(
     q4I  = q4 * I[mask]
 
     fig, ax = plt.subplots(figsize=(_FIG_W, _FIG_H), dpi=_DPI)
-    ax.plot(q4, q4I, color=_DATA_C, linewidth=1.2)
+    ax.plot(q4, q4I, color=_DATA_C, linewidth=1.6)
     ax.set_xlabel("q⁴  (nm⁻⁴)")
     ax.set_ylabel("q⁴·I(q)")
     ax.set_title(title)
     ax.grid(True, **_GRID_KW)
-    plt.tight_layout()
-    return _fig_to_b64(fig)
+    return _fig_to_b64(fig, export_path=export_path)
 
 
+@_serialized
 def plot_pair_distance(
     r:     "np.ndarray",
     pr:    "np.ndarray",
     Dmax:  float | None = None,
     title: str = "Pair Distance Distribution  p(r)",
+    *,
+    export_path: str | Path | None = None,
 ) -> str:
     """
     p(r) pair distance distribution.  Dmax is annotated if provided.
@@ -281,23 +323,24 @@ def plot_pair_distance(
     ax.plot(r, pr, color=_DATA_C, linewidth=1.5)
 
     if Dmax is not None:
-        ax.axvline(Dmax, color=_FIT_C, linestyle="--", linewidth=1.2,
+        ax.axvline(Dmax, color=_FIT_C, linestyle="--", linewidth=1.6,
                    label=f"Dmax = {Dmax:.1f} nm")
-        ax.legend(fontsize=9)
 
     ax.axhline(0, color="black", linewidth=0.6)
     ax.set_xlabel("r  (nm)")
     ax.set_ylabel("p(r)")
     ax.set_title(title)
     ax.grid(True, **_GRID_KW)
-    plt.tight_layout()
-    return _fig_to_b64(fig)
+    return _fig_to_b64(fig, export_path=export_path)
 
 
+@_serialized
 def plot_multi(
     datasets: list[dict],
     title:    str = "Scattering Curves",
     loglog:   bool = True,
+    *,
+    export_path: str | Path | None = None,
 ) -> str:
     """
     Overlay multiple 1D curves on one plot.
@@ -308,7 +351,6 @@ def plot_multi(
         label : str  (optional)
         sigma : array-like  (optional)
     """
-    cmap   = plt.get_cmap("tab10")
     fig, ax = plt.subplots(figsize=(_FIG_W, _FIG_H + 0.5), dpi=_DPI)
 
     for i, ds in enumerate(datasets):
@@ -316,13 +358,14 @@ def plot_multi(
         I_   = np.asarray(ds["I"],  dtype=float)
         mask = (q_ > 0) & (I_ > 0)
         lbl  = ds.get("label", f"Curve {i+1}")
-        col  = cmap(i % 10)
+        col  = _PALETTE[i % len(_PALETTE)]
 
-        if "sigma" in ds:
+        if ds.get("sigma") is not None:
             sig = np.asarray(ds["sigma"], dtype=float)
             ax.fill_between(q_[mask], (I_ - sig)[mask], (I_ + sig)[mask],
                             color=col, **_ERR_KW)
-        ax.plot(q_[mask], I_[mask], color=col, linewidth=1.2, label=lbl)
+        ax.plot(q_[mask], I_[mask], color=col, linewidth=1.6, label=lbl,
+                linestyle=_LINESTYLES[(i // len(_PALETTE)) % len(_LINESTYLES)])
 
     if loglog:
         ax.set_xscale("log")
@@ -331,14 +374,13 @@ def plot_multi(
     ax.set_xlabel("q  (nm⁻¹)")
     ax.set_ylabel("I(q)  (a.u.)")
     ax.set_title(title)
-    ax.legend(fontsize=8, ncol=min(2, len(datasets)))
     ax.grid(True, which="both", **_GRID_KW)
-    plt.tight_layout()
-    return _fig_to_b64(fig)
+    return _fig_to_b64(fig, export_path=export_path)
 
 
 # ── Internal ───────────────────────────────────────────────────────────────────
 
+@_serialized
 def plot_fit_residuals(
     q_data: "np.ndarray",
     I_data: "np.ndarray",
@@ -348,6 +390,8 @@ def plot_fit_residuals(
     model:  str = "",
     chi2:   float | None = None,
     axis:   str = "loglog",
+    *,
+    export_path: str | Path | None = None,
 ) -> str:
     """
     Two-panel model-fit figure: data + fit curve (top) and normalized residuals
@@ -385,7 +429,6 @@ def plot_fit_residuals(
     ax.set_title(title, fontsize=11, fontweight="bold")
     ax.set_ylabel("I(q)  (a.u.)")
     ax.grid(True, which="both", **_GRID_KW)
-    ax.legend(fontsize=9)
 
     axr.axhline(0, color="#888", lw=0.8)
     axr.plot(q_data[good], resid[good], "o", ms=3, color=_DATA_C)
@@ -393,8 +436,7 @@ def plot_fit_residuals(
     axr.set_xlabel("q  (nm⁻¹)")
     axr.set_ylabel(rlabel, fontsize=9)
     axr.grid(True, which="both", **_GRID_KW)
-    plt.tight_layout()
-    return _fig_to_b64(fig)
+    return _fig_to_b64(fig, export_path=export_path)
 
 
 def overlay_plotly(groups: dict, axis: str = "loglog", title: str = "Overlay") -> dict:
@@ -411,12 +453,22 @@ def overlay_plotly(groups: dict, axis: str = "loglog", title: str = "Overlay") -
     n = len(dets)
     pad = 0.07
 
+    # Reserve a row per curve below the plot; wrap without losing filename text.
+    legend_lines = sum(
+        max(1, len(textwrap.wrap(str(ds.get("label", "")), width=48)))
+        for det in dets for ds in groups.get(det, [])
+    )
+    legend_height = 24 + 20 * legend_lines
     data = []
     layout = {
-        "title": {"text": title, "x": 0.5, "xanchor": "center"},
-        "template": "plotly_white", "height": 430,
-        "margin": {"t": 56, "l": 62, "r": 16, "b": 52},
-        "hovermode": "closest", "legend": {"font": {"size": 10}},
+        "title": {"text": escape(title), "x": 0.5, "xanchor": "center", "font": {"size": 18}},
+        "template": "plotly_white", "height": 500 + legend_height,
+        "font": {"family": "DejaVu Sans, Arial, sans-serif", "size": 14, "color": "#222222"},
+        "paper_bgcolor": "white", "plot_bgcolor": "white",
+        "colorway": list(_PALETTE),
+        "margin": {"t": 72, "l": 80, "r": 28, "b": 90 + legend_height},
+        "hovermode": "closest", "legend": {"font": {"size": 12}, "x": 0, "y": -0.24,
+                                             "xanchor": "left", "yanchor": "top"},
         "annotations": [],
     }
     for ci, det in enumerate(dets):
@@ -431,8 +483,8 @@ def overlay_plotly(groups: dict, axis: str = "loglog", title: str = "Overlay") -
                         "type": "log" if logy else "linear", "anchor": xref}
         layout["annotations"].append({
             "text": det.upper(), "x": (x0 + x1) / 2, "y": 1.04, "xref": "paper",
-            "yref": "paper", "showarrow": False, "font": {"size": 12, "color": "#8C1515"}})
-        for ds in groups.get(det, []):
+            "yref": "paper", "showarrow": False, "font": {"size": 14, "color": "#222222"}})
+        for i, ds in enumerate(groups.get(det, [])):
             qs, Is = ds.get("q", []), ds.get("I", [])
             xs, ys = [], []
             for qi, Ii in zip(qs, Is):
@@ -444,19 +496,35 @@ def overlay_plotly(groups: dict, axis: str = "loglog", title: str = "Overlay") -
                     continue
                 xs.append(qi); ys.append(Ii)
             data.append({
-                "type": "scattergl", "mode": "lines", "name": ds.get("label", ""),
+                "type": "scatter", "mode": "lines",
+                "line": {"color": _PALETTE[i % len(_PALETTE)], "width": 2,
+                         "dash": ("solid", "dash", "dashdot", "dot")[(i // len(_PALETTE)) % 4]}, "name": "<br>".join(escape(line) for line in
+                    textwrap.wrap(str(ds.get("label", "")), width=48)),
                 "x": xs, "y": ys, "xaxis": xref, "yaxis": yref,
-                "legendgroup": det,
+                "legendgroup": det, "legendgrouptitle": {"text": det.upper()},
                 "hovertemplate": "q=%{x:.4g}<br>I=%{y:.4g}<extra>"
-                                 + str(ds.get("label", "")) + "</extra>",
+                                 + escape(str(ds.get("label", ""))) + "</extra>",
             })
+    for key, value in layout.items():
+        if key.startswith(("xaxis", "yaxis")):
+            value.update({"showline": True, "mirror": True, "linecolor": "#444444",
+                          "linewidth": 1, "ticks": "outside", "ticklen": 5,
+                          "tickfont": {"size": 12}, "showgrid": True,
+                          "gridcolor": "#E5E8EB", "zeroline": False,
+                          "automargin": True})
+            value["title"]["font"] = {"size": 16}
+            if value["type"] == "log":
+                value["dtick"] = 1  # Label decades instead of dense minor digits.
     return {"data": data, "layout": layout}
 
 
+@_serialized
 def plot_overlay(
     groups: dict,
     axis:   str = "loglog",
     title:  str = "Overlay",
+    *,
+    export_path: str | Path | None = None,
 ) -> str:
     """
     Overlay multiple 1D curves, one panel per detector (SAXS/WAXS differ in q).
@@ -471,9 +539,8 @@ def plot_overlay(
     logy = axis in ("loglog", "semilog")
 
     fig, axes = plt.subplots(1, len(dets),
-                             figsize=(6.2 * len(dets), 4.3), dpi=_DPI,
+                             figsize=(_FIG_W * len(dets), _FIG_H), dpi=_DPI,
                              squeeze=False)
-    cmap = plt.get_cmap("tab10")
     for col, det in enumerate(dets):
         ax = axes[0][col]
         ds_list = groups.get(det, [])
@@ -485,13 +552,15 @@ def plot_overlay(
                 mask &= q_ > 0
             if logy:
                 mask &= I_ > 0
-            col_c = cmap(i % 10)
+            col_c = _PALETTE[i % len(_PALETTE)]
             if ds.get("sigma") is not None:
                 sig = np.asarray(ds["sigma"], dtype=float)
                 ax.fill_between(q_[mask], (I_ - sig)[mask], (I_ + sig)[mask],
                                 color=col_c, **_ERR_KW)
-            ax.plot(q_[mask], I_[mask], color=col_c, lw=1.3,
-                    label=ds.get("label", f"Curve {i+1}"))
+            ax.plot(q_[mask], I_[mask], color=col_c, lw=1.6,
+                    linestyle=_LINESTYLES[(i // len(_PALETTE)) % len(_LINESTYLES)],
+                    label="\n".join(textwrap.wrap(
+                        str(ds.get("label", f"Curve {i+1}")), width=48)))
         if logx:
             ax.set_xscale("log")
         if logy:
@@ -501,11 +570,8 @@ def plot_overlay(
             ax.set_ylabel("I(q)  (a.u.)")
         ax.set_title(det.upper(), fontsize=11, fontweight="bold")
         ax.grid(True, which="both", **_GRID_KW)
-        if ds_list:
-            ax.legend(fontsize=7, ncol=1)
     fig.suptitle(title, fontsize=12, fontweight="bold")
-    fig.tight_layout(rect=[0, 0, 1, 0.96])
-    return _fig_to_b64(fig)
+    return _fig_to_b64(fig, export_path=export_path)
 
 
 _METRIC_LABELS = {
@@ -519,11 +585,14 @@ _METRIC_LABELS = {
 }
 
 
+@_serialized
 def plot_metric_timeseries(
     series:  list[dict],
     params:  list[str],
     title:   str = "Metadata over time",
     xlabel:  str = "Timer — elapsed (s)",
+    *,
+    export_path: str | Path | None = None,
 ) -> str:
     """
     Plot per-sample metadata time series. `series` is a list of:
@@ -534,19 +603,20 @@ def plot_metric_timeseries(
     dets = sorted({s["detector"] for s in series}) or ["saxs"]
     nrows, ncols = max(1, len(params)), len(dets)
     fig, axes = plt.subplots(nrows, ncols,
-                             figsize=(7.8 * ncols, 3.7 * nrows),
+                             figsize=(_FIG_W * ncols, _FIG_H * nrows), dpi=_DPI,
                              squeeze=False)
-    cmap = plt.get_cmap("tab10")
     for col, det in enumerate(dets):
         det_series = [s for s in series if s["detector"] == det]
         for row, param in enumerate(params):
             ax = axes[row][col]
+            ax._publication_panel = det.upper()
             for i, s in enumerate(sorted(det_series, key=lambda z: z["label"])):
                 ys = s["values"].get(param)
                 if not ys:
                     continue
                 ax.plot(s["t"], ys, marker="o", ms=4, lw=1.6,
-                        color=cmap(i % 10), label=s["label"])
+                        color=_PALETTE[i % len(_PALETTE)], label=s["label"],
+                        linestyle=_LINESTYLES[(i // len(_PALETTE)) % len(_LINESTYLES)])
             ax.grid(True, **_GRID_KW)
             ax.tick_params(labelsize=11)
             if row == 0:
@@ -555,18 +625,84 @@ def plot_metric_timeseries(
                 ax.set_ylabel(_METRIC_LABELS.get(param, param), fontsize=12)
             if row == nrows - 1:
                 ax.set_xlabel(xlabel, fontsize=12)
-    # one shared legend on the right of the top-right panel
-    axes[0][ncols - 1].legend(fontsize=9, loc="center left",
-                              bbox_to_anchor=(1.01, 0.5), title="Sample")
     fig.suptitle(title, fontsize=14, fontweight="bold")
-    fig.tight_layout(rect=[0, 0, 1, 0.96])
-    return _fig_to_b64(fig)
+    return _fig_to_b64(fig, export_path=export_path)
 
 
-def _fig_to_b64(fig: "plt.Figure") -> str:
-    """Render a matplotlib figure to a base64-encoded PNG string."""
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", bbox_inches="tight", dpi=_DPI)
-    plt.close(fig)
-    buf.seek(0)
-    return base64.b64encode(buf.read()).decode("ascii")
+def _publication_style(fig: "plt.Figure") -> None:
+    """Apply the same typography and legend layout to every static figure."""
+    from matplotlib.ticker import NullFormatter
+
+    fig.set_facecolor("white")
+    entries = {}
+    for ax in fig.axes:
+        ax.set_facecolor("white")
+        ax.set_axisbelow(True)
+        ax.grid(False, which="both")
+        ax.grid(True, which="major", color="#D9DEE3", linewidth=0.5, alpha=0.65)
+        ax.tick_params(which="both", direction="out", colors="#222222",
+                       labelsize=9, width=0.8)
+        ax.tick_params(which="major", length=4)
+        ax.tick_params(which="minor", length=2)
+        for axis in (ax.xaxis, ax.yaxis):
+            if axis.get_scale() == "log":
+                axis.set_minor_formatter(NullFormatter())
+            axis.label.set_size(11)
+            axis.label.set_fontfamily("DejaVu Sans")
+            axis.label.set_color("#222222")
+            for text in axis.get_ticklabels() + [axis.get_offset_text()]:
+                text.set_fontfamily("DejaVu Sans")
+                text.set_fontsize(9)
+        ax.title.set_fontsize(12)
+        ax.title.set_fontfamily("DejaVu Sans")
+        ax.title.set_fontweight("normal")
+        ax.title.set_color("#222222")
+        for spine in ax.spines.values():
+            spine.set_linewidth(0.8)
+            spine.set_color("#444444")
+        handles, labels = ax.get_legend_handles_labels()
+        for handle, label in zip(handles, labels):
+            # Distinguish samples across detector panels without repeating
+            # the same sample in each metadata row.
+            panel = getattr(ax, "_publication_panel", ax.get_title())
+            if panel in ("SAXS", "WAXS"):
+                label = f"{panel} · {label}"
+            color = str(getattr(handle, "get_color", lambda: "")())
+            entries.setdefault((label, color), (handle, label))
+        if ax.get_legend() is not None:
+            ax.get_legend().remove()
+    if fig._suptitle is not None:
+        fig._suptitle.set_fontsize(13)
+        fig._suptitle.set_fontfamily("DejaVu Sans")
+        fig._suptitle.set_fontweight("normal")
+    fig.tight_layout(pad=1.2, h_pad=1.5, w_pad=1.8)
+    if entries:
+        handles, labels = zip(*entries.values())
+        labels = ["\n".join(textwrap.wrap(label.replace("\n", ""), width=72))
+                  for label in labels]
+        fig.legend(handles, labels, loc="upper left", bbox_to_anchor=(0.10, -0.01),
+                   prop={"family": "DejaVu Sans", "size": 9}, frameon=False,
+                   handlelength=2.8, handletextpad=0.8, labelspacing=0.65,
+                   borderaxespad=0)
+
+
+def _fig_to_b64(fig: "plt.Figure", export_path=None) -> str:
+    """Return a 300-dpi PNG; optionally save PNG, editable SVG, or vector PDF."""
+    try:
+        _publication_style(fig)
+        buf = io.BytesIO()
+        options = dict(bbox_inches="tight", pad_inches=0.12, dpi=_DPI,
+                       facecolor="white", transparent=False)
+        # Scope export font settings instead of changing the application's style.
+        with matplotlib.rc_context({"pdf.fonttype": 42, "ps.fonttype": 42,
+                                    "svg.fonttype": "none"}):
+            fig.savefig(buf, format="png", **options)
+            if export_path is not None:
+                path = Path(export_path)
+                fmt = path.suffix.lower().lstrip(".")
+                if fmt not in {"png", "svg", "pdf"}:
+                    raise ValueError("Publication export must use .png, .svg, or .pdf")
+                fig.savefig(path, format=fmt, **options)
+        return base64.b64encode(buf.getvalue()).decode("ascii")
+    finally:
+        plt.close(fig)
