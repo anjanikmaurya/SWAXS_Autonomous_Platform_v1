@@ -1474,12 +1474,27 @@ class SWAXSAssistant:
                     _step("tool", name=tool_name,
                           label=_tool_label(tool_name, tool_input))
                     _emit_interactive(None)   # clear before each tool call
-                    tool_output, plot_b64 = self._dispatch_tool(
-                        tool_name,
-                        tool_input,
-                        project_root = project_root,
-                        user_id      = uid,
-                    )
+                    # CONTAIN every tool call: a tool that raises (a bug, a bad
+                    # input, missing data) must NOT crash the whole turn. Feed the
+                    # error back as the tool result so the model can recover or
+                    # explain it — the difference between a graceful answer and a
+                    # failed turn. Robustness rule: the loop never propagates a
+                    # tool exception.
+                    try:
+                        tool_output, plot_b64 = self._dispatch_tool(
+                            tool_name,
+                            tool_input,
+                            project_root = project_root,
+                            user_id      = uid,
+                        )
+                    except Exception as exc:                       # noqa: BLE001
+                        logger.exception("[Assistant] tool %s raised: %s",
+                                         tool_name, exc)
+                        tool_output = (f"Tool error in {tool_name}: "
+                                       f"{type(exc).__name__}: {exc}. "
+                                       f"Continue without it or try a different "
+                                       f"approach.")
+                        plot_b64 = None
 
                     if plot_b64:
                         result_plot = plot_b64
@@ -3384,7 +3399,10 @@ Experiment data was not modified.</p></body></html>"""
 
         try:
             import anthropic
-            kwargs: dict = {}
+            # Resilience: retry transient gateway errors (429/5xx/timeouts) with
+            # the SDK's backoff, and cap how long a single call can hang so a
+            # wedged gateway surfaces as a clean error instead of a frozen turn.
+            kwargs: dict = {"max_retries": 4, "timeout": 120.0}
             if base_url:
                 kwargs["base_url"] = base_url
             if auth_token:

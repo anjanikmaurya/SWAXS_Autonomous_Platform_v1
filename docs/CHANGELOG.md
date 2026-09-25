@@ -7,6 +7,18 @@ this file is the running summary. Dates are when the work landed on `main`.
 
 ## September 2026
 
+### Assistant robustness: contain tool failures + retry transient errors
+
+Systematic hardening so a single tool bug can't fail a whole turn: the chat loop
+now wraps every tool call — a tool that raises (bug, bad input, missing data) is
+caught and fed back to the model as a "Tool error…" result to recover from,
+instead of propagating and crashing the turn. The Anthropic client is configured
+with max_retries=4 + a 120 s timeout so transient gateway errors (429/5xx/hangs)
+retry with backoff rather than failing. Together with the empty-answer guarantee,
+tool_use-by-content detection, thread-safe plotting, and the sandboxed run_python,
+the assistant degrades gracefully instead of going silent or 500-ing. Held by
+`test_assistant_never_empty.py::test_a_raising_tool_does_not_crash_the_turn`.
+
 ### Assistant: execute tool_use by content + forceful final answer
 
 Some turns showed the "couldn't compose a summary" fallback. Root cause: the tool

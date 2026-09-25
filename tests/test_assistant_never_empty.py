@@ -84,6 +84,23 @@ def test_normal_text_answer_passes_through():
     assert out["text"].strip() == "Rg is 3.1 nm."
 
 
+def test_a_raising_tool_does_not_crash_the_turn():
+    # A tool that throws must be contained: the loop feeds the error back and the
+    # model still produces a final answer — one tool bug never fails the whole turn.
+    script = [
+        _Resp([_ToolBlock()], stop="tool_use"),
+        _Resp([_Block("Recovered and here is the answer.")]),
+    ]
+    a = _assistant(script)
+
+    def _boom(name, inp, **k):
+        raise RuntimeError("simulated tool bug")
+    a._dispatch_tool = _boom
+
+    out = a.chat("analyse", project_root=None)
+    assert out["text"].strip() == "Recovered and here is the answer."
+
+
 def test_tool_use_with_wrong_stop_reason_is_still_executed():
     # Gateway quirk: a tool_use block arrives with stop_reason "end_turn" (not
     # "tool_use"). The loop must still run the tool and continue to a real answer,
