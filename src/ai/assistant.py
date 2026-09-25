@@ -1073,25 +1073,39 @@ p(r)/Dmax, a model fit, a metric, a comparison):
   reduced-χ² and **residuals**; if not flat, iterate → PLOT (data+fit+residuals)
   → assumptions line.
 
-## WAXS / structure factor — STRICT
-Do NOT run a WAXS/Bragg peak finder on SAXS data. A SAXS profile is SAXS by
-definition (SAXS detector), so:
-- NEVER classify a SAXS curve as WAXS, and never report a WAXS/Bragg peak,
-  d-spacing, crystallinity, phase, or 2θ position for it. Do not narrate a
-  "modality override" — SAXS is SAXS; just analyse it as SAXS.
-- The current samples also have no real WAXS features anyway: any apparent peak
-  in the true WAXS range is NOISE — nothing to report.
+## WAXS vs SAXS peaks — STRICT
+Do NOT run a WAXS/crystallography peak finder on SAXS data, and never call a SAXS
+feature "WAXS". A SAXS profile is SAXS by definition (SAXS detector), so:
+- NEVER classify a SAXS curve as WAXS, and never report WAXS crystallinity, a
+  Scherrer crystallite size, or a 2θ/atomic-lattice d-spacing for it. Do not
+  narrate a "modality override" — SAXS is SAXS; analyse it as SAXS.
+- The true WAXS range has no real features in these samples anyway — it's NOISE.
+- IMPORTANT: SAXS peaks are real and meaningful — they are small-angle features
+  (structure factor OR mesophase lattice diffraction), NOT WAXS. Interpret them
+  per the section below; do not dismiss them as noise just because they are peaks.
 
-Instead, interpret any real mid-q peak / correlation bump in a SAXS curve as a
-possible STRUCTURE FACTOR S(q) — inter-particle correlations, not crystallography.
-When you see one:
-- Report the correlation length d = 2π/q* from the peak position q*.
-- Recommend a SASview STRUCTURE-FACTOR model as a PRODUCT with the form factor
-  (e.g. sphere·S(q)): `hardsphere` (excluded volume / concentration), `hayter_msa`
-  (screened Coulomb / charged particles), `squarewell` or `stickyhardsphere`
-  (short-range attraction). Give the volume fraction and interaction radius as
-  starting guesses from the peak position and height.
-- If the "peak" is just high-q noise, say so and do not fit a structure factor.
+Real peaks in a SAXS curve are still SAXS. Interpret them as ONE of these — decide
+by COUNTING the peaks and checking the q-ratio sequence:
+
+(a) STRUCTURE FACTOR S(q) — a SINGLE broad correlation peak from inter-particle
+    interactions. Report d = 2π/q*; recommend a sasmodels S(q) as a PRODUCT with
+    the form factor (sphere·S(q)): `hardsphere` (concentration/excluded volume),
+    `hayter_msa` (charged/screened Coulomb), `squarewell` or `stickyhardsphere`
+    (short-range attraction). Give volume fraction + interaction radius as guesses.
+
+(b) SMALL-ANGLE LATTICE (Bragg) diffraction — MULTIPLE relatively sharp peaks in a
+    characteristic RATIO sequence from a self-assembled mesophase (common for LIPID
+    NANOPARTICLES and lyotropic phases). Identify the phase from the q-ratios:
+      • Lamellar (Lα): 1 : 2 : 3 : 4 …            → d = 2π/q₁
+      • Hexagonal (H_I/H_II): 1 : √3 : √4 : √7 …  → a = 4π/(√3·q₁)
+      • Cubic: Pn3m √2:√3:√4:√6…, Im3m √2:√4:√6…, Fd3m √3:√8:√11…
+    Report the identified phase and lattice parameter. Use the matching sasmodels:
+    `lamellar` / `lamellar_hg` / `lamellar_stack_paracrystal` for lamellar;
+    `bcc_paracrystal` / `fcc_paracrystal` / `sc_paracrystal` for cubic; note the
+    hexagonal assignment when peaks fit √3:√4:√7. This is SAXS, NOT WAXS.
+
+(c) If the "peaks" are just high-q noise, say so and fit nothing.
+
 This applies until told otherwise; SAXS form-factor analysis is unaffected.
 
 ## Other rules

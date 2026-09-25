@@ -202,9 +202,12 @@ def route_modality(q, I, sigma=None, detector=None) -> dict:
         out["bragg_present"] = False
         out["n_sharp_peaks"] = 0
         out["structure_factor_peak_q"] = sf_q
-        out["reason"] = (f"SAXS-detector curve with {idx.size} peak(s) at "
-                         f"q≈{[round(x,3) for x in sf_q]} nm⁻¹ => structure-factor "
-                         f"correlation(s), not WAXS Bragg")
+        out["saxs_peak_q"] = sf_q
+        out["reason"] = (f"SAXS-detector curve with {idx.size} small-angle peak(s) at "
+                         f"q≈{[round(x,3) for x in sf_q]} nm⁻¹ => a structure factor "
+                         f"(single broad peak) OR small-angle lattice diffraction "
+                         f"(multiple peaks in a ratio sequence). NOT WAXS Bragg — "
+                         f"check the q-ratios to decide.")
         return out
 
     # relative width of each peak: convert scipy's index-space width to q-space.

@@ -17,6 +17,11 @@ keeps modality SAXS, and surfaces `structure_factor_peak_q`. The system prompt n
 tells the assistant to interpret a mid-q SAXS peak as a possible structure factor
 S(q) and recommend the matching sasmodels S(q) (hardsphere, hayter_msa, squarewell,
 stickyhardsphere) as a product with the form factor — never as a WAXS Bragg peak.
+SAXS peaks are further split into (a) a single broad structure-factor bump vs
+(b) real SMALL-ANGLE LATTICE diffraction from a self-assembled mesophase (lipid
+nanoparticles: lamellar 1:2:3, hexagonal 1:√3:√4:√7, cubic Pn3m/Im3m/Fd3m),
+identified by the q-ratio sequence and fitted with lamellar / *_paracrystal
+sasmodels — still SAXS, not WAXS.
 Held by `test_saxs_data_is_not_rerouted_to_waxs` and
 `test_analysis_guidelines.py::test_saxs_detector_is_never_classified_waxs`.
 
