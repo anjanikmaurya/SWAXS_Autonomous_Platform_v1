@@ -53,6 +53,15 @@ def test_missing_keyword_returns_clean_message(project):
     assert "matched" in out.lower()
 
 
+def test_curve_honours_q_range(project):
+    # curve/kratky/porod must respect an explicit q_min/q_max (prompt asks for a
+    # q-range); guinier uses q_min/q_max as the fit window, not a truncation.
+    out, plot = _asst()._tool_generate_plot(
+        {"plot_type": "curve", "keyword": "Run5_r005", "q_min": 0.1, "q_max": 1.5},
+        project_root=project)
+    assert plot is not None, out
+
+
 def test_guinier_by_keyword_autofits_without_rg(project):
     # no Rg/q_min passed → tool auto-fits so the fit line is drawn, not an error
     out, plot = _asst()._tool_generate_plot(

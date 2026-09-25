@@ -1943,6 +1943,24 @@ class SWAXSAssistant:
             except Exception as exc:
                 logger.debug("[Assistant] p(r) for generate_plot failed: %s", exc)
 
+        # Honour an explicit q-range for the RAW-DATA plots (curve/kratky/porod):
+        # the user often asks to cut the low-q beamstop or the high-q noise. NOT for
+        # guinier — there q_min/q_max are the FIT window, not a truncation.
+        if plot_type in ("curve", "kratky", "porod") and isinstance(inp.get("q"), list):
+            qmn, qmx = inp.get("q_min"), inp.get("q_max")
+            if qmn is not None or qmx is not None:
+                import numpy as _np
+                _q = _np.asarray(inp["q"], float)
+                keep = _np.ones(_q.shape, bool)
+                if qmn is not None:
+                    keep &= _q >= float(qmn)
+                if qmx is not None:
+                    keep &= _q <= float(qmx)
+                if int(keep.sum()) >= 5:
+                    for kk in ("q", "I", "sigma"):
+                        if isinstance(inp.get(kk), list) and len(inp[kk]) == keep.size:
+                            inp[kk] = [v for v, mm in zip(inp[kk], keep) if mm]
+
         # Defensive: if the model hand-sliced q/I/sigma to different lengths,
         # clip them to a common length rather than letting matplotlib raise an
         # "x and y must be the same size" error mid-turn (which burns tool rounds).
