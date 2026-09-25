@@ -7,6 +7,18 @@ this file is the running summary. Dates are when the work landed on `main`.
 
 ## September 2026
 
+### Hub waits for an app to be ready before reporting "Started"
+
+Starting the reduction app showed a section failing to load in the tab and then
+recovering a moment later. Cause: `_start_app` returned success the instant
+`Popen` returned, but a sub-app isn't serving yet — it still has to import its
+(for reduction, heavy: pyFAI/fabio) dependencies and bind the port. Anything that
+opened the tab off that signal raced the still-initialising server. The hub now
+polls `/api/health` after launch and only reports "Started" once the app answers
+(bounded ~25 s; falls back to "still initialising" otherwise, and reports a
+startup exit). Also: the reduction SSE indicator starts as "Connecting…" instead
+of a false "Disconnected" flash on first load.
+
 ### Realistic mock counters + Timer (better demo plots)
 
 The i0/bstop-vs-Timer metadata plot looked degenerate on simulated data: the

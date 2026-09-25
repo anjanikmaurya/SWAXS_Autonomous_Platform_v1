@@ -275,6 +275,27 @@ def _health_summary(port: int, timeout: float = 1.0) -> dict | None:
     return _health_probe(port, timeout)[1]
 
 
+def _wait_until_ready(port: int, proc: "subprocess.Popen", timeout: float = 25.0) -> bool:
+    """Block until a freshly launched app actually answers /api/health.
+
+    Why: a sub-app is not serving the instant Popen returns — it still has to
+    import its dependencies and bind the port. Reduction pulls in pyFAI/fabio and
+    takes several seconds, so returning "Started" immediately let the UI open the
+    tab against a server that wasn't listening yet: the page (or a section) failed
+    to load and then recovered a moment later once the import finished. Waiting
+    here means "Started" means "ready to serve". Returns True when healthy, False
+    if the process exited or the wait timed out (still bounded — the caller then
+    reports it as still initialising rather than blocking forever)."""
+    end = time.time() + timeout
+    while time.time() < end:
+        if proc.poll() is not None:
+            return False                      # exited during startup
+        if _health_check(port, timeout=0.8):
+            return True
+        time.sleep(0.25)
+    return False
+
+
 def _start_app(app_id: str) -> tuple[bool, str]:
     """Launch the sub-app process FRESH. Returns (success, message).
 
@@ -351,8 +372,15 @@ def _start_app(app_id: str) -> tuple[bool, str]:
             _crashed.pop(app_id, None)
             _last_running[app_id] = True
         _record_children()
-        _hub_emit("app.started", {"app_id": app_id, "pid": proc.pid})
-        return True, f"Started (PID {proc.pid}){note}"
+        # Wait until it is actually serving before reporting success, so the UI
+        # opens the tab only once the app is ready (heavy imports like reduction's
+        # pyFAI/fabio take a few seconds). See _wait_until_ready.
+        ready = _wait_until_ready(meta["port"], proc)
+        if not ready and proc.poll() is not None:
+            return False, (f"Process exited during startup — see logs/{app_id}.log")
+        _hub_emit("app.started", {"app_id": app_id, "pid": proc.pid, "ready": ready})
+        suffix = "" if ready else " — still initialising"
+        return True, f"Started (PID {proc.pid}){note}{suffix}"
     except Exception as exc:
         return False, str(exc)
 

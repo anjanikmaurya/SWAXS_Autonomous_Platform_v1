@@ -129,6 +129,39 @@ def test_log_rotation_keeps_the_previous_traceback(tmp_path):
     pl.rotate_log(tmp_path / "absent.log")          # must not raise
 
 
+class _FakeProc:
+    """Minimal Popen stand-in: poll() returns None until `exit_after` calls."""
+    def __init__(self, exit_after=None):
+        self._calls = 0
+        self._exit_after = exit_after
+    def poll(self):
+        self._calls += 1
+        if self._exit_after is not None and self._calls >= self._exit_after:
+            return 1
+        return None
+
+
+def test_wait_until_ready_returns_true_when_health_passes(monkeypatch):
+    hub = _hub("hub_ready1")
+    monkeypatch.setattr(hub, "_health_check", lambda *a, **k: True)
+    assert hub._wait_until_ready(5999, _FakeProc(), timeout=2.0) is True
+
+
+def test_wait_until_ready_returns_false_if_process_exits(monkeypatch):
+    hub = _hub("hub_ready2")
+    monkeypatch.setattr(hub, "_health_check", lambda *a, **k: False)
+    # proc reports exited on the first poll → give up immediately, don't hang
+    assert hub._wait_until_ready(5999, _FakeProc(exit_after=1), timeout=5.0) is False
+
+
+def test_wait_until_ready_times_out_without_hanging(monkeypatch):
+    hub = _hub("hub_ready3")
+    monkeypatch.setattr(hub, "_health_check", lambda *a, **k: False)
+    t0 = time.time()
+    assert hub._wait_until_ready(5999, _FakeProc(), timeout=0.6) is False
+    assert time.time() - t0 < 3.0, "readiness wait must be bounded by its timeout"
+
+
 def test_reclaim_refuses_when_the_owner_cannot_be_identified(monkeypatch):
     """No psutil, or an OS that hides the owner → refuse loudly rather than guess
     and kill something at random."""
