@@ -425,15 +425,16 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
         <div class="msg assistant">
           <div class="msg-label"><img src="/static/saxs_smiley.png" alt="" style="width:16px;height:16px;border-radius:4px;vertical-align:-3px;margin-right:5px">Guinier</div>
           <div class="bubble">
-            Hello! I'm Guinier — your SAXS/WAXS research assistant.<br><br>
-            I can help you with:<br>
-            • Guinier analysis (Rg, I₀, qRg validity)<br>
-            • Kratky and Porod plots<br>
-            • Background subtraction checks<br>
-            • Data quality flags and notes<br>
-            • Interpreting your scattering profiles<br><br>
-            Set your project folder in the sidebar, then ask me anything about your data.
-            Make sure <code>ANTHROPIC_API_KEY</code> is set in your environment.
+            Hi, I'm <b>Guinier</b> — your SAXS/WAXS research assistant. I work on your
+            <b>background-subtracted</b> curves and always show the plot with the result.<br><br>
+            I can:<br>
+            • Plot I(q) (log–log) and check units/q-range first<br>
+            • Run a classical workup — Guinier (R<sub>g</sub>, I₀, qR<sub>g</sub> validity), Porod, Kratky<br>
+            • Compute p(r) and D<sub>max</sub><br>
+            • Recommend &amp; fit SASview models — form factors, plus a structure factor S(q) or a small-angle lattice (lamellar / hexagonal / cubic) when peaks appear — with reasoning<br>
+            • Compare/overlay samples, track beam metrics, and flag quality<br><br>
+            Just name a sample (e.g. <code>Run4_r001</code>) — I'll find its subtracted curve myself, no file path needed.
+            Pick a Quick Prompt on the left or ask in your own words.
           </div>
         </div>
       </div>
