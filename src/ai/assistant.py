@@ -1851,6 +1851,25 @@ class SWAXSAssistant:
                     except Exception as exc:
                         logger.debug("[Assistant] auto-Guinier for plot failed: %s", exc)
 
+        # A p(r) plot needs r/pr, not q/I. If the model asked for pair_distance by
+        # keyword/file (so we have q/I but no r/pr), compute the IFT here so it
+        # renders instead of raising "missing r and pr". (compute_pr is the richer
+        # tool, but this makes generate_plot robust for every plot_type.)
+        if plot_type == "pair_distance" and "r" not in inp and inp.get("q") is not None:
+            try:
+                import numpy as _np
+                from src.analysis.core import pair_distance_ift
+                _sig = _np.asarray(inp["sigma"], float) if inp.get("sigma") else None
+                _res = pair_distance_ift(_np.asarray(inp["q"], float),
+                                         _np.asarray(inp["I"], float),
+                                         _sig, dmax=inp.get("Dmax"))
+                if not _res.get("error"):
+                    inp["r"]  = _res["r"]
+                    inp["pr"] = _res["pr"]
+                    inp.setdefault("Dmax", _res.get("Dmax"))
+            except Exception as exc:
+                logger.debug("[Assistant] p(r) for generate_plot failed: %s", exc)
+
         # Defensive: if the model hand-sliced q/I/sigma to different lengths,
         # clip them to a common length rather than letting matplotlib raise an
         # "x and y must be the same size" error mid-turn (which burns tool rounds).

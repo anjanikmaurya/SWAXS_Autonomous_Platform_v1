@@ -38,7 +38,8 @@ def _asst():
     return object.__new__(m.SWAXSAssistant)
 
 
-@pytest.mark.parametrize("plot_type", ["curve", "guinier", "kratky", "porod"])
+@pytest.mark.parametrize("plot_type",
+                         ["curve", "guinier", "kratky", "porod", "pair_distance"])
 def test_plot_by_keyword_renders(project, plot_type):
     out, plot = _asst()._tool_generate_plot(
         {"plot_type": plot_type, "keyword": "Run5_r005"}, project_root=project)
