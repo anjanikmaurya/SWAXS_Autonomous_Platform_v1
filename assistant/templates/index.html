@@ -983,51 +983,83 @@ function setSendStop(streaming) {
   b.classList.toggle('stopping', !!streaming);
 }
 
-// ── Voice input (dictation) via the browser's Web Speech API ─────────────────
-function toggleMic() {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+// ── Voice input: record audio, transcribe OFFLINE on the server (Whisper) ─────
+// The browser Web Speech API needs a cloud service (unavailable in the desktop
+// app), so we capture PCM audio locally, encode a WAV, and POST it to
+// /api/transcribe which runs a local Whisper model. No network, works in Electron.
+let MEDIA = null;   // active recording session, or null
+
+async function toggleMic() {
+  if (MEDIA) { stopMic(); return; }                // second click → stop & send
   const micBtn = document.getElementById('micBtn');
-  if (!SR) { alert('Voice input is not supported in this browser.'); return; }
-  if (RECOG) { RECOG.stop(); return; }             // toggle off
-  const ta = document.getElementById('msg');
-  const base = ta.value ? ta.value.trim() + ' ' : '';
-  RECOG = new SR();
-  RECOG.lang = 'en-US';
-  RECOG.interimResults = true;
-  RECOG.continuous = false;
-  let got = false;
+  if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.AudioContext)) {
+    appendSystem('🎤 audio capture is not available in this browser.'); return;
+  }
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+  catch (e) { appendSystem('🎤 microphone permission denied or no microphone found.'); return; }
+  const ctx  = new (window.AudioContext || window.webkitAudioContext)();
+  const src  = ctx.createMediaStreamSource(stream);
+  const proc = ctx.createScriptProcessor(4096, 1, 1);
+  const chunks = [];
+  proc.onaudioprocess = (e) => chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+  src.connect(proc); proc.connect(ctx.destination);
+  MEDIA = { stream, ctx, src, proc, chunks };
   micBtn.classList.add('recording');
-  RECOG.onresult = (e) => {
-    got = true;
-    let t = '';
-    for (const r of e.results) t += r[0].transcript;
-    ta.value = base + t;
-    autoGrow(ta);
-  };
-  RECOG.onerror = (e) => {
-    const MAP = {
-      'not-allowed':        'microphone permission is blocked — allow mic access for this app in your OS/app settings',
-      'service-not-allowed':'the speech service is not available in this app build (common in the desktop app)',
-      'network':            'voice recognition needs to reach an online speech service, which is unavailable here',
-      'no-speech':          'no speech detected — try again and speak after the mic turns red',
-      'audio-capture':      'no microphone was found',
-      'aborted':            '',   // user toggled it off; no message
-    };
-    const why = (e.error in MAP) ? MAP[e.error] : ('voice input error: ' + e.error);
-    if (why) appendSystem('🎤 ' + why);
-  };
-  RECOG.onend = () => { RECOG = null; micBtn.classList.remove('recording'); ta.focus(); };
-  try { RECOG.start(); }
-  catch (e) {
-    RECOG = null; micBtn.classList.remove('recording');
-    appendSystem('🎤 could not start voice input: ' + (e && e.message || e));
+  micBtn.title = 'Stop & transcribe';
+}
+
+async function stopMic() {
+  if (!MEDIA) return;
+  const { stream, ctx, src, proc, chunks } = MEDIA; MEDIA = null;
+  const micBtn = document.getElementById('micBtn');
+  micBtn.classList.remove('recording');
+  try { proc.disconnect(); src.disconnect(); } catch (e) {}
+  stream.getTracks().forEach(t => t.stop());
+  const sr = ctx.sampleRate;
+  try { await ctx.close(); } catch (e) {}
+
+  let n = 0; for (const c of chunks) n += c.length;
+  if (n < sr * 0.3) { micBtn.title = 'Dictate (voice input)'; return; }  // <0.3s → ignore
+  const buf = new Float32Array(n); let o = 0; for (const c of chunks) { buf.set(c, o); o += c.length; }
+  const wav = _encodeWAV(buf, sr);
+
+  micBtn.textContent = '⏳'; micBtn.disabled = true;
+  try {
+    const fd = new FormData();
+    fd.append('audio', new Blob([wav], { type: 'audio/wav' }), 'clip.wav');
+    const res = await fetch('/api/transcribe', { method: 'POST', body: fd });
+    const d = await res.json();
+    if (d.text) {
+      const ta = document.getElementById('msg');
+      ta.value = (ta.value ? ta.value.trim() + ' ' : '') + d.text;
+      autoGrow(ta); ta.focus();
+    } else {
+      appendSystem('🎤 ' + (d.error || 'no speech recognised.'));
+    }
+  } catch (e) {
+    appendSystem('🎤 transcription failed: ' + (e && e.message || e));
+  } finally {
+    micBtn.textContent = '🎤'; micBtn.disabled = false; micBtn.title = 'Dictate (voice input)';
   }
 }
-// Hide the mic if the browser can't do speech recognition.
-if (!(window.SpeechRecognition || window.webkitSpeechRecognition)) {
-  document.addEventListener('DOMContentLoaded', () => {
-    const b = document.getElementById('micBtn'); if (b) b.classList.add('unsupported');
-  });
+
+// 16-bit PCM mono WAV from a Float32 buffer (server resamples to 16 kHz).
+function _encodeWAV(samples, sr) {
+  const buffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buffer);
+  const wr = (off, s) => { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)); };
+  wr(0, 'RIFF'); view.setUint32(4, 36 + samples.length * 2, true); wr(8, 'WAVE'); wr(12, 'fmt ');
+  view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+  view.setUint32(24, sr, true); view.setUint32(28, sr * 2, true);
+  view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+  wr(36, 'data'); view.setUint32(40, samples.length * 2, true);
+  let off = 44;
+  for (let i = 0; i < samples.length; i++) {
+    let s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7FFF, true); off += 2;
+  }
+  return buffer;
 }
 
 // Live progress area (shows steps as the assistant works).

@@ -19,3 +19,4 @@ chromadb>=0.5              # vector store for the document index
 sentence-transformers>=3.0 # embeddings — PULLS TORCH (~2 GB)
 pypdf>=4.3                 # read PDFs into the knowledge base
 pdfminer.six>=20231228     # fallback PDF text extraction
+faster-whisper        # offline voice input (assistant mic) — CPU int8; downloads a small model on first use

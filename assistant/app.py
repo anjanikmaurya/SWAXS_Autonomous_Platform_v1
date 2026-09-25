@@ -886,6 +886,70 @@ def api_knowledge_remove():
         return _fail(exc)
 
 
+# ── Offline voice transcription (local Whisper) ──────────────────────────────
+_WHISPER = {"model": None, "err": None}
+
+
+def _get_whisper():
+    """Lazy-load a local faster-whisper model (CPU int8). Cached. Returns None and
+    records the reason if the package/model isn't available, so the route can tell
+    the user how to enable it rather than 500."""
+    if _WHISPER["model"] is not None or _WHISPER["err"]:
+        return _WHISPER["model"]
+    try:
+        from faster_whisper import WhisperModel     # pip install faster-whisper
+        size = os.environ.get("SWAXS_WHISPER_MODEL", "base.en")
+        _WHISPER["model"] = WhisperModel(size, device="cpu", compute_type="int8")
+        logger.info("[assistant] Whisper model '%s' loaded for voice input", size)
+    except Exception as exc:
+        _WHISPER["err"] = str(exc)
+        logger.warning("[assistant] Whisper unavailable: %s", exc)
+    return _WHISPER["model"]
+
+
+@app.route("/api/transcribe", methods=["POST"])
+def api_transcribe():
+    """Transcribe an uploaded WAV (16-bit PCM, any rate) with a LOCAL Whisper
+    model. Offline; no cloud speech service. Returns {"text": ...} or {"error": ...}."""
+    if "audio" not in request.files:
+        return jsonify({"error": "no audio uploaded"}), 400
+    import io as _io
+    import wave
+    import numpy as _np
+    try:
+        raw = request.files["audio"].read()
+        with wave.open(_io.BytesIO(raw), "rb") as w:
+            ch, sw, sr, nframes = (w.getnchannels(), w.getsampwidth(),
+                                   w.getframerate(), w.getnframes())
+            pcm = w.readframes(nframes)
+        if sw != 2:
+            return jsonify({"error": "expected 16-bit PCM WAV"}), 400
+        audio = _np.frombuffer(pcm, dtype=_np.int16).astype(_np.float32) / 32768.0
+        if ch == 2:                                   # stereo → mono
+            audio = audio.reshape(-1, 2).mean(axis=1)
+        if sr != 16000 and audio.size:               # Whisper wants 16 kHz
+            n_new = int(round(audio.size * 16000 / sr))
+            audio = _np.interp(_np.linspace(0, audio.size, n_new, endpoint=False),
+                               _np.arange(audio.size), audio).astype(_np.float32)
+    except Exception as exc:
+        return _fail(exc)
+
+    model = _get_whisper()
+    if model is None:
+        return jsonify({
+            "text": "",
+            "error": ("voice transcription isn't installed on the server — "
+                      "`pip install faster-whisper` in the assistant venv "
+                      f"(then restart). {_WHISPER['err'] or ''}").strip(),
+        }), 503
+    try:
+        segments, _info = model.transcribe(audio, language="en", vad_filter=True)
+        text = " ".join(s.text.strip() for s in segments).strip()
+        return jsonify({"text": text})
+    except Exception as exc:
+        return _fail(exc)
+
+
 @app.route("/api/health")
 def api_health():
     # Resolve credentials the SAME way the assistant does — this pulls the SLAC
