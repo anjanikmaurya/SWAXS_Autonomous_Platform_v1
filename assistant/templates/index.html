@@ -392,20 +392,20 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
           <div class="stitle">Quick Prompts</div>
           <!-- Prompts (Sep 2026): ALL structural analysis runs on SUBTRACTED
                (background-corrected) data. Multi-sample tools (overlay, metadata,
-               manifest) take a broad keyword like "Run4"; single-sample analyses
+               manifest) take a broad keyword like "Run5"; single-sample analyses
                (Guinier, p(r), model fit) name a specific recipe id like
-               "Run4_r001", which the assistant resolves to that recipe's
+               "Run5_r001", which the assistant resolves to that recipe's
                subtracted curve. Beam-metadata (i0/bstop) is inherently pre-
-               subtraction, so that one prompt uses averaged. Edit "Run4" /
-               "Run4_r001" to ids that exist in the project before presenting. -->
-          <div class="qp" onclick="usePrompt(this)">Plot i0 and bstop vs Timer for the averaged samples with "Run4" in the filename.</div>
-          <div class="qp" onclick="usePrompt(this)">Compare and overlay all subtracted SAXS curves with "Run4" in the filename.</div>
+               subtraction, so that one prompt uses averaged. Edit "Run5" /
+               "Run5_r001" to ids that exist in the project before presenting. -->
+          <div class="qp" onclick="usePrompt(this)">Plot i0 and bstop vs Timer for the averaged samples with "Run5" in the filename.</div>
+          <div class="qp" onclick="usePrompt(this)">Compare and overlay all subtracted SAXS curves with "Run5" in the filename.</div>
           <div class="qp" onclick="usePrompt(this)">Plot the most recent subtracted SAXS curve over q = 0.07–2 nm⁻¹ on a log–log scale.</div>
           <div class="qp" onclick="usePrompt(this)">My background scale factor is 1.3 — is that reasonable for transmission-normalised data?</div>
           <div class="qp" onclick="usePrompt(this)">What files have been processed so far, and are there any quality flags?</div>
-          <div class="qp" onclick="usePrompt(this)">Run a Guinier fit on the subtracted SAXS sample "Run4_r001": show the plot with the fit line and tell me whether the qRg range is valid.</div>
-          <div class="qp" onclick="usePrompt(this)">Compute the pair-distance distribution p(r) and Dmax for the subtracted SAXS sample "Run4_r001".</div>
-          <div class="qp" onclick="usePrompt(this)">For subtracted SAXS profile "Run4_r005": check units, plot I(q) log–log, run a Guinier/Porod/Kratky workup, then recommend the best SASView models that can fit and describe the data. Also provide reasoning.</div>
+          <div class="qp" onclick="usePrompt(this)">Run a Guinier fit on the subtracted SAXS sample "Run5_r001": show the plot with the fit line and tell me whether the qRg range is valid.</div>
+          <div class="qp" onclick="usePrompt(this)">Compute the pair-distance distribution p(r) and Dmax for the subtracted SAXS sample "Run5_r001".</div>
+          <div class="qp" onclick="usePrompt(this)">For subtracted SAXS profile "Run5_r005": check units, plot I(q) log–log, run a Guinier/Porod/Kratky workup, then recommend the best SASView models that can fit and describe the data. Also provide reasoning.</div>
         </div>
       </div>
 
@@ -432,7 +432,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
             SAXS curve <span style="opacity:.7">(Guinier, <i>Ann. Phys.</i> 1939)</span>.
             I intend to live up to the slope.<br><br>
             Hand me a background-subtracted profile (just the sample name, e.g.
-            <code>Run4_r001</code>) and I'll take it from the classical workup
+            <code>Run5_r001</code>) and I'll take it from the classical workup
             (Guinier, Porod, Kratky, and the pair-distance distribution p(r)/PDDF with
             D<sub>max</sub>) to a <b>reasoned SASView model</b>, structure factor or
             mesophase lattice included, with the plot behind every claim.<br><br>
