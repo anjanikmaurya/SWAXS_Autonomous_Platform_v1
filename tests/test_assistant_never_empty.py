@@ -22,6 +22,14 @@ class _Block:
         self.text = text
 
 
+class _ToolBlock:
+    def __init__(self, name="query_manifest", id="tu_1", inp=None):
+        self.type = "tool_use"
+        self.name = name
+        self.id = id
+        self.input = inp or {}
+
+
 class _Resp:
     def __init__(self, content, stop="end_turn"):
         self.content = content
@@ -74,6 +82,21 @@ def test_normal_text_answer_passes_through():
     script = [_Resp([_Block("Rg is 3.1 nm.")])]
     out = _assistant(script).chat("rg?", project_root=None)
     assert out["text"].strip() == "Rg is 3.1 nm."
+
+
+def test_tool_use_with_wrong_stop_reason_is_still_executed():
+    # Gateway quirk: a tool_use block arrives with stop_reason "end_turn" (not
+    # "tool_use"). The loop must still run the tool and continue to a real answer,
+    # not treat the round as final and return empty.
+    script = [
+        _Resp([_ToolBlock()], stop="end_turn"),      # tool_use, wrong stop_reason
+        _Resp([_Block("Here is the final answer.")], stop="end_turn"),
+    ]
+    a = _assistant(script)
+    a._dispatch_tool = lambda name, inp, **k: ("tool output", None)
+    out = a.chat("analyse", project_root=None)
+    assert out["text"].strip() == "Here is the final answer."
+    assert out["tool_calls"], "the tool was not executed"
 
 
 # ── plot kwarg tolerance ──────────────────────────────────────────────────────

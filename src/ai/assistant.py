@@ -1448,8 +1448,14 @@ class SWAXSAssistant:
             # returned answer made the reply repeat the preamble and read as
             # rambling. Only the FINAL (non-tool) round's text is the answer.
 
-            # If Claude wants to use tools
-            if response.stop_reason == "tool_use":
+            # If Claude wants to use tools. Detect tool_use by the CONTENT, not
+            # only stop_reason: some gateways return tool_use blocks with a
+            # different stop_reason (e.g. "end_turn"/"stop"), and keying purely on
+            # stop_reason then treated that round as final — dropping the tool_use
+            # and ending the turn with NO text ("I couldn't compose a summary").
+            _has_tool_use = any(getattr(b, "type", None) == "tool_use"
+                                for b in response.content)
+            if response.stop_reason == "tool_use" or _has_tool_use:
                 # Stream the model's interim narration ("Let me check…").
                 if round_text.strip():
                     _step("thinking", text=round_text.strip())
@@ -1527,8 +1533,8 @@ class SWAXSAssistant:
             try:
                 response = client.messages.create(
                     model      = model_id,
-                    max_tokens = max_toks,
-                    system     = system_param,
+                    max_tokens = max(int(max_toks), 4096),
+                    system     = _force_answer_system(system_param),
                     messages   = _sanitize_messages(messages),
                 )
                 _u = _usage_dict(response)
@@ -1559,8 +1565,8 @@ class SWAXSAssistant:
             try:
                 _resp = client.messages.create(
                     model      = model_id,
-                    max_tokens = max_toks,
-                    system     = system_param,
+                    max_tokens = max(int(max_toks), 4096),
+                    system     = _force_answer_system(system_param),
                     messages   = _sanitize_messages(messages),
                 )
                 _u = _usage_dict(_resp)
@@ -3627,6 +3633,23 @@ def _q_is_angstrom(header_lines) -> bool:
     analyzer uses, so the assistant recovers the SAME sizes as the analysis app."""
     txt = " ".join(header_lines or []).lower()
     return ("q_a-1" in txt) or ("a^-1" in txt) or ("å" in txt)
+
+
+def _force_answer_system(system_param):
+    """System blocks for a forced, tool-less final call. Appends an explicit
+    instruction so the model writes its answer NOW instead of returning empty or
+    trying to call a tool it no longer has — the difference between a real reply
+    and the 'I couldn't compose a summary' fallback."""
+    nudge = {"type": "text", "text":
+             "\n\nWrite your FINAL answer to the user NOW, as text, summarising "
+             "everything you found from the tools this turn (values, plots, and a "
+             "recommendation with reasoning). Do NOT ask to run more tools."}
+    try:
+        if isinstance(system_param, list):
+            return list(system_param) + [nudge]
+        return [{"type": "text", "text": str(system_param)}, nudge]
+    except Exception:
+        return system_param
 
 
 def _load_dat(file_path: str):

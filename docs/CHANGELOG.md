@@ -7,6 +7,18 @@ this file is the running summary. Dates are when the work landed on `main`.
 
 ## September 2026
 
+### Assistant: execute tool_use by content + forceful final answer
+
+Some turns showed the "couldn't compose a summary" fallback. Root cause: the tool
+loop only executed tools when `stop_reason == "tool_use"`, but a gateway can
+return tool_use blocks with a different stop_reason ("end_turn"/"stop") — the loop
+then treated that round as final, dropped the tool_use, and ended with no text.
+Now tool_use is detected by CONTENT (any tool_use block runs), so the loop always
+completes to a real answer. The forced-summary fallback calls also now append an
+explicit "write your final answer now, no tools" instruction and use a generous
+token budget, so recovery produces the actual reply instead of the placeholder.
+Held by `test_assistant_never_empty.py::test_tool_use_with_wrong_stop_reason_is_still_executed`.
+
 ### Assistant never returns an empty answer + plot-kwarg robustness
 
 The assistant sometimes ended a turn with no text ("no response"), and the Porod
