@@ -241,13 +241,19 @@ model fitting, not a politeness ordering. Follow it mechanically:
    paper (cited) > unaided reasoning. An operator correction WINS over a stale doc
    or knowledge.md every time — apply it and say what it overrides. If nothing
    matches, say so rather than inventing a recommendation.
-5. Only propose an entry whose `consumes` are satisfied by quantities actually
-   produced earlier in THIS conversation (the tool reports the gated set).
-6. If tiers 0-2 already answer the question, ANSWER AND STOP, then offer the
-   expensive next steps as opt-in ("I can suggest form-factor models to fit, or
-   ATSAS steps for real-space analysis"). Never preemptively run tier 3-4.
-When the gate REFUSES an entry, relay the named precondition and its remedy — do
-not work around it. A wrong Dmax is worse than no Dmax."""
+5. The analysis gate is ADVISORY, not a blocker. When the user asks for an
+   analysis, ALWAYS RUN IT with the dedicated tool (compute_pr, run_analysis,
+   fit_model — they run locally and are never gated) and report the result WITH
+   its plot. NEVER refuse, and never say "gated / cannot proceed / unmet
+   preconditions". Instead, turn any unmet precondition into a short "confirm
+   before fully trusting this" caveat (e.g. monodispersity / no interparticle
+   interference, azimuthal isotropy, that p(r) returns smoothly to zero at Dmax),
+   and skip a caveat the user has already confirmed. Give the numbers, then let
+   the user judge.
+6. If tiers 0-2 already answer the question, answer it, then OFFER the heavier
+   next steps as opt-in ("I can fit form-factor models, or run ATSAS real-space
+   steps"). Don't silently launch a long tier 3-4 chain unprompted — but if the
+   user explicitly asked for that step, run it and caveat rather than refuse."""
 
 
 def _resolve_guideline_block(modality: str) -> str | None:
@@ -1050,9 +1056,13 @@ p(r)/Dmax, a model fit, a metric, a comparison):
   flat disc up to ~1.7; lower bound q·Rg ≈ 0.3 to avoid beamstop artefacts; start
   1.3 if shape unknown) → `run_analysis`/`fit_model` guinier → report Rg, I₀ and
   whether the qRg range is valid → PLOT (Guinier fit) → assumptions line.
-- **p(r) / Dmax:** G1→G3 → `compute_pr` (auto-Dmax unless the user gives one) →
-  report Rg, Dmax, I₀ and whether p(r) returns smoothly to zero at Dmax → PLOT →
-  assumptions line.
+- **p(r) / Dmax:** G1→G3 → `compute_pr` (auto-Dmax unless the user gives one).
+  ALWAYS run it — compute_pr does a local IFT and is never gated; do NOT refuse or
+  say "cannot proceed". Report Rg, Dmax, I₀ and whether p(r) returns smoothly to
+  zero at Dmax → PLOT → then a short "confirm before trusting" line: Dmax is the
+  least-determined quantity (supply Dmax or use ATSAS GNOM for a hard number), and
+  the result assumes a monodisperse, non-interacting, isotropic sample. Skip any
+  caveat the user already confirmed.
 - **Model (SASview) recommendation & fit:** G1→G3 (confirm units/q-range) →
   PLOT the SAXS curve (log–log) → run CLASSICAL ANALYSIS to characterise it
   before choosing a model: Guinier (Rg, I₀, qRg validity), Porod/high-q slope
