@@ -101,6 +101,24 @@ def test_a_raising_tool_does_not_crash_the_turn():
     assert out["text"].strip() == "Recovered and here is the answer."
 
 
+def test_all_plots_are_returned_not_just_the_last():
+    # Three plot tool calls in one round → the turn must return ALL three plots,
+    # not just the last (which was the "only the Kratky plot shows" bug).
+    tbs = [_ToolBlock(name="generate_plot", id=f"t{i}") for i in range(3)]
+    script = [_Resp(tbs, stop="tool_use"), _Resp([_Block("done")])]
+    a = _assistant(script)
+    n = {"i": 0}
+
+    def disp(name, inp, **k):
+        n["i"] += 1
+        return ("plotted", f"b64_{n['i']}")
+    a._dispatch_tool = disp
+
+    out = a.chat("plot guinier, porod, kratky", project_root=None)
+    assert out.get("plots") == ["b64_1", "b64_2", "b64_3"]
+    assert out["text"].strip() == "done"
+
+
 def test_tool_use_with_wrong_stop_reason_is_still_executed():
     # Gateway quirk: a tool_use block arrives with stop_reason "end_turn" (not
     # "tool_use"). The loop must still run the tool and continue to a real answer,

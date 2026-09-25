@@ -713,20 +713,24 @@ function appendTyping() {
   return d;
 }
 
-function appendAssistant(text, toolCalls, plot, inlineHints, plotFig) {
+function appendAssistant(text, toolCalls, plot, inlineHints, plotFig, plots) {
   const d = document.createElement('div');
   d.className = 'msg assistant';
 
   let html = `<div class="msg-label"><img src="/static/saxs_smiley.png" alt="" style="width:16px;height:16px;border-radius:4px;vertical-align:-3px;margin-right:5px">Guinier</div><div class="bubble">${renderRich(text)}</div>`;
 
-  // Inline plot — prefer interactive Plotly, fall back to the static PNG.
+  // Inline plots — prefer interactive Plotly; otherwise render EVERY static PNG
+  // this turn produced (Guinier, Porod, Kratky, …), not just the last one.
   const useInteractive = plotFig && window.Plotly;
   let plotDivId = null;
+  const pngs = (plots && plots.length) ? plots : (plot ? [plot] : []);
   if (useInteractive) {
     plotDivId = 'iplot_' + Math.random().toString(36).slice(2);
     html += `<div id="${plotDivId}" class="plot-interactive"></div>`;
-  } else if (plot) {
-    html += `<img class="plot-img" src="data:image/png;base64,${plot}" alt="Analysis plot">`;
+  } else {
+    for (const p of pngs) {
+      html += `<img class="plot-img" src="data:image/png;base64,${p}" alt="Analysis plot">`;
+    }
   }
 
   // Response hints (from Claude API result)
@@ -869,6 +873,7 @@ async function sendMsg() {
       data.plot || null,
       data.hints || [],
       data.plot_interactive || null,
+      data.plots || null,
     );
     (data.hints || []).forEach(h => addHintToPanel({ severity: 'info', message: h }));
   };

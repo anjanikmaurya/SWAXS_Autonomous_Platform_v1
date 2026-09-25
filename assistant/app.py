@@ -518,6 +518,7 @@ def api_chat():
     return jsonify(_json_safe({
         "text":             result.get("text", ""),
         "plot":             result.get("plot"),
+        "plots":            result.get("plots", []),
         "plot_interactive": result.get("plot_interactive"),
         "tool_calls":       result.get("tool_calls", []),
         "hints":            result.get("hints", []),
@@ -613,6 +614,7 @@ def api_chat_stream():
             "type":             "final",
             "text":             result.get("text", ""),
             "plot":             result.get("plot"),
+            "plots":            result.get("plots", []),
             "plot_interactive": result.get("plot_interactive"),
             "tool_calls":       result.get("tool_calls", []),
             "hints":            result.get("hints", []),

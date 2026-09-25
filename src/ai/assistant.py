@@ -1314,6 +1314,7 @@ class SWAXSAssistant:
 
         result_text    = ""
         result_plot    = None
+        result_plots: list[str] = []   # ALL plots this turn, in order (not just last)
         result_plot_fig = None      # optional interactive Plotly figure
         tool_calls_log: list[dict] = []
         history_delta: list[dict] = [{"role": "user", "content": message}]
@@ -1497,7 +1498,9 @@ class SWAXSAssistant:
                         plot_b64 = None
 
                     if plot_b64:
-                        result_plot = plot_b64
+                        result_plot = plot_b64        # kept: last, for back-compat
+                        result_plots.append(plot_b64)  # ALL plots, in order
+                        _step("plot", image=plot_b64)  # stream it live, in order
                     _fig = getattr(_PLOT_TL, "fig", None)
                     if _fig:
                         result_plot_fig = _fig
@@ -1616,7 +1619,8 @@ class SWAXSAssistant:
 
         return {
             "text":             result_text,
-            "plot":             result_plot,
+            "plot":             result_plot,      # last plot (back-compat)
+            "plots":            result_plots,     # EVERY plot this turn, in order
             "plot_interactive": result_plot_fig,
             "tool_calls":       tool_calls_log,
             "hints":            hints,
