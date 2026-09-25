@@ -118,13 +118,28 @@ def write_raw(path: Path, image: np.ndarray) -> Path:
     return path
 
 
-def counters(i0=1.0e6, transmission=0.62, temperature=25.0, drift=0.0):
+def counters(i0=1.0e6, transmission=0.62, temperature=25.0, drift=0.0,
+             timer=None, noise=0.003, rng=None):
     """Diode/temperature counters for one frame. bstop = i0 · T (so the
-    reduction app's bstop/i0 ratio reproduces the transmission we intended)."""
-    i0_v = float(i0) * (1.0 + drift)
-    return {"i0": round(i0_v, 1),
-            "bstop": round(i0_v * float(transmission), 1),
-            "temp": round(float(temperature), 2)}
+    reduction app's bstop/i0 ratio reproduces the transmission we intended).
+
+    ``drift`` applies a slow beam decay across the acquisition; ``noise`` adds a
+    small shot-like fluctuation per frame so i0/bstop look like real diode reads
+    rather than a perfectly clean ramp (which made the beam-stability plot look
+    degenerate). ``timer`` is the beamline Timer clock (elapsed count seconds);
+    when given it is written as a counter so the metadata plot has a real x-axis.
+    """
+    rng = rng if rng is not None else np.random.default_rng()
+    # The incident beam (i0) drifts slowly and has per-frame shot noise; bstop
+    # tracks it through a FIXED transmission (a material/capillary property, so
+    # bstop/i0 stays at the requested value while both counters move realistically).
+    i0_v = float(i0) * (1.0 + float(drift)) * (1.0 + float(rng.normal(0.0, noise)))
+    ctr = {"i0": round(i0_v, 1),
+           "bstop": round(i0_v * float(transmission), 1),
+           "temp": round(float(temperature), 2)}
+    if timer is not None:
+        ctr["Timer"] = round(float(timer), 3)
+    return ctr
 
 
 def write_csv_metadata(two_d_dir: Path, prefix: str, rows: list) -> Path:
@@ -134,7 +149,7 @@ def write_csv_metadata(two_d_dir: Path, prefix: str, rows: list) -> Path:
     out = two_d_dir / f"{prefix}.csv"
     # `simulated` marks every row as synthetic, so a .dat reduced from these
     # frames carries the provenance all the way downstream.
-    cols = ["i0", "bstop", "temp", "simulated"]
+    cols = ["i0", "bstop", "temp", "Timer", "simulated"]
     with out.open("w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=cols)
         w.writeheader()
@@ -203,6 +218,14 @@ class AcquisitionWriter:
         """``make_image(i)`` returns the int32 array for frame i."""
         written, rows = [], []
         peak, filled = 0, 0.0
+        # Per-acquisition RNG seeded from the prefix: reproducible, but each
+        # sample gets its OWN baseline and noise realisation so the beam-stability
+        # plot shows realistic per-sample variation instead of 31 identical ramps.
+        import hashlib
+        seed = int(hashlib.md5(prefix.encode("utf-8")).hexdigest()[:8], 16)
+        rng = np.random.default_rng(seed)
+        i0_base = float(i0) * (1.0 + float(rng.normal(0.0, 0.01)))   # ±1% per sample
+        clock = 0.0                                      # beamline Timer (elapsed s)
         for i in range(int(frames)):
             if self._stop is not None and self._stop.is_set():
                 self._log(f"simulator: acquisition '{prefix}' cancelled at frame {i}")
@@ -213,9 +236,12 @@ class AcquisitionWriter:
             filled = max(filled, float((img > 0).mean()) if img.size else 0.0)
             path = self.det_dir / frame_name(prefix, i, template=self.name_template)
             write_raw(path, img)
-            # mild beam decay so transmission/normalisation see realistic variation
-            ctr = counters(i0=i0, transmission=transmission,
-                           temperature=temperature, drift=-0.002 * i)
+            # gentle slow beam decay + per-frame shot noise; Timer advances by the
+            # exposure plus a small readout gap, like a real beamline clock.
+            clock += float(exposure_s) + 0.05
+            ctr = counters(i0=i0_base, transmission=transmission,
+                           temperature=temperature, drift=-0.0008 * i,
+                           timer=round(clock, 3), rng=rng)
             rows.append(ctr)
             if self.metadata_format == "pdi":
                 write_pdi_metadata(path, ctr)

@@ -85,6 +85,17 @@ def test_csv_sidecar_is_discovered_and_counters_parsed(reduced):
     assert "temp" in meta                              # CTEMP path for the reactor
 
 
+def test_timer_flows_through_to_the_reduced_footer(reduced):
+    """The simulator writes a beamline Timer clock so the assistant's
+    i0/bstop-vs-Timer plot has a real x-axis; it must survive reduction into the
+    .dat footer (same path as temp)."""
+    keys_seen = set()
+    for dat in reduced["dats"]:
+        _, _, _, _, meta = read_dat_data_metadata(dat)
+        keys_seen |= {k.lower() for k in meta}
+    assert "timer" in keys_seen, f"Timer not in reduced footer; keys={sorted(keys_seen)}"
+
+
 def test_transmission_matches_the_configured_value(reduced):
     """bstop/i0 must reproduce simulator.transmission — this is what makes the
     reduction app's transmission and Beer-Lambert thickness meaningful."""

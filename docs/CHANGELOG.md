@@ -7,6 +7,17 @@ this file is the running summary. Dates are when the work landed on `main`.
 
 ## September 2026
 
+### Realistic mock counters + Timer (better demo plots)
+
+The i0/bstop-vs-Timer metadata plot looked degenerate on simulated data: the
+mock simulator wrote a flat 1,000,000-count i0 with a clean −0.2%/frame ramp,
+`bstop = i0×0.62`, and no Timer, so every sample traced the same line and the
+x-axis fell back to file timestamps. The simulator now writes per-sample i0
+baseline variation (±1%), gentle beam decay + per-frame shot noise, a fixed
+transmission (so bstop tracks i0 while bstop/i0 stays exact), and a real
+per-frame `Timer` clock that flows through reduction into the `.dat` footer. The
+beam-stability plot is meaningful in demos; real-data behaviour is unchanged.
+
 ### Flush no longer doubles in before-mode closed loops
 
 Operator report: the flush after a synthesis ran ~2× the set duration. In

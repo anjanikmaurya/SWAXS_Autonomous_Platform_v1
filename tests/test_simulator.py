@@ -190,8 +190,16 @@ def test_write_raw_roundtrips_and_leaves_no_part_file(tmp_path):
 
 
 def test_counters_encode_the_requested_transmission():
+    # bstop tracks i0 through a FIXED transmission, so the ratio is exact even
+    # though i0 itself now carries per-frame beam noise.
     c = counters(i0=1.0e6, transmission=0.62)
     assert c["bstop"] / c["i0"] == pytest.approx(0.62, abs=1e-6)
+
+
+def test_counters_timer_is_written_when_given():
+    c = counters(i0=1.0e6, transmission=0.62, timer=3.25)
+    assert c["Timer"] == pytest.approx(3.25)
+    assert "Timer" not in counters(i0=1.0e6)          # optional, off by default
 
 
 def test_csv_metadata_has_one_row_per_frame(tmp_path):
@@ -199,8 +207,9 @@ def test_csv_metadata_has_one_row_per_frame(tmp_path):
     out = write_csv_metadata(tmp_path, "r001_sample", rows)
     assert out.name == "r001_sample.csv"
     lines = out.read_text().strip().splitlines()
-    # `simulated` marks the rows as synthetic all the way downstream
-    assert lines[0].split(",") == ["i0", "bstop", "temp", "simulated"]
+    # `simulated` marks the rows as synthetic all the way downstream; Timer is
+    # the beamline clock column used as the metadata-plot x-axis.
+    assert lines[0].split(",") == ["i0", "bstop", "temp", "Timer", "simulated"]
     assert len(lines) == 5
 
 
