@@ -76,10 +76,9 @@ _EFFORT = {
     # (response token budget, system-prompt nudge). The budget is a CAP, so a
     # smaller default keeps typical answers fast; High lifts the cap for the long
     # full-workup answers but is noticeably slower.
-    "low":    (3072, "\n\nEFFORT=LOW: answer concisely and quickly — a direct answer "
-                     "with the fewest tool calls needed."),
-    "medium": (6144, "\n\nEFFORT=MEDIUM: be efficient — do only the steps the request "
-                     "needs and keep the answer tight."),
+    "low":    (3072, "\n\nEFFORT=LOW: keep the prose short — but still DO every step "
+                     "and every plot the request explicitly asks for."),
+    "medium": (6144, ""),
     "high":   (16000, "\n\nEFFORT=HIGH: be thorough — verify with the data/analysis "
                       "tools, cross-check results, and explain your reasoning."),
 }
@@ -1074,7 +1073,9 @@ p(r)/Dmax, a model fit, a metric, a comparison):
   before choosing a model: Guinier (Rg, I₀, qRg validity), Porod/high-q slope
   (the exponent: −4 smooth sphere surface, −3…−4 rough/fractal, −2 sheets/chains,
   −1 rods), and Kratky (globular vs extended/flexible). Note any mid-q peak
-  ($d = 2\\pi/q^*$). THEN choose the model:
+  ($d = 2\\pi/q^*$). PRODUCE A PLOT FOR EACH of these — the I(q) curve, the Guinier
+  fit, the Porod plot, and the Kratky plot — regardless of effort level; never drop
+  a requested figure to save effort. THEN choose the model:
     · Call `list_saxs_models` — this IS the authoritative SASview/sasmodels
       catalog of what can actually be fitted here; pick from it. Do NOT invent a
       model name or claim to have browsed the SASview website.
