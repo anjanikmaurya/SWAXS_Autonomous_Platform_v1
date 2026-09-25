@@ -898,12 +898,20 @@ def _get_whisper():
         return _WHISPER["model"]
     try:
         from faster_whisper import WhisperModel     # pip install faster-whisper
-        size = os.environ.get("SWAXS_WHISPER_MODEL", "base.en")
+    except Exception:
+        _WHISPER["err"] = ("voice transcription needs faster-whisper — "
+                           "`pip install faster-whisper` in the assistant venv, "
+                           "then restart the app.")
+        logger.warning("[assistant] faster-whisper not installed")
+        return None
+    size = os.environ.get("SWAXS_WHISPER_MODEL", "base.en")
+    try:
         _WHISPER["model"] = WhisperModel(size, device="cpu", compute_type="int8")
         logger.info("[assistant] Whisper model '%s' loaded for voice input", size)
     except Exception as exc:
-        _WHISPER["err"] = str(exc)
-        logger.warning("[assistant] Whisper unavailable: %s", exc)
+        _WHISPER["err"] = (f"the Whisper model '{size}' could not load — the first use "
+                           f"needs internet to download it (~150 MB). Details: {exc}")
+        logger.warning("[assistant] Whisper model load failed: %s", exc)
     return _WHISPER["model"]
 
 
@@ -936,12 +944,8 @@ def api_transcribe():
 
     model = _get_whisper()
     if model is None:
-        return jsonify({
-            "text": "",
-            "error": ("voice transcription isn't installed on the server — "
-                      "`pip install faster-whisper` in the assistant venv "
-                      f"(then restart). {_WHISPER['err'] or ''}").strip(),
-        }), 503
+        return jsonify({"text": "", "error": _WHISPER["err"] or
+                        "voice transcription is unavailable on the server."}), 503
     try:
         segments, _info = model.transcribe(audio, language="en", vad_filter=True)
         text = " ".join(s.text.strip() for s in segments).strip()
