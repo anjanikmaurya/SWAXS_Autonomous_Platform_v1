@@ -441,11 +441,11 @@ _TOOLS: list[dict] = [
         "description": (
             "Generate a SAXS/WAXS analysis plot (Guinier, Kratky, Porod, "
             "p(r), multi-curve overlay, or plain curve) and return it as a "
-            "base64 PNG for inline display. STRONGLY PREFER `file_path` (the "
-            "assistant loads q/I/sigma from the .dat itself) — or use the "
-            "keyword-based tools overlay_curves/run_analysis/compute_pr instead. "
-            "Only pass raw q/I/sigma arrays for SMALL computed data you cannot "
-            "source from a file; never paste thousands of points inline."
+            "base64 PNG for inline display. EASIEST: pass `keyword` (e.g. "
+            "'Run5_r005') — the assistant resolves the subtracted curve, loads "
+            "q/I/sigma, and for a Guinier plot even auto-fits Rg/I0/range if you "
+            "don't supply them. You do NOT need a file path. (You may still pass "
+            "an explicit `file_path`, or raw q/I arrays for SMALL computed data.)"
         ),
         "input_schema": {
             "type": "object",
@@ -456,6 +456,16 @@ _TOOLS: list[dict] = [
                                    "pair_distance", "multi"],
                     "description": "Which plot to generate.",
                 },
+                "keyword": {
+                    "type":        "string",
+                    "description": (
+                        "Sample name substring (e.g. 'Run5_r005'). The assistant "
+                        "resolves the SUBTRACTED curve for it and loads the data — "
+                        "no file path needed. Preferred over file_path/arrays."
+                    ),
+                },
+                "detector": {"type": "string", "enum": ["SAXS", "WAXS"],
+                             "description": "Detector for keyword resolution (default SAXS)."},
                 "file_path": {
                     "type":        "string",
                     "description": (
@@ -1026,8 +1036,11 @@ p(r)/Dmax, a model fit, a metric, a comparison):
   G4. COMPUTE — run the analysis tool for the task (see the per-task steps below).
   G5. ALWAYS PLOT — every analysis answer MUST include the result plot (Guinier
       line + fit, p(r) curve, model data+fit+residuals, overlay). Never report
-      numbers without the figure. Plots are already publication-quality (300 dpi,
-      colour-blind-safe); pass `save_as` only if the user asked to save.
+      numbers without the figure. To plot by sample, pass `generate_plot` a
+      `keyword` (e.g. the recipe id) — it resolves the subtracted curve and loads
+      the data itself; you do NOT need a file path, and a Guinier plot auto-fits
+      its line if you don't pass Rg/range. Plots are publication-quality
+      (300 dpi, colour-blind-safe); pass `save_as` only if the user asked to save.
   G6. STATE ASSUMPTIONS — end with ONE line naming the file used and key settings
       (e.g. detector, q-range, qRg limits, Dmax), so the result is auditable.
 
@@ -1732,7 +1745,7 @@ class SWAXSAssistant:
         """
         try:
             if name == "generate_plot":
-                return self._tool_generate_plot(inputs)
+                return self._tool_generate_plot(inputs, project_root=project_root)
 
             if name == "plot_metadata":
                 return self._tool_plot_metadata(inputs, project_root)
@@ -1796,13 +1809,25 @@ class SWAXSAssistant:
 
     # ── Tool implementations ──────────────────────────────────────────────────
 
-    def _tool_generate_plot(self, inp: dict) -> tuple[str, str | None]:
+    def _tool_generate_plot(self, inp: dict,
+                            project_root: str | Path | None = None) -> tuple[str, str | None]:
         from src.ai.plots import generate_plot
 
         plot_type = inp.pop("plot_type")
 
-        # Auto-load from file if provided
+        # Resolve a sample by KEYWORD so the model never needs a file path — the
+        # assistant knows the full path via the manifest. Preferred entry point.
         file_path = inp.pop("file_path", None)
+        keyword   = inp.pop("keyword", None)
+        det       = (inp.pop("detector", None) or "SAXS")
+        if not file_path and keyword and project_root and "q" not in inp:
+            entry, _mf, _matches, stage = self._find_sample(project_root, keyword, det)
+            if entry is None:
+                return (f"No subtracted or averaged {str(det).upper()} sample "
+                        f"matched '{keyword}' to plot."), None
+            file_path = entry.get("path")
+
+        # Auto-load from file (explicit path or keyword-resolved)
         if file_path:
             q, I, sigma = _load_dat(file_path)
             if q is not None:
@@ -1810,6 +1835,21 @@ class SWAXSAssistant:
                 inp.setdefault("I",     I.tolist())
                 if sigma is not None:
                     inp.setdefault("sigma", sigma.tolist())
+                # Guinier plot needs a fit line; if the model didn't supply the
+                # window/Rg/I0, compute them so a keyword-only request still draws
+                # the fit rather than erroring or plotting a bare curve.
+                if plot_type == "guinier" and not inp.get("Rg"):
+                    try:
+                        from src.analysis.core import guinier_fit
+                        g = guinier_fit(q, I, sigma, auto_range=True)
+                        if g and not g.get("error"):
+                            inp.setdefault("Rg", g.get("Rg"))
+                            inp.setdefault("I0", g.get("I0"))
+                            _qr = g.get("q_range") or [None, None]
+                            inp.setdefault("q_min", _qr[0])
+                            inp.setdefault("q_max", _qr[1])
+                    except Exception as exc:
+                        logger.debug("[Assistant] auto-Guinier for plot failed: %s", exc)
 
         # Defensive: if the model hand-sliced q/I/sigma to different lengths,
         # clip them to a common length rather than letting matplotlib raise an
