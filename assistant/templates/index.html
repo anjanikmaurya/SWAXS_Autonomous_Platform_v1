@@ -999,6 +999,7 @@ async function toggleMic() {
   try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
   catch (e) { appendSystem('🎤 microphone permission denied or no microphone found.'); return; }
   const ctx  = new (window.AudioContext || window.webkitAudioContext)();
+  try { if (ctx.state === 'suspended') await ctx.resume(); } catch (e) {}
   const src  = ctx.createMediaStreamSource(stream);
   const proc = ctx.createScriptProcessor(4096, 1, 1);
   const chunks = [];
