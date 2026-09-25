@@ -176,18 +176,29 @@ def plot_guinier(
     """
     q, I = np.asarray(q, dtype=float), np.asarray(I, dtype=float)
     mask = (q > 0) & (I > 0)
-    q2   = q[mask] ** 2
+    qm   = q[mask]
+    q2   = qm ** 2
     lnI  = np.log(I[mask])
+    lnI_err = (np.asarray(sigma, dtype=float)[mask] / I[mask]
+               if sigma is not None else None)
+
+    # Show ONLY the Guinier region of interest, not the whole curve. Upper bound:
+    # a little past the fit window (or the qRg≈1.3 validity limit); a small low-q
+    # margin for context.
+    q_hi = (float(q_max) * 1.3 if q_max is not None
+            else (1.5 / float(Rg) if Rg else float(qm.max())))
+    keep = qm <= q_hi
+    q2, lnI = q2[keep], lnI[keep]
+    if lnI_err is not None:
+        lnI_err = lnI_err[keep]
 
     fig, ax = plt.subplots(figsize=(_FIG_W, _FIG_H), dpi=_DPI)
 
-    if sigma is not None:
-        sig     = np.asarray(sigma, dtype=float)
-        lnI_err = sig[mask] / I[mask]
+    if lnI_err is not None:
         ax.fill_between(q2, lnI - lnI_err, lnI + lnI_err,
                         color=_DATA_C, **_ERR_KW)
 
-    ax.plot(q2, lnI, ".", color=_DATA_C, markersize=3, label="ln I(q)")
+    ax.plot(q2, lnI, ".", color=_DATA_C, markersize=3.5, label="ln I(q)")
 
     # Fit range shading
     if q_min is not None and q_max is not None:
@@ -214,6 +225,7 @@ def plot_guinier(
         ax.axvline(qRg_hi ** 2, color=_FIT_C, linestyle=":",
                    linewidth=0.9, label=f"qRg=1.3  (q={qRg_hi:.4f})")
 
+    ax.set_xlim(0, float(q_hi) ** 2)          # zoom to the region of interest
     ax.set_xlabel("q²  (nm⁻²)")
     ax.set_ylabel("ln I(q)")
     ax.set_title(title)
@@ -291,18 +303,31 @@ def plot_porod(
     **_ignore,          # tolerate extra kwargs the model may pass (sigma, q_min…)
 ) -> str:
     """
-    Porod plot: q⁴I vs q⁴.
-    A flat plateau at high q confirms smooth surface scattering (Porod law).
+    Porod plot: q⁴·I(q) vs q  (the standard, readable form).
+
+    Multiplying out the expected q⁻⁴ high-q decay flattens the curve, so a smooth,
+    sharp particle/solvent interface shows a horizontal PLATEAU at high q (the
+    "Porod constant", ∝ surface area). A plateau that instead RISES means excess
+    high-q signal (background not fully subtracted, or a steeper-than-4 tail);
+    one that FALLS means a diffuse/rough interface (exponent < 4).
     """
     q, I = np.asarray(q, dtype=float), np.asarray(I, dtype=float)
     mask = (q > 0) & (I > 0)
-    q4   = q[mask] ** 4
-    q4I  = q4 * I[mask]
+    qm   = q[mask]
+    q4I  = qm ** 4 * I[mask]
 
     fig, ax = plt.subplots(figsize=(_FIG_W, _FIG_H), dpi=_DPI)
-    ax.plot(q4, q4I, color=_DATA_C, linewidth=1.6)
-    ax.set_xlabel("q⁴  (nm⁻⁴)")
-    ax.set_ylabel("q⁴·I(q)")
+    ax.plot(qm, q4I, ".", color=_DATA_C, markersize=3.5, label="q⁴·I(q)")
+    # Guide line at the high-q median level — the eye reads "flat vs sloped"
+    # against it. Uses the top third of the q-range (the Porod region).
+    if qm.size > 6:
+        hi = qm >= np.percentile(qm, 66)
+        if hi.any():
+            lvl = float(np.median(q4I[hi]))
+            ax.axhline(lvl, color=_FIT_C, linestyle="--", linewidth=1.0,
+                       label=f"high-q plateau ≈ {lvl:.3g} (Porod const if flat)")
+    ax.set_xlabel("q  (nm⁻¹)")
+    ax.set_ylabel("q⁴·I(q)   (Porod)")
     ax.set_title(title)
     ax.grid(True, **_GRID_KW)
     return _fig_to_b64(fig, export_path=export_path)
