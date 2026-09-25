@@ -7,6 +7,18 @@ this file is the running summary. Dates are when the work landed on `main`.
 
 ## September 2026
 
+### Assistant never returns an empty answer + plot-kwarg robustness
+
+The assistant sometimes ended a turn with no text ("no response"), and the Porod
+plot branch raised on an unexpected `sigma` kwarg. Fixes: chat() now guarantees a
+non-empty reply — if the tool loop ends with no text (model returned only tool
+blocks, was cut off by max_tokens, or produced whitespace) it forces a tool-less
+summary call and falls back to a plain message rather than silence; every plot
+function tolerates extra kwargs the model passes (sigma/q_min/Rg…); and
+generate_plot clips hand-sliced q/I/sigma to a common length instead of raising.
+The streaming error event is also generic now (A3). Held by
+`tests/test_assistant_never_empty.py`.
+
 ### Assistant plotting made thread-safe (fixes "Too many open files")
 
 The assistant's plot tools failed under load with `matplotlib has no attribute

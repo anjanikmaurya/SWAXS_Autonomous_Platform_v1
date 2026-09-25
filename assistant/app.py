@@ -575,8 +575,9 @@ def api_chat_stream():
                 effort=(body.get("effort") or "").strip() or None,
             )
         except Exception as exc:                       # noqa: BLE001
-            holder["error"] = str(exc)
-            logger.exception("Streaming chat error: %s", exc)
+            _eid = uuid.uuid4().hex[:8]
+            holder["error"] = f"internal error (id {_eid}) — see the app log"
+            logger.exception("Streaming chat error (id=%s): %s", _eid, exc)
         finally:
             q.put({"type": "__done__"})
 

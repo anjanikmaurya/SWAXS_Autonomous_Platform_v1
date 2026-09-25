@@ -131,6 +131,7 @@ def plot_curve(
     loglog:  bool = True,
     *,
     export_path: str | Path | None = None,
+    **_ignore,          # tolerate extra kwargs the model may pass (sigma, q_min…)
 ) -> str:
     """
     Standard 1D scattering curve: I(q) vs q (log-log by default).
@@ -168,6 +169,7 @@ def plot_guinier(
     title:   str = "Guinier Analysis",
     *,
     export_path: str | Path | None = None,
+    **_ignore,          # tolerate extra kwargs the model may pass (sigma, q_min…)
 ) -> str:
     """
     Guinier plot: ln I vs q².  Fit range highlighted; best-fit line overlaid.
@@ -229,6 +231,7 @@ def plot_kratky(
     I0:      float | None = None,
     *,
     export_path: str | Path | None = None,
+    **_ignore,          # tolerate extra kwargs the model may pass (sigma, q_min…)
 ) -> str:
     """
     Kratky plot: q²I vs q.
@@ -285,6 +288,7 @@ def plot_porod(
     title: str = "Porod Analysis",
     *,
     export_path: str | Path | None = None,
+    **_ignore,          # tolerate extra kwargs the model may pass (sigma, q_min…)
 ) -> str:
     """
     Porod plot: q⁴I vs q⁴.
@@ -312,6 +316,7 @@ def plot_pair_distance(
     title: str = "Pair Distance Distribution  p(r)",
     *,
     export_path: str | Path | None = None,
+    **_ignore,          # tolerate extra kwargs the model may pass (sigma, q_min…)
 ) -> str:
     """
     p(r) pair distance distribution.  Dmax is annotated if provided.
@@ -341,6 +346,7 @@ def plot_multi(
     loglog:   bool = True,
     *,
     export_path: str | Path | None = None,
+    **_ignore,          # tolerate extra kwargs the model may pass (sigma, q_min…)
 ) -> str:
     """
     Overlay multiple 1D curves on one plot.
@@ -392,6 +398,7 @@ def plot_fit_residuals(
     axis:   str = "loglog",
     *,
     export_path: str | Path | None = None,
+    **_ignore,          # tolerate extra kwargs the model may pass (sigma, q_min…)
 ) -> str:
     """
     Two-panel model-fit figure: data + fit curve (top) and normalized residuals
@@ -525,6 +532,7 @@ def plot_overlay(
     title:  str = "Overlay",
     *,
     export_path: str | Path | None = None,
+    **_ignore,          # tolerate extra kwargs the model may pass (sigma, q_min…)
 ) -> str:
     """
     Overlay multiple 1D curves, one panel per detector (SAXS/WAXS differ in q).
@@ -593,6 +601,7 @@ def plot_metric_timeseries(
     xlabel:  str = "Timer — elapsed (s)",
     *,
     export_path: str | Path | None = None,
+    **_ignore,          # tolerate extra kwargs the model may pass (sigma, q_min…)
 ) -> str:
     """
     Plot per-sample metadata time series. `series` is a list of:

@@ -1535,6 +1535,41 @@ class SWAXSAssistant:
                     )
                 history_delta.append({"role": "assistant", "content": result_text})
 
+        # HARD GUARANTEE: never return an empty answer. An empty `text` renders as
+        # "no response" in the UI — the worst, most embarrassing failure mode. We
+        # can land here with no text if the model returned only tool blocks, was
+        # cut off by max_tokens before emitting any text, or produced whitespace.
+        # Force one tool-less summary call; if even that yields nothing, return a
+        # plain message rather than silence.
+        if not (result_text and result_text.strip()):
+            logger.warning("[Assistant] empty answer after the tool loop — forcing a reply")
+            try:
+                _resp = client.messages.create(
+                    model      = model_id,
+                    max_tokens = max_toks,
+                    system     = system_param,
+                    messages   = _sanitize_messages(messages),
+                )
+                _u = _usage_dict(_resp)
+                if _u:
+                    usage_rounds.append(_u)
+                for block in _resp.content:
+                    if getattr(block, "type", None) == "text":
+                        result_text += block.text
+                history_delta.append({"role": "assistant",
+                                      "content": _drop_tool_use(_clean_content(_resp.content))})
+            except Exception as exc:
+                logger.warning("[Assistant] forced summary call failed: %s", exc)
+            if not (result_text and result_text.strip()):
+                result_text = (
+                    "I ran the analysis but couldn't compose a written summary this "
+                    "turn — the results and any plot are shown above. Ask me to "
+                    "summarise and I'll try again."
+                    if tool_calls_log else
+                    "Sorry — I didn't manage to produce a response. Please rephrase "
+                    "or try again."
+                )
+
         # Run proactive hints on this turn
         hints = self._run_hints(
             message      = message,
@@ -1775,6 +1810,16 @@ class SWAXSAssistant:
                 inp.setdefault("I",     I.tolist())
                 if sigma is not None:
                     inp.setdefault("sigma", sigma.tolist())
+
+        # Defensive: if the model hand-sliced q/I/sigma to different lengths,
+        # clip them to a common length rather than letting matplotlib raise an
+        # "x and y must be the same size" error mid-turn (which burns tool rounds).
+        _arrs = [k for k in ("q", "I", "sigma") if isinstance(inp.get(k), list)]
+        if len(_arrs) >= 2:
+            _n = min(len(inp[k]) for k in _arrs)
+            for k in _arrs:
+                if len(inp[k]) != _n:
+                    inp[k] = inp[k][:_n]
 
         b64 = generate_plot(plot_type, **inp)
         return f"Plot '{plot_type}' generated successfully.", b64
