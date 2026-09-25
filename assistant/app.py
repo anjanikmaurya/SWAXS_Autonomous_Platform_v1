@@ -160,6 +160,18 @@ def _fail(exc, code: int = 500):
     logger.exception("[assistant] request failed (id=%s): %s", err_id, exc)
     return jsonify({"error": f"internal error (id {err_id}) — see the app log"}), code
 
+
+@app.errorhandler(Exception)
+def _json_errorhandler(exc):
+    """Catch-all so EVERY route returns JSON, never a Flask HTML 500 page. The
+    chat UI's fallback does res.json(); an HTML error body would make that throw
+    and surface as "Request failed" with no useful detail. This guarantees a
+    parseable {"error": ...} for any unhandled exception on any endpoint."""
+    from werkzeug.exceptions import HTTPException
+    if isinstance(exc, HTTPException):
+        return exc                                   # keep 404/405/etc. as-is
+    return _fail(exc)
+
 # Per-app browser-tab icon, from apps.yml — ten apps on ten ports
 # otherwise give ten identical tabs. See src/favicon.py.
 register_favicon(app, "assistant")
