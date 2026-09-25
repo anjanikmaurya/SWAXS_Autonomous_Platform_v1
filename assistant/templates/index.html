@@ -995,16 +995,33 @@ function toggleMic() {
   RECOG.lang = 'en-US';
   RECOG.interimResults = true;
   RECOG.continuous = false;
+  let got = false;
   micBtn.classList.add('recording');
   RECOG.onresult = (e) => {
+    got = true;
     let t = '';
     for (const r of e.results) t += r[0].transcript;
     ta.value = base + t;
     autoGrow(ta);
   };
-  RECOG.onerror = () => {};
+  RECOG.onerror = (e) => {
+    const MAP = {
+      'not-allowed':        'microphone permission is blocked — allow mic access for this app in your OS/app settings',
+      'service-not-allowed':'the speech service is not available in this app build (common in the desktop app)',
+      'network':            'voice recognition needs to reach an online speech service, which is unavailable here',
+      'no-speech':          'no speech detected — try again and speak after the mic turns red',
+      'audio-capture':      'no microphone was found',
+      'aborted':            '',   // user toggled it off; no message
+    };
+    const why = (e.error in MAP) ? MAP[e.error] : ('voice input error: ' + e.error);
+    if (why) appendSystem('🎤 ' + why);
+  };
   RECOG.onend = () => { RECOG = null; micBtn.classList.remove('recording'); ta.focus(); };
-  try { RECOG.start(); } catch (e) { RECOG = null; micBtn.classList.remove('recording'); }
+  try { RECOG.start(); }
+  catch (e) {
+    RECOG = null; micBtn.classList.remove('recording');
+    appendSystem('🎤 could not start voice input: ' + (e && e.message || e));
+  }
 }
 // Hide the mic if the browser can't do speech recognition.
 if (!(window.SpeechRecognition || window.webkitSpeechRecognition)) {
