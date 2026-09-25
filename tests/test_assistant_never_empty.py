@@ -84,6 +84,19 @@ def test_normal_text_answer_passes_through():
     assert out["text"].strip() == "Rg is 3.1 nm."
 
 
+def test_chat_firewall_never_raises():
+    # Any unexpected failure in the implementation must surface as a graceful
+    # reply dict, never an exception / "Error: no response".
+    a = object.__new__(m.SWAXSAssistant)
+    a._chat_impl = lambda *args, **kw: (_ for _ in ()).throw(RuntimeError("boom"))
+    out = a.chat("hi", project_root=None)
+    assert isinstance(out, dict)
+    assert out["text"].strip()
+    assert "went wrong" in out["text"].lower()
+    for k in ("plot", "plots", "tool_calls", "hints", "_history_delta"):
+        assert k in out
+
+
 def test_a_raising_tool_does_not_crash_the_turn():
     # A tool that throws must be contained: the loop feeds the error back and the
     # model still produces a final answer — one tool bug never fails the whole turn.

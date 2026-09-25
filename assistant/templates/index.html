@@ -916,6 +916,10 @@ async function sendMsg() {
         }
       }
     }
+    // If the stream ended without a final/error event (dropped connection or a
+    // server-side crash mid-stream), don't show "no response" — fall back to the
+    // non-streaming endpoint, which returns a proper (firewalled) reply.
+    if (!finalData) throw new Error('stream ended without a result');
     finish(finalData);
   } catch (err) {
     // Fallback to the non-streaming endpoint.

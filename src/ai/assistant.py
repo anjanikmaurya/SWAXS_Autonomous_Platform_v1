@@ -35,6 +35,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import uuid as _uuid
 from pathlib import Path
 from typing import Any
 
@@ -1258,7 +1259,32 @@ class SWAXSAssistant:
 
     # ── Public API ─────────────────────────────────────────────────────────────
 
-    def chat(
+    def chat(self, message: str, **kwargs) -> dict:
+        """Top-level firewall around the chat implementation.
+
+        This method NEVER raises and ALWAYS returns the response dict shape, so a
+        bug anywhere downstream (prompt build, memory, tools, hints, the model
+        call) surfaces as a friendly message in the chat instead of a 500 / the
+        dreaded "Error: no response". The specific failure modes are still handled
+        with better messages inside _chat_impl; this only catches the unexpected."""
+        try:
+            return self._chat_impl(message, **kwargs)
+        except Exception as exc:                              # noqa: BLE001
+            eid = _uuid.uuid4().hex[:8]
+            logger.exception("[Assistant] chat failed (id=%s): %s", eid, exc)
+            return {
+                "text": (f"Something went wrong on my side (error {eid}). Please "
+                         f"try that again — if it keeps happening, the app log has "
+                         f"the details."),
+                "plot":             None,
+                "plots":            [],
+                "plot_interactive": None,
+                "tool_calls":       [],
+                "hints":            [],
+                "_history_delta":   [],
+            }
+
+    def _chat_impl(
         self,
         message:      str,
         user_id:      str | None = None,
