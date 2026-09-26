@@ -1037,16 +1037,17 @@ async function showRestartNotice(){
 }
 showRestartNotice();
 
-// Number fields must change ONLY by typing — never by scrolling the mouse wheel
-// over a focused field (too easy to nudge a temperature/flow setpoint by accident).
-// When the wheel is used over a focused number input, blur it so the page scrolls
-// and the value is left untouched. Works for existing and any future inputs.
+// Number fields must change ONLY by typing — never by the mouse wheel (too easy to
+// nudge a temperature/flow setpoint by accident). Blur alone let the value change
+// once before losing focus, so PREVENT the wheel's default value-change on a
+// focused number input, then blur so the very next scroll moves the page normally.
 document.addEventListener('wheel', function(e){
   const t = e.target;
   if (t && t.tagName === 'INPUT' && t.type === 'number' && t === document.activeElement){
-    t.blur();
+    e.preventDefault();   // stop the increment/decrement
+    t.blur();             // release focus so further scrolling pans the page
   }
-}, { passive: true });
+}, { passive: false });
 </script>
 </body>
 </html>
