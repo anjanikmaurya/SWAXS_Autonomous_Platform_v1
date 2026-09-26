@@ -1036,6 +1036,17 @@ async function showRestartNotice(){
   }catch(_){}
 }
 showRestartNotice();
+
+// Number fields must change ONLY by typing — never by scrolling the mouse wheel
+// over a focused field (too easy to nudge a temperature/flow setpoint by accident).
+// When the wheel is used over a focused number input, blur it so the page scrolls
+// and the value is left untouched. Works for existing and any future inputs.
+document.addEventListener('wheel', function(e){
+  const t = e.target;
+  if (t && t.tagName === 'INPUT' && t.type === 'number' && t === document.activeElement){
+    t.blur();
+  }
+}, { passive: true });
 </script>
 </body>
 </html>
