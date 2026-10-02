@@ -224,6 +224,16 @@ td.name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
         <div class="sub" id="resolved" style="margin-top:6px"></div>
         <div class="sub" style="margin-top:4px">New <b>.dat</b> profiles here are fitted automatically
           (sphere + Schulz / log-normal). Every result carries a 0–1 confidence.</div>
+        <div class="row" style="margin-top:8px;align-items:center">
+          <button class="btn btn-ghost" id="backfillBtn" onclick="analyzeExisting()"
+                  title="Fit previously-collected profiles that were never analysed. Runs in the background, oldest first, and yields to any live run.">
+            <svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-start"/></svg>
+            Analyse existing profiles</button>
+          <span class="sub" id="backfillHint" style="margin-left:8px"></span>
+        </div>
+        <div class="sub" style="margin-top:4px">Use this once when you point the analyzer at a folder of
+          <b>previously collected</b> data: the live watcher only fits new profiles, so old, never-fit
+          ones need this backfill. It does not drive the optimizer.</div>
       </div>
     </div>
 
@@ -823,6 +833,22 @@ async function setFolder(){
   $('resolved').textContent='Watching: '+r.resolved;
   setPill('p_watch','', r.resolved);
   $('setupHint').textContent=(r.resolved||'').split('/').slice(-2).join('/');
+}
+
+async function analyzeExisting(){
+  const btn=$('backfillBtn'), hint=$('backfillHint');
+  btn.setAttribute('disabled','');
+  hint.textContent='scanning…';
+  const r=await api('/api/analyze_existing',{});
+  if(r.error){
+    hint.textContent='could not start backfill: '+r.error;
+  }else if(r.ok){
+    hint.textContent='backfill started — '+r.message+'. Watch the live log; results appear in the table.';
+  }else{
+    hint.textContent=r.message||'nothing to do';
+  }
+  // Re-enable shortly; the backfill runs server-side and reports progress via the log/table.
+  setTimeout(()=>btn.removeAttribute('disabled'), 3000);
 }
 
 async function startCampaign(){

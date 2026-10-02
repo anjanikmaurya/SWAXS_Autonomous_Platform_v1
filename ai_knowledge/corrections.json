@@ -1,0 +1,13 @@
+[
+  {
+    "id": "corr_0001",
+    "ts": "2026-09-25T01:19:00.385142+00:00",
+    "author": "akmaurya",
+    "scope": "doc:Run4",
+    "wrong": "The tier-1 analysis router (analysis_tier1) classified most Run4 subtracted SAXS curves as WAXS or SWAXS based on detected 'sharp peaks' in the high-q tail.",
+    "right": "None of the Run4 measurements contain real WAXS/Bragg peaks (operator-confirmed). Treat all Run4 curves as pure SAXS; ignore/discount any Bragg-peak detection on Run4 data and do not truncate the Guinier/power-law/Porod windows at a detected 'peak' q for this series.",
+    "overrides": [],
+    "status": "active",
+    "proposed_by_assistant": false
+  }
+]

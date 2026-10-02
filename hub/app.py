@@ -371,6 +371,10 @@ def _start_app(app_id: str) -> tuple[bool, str]:
             _procs[app_id] = proc
             _crashed.pop(app_id, None)
             _last_running[app_id] = True
+            # Fresh launch: not ready until it answers /api/health (gates the dot /
+            # Open button through the pyFAI/fabio warm-up). Reset the fail streak too.
+            _ready[app_id] = False
+            _health_fail_streak[app_id] = 0
         _record_children()
         # Wait until it is actually serving before reporting success, so the UI
         # opens the tab only once the app is ready (heavy imports like reduction's
@@ -421,6 +425,8 @@ def _stop_app(app_id: str) -> tuple[bool, str]:
     # tick sees no running→dead transition, and drop any stale crash badge.
     _last_running[app_id] = False
     _crashed.pop(app_id, None)
+    _ready.pop(app_id, None)
+    _health_fail_streak.pop(app_id, None)
     _record_children()
     _hub_emit("app.stopped", {"app_id": app_id})
     detail = "; ".join(n for n in notes if n and n != "already-gone")
@@ -564,9 +570,20 @@ def _app_status() -> dict:
         alive, summary = _health_probe(a["port"], timeout=2.0) if running else (False, None)
         if running:
             _health_fail_streak[aid] = 0 if alive else _health_fail_streak.get(aid, 0) + 1
-            healthy = alive or _health_fail_streak[aid] < _HEALTH_FAIL_THRESHOLD
+            # The fail-streak tolerance keeps an already-serving app green through a
+            # transient missed probe. It must NOT apply during cold start: a freshly
+            # launched reduction/analyzer is "running" (process alive) for several
+            # seconds while pyFAI/fabio import, before the port is bound. Showing
+            # "Running" then enabled the Open button into a dead port -> the browser
+            # got ERR_CONNECTION_REFUSED on the first open. Gate on _ready: True only
+            # once the app has answered /api/health at least once since this launch.
+            if alive:
+                _ready[aid] = True
+            healthy = alive or (_ready.get(aid, False)
+                                and _health_fail_streak[aid] < _HEALTH_FAIL_THRESHOLD)
         else:
             _health_fail_streak.pop(aid, None)
+            _ready.pop(aid, None)
             healthy = False
         proc = _procs.get(aid)
         out[aid] = {
@@ -597,6 +614,10 @@ def api_status():
 _crashed: dict = {}
 #: app_id → last observed running state, for edge detection
 _last_running: dict = {}
+#: app_id → True once the app has answered /api/health at least once since its
+#: current launch. Distinguishes "process alive but still importing" (cold start)
+#: from "serving", so the UI dot / Open button only go green when the port is up.
+_ready: dict = {}
 
 
 def _disk_free_gb():

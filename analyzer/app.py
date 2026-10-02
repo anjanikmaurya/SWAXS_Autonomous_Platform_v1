@@ -1090,7 +1090,15 @@ def _is_simulated(meta, header_lines) -> bool:
     return "simulated" in " ".join(header_lines or []).lower()
 
 
-def _analyze_file(path: Path) -> None:
+def _analyze_file(path: Path, drive_loop: bool = True) -> None:
+    """Fit one subtracted profile, store the result, write the durable Fit
+    record and manifest entry.
+
+    ``drive_loop`` (default True — the live watcher's behaviour) also feeds the
+    running campaign and publishes ``fit.complete`` on the bus. The operator
+    backfill (``_analyze_existing_worker``) passes ``drive_loop=False``: a
+    historical profile must be fit, recorded and shown, but must NEVER drive the
+    optimizer or report to the reactor as if it were a live measurement."""
     try:
         hdr, q, I, sigma, _meta = read_dat_data_metadata(path)
         q = np.asarray(q, float)
@@ -1190,13 +1198,14 @@ def _analyze_file(path: Path) -> None:
     # Drive the closed loop FIRST, so the loss for THIS recipe is in the campaign
     # history before fit.complete is published — otherwise _last_loss_for(rid)
     # below sees only the previous recipe's history and always reported None.
-    _feed_campaign(path.name, res)          # drive the closed loop, if a campaign is running
+    if drive_loop:
+        _feed_campaign(path.name, res)      # drive the closed loop, if a campaign is running
 
     try:
         rid = recipe_id_from_filename(path.name)
         suspect = (conf or 0.0) <= QC_CONF_THRESHOLD
         png = _write_fit_record(path, q, I, sig, model, summary, res)
-        if _bus is not None:
+        if drive_loop and _bus is not None:
             _bus.publish("fit.complete", {
                 "recipe_id": rid, "file": path.name,
                 "size": summary["radius"], "pdi": summary["pdi"],
@@ -1212,6 +1221,13 @@ def _analyze_file(path: Path) -> None:
 # ── folder watcher ─────────────────────────────────────────────────────────────
 _handled: dict = {}
 _lastsig: dict = {}
+#: Paths that were ALREADY in the watched folder when the analyzer started (or when
+#: the folder/project last changed). These are pre-existing profiles, not live
+#: arrivals, so the watcher must NEVER auto-fit them — that is the re-fit-on-restart
+#: the operator saw (an upstream re-subtract storm churns their mtime and makes them
+#: look new). The "Analyse existing profiles" button and a running campaign still fit
+#: them on demand; once fit, the durable Results/Fit/ record keeps them skipped.
+_startup_present: set = set()
 # Guards the intake memos above. They are mutated by the watcher thread and
 # CLEARED by request threads (set_project / api_folder), and snapshotted by
 # _save_campaign — so an unguarded iteration (the cleanup/cap loops, or the save
@@ -1309,6 +1325,13 @@ def _watch_once() -> None:
             if (fit_dir / f"fit_{f.stem}.dat").is_file():
                 _handled[key] = sig; _lastsig.pop(key, None)
                 continue
+            # PRE-EXISTING at startup → never auto-fit (even if an upstream
+            # re-subtract just churned its mtime). The operator backfill button
+            # and a running campaign still fit these; the record check above then
+            # skips it for good. Live arrivals (paths not present at startup) fall
+            # through and are fit normally.
+            if key in _startup_present:
+                continue
             action = decide_intake(key, sig, _handled, _lastsig)
             if action == "skip":
                 continue
@@ -1368,38 +1391,43 @@ def _seed_handled_locked() -> int:
     watcher must never observe an empty _handled, which is what makes it re-fit
     the whole back-catalogue."""
     d = _resolve_sub()
+    _startup_present.clear()
     if not d.is_dir():
         return 0
     fit_dir = _resolve_fit()
-    now = time.time()
     n = 0
     for f in d.glob("*.dat"):
         try:
             st = f.stat()
         except OSError:
             continue
-        has_record = (fit_dir / f"fit_{f.stem}.dat").is_file()
-        if not has_record and (now - st.st_mtime) < _CRASH_GAP_WINDOW_S:
-            continue              # recently written, never fit — let the watcher handle it
-        _handled[str(f)] = (st.st_size, st.st_mtime_ns)
-        n += 1
+        # Everything already on disk now is PRE-EXISTING: freeze it from auto-fit
+        # (keyed on path, so an upstream re-subtract that churns the mtime cannot
+        # retrigger a fit). The operator's "Analyse existing profiles" button and a
+        # running campaign still fit these on demand. This replaces the old
+        # mtime-based crash-gap exemption, which let anything younger than
+        # _CRASH_GAP_WINDOW_S through and re-fit the back-catalogue on every restart.
+        _startup_present.add(str(f))
+        if (fit_dir / f"fit_{f.stem}.dat").is_file():
+            _handled[str(f)] = (st.st_size, st.st_mtime_ns)
+            n += 1
     return n
 
 
 def _seed_handled_at_boot() -> None:
-    """Mark every already-fit profile as handled WITHOUT fitting it, so a
-    restart doesn't re-fit an entire prior campaign's history — this is the
-    FRESH default: instant startup, nothing re-analysed.
+    """Record every profile already on disk as PRE-EXISTING and mark the
+    already-fit ones as handled, so a restart re-analyses NOTHING that was
+    already there — the FRESH default: instant startup.
 
-    A RECENTLY-WRITTEN file with no matching Results/Fit/ record is left
-    alone — it will be fit normally on the watcher's next poll. This closes
-    the crash-gap: a profile that landed on disk but was never fit before the
-    process died must not be silently marked "already seen". "Recent" is
-    bounded to _CRASH_GAP_WINDOW_S: older files missing a Fit record are
-    historical (most commonly, fit before "every fit gets a durable record"
-    existed) and must still be seeded — otherwise every restart re-fits the
-    project's entire pre-that-feature history, which is the exact re-fit
-    storm this function exists to prevent."""
+    Via _startup_present (set in _seed_handled_locked) every file present at
+    startup is frozen from auto-fitting, whatever its mtime. This is stricter
+    than the previous mtime crash-gap rule, which let anything younger than
+    _CRASH_GAP_WINDOW_S through and so re-fit the back-catalogue whenever an
+    upstream re-subtract churned the files' timestamps on restart. A
+    pre-existing profile that was never fit (including one written just before a
+    crash) is recovered on demand via the "Analyse existing profiles" button or
+    by a running campaign — never silently re-fit on boot. Only profiles that
+    ARRIVE after startup are auto-fit by the watcher."""
     try:
         with _intake_lock:
             _seed_handled_locked()
@@ -1426,6 +1454,95 @@ def _reseed_intake(reason: str) -> None:
     if n:
         _emit(f"↺ intake reset ({reason}) — {n} already-fit profile(s) seeded, "
               f"not re-analysed", "info")
+
+
+# ── operator-driven backfill of previously-collected profiles ──────────────────
+# The live watcher (and _seed_handled_at_boot) deliberately IGNORE the historical
+# back-catalogue: on startup every old profile with no Results/Fit/ record is
+# marked "handled" so a restart can't re-fit a whole prior campaign and starve a
+# live run. That leaves the plain standard-use case — "I collected data earlier,
+# analyse it now" — with no path. This backfill is that path: an explicit, operator-
+# triggered pass that fits the old, never-fit profiles oldest-first, in the
+# background, yielding between files so a live campaign keeps priority. It never
+# drives the optimizer or publishes fit.complete (drive_loop=False), so running it
+# mid-campaign cannot corrupt the loop.
+_backfill_lock = threading.Lock()
+_backfill_running = False
+#: Pause between backfill fits, so the 3 s live watcher always interleaves ahead
+#: of the historical pass. Overridable for tests.
+_BACKFILL_GAP_S = float(os.environ.get("SWAXS_ANALYZER_BACKFILL_GAP_S", "0.5"))
+
+
+def _backfill_candidates() -> list:
+    """Pre-existing subtracted profiles with no durable Fit record yet, oldest
+    first. These are exactly the files frozen from auto-fit at startup
+    (``_startup_present``); a live arrival that appeared after startup is left to
+    the watcher, not the button."""
+    d = _resolve_sub()
+    if not d.is_dir():
+        return []
+    fit_dir = _resolve_fit()
+    out = []
+    for f in d.glob("*.dat"):
+        key = str(f)
+        if key not in _startup_present:
+            continue                                  # live arrival — the watcher handles it
+        if (fit_dir / f"fit_{f.stem}.dat").is_file():
+            continue                                  # already fit
+        out.append(f)
+    try:
+        out.sort(key=lambda p: p.stat().st_mtime)
+    except OSError:
+        pass
+    return out
+
+
+def _analyze_existing_worker() -> None:
+    global _backfill_running
+    n = 0
+    try:
+        cands = _backfill_candidates()
+        total = len(cands)
+        if total:
+            _emit(f"↻ backfill: analysing {total} previously-collected profile(s) "
+                  f"(oldest first; live run keeps priority)", "info")
+        fit_dir = _resolve_fit()
+        for f in cands:
+            key = str(f)
+            try:
+                st = f.stat(); sig = (st.st_size, st.st_mtime_ns)
+            except OSError:
+                continue
+            if (fit_dir / f"fit_{f.stem}.dat").is_file():   # fit by the watcher meanwhile
+                with _intake_lock:
+                    _handled[key] = sig
+                continue
+            with _intake_lock:          # claim it so the live watcher won't also grab it
+                _handled[key] = sig; _lastsig.pop(key, None)
+            _analyze_file(f, drive_loop=False)
+            n += 1
+            time.sleep(_BACKFILL_GAP_S)
+        _emit(f"↻ backfill complete — {n} profile(s) analysed", "ok" if n else "info")
+    except Exception as exc:
+        _emit(f"⚠ backfill failed: {exc}", "warn")
+    finally:
+        with _backfill_lock:
+            _backfill_running = False
+
+
+def _start_backfill() -> tuple[bool, str, int]:
+    """Launch the backfill thread if one isn't already running. Returns
+    (started, message, candidate_count)."""
+    global _backfill_running
+    pending = len(_backfill_candidates())
+    with _backfill_lock:
+        if _backfill_running:
+            return False, "a backfill is already running", pending
+        if pending == 0:
+            return False, "no previously-collected profiles need analysing", 0
+        _backfill_running = True
+    threading.Thread(target=_analyze_existing_worker, daemon=True).start()
+    return True, f"analysing {pending} profile(s)", pending
 
 
 if os.environ.get("SWAXS_NO_WATCH", "").strip().lower() not in ("1", "true", "yes"):
@@ -1499,6 +1616,19 @@ def api_folder():
 def api_results():
     with _results_lock:
         return jsonify({"results": [e["summary"] for e in _results.values()]})
+
+
+@app.route("/api/analyze_existing", methods=["POST"])
+def api_analyze_existing():
+    """Operator-driven backfill: fit previously-collected subtracted profiles
+    that were never analysed (no Results/Fit/ record). Runs in the background,
+    oldest-first, yielding to the live watcher; does not drive the optimizer.
+    GET-like callers can check `pending` via the returned count."""
+    started, msg, pending = _start_backfill()
+    with _backfill_lock:
+        running = _backfill_running
+    return jsonify({"ok": started, "message": msg, "pending": pending,
+                    "running": running})
 
 
 @app.route("/api/result/<name>")

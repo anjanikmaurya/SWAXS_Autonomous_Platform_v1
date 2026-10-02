@@ -2,7 +2,7 @@
 
 ## Critical Rules
 
-IMPORTANT: Do not test the code after making changes unless explicitly told to do so.
+IMPORTANT: Always run the relevant tests after making changes (verify your work; do not wait to be asked).
 IMPORTANT: Run Python from the activated virtual environment (`venv/`), with plain
 `python`. Do **not** use `uv run` — there is no `pyproject.toml` or `uv.lock` here,
 and the hub launches every sub-app with `sys.executable`, so the interpreter that

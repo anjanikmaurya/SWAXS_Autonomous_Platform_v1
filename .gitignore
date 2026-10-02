@@ -40,3 +40,6 @@ ai_knowledge/group/
 
 # Scratch planning notes (the work they describe lands in the commit message)
 .phase2_diff.md
+
+# Manuscript drafts — not part of the codebase, keep local
+Manuscript/

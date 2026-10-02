@@ -51,9 +51,11 @@ def _reset_module_state(tmp_path, monkeypatch):
     monkeypatch.setattr(az, "_pending_at", {})
     az._handled.clear()
     az._lastsig.clear()
+    az._startup_present.clear()
     yield
     az._handled.clear()
     az._lastsig.clear()
+    az._startup_present.clear()
 
 
 def _sub_dir(tmp_path) -> Path:
@@ -176,24 +178,27 @@ def test_seed_handled_at_boot_leaves_unfit_files_for_the_watcher(tmp_path, monke
     assert str(f) not in az._handled
 
 
-def test_seed_handled_at_boot_seeds_old_unfit_files_too(tmp_path, monkeypatch):
-    """A file with no Fit record that is NOT recent (older than the crash-gap
-    window) is historical, most commonly fit before "every fit gets a durable
-    record" existed — it must still be seeded as handled, or every restart
-    re-fits the project's entire pre-that-feature history."""
+def test_preexisting_unfit_files_are_frozen_not_refit_on_boot(tmp_path, monkeypatch):
+    """A profile already on disk at startup with no Fit record must NOT be
+    auto-fit on restart — not even if an upstream re-subtract just churned its
+    mtime so it looks recent. It is frozen via _startup_present; the "Analyse
+    existing profiles" button or a running campaign fit it on demand. This is the
+    guard against the re-fit-the-back-catalogue-on-every-restart behaviour."""
     sub = _sub_dir(tmp_path)
     _fit_dir(tmp_path)
     f = sub / "Run3_r007_sample_20260101_000000.dat"
     _write_dat(f)
-    old = time.time() - az._CRASH_GAP_WINDOW_S - 3600.0
-    os.utime(f, (old, old))
+    # A RECENT mtime must no longer matter — the freeze is keyed on "present at
+    # startup", not on age.
+    recent = time.time() - 5.0
+    os.utime(f, (recent, recent))
 
     calls = []
-    monkeypatch.setattr(az, "_analyze_file", lambda p: calls.append(p))
+    monkeypatch.setattr(az, "_analyze_file", lambda p, **kw: calls.append(p))
 
     az._seed_handled_at_boot()
-
-    assert str(f) in az._handled
+    assert str(f) in az._startup_present      # frozen from auto-fit
+    az._watch_once()                          # a full watcher poll must not fit it
     assert calls == []
 
 

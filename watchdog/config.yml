@@ -4,7 +4,7 @@
 notify:
   # Suppress progress messages during these hours (faults always send)
   # Format: "HH:MM-HH:MM" or null to disable
-  quiet_hours: "23:00-07:00"
+  quiet_hours: null
 
   # Batch progress messages: "off" | "hourly"
   # off: one message per event
