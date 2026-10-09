@@ -116,15 +116,16 @@ def _load_dat(path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
 # ── ML truncation / rebinning ────────────────────────────────────────────────
 # The subtracted curve is truncated to a fixed q-range and resampled onto a fixed
 # number of points so it can feed the ML model, which needs EXACTLY this grid.
-# Source q is nm⁻¹; the output range/unit default to Å⁻¹ (nm⁻¹ ÷ 10). Editable
+# Source q is nm⁻¹ and so is the default output (0.3 to 6.0 nm⁻¹, the same window
+# as the former 0.03 to 0.6 Å⁻¹ default). Å⁻¹ stays selectable. Editable
 # live in the app (/api/truncation). Session state — resets to defaults on restart.
 _TRUNC = {
     "enabled":  True,
-    "q_min":    0.03,        # in q_unit
-    "q_max":    0.6,         # in q_unit
+    "q_min":    0.3,         # in q_unit
+    "q_max":    6.0,         # in q_unit
     "n_points": 549,
     "spacing":  "linear",    # "linear" | "log"
-    "q_unit":   "A",         # "A" (Å⁻¹) | "nm" (nm⁻¹)
+    "q_unit":   "nm",        # "nm" (nm⁻¹, platform default) | "A" (Å⁻¹)
 }
 
 
@@ -177,7 +178,7 @@ def _restore_trunc() -> None:
                 "level": "lost",
                 "message": "The saved ML truncation grid could NOT be restored (too "
                            "old or unreadable). Every subtracted file will be written "
-                           "on the DEFAULT grid (0.03–0.6 Å⁻¹, 549 pts, linear) — set "
+                           "on the DEFAULT grid (0.3 to 6.0 nm⁻¹, 549 pts, linear) — set "
                            "it before subtracting.",
                 "params": ["q-range / points / unit"]}
         # else: nothing saved — a fresh start. The module defaults ARE what the

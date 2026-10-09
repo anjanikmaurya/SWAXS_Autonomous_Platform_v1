@@ -202,6 +202,75 @@ def test_preexisting_unfit_files_are_frozen_not_refit_on_boot(tmp_path, monkeypa
     assert calls == []
 
 
+def test_prune_fit_dir_keeps_newest_and_removes_pairs(tmp_path, monkeypatch):
+    """Results/Fit retention: the oldest fit-record PAIRS (PNG + .dat) beyond the
+    cap are deleted, newest kept — the multi-week disk-growth guard."""
+    fit = _fit_dir(tmp_path)
+    monkeypatch.setattr(az, "_FIT_RETENTION", 3)
+    import os as _os, time as _t
+    for i in range(6):
+        stem = f"fit_Run1_r{i:03d}_sample"
+        dat = fit / f"{stem}.dat"; png = fit / f"{stem}.png"
+        dat.write_text("x\n", encoding="utf-8"); png.write_bytes(b"\x89PNG")
+        old = _t.time() - (100 - i)        # ascending mtime: i=5 is newest
+        _os.utime(dat, (old, old)); _os.utime(png, (old, old))
+
+    monkeypatch.setattr(az, "_resolve_fit", lambda: fit)
+    az._prune_fit_dir(fit)
+
+    remaining = sorted(p.stem for p in fit.glob("fit_*.dat"))
+    assert remaining == ["fit_Run1_r003_sample", "fit_Run1_r004_sample", "fit_Run1_r005_sample"]
+    # the PNG of a pruned record is gone too (pairs removed together)
+    assert not (fit / "fit_Run1_r000_sample.png").exists()
+    assert (fit / "fit_Run1_r005_sample.png").exists()
+
+
+def test_load_fit_records_scopes_to_run_tag(tmp_path, monkeypatch):
+    """Records from OTHER runs that got cross-stamped with this campaign_id (the
+    re-fit storm wrote the active campaign's id onto old profiles) must not be
+    counted toward this run — the '37 of 25' fix. Scoping is by the run tag in the
+    recipe_id, not the stamped Campaign ID."""
+    fit = _fit_dir(tmp_path)
+    monkeypatch.setattr(az, "_resolve_fit", lambda: fit)
+    CID = "camp-abc"
+    # All records carry the SAME (wrong) campaign id, but belong to different runs.
+    for rid in ["Run12_r001", "Run12_r002", "Run12_r003"]:
+        _write_fit_record(fit, rid, CID, 4.0, 0.2, 0.3, "2026-01-01T00:00:01")
+    for rid in ["Run8_r004", "Run9_r001", "Run11_r010"]:        # foreign, cross-stamped
+        _write_fit_record(fit, rid, CID, 4.0, 0.2, 0.3, "2026-01-01T00:00:00")
+
+    all_recs = az._load_fit_records_for_campaign(CID)            # no run scope → everything
+    scoped = az._load_fit_records_for_campaign(CID, "Run12")     # scoped to Run12
+    assert len({r["recipe_id"] for r in all_recs}) == 6
+    assert sorted({r["recipe_id"] for r in scoped}) == ["Run12_r001", "Run12_r002", "Run12_r003"]
+    # and Run1 must not be confused with Run12
+    _write_fit_record(fit, "Run1_r001", CID, 4.0, 0.2, 0.3, "2026-01-01T00:00:02")
+    scoped2 = az._load_fit_records_for_campaign(CID, "Run1")
+    assert sorted({r["recipe_id"] for r in scoped2}) == ["Run1_r001"]
+
+
+def test_fit_recs_collapse_to_one_per_recipe(tmp_path, monkeypatch):
+    """Budget counts distinct recipes, not Fit files. A recipe with several batch
+    profiles (and any duplicate records from a past re-fit storm) must collapse to
+    one evaluation — this is the '343 of 25 used' fix."""
+    # Same recipe r004 produced four batch profiles; r005 produced two; plus a
+    # duplicate record for r004 (re-fit storm) and one record with no recipe_id.
+    fit_recs = [
+        {"recipe_id": "Run8_r004", "size": 3.9, "pdi": 0.21, "confidence": 0.3, "written": "01"},
+        {"recipe_id": "Run8_r004", "size": 3.9, "pdi": 0.21, "confidence": 0.3, "written": "02"},
+        {"recipe_id": "Run8_r004", "size": 3.9, "pdi": 0.21, "confidence": 0.3, "written": "03"},
+        {"recipe_id": "Run8_r004", "size": 3.9, "pdi": 0.21, "confidence": 0.3, "written": "04"},
+        {"recipe_id": "Run8_r005", "size": 3.8, "pdi": 0.23, "confidence": 0.3, "written": "05"},
+        {"recipe_id": "Run8_r005", "size": 3.8, "pdi": 0.23, "confidence": 0.3, "written": "06"},
+        {"recipe_id": "",          "size": 3.7, "pdi": 0.25, "confidence": 0.3, "written": "07"},
+    ]
+    recs = az._fit_recs_by_recipe(fit_recs)
+    rids = sorted(r["recipe_id"] for r in recs)
+    assert rids == ["Run8_r004", "Run8_r005"]   # 2 distinct recipes, not 7 files
+    # first (oldest) record per recipe is kept
+    assert next(r for r in recs if r["recipe_id"] == "Run8_r004")["written"] == "01"
+
+
 # ── 2. Continue an incomplete Run9 ─────────────────────────────────────────────
 
 def test_continue_run_replays_measurements_without_refitting(tmp_path, monkeypatch):
@@ -259,6 +328,95 @@ def test_continue_run_skips_measurements_with_no_feedback_record(tmp_path, monke
     assert summary["replayed"] == 1
     assert summary["skipped"] == 1
     assert len(az._campaign.history) == 1
+
+
+def test_profile_for_continued_condition_is_fit_and_feeds_loop(tmp_path, monkeypatch):
+    """Repro: abort → continue proposes one condition; when its measured profile
+    arrives it MUST be fit by the watcher and feed the campaign (propose the next).
+    Guards against the freeze/handled logic skipping the continued profile."""
+    sub = _sub_dir(tmp_path)
+    fit_dir = _fit_dir(tmp_path)
+    campaign_id = "cid_run9"
+    for i in range(3):
+        rid = f"Run9_r{i:03d}"
+        _write_feedback(tmp_path, rid, PARAMS)
+        _write_fit_record(fit_dir, rid, campaign_id, size=4.0, pdi=0.1,
+                           confidence=0.9, written=f"2026-09-01T00:0{i}:00")
+    _write_campaign_record(tmp_path, campaign_id=campaign_id, run_no=9,
+                            run_tag="Run9", budget=25)
+
+    # Boot freeze happens BEFORE any new profile arrives (mimics the real app).
+    az._seed_handled_at_boot()
+
+    az._continue_run()
+    assert az._campaign is not None and az._campaign.status_str == "running"
+    pend = list(az._pending.keys())
+    assert len(pend) == 1, f"continue should propose exactly one condition, got {pend}"
+    rid = pend[0]
+
+    # The reactor collects that condition → a NEW subtracted profile appears.
+    prof = sub / f"{rid}_sample_20260901_000000.dat"
+    _write_dat(prof)
+
+    fit_calls = []
+    monkeypatch.setattr(az, "_analyze_file", lambda p, **kw: fit_calls.append(str(p)))
+
+    # decide_intake needs the file stable across two polls.
+    az._watch_once(); az._watch_once()
+
+    assert str(prof) in fit_calls, (
+        "the continued condition's profile was NOT picked up for fitting "
+        f"(handled={list(az._handled)}, frozen={list(az._startup_present)})")
+
+
+def _continue_with_pending(tmp_path):
+    """Helper: set up a Run9 campaign, continue it, return the one pending rid."""
+    fit_dir = _fit_dir(tmp_path)
+    campaign_id = "cid_run9"
+    for i in range(3):
+        rid = f"Run9_r{i:03d}"
+        _write_feedback(tmp_path, rid, PARAMS)
+        _write_fit_record(fit_dir, rid, campaign_id, size=4.0, pdi=0.1,
+                           confidence=0.9, written=f"2026-09-01T00:0{i}:00")
+    _write_campaign_record(tmp_path, campaign_id=campaign_id, run_no=9,
+                            run_tag="Run9", budget=25)
+    az._seed_handled_at_boot()
+    az._continue_run()
+    pend = list(az._pending.keys())
+    assert len(pend) == 1
+    return pend[0]
+
+
+def test_continued_profile_realistic_filename_is_fit(tmp_path, monkeypatch):
+    """Realistic pipeline filename (…_sample_batch001_1files_Average_sub.dat) must
+    still match the pending recipe and be fit."""
+    sub = _sub_dir(tmp_path)
+    rid = _continue_with_pending(tmp_path)
+    prof = sub / f"{rid}_sample_batch001_1files_Average_sub.dat"
+    _write_dat(prof)
+    calls = []
+    monkeypatch.setattr(az, "_analyze_file", lambda p, **kw: calls.append(str(p)))
+    az._watch_once(); az._watch_once()
+    assert str(prof) in calls
+
+
+def test_continued_profile_missed_when_gate_auto_and_Good_exists(tmp_path, monkeypatch):
+    """REPRO of the real bug: a prior run left a populated Good/ folder, so auto
+    gate mode makes the analyzer watch Good/. The continued profile arrives in the
+    FLAT Subtracted/ folder (not yet graded into Good/) and is never fit."""
+    sub = _sub_dir(tmp_path)
+    good = sub / "Good"; good.mkdir(parents=True, exist_ok=True)
+    _write_dat(good / "Run9_r000_sample_old_sub.dat")      # prior accepted profile
+    monkeypatch.setattr(az, "_gate_mode", "auto")
+    rid = _continue_with_pending(tmp_path)
+    prof = sub / f"{rid}_sample_batch001_1files_Average_sub.dat"   # flat, not in Good/
+    _write_dat(prof)
+    calls = []
+    monkeypatch.setattr(az, "_analyze_file", lambda p, **kw: calls.append(str(p)))
+    az._watch_once(); az._watch_once()
+    assert str(prof) in calls, (
+        "continued profile in flat Subtracted/ was NOT fit because the analyzer "
+        f"is watching {az._resolve_sub()} (Good/) — gate-routing bug")
 
 
 # ── 3. Orphan condition file: re-issued, not dropped ───────────────────────────

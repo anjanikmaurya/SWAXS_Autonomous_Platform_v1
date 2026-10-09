@@ -95,7 +95,7 @@ Best when the setpoint→true-flow curve bends across the range.
    ```
    Repeat per pump (each LG16 differs).
 4. **Apply: restart the reactor app.** Nothing else picks the table up. In
-   particular the Mock↔Real backend toggle does **not**: `controller.switch_backend`
+   particular the Simulation↔Hardware toggle does **not**: `controller.switch_backend`
    rebuilds the pump bank from the config already in memory, which was read once by
    `load_config()` at import (`reactor/app.py`), and never re-reads the file. You
    get no error — the UI keeps showing calibrated-looking numbers while the pumps

@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Autonomous Synthesis, layout mockup</title>
+<style>
+:root{--bg:#f4f6f8;--surface:#fff;--surface2:#eef1f4;--border:#e2e6ea;--bs:#c3c9d1;--txt:#1f2937;--muted:#5b6472;
+  --accent:#B1040E;--ok:#15803d;--warn:#b45309;--run:#1d4ed8;--probe:#6d28d9;--syn:#0f766e;--r:10px}
+*{box-sizing:border-box}body{margin:0;font:15px/1.4 system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--txt)}
+.top{display:flex;align-items:center;gap:12px;padding:10px 20px;background:var(--surface);border-bottom:1px solid var(--border)}
+.top h1{font-size:20px;margin:0}.top h1 span{color:var(--accent)}
+.pill{font-size:13px;padding:3px 10px;border-radius:999px;background:var(--surface2);border:1px solid var(--border)}
+.pill.ok{color:var(--ok);border-color:#bbf7d0;background:#f0fdf4}
+.sp{flex:1}.sub{color:var(--muted);font-size:14px}
+.shell{display:grid;grid-template-columns:270px 1fr;height:calc(100vh - 53px)}
+aside{background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:auto}
+.sec{padding:12px 14px 4px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.nav{display:flex;align-items:center;gap:9px;padding:8px 14px;margin:1px 8px;border-radius:8px;cursor:pointer}
+.nav:hover{background:var(--surface2)}.nav.on{background:#fbe9ea;color:var(--accent);font-weight:700}
+.dot{width:10px;height:10px;border-radius:50%;flex:none}.d-ok{background:var(--ok)}.d-warn{background:var(--warn)}.d-off{background:#9ca3af}.d-run{background:var(--run)}
+.tag{margin-left:auto;font-size:11px;padding:1px 7px;border-radius:999px;color:#fff}
+.t-syn{background:var(--syn)}.t-probe{background:var(--probe)}
+.estop{margin:auto 12px 12px;padding:12px;border:0;border-radius:8px;background:#8c1515;color:#fff;font-weight:800;letter-spacing:.04em;cursor:pointer}
+main{overflow:auto;padding:20px 24px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px 18px;margin-bottom:16px}
+.hd{font-size:14px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);padding-bottom:9px;margin-bottom:12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
+.hd .r{margin-left:auto;text-transform:none;letter-spacing:0;font-weight:500;color:var(--muted);font-size:13px}
+.chain{display:flex;align-items:stretch;gap:0;overflow-x:auto;padding:4px 2px 8px}
+.step{min-width:190px;max-width:220px;border:1px solid var(--bs);border-radius:10px;background:var(--surface);padding:10px 12px;position:relative}
+.step .k{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+.step.syn{border-top:4px solid var(--syn)}.step.syn .k{color:var(--syn)}
+.step.probe{border-top:4px solid var(--probe)}.step.probe .k{color:var(--probe)}
+.step .n{font-weight:700;margin:3px 0}.step .p{font-size:13px;color:var(--muted)}
+.step .st{font-size:12px;margin-top:6px}
+.mon{margin-top:8px;padding:6px 8px;border:1px dashed var(--probe);border-radius:7px;font-size:12px;color:var(--probe);background:#f5f3ff}
+.arrow{align-self:center;padding:0 8px;color:var(--muted);font-size:20px}
+.add{min-width:120px;border:1px dashed var(--bs);border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--muted);cursor:pointer}
+.legend{display:flex;gap:16px;font-size:13px;color:var(--muted);margin-top:6px;flex-wrap:wrap}
+.sw{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-1px;margin-right:5px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+table{width:100%;border-collapse:collapse;font-size:14px}td,th{text-align:left;padding:6px 4px;border-bottom:1px solid var(--border)}th{color:var(--muted);font-weight:600}
+.plot{height:150px;border:1px solid var(--border);border-radius:8px;background:linear-gradient(transparent 49%,var(--border) 50%,transparent 51%),var(--surface2);display:flex;align-items:flex-end;padding:8px;color:var(--muted);font-size:12px}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin:-4px 0 14px}
+.tab{padding:8px 14px;cursor:pointer;color:var(--muted);border-bottom:3px solid transparent}.tab.on{color:var(--accent);font-weight:700;border-color:var(--accent)}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:7px;border:1px solid var(--bs);background:var(--surface);font:inherit;font-weight:600;cursor:pointer}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:#fff}.btn.go{background:var(--ok);border-color:var(--ok);color:#fff}
+.mode{display:inline-flex;border:2px solid var(--bs);border-radius:999px;overflow:hidden}.mode b,.mode i{padding:5px 14px;font-style:normal;font-weight:600}.mode b{background:#2f6f4f;color:#fff}
+.chk td:first-child{width:28px}.pass{color:var(--ok);font-weight:700}.fail{color:var(--accent);font-weight:700}.todo{color:var(--muted)}
+.note{background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 12px;font-size:14px}
+.used a{color:var(--accent);cursor:pointer}
+.hidden{display:none}
+</style></head><body>
+<div class="top">
+  <h1>Autonomous <span>Synthesis</span></h1><span class="pill ok">Connected</span><span class="pill">Workflow: Flow loop, idle</span>
+  <span class="sp"></span><span class="sub">/Users/…/Auto_Run</span><span class="sub">Port 5108 · ← Hub</span>
+</div>
+<div class="shell">
+<aside>
+  <div class="sec">Workflows</div>
+  <div class="nav on" data-v="wf-flow"><span class="dot d-ok"></span>Flow loop + SAXS</div>
+  <div class="nav" data-v="wf-plate"><span class="dot d-warn"></span>Well plate screen</div>
+  <div class="nav" data-v="wf-new"><span style="width:10px;text-align:center">+</span>New workflow</div>
+
+  <div class="sec">Synthesis</div>
+  <div class="nav" data-v="ins" data-i="Flow reactor" data-k="syn"><span class="dot d-ok"></span>Flow reactor<span class="tag t-syn">make</span></div>
+  <div class="nav" data-v="ins" data-i="Microfluidic chip" data-k="syn"><span class="dot d-off"></span>Microfluidic chip<span class="tag t-syn">make</span></div>
+  <div class="nav" data-v="ins" data-i="Liquid handling robot" data-k="syn"><span class="dot d-warn"></span>Liquid handling robot<span class="tag t-syn">make</span></div>
+
+  <div class="sec">Probes</div>
+  <div class="nav" data-v="ins" data-i="SAXS/WAXS beamline" data-k="probe"><span class="dot d-ok"></span>SAXS/WAXS beamline<span class="tag t-probe">probe</span></div>
+  <div class="nav" data-v="ins" data-i="UV Vis flow cell" data-k="probe"><span class="dot d-warn"></span>UV Vis flow cell<span class="tag t-probe">probe</span></div>
+
+  <div class="sec">Run</div>
+  <div class="nav" data-v="queue"><span style="width:10px"></span>Queue <span class="tag" style="background:#6b7280">3</span></div>
+  <div class="nav" data-v="data"><span style="width:10px"></span>Live data &amp; runs</div>
+  <div class="nav" data-v="log"><span style="width:10px"></span>Activity log</div>
+  <button class="estop">EMERGENCY STOP</button>
+</aside>
+
+<main>
+<!-- ═════ WORKFLOW VIEW ═════ -->
+<section id="v-wf-flow">
+  <div class="card">
+    <div class="hd">Flow loop + SAXS <span class="r">a workflow only references instruments; it never configures them</span></div>
+    <div class="chain">
+      <div class="step syn"><div class="k">Synthesis · flush</div><div class="n">Flow reactor</div><div class="p">rinse, 60 s</div><div class="st"><span class="dot d-ok" style="display:inline-block"></span> ready</div></div>
+      <div class="arrow">→</div>
+      <div class="step probe"><div class="k">Probe · measure</div><div class="n">SAXS/WAXS beamline</div><div class="p">background shot, 10 × 1 s</div><div class="st"><span class="dot d-ok" style="display:inline-block"></span> ready</div></div>
+      <div class="arrow">→</div>
+      <div class="step syn"><div class="k">Synthesis · react</div><div class="n">Flow reactor</div><div class="p">recipe from optimiser: T, flow, fractions</div>
+        <div class="mon">Probe · monitor during step<br><b>UV Vis flow cell</b>, spectrum every 5 s</div>
+        <div class="st"><span class="dot d-ok" style="display:inline-block"></span> ready</div></div>
+      <div class="arrow">→</div>
+      <div class="step probe"><div class="k">Probe · measure</div><div class="n">SAXS/WAXS beamline</div><div class="p">sample shot, 10 × 1 s</div><div class="st"><span class="dot d-ok" style="display:inline-block"></span> ready</div></div>
+      <div class="arrow">→</div>
+      <div class="step syn"><div class="k">Synthesis · clean</div><div class="n">Flow reactor</div><div class="p">flush, 120 s</div><div class="st"><span class="dot d-ok" style="display:inline-block"></span> ready</div></div>
+      <div class="arrow"></div><div class="add">+ step</div>
+    </div>
+    <div class="legend"><span><span class="sw" style="background:var(--syn)"></span>Synthesis step: makes or changes the sample</span>
+      <span><span class="sw" style="background:var(--probe)"></span>Probe step: measures the sample between steps</span>
+      <span><span class="sw" style="border:1px dashed var(--probe);background:#f5f3ff"></span>Probe monitor: measures continuously during a synthesis step</span></div>
+  </div>
+  <div class="grid2">
+    <div class="card"><div class="hd">Readiness <span class="r">Run is locked until every instrument is Ready</span></div>
+      <table><tr><th>Instrument</th><th>Mode</th><th>Tests</th><th>Setup</th></tr>
+      <tr><td>Flow reactor</td><td>Simulation</td><td class="pass">6/6</td><td class="pass">saved</td></tr>
+      <tr><td>SAXS/WAXS beamline</td><td>Simulation</td><td class="pass">4/4</td><td class="pass">saved</td></tr>
+      <tr><td>UV Vis flow cell</td><td>Simulation</td><td class="pass">3/3</td><td class="pass">saved</td></tr></table>
+      <div style="margin-top:12px;display:flex;gap:8px"><button class="btn">Dry run (all simulated)</button><button class="btn go">Run autonomously</button></div></div>
+    <div class="card"><div class="hd">Recipe source</div>
+      <table><tr><td>Conditions folder</td><td>1D/SAXS/Conditions</td></tr><tr><td>Queue</td><td>3 recipes waiting</td></tr>
+      <tr><td>Each recipe feeds</td><td>step 3 (react); every other step uses its fixed settings</td></tr></table></div>
+  </div>
+</section>
+
+<section id="v-wf-plate" class="hidden">
+  <div class="card"><div class="hd">Well plate screen <span class="r">same instruments, different chain</span></div>
+    <div class="chain">
+      <div class="step syn"><div class="k">Synthesis · dispense</div><div class="n">Liquid handling robot</div><div class="p">96 wells from recipe batch</div><div class="st"><span class="dot d-warn" style="display:inline-block"></span> setup missing</div></div>
+      <div class="arrow">→</div>
+      <div class="step syn"><div class="k">Synthesis · incubate</div><div class="n">Liquid handling robot</div><div class="p">heater block, 30 min</div></div>
+      <div class="arrow">→</div>
+      <div class="step probe"><div class="k">Probe · measure</div><div class="n">UV Vis flow cell</div><div class="p">read every well</div></div>
+      <div class="arrow">→</div>
+      <div class="step syn"><div class="k">Synthesis · transfer</div><div class="n">Liquid handling robot</div><div class="p">best 8 wells to capillaries</div></div>
+      <div class="arrow">→</div>
+      <div class="step probe"><div class="k">Probe · measure</div><div class="n">SAXS/WAXS beamline</div><div class="p">capillary series</div></div>
+    </div>
+    <div class="note" style="margin-top:10px">Blocked: <b>Liquid handling robot</b> needs Setup (deck layout). Click it in the left column to fix it; every workflow that uses it unblocks at once.</div></div>
+</section>
+
+<section id="v-wf-new" class="hidden"><div class="card"><div class="hd">New workflow</div>
+  <p>Pick steps from the instruments you have. Each step is <b>instrument + capability</b> (flush, react, dispense, measure, monitor). Settings that come from the optimiser are marked, the rest are fixed per step.</p></div></section>
+
+<!-- ═════ INSTRUMENT VIEW (one template for every instrument) ═════ -->
+<section id="v-ins" class="hidden">
+  <div class="card">
+    <div class="hd"><span id="insName">Flow reactor</span> <span class="tag" id="insTag">make</span>
+      <span class="r" style="display:flex;gap:10px;align-items:center"><span id="insState" class="pass">● Ready</span><span class="mode"><b>Simulation</b><i>Hardware</i></span></span></div>
+    <div class="tabs"><div class="tab on" data-t="ov">Overview</div><div class="tab" data-t="test">Test</div><div class="tab" data-t="setup">Setup</div><div class="tab" data-t="run">Run</div><div class="tab" data-t="data">Data</div><div class="tab" data-t="diag">Diagnostics</div></div>
+    <div id="t-ov"><div class="grid2">
+      <div><table><tr><td>State</td><td class="pass">Ready</td></tr><tr><td>Last test</td><td>today 09:12, all passed</td></tr><tr><td>Setup</td><td>calibration saved 2 days ago</td></tr><tr><td>Capabilities</td><td id="insCaps">flush · react · clean</td></tr></table>
+        <p class="used" style="margin-top:12px">Used in: <a data-go="wf-flow">Flow loop + SAXS</a> (steps 1, 3, 5)</p></div>
+      <div class="plot" id="insPlot">key live channels</div></div></div>
+    <div id="t-test" class="hidden"><table class="chk"><tr><th></th><th>Check</th><th>Result</th><th>Fix hint</th></tr>
+      <tr><td class="pass">✓</td><td>Serial ports open</td><td>5/5</td><td></td></tr>
+      <tr><td class="pass">✓</td><td>Every pump answers</td><td>5/5</td><td></td></tr>
+      <tr><td class="fail">✗</td><td>Pressure sensor reads</td><td>no reply</td><td>Check the sensor USB cable, then Run again</td></tr>
+      <tr><td class="todo">·</td><td>Leak test (hold 2 bar, 60 s)</td><td>not run</td><td></td></tr></table>
+      <div style="margin-top:10px;display:flex;gap:8px"><button class="btn">Run selected</button><button class="btn pri">Run all</button></div></div>
+    <div id="t-setup" class="hidden"><p>Forms built from what the instrument declares: calibration, priming, labware or plate map. Saved to the project.</p></div>
+    <div id="t-run" class="hidden"><p>Manual use of one capability (for example "flush 60 s" or "one UV Vis spectrum"), through the same checks as an autonomous run.</p></div>
+    <div id="t-data" class="hidden"><div class="grid2"><div class="plot">channel group 1</div><div class="plot">channel group 2</div></div></div>
+    <div id="t-diag" class="hidden"><p>Event timeline (every command and reply), re run one test, guarded console, export support bundle.</p></div>
+  </div>
+</section>
+
+<section id="v-queue" class="hidden"><div class="card"><div class="hd">Queue</div><p>Recipes waiting, oldest first. Each runs through the selected workflow.</p></div></section>
+<section id="v-data" class="hidden"><div class="card"><div class="hd">Live data &amp; runs <span class="r">one place for every instrument's channels</span></div>
+  <div class="grid2"><div class="plot">Flow reactor: flow, pressure, T</div><div class="plot">UV Vis: absorbance at 520 nm over time</div><div class="plot">Beamline: I0, bstop, last shot</div><div class="plot">Run history</div></div></div></section>
+<section id="v-log" class="hidden"><div class="card"><div class="hd">Activity log</div><p>Every step of every run, with instrument names.</p></div></section>
+</main></div>
+<script>
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const caps={"Flow reactor":"flush · react · clean","Microfluidic chip":"mix · react · clean","Liquid handling robot":"dispense · incubate · transfer",
+ "SAXS/WAXS beamline":"measure (between steps)","UV Vis flow cell":"measure · monitor (during a step)"};
+const used={"Flow reactor":"Flow loop + SAXS (steps 1, 3, 5)","SAXS/WAXS beamline":"Flow loop + SAXS (steps 2, 4); Well plate screen (step 5)",
+ "UV Vis flow cell":"Flow loop + SAXS (monitor in step 3); Well plate screen (step 3)","Liquid handling robot":"Well plate screen (steps 1, 2, 4)","Microfluidic chip":"not used yet"};
+function show(v,el){$$('main>section').forEach(s=>s.classList.add('hidden'));$('#v-'+v).classList.remove('hidden');
+  $$('.nav').forEach(n=>n.classList.remove('on'));if(el)el.classList.add('on');
+  if(v==='ins'&&el){const n=el.dataset.i,k=el.dataset.k;$('#insName').textContent=n;const t=$('#insTag');t.textContent=k==='probe'?'probe':'make';
+    t.className='tag '+(k==='probe'?'t-probe':'t-syn');$('#insCaps').textContent=caps[n];$('.used').innerHTML='Used in: '+used[n];}}
+$$('.nav').forEach(n=>n.onclick=()=>show(n.dataset.v,n));
+$$('.tab').forEach(t=>t.onclick=()=>{$$('.tab').forEach(x=>x.classList.remove('on'));t.classList.add('on');
+  ['ov','test','setup','run','data','diag'].forEach(k=>$('#t-'+k).classList.toggle('hidden',k!==t.dataset.t));});
+document.addEventListener('click',e=>{const a=e.target.closest('[data-go]');if(a)show(a.dataset.go,$(`.nav[data-v="${a.dataset.go}"]`));});
+</script></body></html>

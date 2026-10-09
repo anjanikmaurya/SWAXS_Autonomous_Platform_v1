@@ -3,13 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Auto Watch — SWAXS</title>
+    <title>Autonomous Watch · SWAXS</title>
     <link rel="icon" href="/app-icon">   <!-- per-app tab icon, from apps.yml (src/favicon.py) -->
     <!-- Served from the copy already vendored in the repo, so the charts work
          on a beamline PC with no internet; /vendor/ redirects to the CDN only
          if no local copy is found. See watchdog/app.py::vendor. -->
     <script src="/vendor/plotly.min.js"></script>
     <link rel="stylesheet" href="/static/swaxs-tokens.css">
+{% include "_theme_boot.html" %}
 <style>
 /* ── Design tokens ─────────────────────────────────────────────────────────
    The canonical block, copied from reduction/templates/index.html: light values
@@ -53,7 +54,7 @@
   --border-strong:#c3c9d1; /* softened control outlines */
   /* Typography scale (shared across all SWAXS apps) */
   --font:       'Inter','Segoe UI',system-ui,-apple-system,sans-serif;
-  --mono:       "JetBrains Mono","Fira Code","Courier New",monospace;
+  --mono:       'JetBrains Mono','Fira Code','Cascadia Code',ui-monospace,Menlo,Consolas,monospace;
   --fs-2xs:.6875rem; --fs-xs:.75rem; --fs-sm:.8125rem; --fs-md:.875rem;
   --fs-base:1rem;    --fs-lg:1.125rem; --fs-xl:1.375rem; --fs-2xl:1.75rem;
   --fw-regular:400; --fw-medium:500; --fw-semibold:600; --fw-bold:700;
@@ -191,6 +192,9 @@ html,body {
 
 #content { flex:1; overflow-y:auto; padding:14px 16px; display:block }
 #messages-only { display:none; padding:14px 16px; overflow-y:auto; flex:1 }
+/* Hidden until chosen, like Messages: shown by default it sat under The loop and
+   squeezed the loop card to a sliver on every first load without a #view. */
+#alerts-only { display:none; overflow-y:auto; flex:1 }
 
 /* Card */
 .card {
@@ -659,70 +663,61 @@ html,body {
   gap:12px 18px; align-items:start;
 }
 #content, #messages-only, #alerts-only { padding:18px }
+
 </style>
 </head>
-<body>
+<body class="swaxs-shell">
 {% include "_icon_sprite.svg" %}
+{% include "_icon_helpers.html" %}
+<header class="topbar">
+  <div class="app-lockup">
+    {% include "_app_mark.svg" %}
+    <h1>Autonomous <span>Watch</span></h1>
+  </div>
+  <div id="sb-status" class="ok"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-pass"/></svg> Connected</div>
+  <div class="bar-extras">
+    <div id="tb-health" title="Loop apps that are active right now">
+    <span class="health-none">Probing…</span>
+  </div>
+    <div id="tb-resources" title="System resources">
+    <div class="res-stat"><span class="res-label">CPU</span><span class="res-val" id="val-cpu">—</span></div>
+    <div class="res-stat"><span class="res-label">Mem</span><span class="res-val" id="val-mem">—</span></div>
+    <div class="res-stat"><span class="res-label">Disk</span><span class="res-val" id="val-disk">—</span></div>
+  </div>
+  </div>
+  <span class="proj" id="barProject" title="Project folder">No project selected</span>
+  <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" title="Light or dark theme"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-moon"/></svg></button>
+  <span class="topbar-sub">Port 5110 · <a href="http://localhost:5100">← Hub</a></span>
+</header>
 <div id="app">
 
 <!-- SIDEBAR -->
 <nav id="sidebar">
-  <div id="logo">
-    <div id="logo-badge">SLAC / SSRL</div>
-    <div class="app-lockup">
-      {% include "_app_mark.svg" %}
-      <div><div id="logo-name">Auto Watch</div></div>
-    </div>
-    <div id="logo-sub">Autonomous loop monitor</div>
-  </div>
-
+  
   <div class="nav-section-label">Dashboard</div>
-  <button class="nav-btn active" data-view="overview" onclick="switchView('overview')">
-    <span class="nav-icon"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.12em" aria-hidden="true"><use href="#swaxs-ui-mode-autonomous"/></svg></span> The Loop
-  </button>
-  <button class="nav-btn" data-view="messages" onclick="switchView('messages')">
-    <span class="nav-icon"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.12em" aria-hidden="true"><use href="#swaxs-ui-log"/></svg></span> Messages
-  </button>
-  <button class="nav-btn" data-view="alerts" onclick="switchView('alerts')">
-    <span class="nav-icon"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.12em" aria-hidden="true"><use href="#swaxs-ui-warning"/></svg></span> Alerts
-  </button>
-
-  <div id="sidebar-foot">
-    <div id="sb-status" class="ok"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-pass"/></svg> Connected</div>
-    Auto Watch · port 5110
-  </div>
+  <button class="nav-btn active" data-view="overview" onclick="switchView('overview')"><span class="nav-icon"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-mode-autonomous"/></svg></span> The loop</button>
+  <button class="nav-btn" data-view="messages" onclick="switchView('messages')"><span class="nav-icon"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-log"/></svg></span> Messages</button>
+  <button class="nav-btn" data-view="alerts" onclick="switchView('alerts')"><span class="nav-icon"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-warning"/></svg></span> Alerts</button>
+  
 </nav>
 
 <!-- MAIN -->
 <div id="main">
-  <div id="topbar">
-    <span id="tb-title">⚛️ SWAXS Autonomous Loop</span>
-    <div id="tb-health" title="Loop apps that are active right now">
-      <span class="health-none">probing…</span>
-    </div>
-    <div id="tb-resources" title="System resources">
-      <div class="res-stat"><span class="res-label">CPU</span><span class="res-val" id="val-cpu">—</span></div>
-      <div class="res-stat"><span class="res-label">Mem</span><span class="res-val" id="val-mem">—</span></div>
-      <div class="res-stat"><span class="res-label">Disk</span><span class="res-val" id="val-disk">—</span></div>
-    </div>
-    <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()"
-            title="Toggle light / dark">☀</button>
-  </div>
+  
 
   <!-- THE LOOP -->
   <div id="content">
 
     <div id="stall-banner">
-      <span><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-warning"/></svg></span>
+      <span><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-warning"/></svg></span>
       <span id="stall-text">—</span>
       <span class="stall-sub" id="stall-sub"></span>
     </div>
 
     <div class="card">
       <div class="card-hd">
-        🔄 One condition, start to finish
-        <span class="hd-note">background is measured first, then the sample; both averages must
-          exist before subtraction can run</span>
+        <svg class="ico" aria-hidden="true"><use href="#swaxs-ui-mode-autonomous"/></svg> One condition, start to finish
+        <span class="hd-note">background first, then sample; subtraction needs both averages</span>
       </div>
 
       <div class="cycle">
@@ -761,7 +756,7 @@ html,body {
                 <span class="phase-arrow">→</span>
                 <span class="phase-chip" data-lane="sample" data-state="idle">② Sample</span>
               </div>
-              <div class="step-rid" id="n-reactor-rid">recipe —</div>
+              <div class="step-rid" id="n-reactor-rid">no recipe</div>
             </div>
           </div>
 
@@ -782,7 +777,7 @@ html,body {
             <div class="step-cap">
               <span class="lane-tag" id="n-reduce-lane">—</span>
               <div class="step-why">one .dat per frame, as each lands</div>
-              <div class="step-rid" id="n-reduce-rid">recipe —</div>
+              <div class="step-rid" id="n-reduce-rid">no recipe</div>
             </div>
           </div>
 
@@ -805,7 +800,7 @@ html,body {
               <span class="lane-tag" id="n-average-lane">—</span>
               <div class="gate"><div class="gate-fill" id="n-average-gate" style="width:0"></div></div>
               <div class="step-why" id="n-average-why">averages when the frame count matches</div>
-              <div class="step-rid" id="n-average-rid">recipe —</div>
+              <div class="step-rid" id="n-average-rid">no recipe</div>
             </div>
           </div>
 
@@ -829,7 +824,7 @@ html,body {
                 <div class="pair missing" id="p-smp"><span class="box">·</span> sample</div>
               </div>
               <div class="step-why">runs only when BOTH are ticked</div>
-              <div class="step-rid" id="n-subtract-rid">recipe —</div>
+              <div class="step-rid" id="n-subtract-rid">no recipe</div>
             </div>
           </div>
 
@@ -842,14 +837,14 @@ html,body {
           <div class="step" id="n-fit" data-state="idle" data-stage="fit">
             <div class="step-box">
               <div class="step-hd">
-                <span class="step-name">Fit + Predict</span>
+                <span class="step-name">Fit + predict</span>
                 <span class="step-chip" id="n-fit-chip">—</span>
               </div>
               <span class="step-detail" id="n-fit-detail">—</span>
             </div>
             <div class="step-cap">
               <div class="step-why">fits the curve, then writes the next condition</div>
-              <div class="step-rid" id="n-fit-rid">recipe —</div>
+              <div class="step-rid" id="n-fit-rid">no recipe</div>
             </div>
           </div>
 
@@ -859,7 +854,7 @@ html,body {
         <div class="return-bar">
           <span class="return-arrow">↰</span>
           <span class="return-text">Next condition goes back to the Reactor
-            <small>which collects background, then sample again — the loop repeats</small></span>
+            <small>which collects background, then sample, and the loop repeats</small></span>
           <span class="return-pending" id="return-pending"><span>campaign</span> —</span>
         </div>
 
@@ -869,12 +864,12 @@ html,body {
              than information. -->
         <div class="state-key">
           <span class="key-label">What the boxes mean</span>
-          <span class="key-item" data-state="idle"><i></i>idle — nothing to do</span>
-          <span class="key-item" data-state="running"><i></i>running — working now</span>
-          <span class="key-item" data-state="waiting"><i></i>waiting — needs more input</span>
-          <span class="key-item" data-state="done"><i></i>done — finished for this condition</span>
-          <span class="key-item" data-state="stalled"><i></i>stalled — overdue, alert sent</span>
-          <span class="key-item" data-state="unknown"><i></i>unknown — app not answering</span>
+          <span class="key-item" data-state="idle"><i></i>idle: nothing to do</span>
+          <span class="key-item" data-state="running"><i></i>running: working now</span>
+          <span class="key-item" data-state="waiting"><i></i>waiting: needs more input</span>
+          <span class="key-item" data-state="done"><i></i>done: finished for this condition</span>
+          <span class="key-item" data-state="stalled"><i></i>stalled: overdue, alert sent</span>
+          <span class="key-item" data-state="unknown"><i></i>no data: app not answering</span>
         </div>
 
       </div><!-- .cycle -->
@@ -882,16 +877,16 @@ html,body {
 
     <div class="charts-grid">
       <div class="card">
-        <div class="card-hd">📈 Throughput
+        <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-chart"/></svg> Throughput
           <!-- ".dat files", not "frames": the scan counts BOTH Reduction/SAXS
                and Reduction/WAXS, so in SWAXS mode one detector frame makes
                two files. The subtitle said "frames" while the axis said files. -->
-          <span class="hd-note">reduced .dat files per hour (SAXS+WAXS) vs. hour of day, last 24 h</span>
+          <span class="hd-note">reduced .dat files per hour (SAXS+WAXS), last 24 h</span>
         </div>
         <div class="chart-area" id="plot-throughput"></div>
       </div>
       <div class="card">
-        <div class="card-hd">⏱ Time per run of the loop
+        <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-timer"/></svg> Time per loop run
           <span class="hd-note" id="cycle-note">—</span>
         </div>
         <div class="chart-area" id="plot-stage-duration"></div>
@@ -900,14 +895,14 @@ html,body {
 
     <div class="charts-grid">
       <div class="card">
-        <div class="card-hd">📦 Pipeline funnel
-          <span class="hd-note">files produced (cumulative count) per stage, in pipeline order</span>
+        <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-filter"/></svg> Pipeline funnel
+          <span class="hd-note">cumulative files per stage, in pipeline order</span>
         </div>
         <div class="chart-area" id="plot-queue-bar"></div>
       </div>
       <div class="card">
-        <div class="card-hd">🎯 Run outcomes
-          <span class="hd-note">particle diameter (nm) vs. fit number — colour = confidence (0–1), size ∝ PDI</span>
+        <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-target"/></svg> Run outcomes
+          <span class="hd-note">particle diameter (nm) per fit; colour = confidence (0 to 1), size ∝ PDI</span>
         </div>
         <div class="chart-area" id="plot-run-scatter"></div>
       </div>
@@ -918,10 +913,10 @@ html,body {
   <!-- MESSAGES VIEW -->
   <div id="messages-only">
     <div class="card">
-      <div class="card-hd"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-log"/></svg> Recent messages</div>
+      <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-log"/></svg> Recent messages</div>
       <div class="messages-list" id="messages-list">
         <div class="message info">
-          <div class="message-badge">ℹ️</div>
+          <div class="message-badge"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-info"/></svg></div>
           <div class="message-content">
             <div class="message-time">--:--:--</div>
             <div class="message-title">Waiting for events…</div>
@@ -935,7 +930,7 @@ html,body {
   <div id="alerts-only">
     <div class="card">
       <div class="card-hd">
-        🔔 Slack alerts
+        <svg class="ico" aria-hidden="true"><use href="#swaxs-ui-bell"/></svg> Slack alerts
         <span class="hd-note" id="alerts-state-note">—</span>
       </div>
 
@@ -992,7 +987,7 @@ function isDark() {
 }
 function applyThemeIcon() {
   const btn = document.getElementById('themeToggle');
-  if (btn) btn.textContent = isDark() ? '☀' : '☾';
+  if (btn) btn.innerHTML='<svg class="ico" aria-hidden="true"><use href="#swaxs-ui-'+(isDark()?'sun':'moon')+'"/></svg>';
 }
 //: The key every other SWAXS app uses. This page used `swaxs_theme` with an
 //: UNDERSCORE while the other eight use a hyphen, so its theme lived in a
@@ -1008,13 +1003,9 @@ function toggleTheme() {
   applyThemeIcon();
   if (_metrics) updateCharts();   // re-render plots in the new palette
 }
-try {
-  // Dark remains the default when NOTHING is stored — this page is usually a
-  // wall display, and that is a deliberate exception to the platform rule of
-  // following the OS. But an explicit choice made in any app now wins here.
-  document.documentElement.setAttribute(
-    'data-theme', localStorage.getItem(THEME_KEY) || 'dark');
-} catch(e) { document.documentElement.setAttribute('data-theme', 'dark'); }
+// Starting theme: decided in <head> by _theme_boot.html with the platform rule
+// (saved choice, else the OS). This page used to default to dark on its own; a
+// wall-display PC just needs dark chosen once — the choice is shared by every app.
 
 // Plot palette — the series colours differ per theme so they stay legible on
 // both a white and a #1f2126 canvas.
@@ -1089,8 +1080,7 @@ function plotlyMissingNotice() {
         el.dataset.notice = '1';
         el.innerHTML = '<div style="display:flex;height:100%;align-items:center;'
           + 'justify-content:center;text-align:center;font-size:12.5px;opacity:.75;'
-          + 'padding:0 18px">Charts unavailable — the plotting library did not load.'
-          + '<br>No vendored copy was found and the CDN is unreachable.</div>';
+          + 'padding:0 18px">Charts unavailable: the plotting library did not load.</div>';
       }
     });
 }
@@ -1124,7 +1114,8 @@ const _VIEWS = ['overview', 'messages', 'alerts'];
 
 function applyHashView() {
   const want = (location.hash || '').replace(/^#/, '');
-  if (_VIEWS.includes(want)) switchView(want);
+  // Always settle on ONE view, The loop unless the link asks for another.
+  switchView(_VIEWS.includes(want) ? want : 'overview');
 }
 
 window.addEventListener('hashchange', applyHashView);
@@ -1174,8 +1165,8 @@ function updateHealth() {
   const items = (_metrics && _metrics.health) || [];
   if (!items.length) {
     const probing = !_metrics || !_metrics.probe || _metrics.probe.age_s === null;
-    row.innerHTML = `<span class="health-none">${probing ? 'probing…'
-      : 'no loop app active'}</span>`;
+    row.innerHTML = `<span class="health-none">${probing ? 'Probing…'
+      : 'No loop app active'}</span>`;
     return;
   }
   // A monitoring page showing FROZEN facts as though they were current is
@@ -1188,13 +1179,13 @@ function updateHealth() {
   const staleChip = stale
     ? `<span class="health-stale" title="The last successful probe of the loop
 apps was ${age === null || age === undefined ? 'never' : Math.round(age) + 's'} ago.
-Everything to the right of this may be out of date.">⚠ data ${
+Everything to the right of this may be out of date.">${icoSvg('warning')} data ${
         age === null || age === undefined ? 'unavailable' : Math.round(age) + 's old'}</span>`
     : '';
 
   row.innerHTML = staleChip + items.map(h => {
     const port = h.port ? ` :${h.port}` : '';
-    const title = `${h.app}${port} — ${h.ok ? 'active' : 'PROBLEM'}${h.note ? ' · ' + h.note : ''}`;
+    const title = `${h.app}${port}: ${h.ok ? 'active' : 'PROBLEM'}${h.note ? ' · ' + h.note : ''}`;
     return `<span class="health-item${stale ? ' is-stale' : ''}" title="${esc(title)}">
       <span class="health-dot ${h.ok ? 'ok' : 'err'}"></span>
       <span class="health-name">${esc(h.app)}</span></span>`;
@@ -1202,13 +1193,14 @@ Everything to the right of this may be out of date.">⚠ data ${
 }
 
 // ── The cycle ───────────────────────────────────────────────────────────────
+// [sprite icon, label] — rendered with setIco so the chip uses the platform icons
 const CHIP = {
-  idle:    '○ idle',
-  running: '▶ running',
-  waiting: '⏳ waiting',
-  done:    '✓ done',
-  stalled: '! stalled',
-  unknown: '? no data',
+  idle:    ['status-stopped', 'idle'],
+  running: ['status-running', 'running'],
+  waiting: ['timer',          'waiting'],
+  done:    ['pass',           'done'],
+  stalled: ['warning',        'stalled'],
+  unknown: ['info',           'no data'],
 };
 
 function esc(s) {
@@ -1222,7 +1214,7 @@ function setNode(id, node) {
   const state = (node && node.state) || 'unknown';
   el.setAttribute('data-state', state);
   const chip = document.getElementById(id + '-chip');
-  if (chip) chip.textContent = CHIP[state] || state;
+  if (chip) { const c = CHIP[state]; if (c) setIco(chip, c[0], c[1]); else chip.textContent = state; }
   const detail = document.getElementById(id + '-detail');
   if (detail) {
     const text = (node && node.detail) || '—';
@@ -1234,7 +1226,7 @@ function setNode(id, node) {
   const rid = document.getElementById(id + '-rid');
   if (rid) {
     const value = (node && node.recipe_id) || '';
-    rid.innerHTML = value ? `recipe <b>${esc(value)}</b>` : 'recipe —';
+    rid.innerHTML = value ? `recipe <b>${esc(value)}</b>` : 'no recipe';
   }
 }
 
@@ -1247,22 +1239,22 @@ const STAGE_BANNER = {
   average:  ['AVERAGING',   'holding frames until the batch is full, then averaging them'],
   subtract: ['SUBTRACTING', 'removing the background average from the sample average'],
   fit:      ['FITTING',     'fitting the subtracted curve, then proposing the next condition'],
-  idle:     ['IDLE',        'no stage has reported in — nothing is running'],
+  idle:     ['IDLE',        'no stage has reported; nothing is running'],
   error:    ['UNAVAILABLE', 'metrics could not be computed; see the app log'],
 };
 
 // Fallback wording when the reactor is in a phase but publishes no numbers
 // for it yet (e.g. the first tick after the state changed).
 const REACTOR_PHASE_BLURB = {
-  flushing:     'rinsing the capillary clean before the next condition — the '
-                + 'background is measured during this',
+  flushing:     'rinsing the capillary before the next condition; the '
+                + 'background is measured during the flush',
   ramping:      'heating to the recipe temperature; the run starts once it is stable',
   arming:       'waiting out the arming delay before reagents start flowing',
   synthesising: 'reagents flowing through the reactor; frames start once the '
                 + 'synthesis settles',
   collecting:   'the detector is writing frames',
   ready:        'armed and waiting for the next condition',
-  estop:        'the rig was stopped — check the reactor app',
+  estop:        'the rig was stopped; check Autonomous Synthesis',
 };
 
 // What the PIPELINE is doing right now, or '' when it is only holding results.
@@ -1286,7 +1278,7 @@ function pipelineBusyNote(loop) {
     const [gerund, infinitive] = PIPE_VERB[key];
     const rid = n.recipe_id ? ` <b>${esc(n.recipe_id)}</b>` : '';
     const what = n.state === 'waiting' ? `waiting to ${infinitive}` : gerund;
-    return `${what}${rid}${n.detail ? ' — ' + esc(n.detail) : ''}`;
+    return `${what}${rid}${n.detail ? ': ' + esc(n.detail) : ''}`;
   }
   return '';
 }
@@ -1363,7 +1355,7 @@ function updateStageBanner(loop) {
     state = 'idle';
     sub = (rx.phase === 'ready')
       ? 'the reactor is armed and waiting for the next condition'
-      : 'nothing is running — start a run from the reactor, or a campaign from Auto-Fit';
+      : 'nothing is running; start a run in Autonomous Synthesis, or a campaign in Autonomous Analyser';
   }
   banner.setAttribute('data-state', state);
   document.getElementById('stage-banner-name').textContent =
@@ -1384,7 +1376,7 @@ function updateLoop() {
   if (loop.overdue && loop.overdue.stage) {
     const mins = Math.floor((loop.overdue.seconds || 0) / 60);
     document.getElementById('stall-text').textContent =
-      `STALLED — waiting on ${loop.overdue.stage}`;
+      `STALLED: waiting on ${loop.overdue.stage}`;
     document.getElementById('stall-sub').textContent =
       `${mins} min past the expected time · the node below is outlined in red`;
     banner.classList.add('on');
@@ -1453,11 +1445,11 @@ function updateLoop() {
   if (why) {
     if (average.state === 'waiting' && expected && have != null) {
       why.textContent = `waiting for ${Math.max(0, expected - have)} more frame(s) `
-        + `— nothing is wrong, the gate holds until ${expected} arrive`;
+        + `(normal: the gate holds until all ${expected} arrive)`;
     } else if (average.state === 'done') {
       why.textContent = `averaged ${expected || ''} frames into one curve`.trim();
     } else if (average.state === 'stalled') {
-      why.textContent = 'frames stopped arriving — the gate can never fill';
+      why.textContent = 'frames stopped arriving, so the gate cannot fill';
     } else {
       why.textContent = 'averages only when the frame count matches the expected number';
     }
@@ -1472,7 +1464,7 @@ function updateLoop() {
     if (!el) return;
     el.className = 'pair ' + (have ? 'have' : 'missing');
     el.innerHTML = `<span class="box">${have ? '✓' : '·'}</span> ${label}`
-      + (have ? '' : ' — not yet');
+      + (have ? '' : ' (not yet)');
   });
 
   // Fit + predict
@@ -1511,7 +1503,7 @@ function updateCharts() {
     // Reduction/SAXS and Reduction/WAXS, so in SWAXS mode one detector frame
     // contributes two files. Calling that "frames reduced" made the chart read
     // as double the real acquisition rate.
-    hovertemplate: '%{x} — %{y} .dat files<extra></extra>',
+    hovertemplate: '%{x}: %{y} .dat files<extra></extra>',
   }], themedLayout({
     margin: {t: 12, l: 58, r: 12, b: 48},
     xaxis: {title: {text: 'hour of day (local, last 24 h)', font: {size: 11, color: P.fg}}},
@@ -1583,7 +1575,7 @@ function updateCharts() {
   if (cyNote) {
     cyNote.textContent = cy._total_s
       ? `${_fmtSecs(cy._total_s)} per run end-to-end, averaged over the last `
-        + `${cy._runs} run${cy._runs === 1 ? '' : 's'} — longest bar is the bottleneck`
+        + `${cy._runs} run${cy._runs === 1 ? '' : 's'}; the longest bar is the bottleneck`
       : 'waiting for a run to complete all four stages';
   }
 
@@ -1607,7 +1599,7 @@ function updateCharts() {
     names.push('Quality-passed');
     funnelY.push(qGood);
     colors.push(P.success);
-    notes.push(qBad ? ` — ${qBad} flagged for review` : ' — none flagged');
+    notes.push(qBad ? ` (${qBad} flagged for review)` : ' (none flagged)');
   }
   names.push('Analysed');
   funnelY.push(f.analysed || 0);
@@ -1721,7 +1713,7 @@ function renderAlerts() {
     } else {
       note.textContent = s.slack_enabled
         ? (active.length ? `sending: ${active.join(', ')}` : 'sending on, no categories active')
-        : 'sending is OFF — nothing is sent, including safety';
+        : 'sending is OFF: nothing is sent, not even safety alerts';
       note.className = 'hd-note';
     }
   }
@@ -1737,14 +1729,14 @@ function renderAlerts() {
     qRow.className = 'quiet-row' + (active ? ' active' : '');
     if (qBadge) qBadge.textContent = active ? 'active now' : '';
     if (!s.quiet_hours) {
-      qNote.textContent = 'off — progress and results send at any hour';
+      qNote.textContent = 'off: progress and results send at any hour';
     } else if (active) {
-      qNote.textContent = `${s.quiet_hours} (your local time) — IN EFFECT NOW. `
-        + 'Results, progress and campaign messages are being held; '
+      qNote.textContent = `${s.quiet_hours} (your local time): IN EFFECT NOW. `
+        + 'Results, progress and campaign messages are held; '
         + 'safety and stall alerts still send.';
     } else {
-      qNote.textContent = `${s.quiet_hours} (your local time) — progress and `
-        + 'results will be held during that window; safety and stalls always send.';
+      qNote.textContent = `${s.quiet_hours} (your local time): results, progress and `
+        + 'campaign messages are held in this window; safety and stalls always send.';
     }
     // Don't stomp what the operator is typing.
     if (qInput && document.activeElement !== qInput) qInput.value = s.quiet_hours || '';
@@ -1761,7 +1753,7 @@ function renderAlerts() {
     row.innerHTML = `<input type="checkbox" id="cat-${cat}" ${checked ? 'checked' : ''} ${lockedOn ? 'disabled' : ''}>`
       + `<span class="cat-name">${esc(cat)}</span>`
       + `<span class="cat-desc">${esc(CATEGORY_INFO[cat])}</span>`
-      + (lockedOn ? '<span class="cat-lock">Stop sending to silence</span>' : '');
+      + (lockedOn ? '<span class="cat-lock">Always on (Stop sending to silence)</span>' : '');
     catsEl.appendChild(row);
     row.querySelector('input').addEventListener('change', (e) => setCategory(cat, e.target.checked));
   });
@@ -1806,7 +1798,7 @@ function saveQuietHours(value) {
     .then(data => {
       if (!data.ok) {
         const note = document.getElementById('quiet-note');
-        if (note) note.textContent = data.error || 'could not save quiet hours';
+        if (note) note.textContent = data.error || 'Could not save quiet hours';
         return;
       }
       _alertsState.quiet_hours = data.quiet_hours;
@@ -1864,7 +1856,7 @@ function pollMessages() {
 
       msgList.innerHTML = '';
       if (msgs.length === 0) {
-        msgList.innerHTML = '<div class="message info"><div class="message-badge">ℹ️</div>'
+        msgList.innerHTML = '<div class="message info"><div class="message-badge"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-info"/></svg></div>'
           + '<div class="message-content"><div class="message-time">--:--:--</div>'
           + '<div class="message-title">No messages yet</div></div></div>';
         return;
@@ -1872,7 +1864,7 @@ function pollMessages() {
       msgs.slice().reverse().forEach(msg => {
         const time = new Date(msg.timestamp).toLocaleTimeString();
         const level = msg.level || 'info';
-        const badge = level === 'warn' ? '⚠️' : level === 'fault' ? '❌' : 'ℹ️';
+        const badge = icoSvg(level === 'warn' ? 'warning' : level === 'fault' ? 'clear' : 'info');
         const div = document.createElement('div');
         div.className = `message ${level}`;
         div.innerHTML = `<div class="message-badge">${badge}</div><div class="message-content">`

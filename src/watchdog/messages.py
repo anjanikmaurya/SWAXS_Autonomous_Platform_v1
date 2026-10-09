@@ -210,6 +210,22 @@ def format_file_skipped(data: dict) -> tuple[str, str, str]:
     return f"Frame permanently skipped — {kw}", text, "info"
 
 
+def format_reactor_run_abandoned(data: dict) -> tuple[str, str, str]:
+    """Translate reactor.run_abandoned: a proposed condition the reactor never
+    synthesised (e.g. the rig was not ready in time, or it timed out waiting).
+
+    In an unattended run this is news the operator needs: a recipe the optimizer
+    chose was dropped without data, so the loop spent a proposal for nothing.
+    Reported as a fault so it is not lost in quiet hours."""
+    rid = data.get("recipe_id") or "a condition"
+    reason = data.get("reason") or "no reason given"
+    waited = data.get("waited_s")
+    waited_txt = f" after waiting {waited:g} s" if isinstance(waited, (int, float)) else ""
+    text = (f"Condition {rid} was abandoned{waited_txt} and never synthesised.\n"
+            f"Reason: {reason}. No data was collected for it; the loop has moved on.")
+    return f"Condition abandoned — {rid}", text, "fault"
+
+
 def format_reactor_vent(data: dict) -> tuple[str, str, str]:
     """Translate reactor.vent. Published since the controller was written and
     never formatted, so venting — which may follow an E-stop — was invisible."""
@@ -266,6 +282,7 @@ def event_to_message(event_type: str, data: dict) -> tuple[str, str, str] | None
         "reactor.safety": format_reactor_safety,
         "reactor.backend": format_reactor_backend,
         "reactor.vent": format_reactor_vent,
+        "reactor.run_abandoned": format_reactor_run_abandoned,
         "fit.complete": format_fit_complete,
         # Pipeline failures. Both are terminal for the condition they hit, and
         # both were published for months with no formatter, so event_to_message

@@ -1,0 +1,232 @@
+{
+ "abort": {
+  "events": [
+   "reactor.run_start",
+   "reactor.run_complete",
+   "reactor.ready"
+  ],
+  "history": [
+   {
+    "backend": "mock",
+    "reason": "aborted",
+    "recipe_id": "g#",
+    "status": "ran"
+   }
+  ],
+  "logs": [
+   [
+    "info",
+    "\ud83d\udce5 queued g# (T=#\u00b0C, F_tot=# \u00b5L/min) via api"
+   ],
+   [
+    "info",
+    "\u23f2 arming g#: timed wait #s before pumps start (temperature gate off)"
+   ],
+   [
+    "info",
+    "\u23f2 arming g# \u2014 #s left of the timed wait (reactor #\u00b0C)"
+   ],
+   [
+    "ok",
+    "\u25b6 RUN START g# \u2014 pd_top_precursor=#, oleylamine=#, top=#, ode_dilution=# \u00b5L/min @ #\u00b0C for #s"
+   ],
+   [
+    "info",
+    "   ends on: first of \u2014 duration #s; measurement-complete signal; next queued condition (after #s dwell)"
+   ],
+   [
+    "warn",
+    "   \ud83d\udcf7 #D collection DISABLED (spec.enabled = false) \u2014 no data will be written this run"
+   ],
+   [
+    "warn",
+    "\u26d4 abort \u2014 stopping reagents, going to flush"
+   ],
+   [
+    "info",
+    "\ud83c\udf21 synthesis complete \u2014 cooling to # \u00b0C"
+   ],
+   [
+    "ok",
+    "\u23f9 RUN END g# \u2014 ran #s of #s planned (-#s); stopped by: aborted"
+   ],
+   [
+    "info",
+    "   \u21b3 ended EARLY by #s because 'aborted' fired before the #s duration"
+   ],
+   [
+    "info",
+    "\ud83e\uddfc FLUSH START (flush) \u2014 ode_dilution at # \u00b5L/min for #s; new recipes are blocked until it finishes"
+   ],
+   [
+    "ok",
+    "\u2713 flush complete (ode_dilution stopped) \u2014 no conditions queued \u2014 going idle"
+   ],
+   [
+    "info",
+    "\ud83d\udca4 no more conditions \u2014 pumps idled, waiting for next"
+   ]
+  ],
+  "setpoints": {},
+  "states": [
+   "arming",
+   "running",
+   "flushing",
+   "ready"
+  ]
+ },
+ "bad_recipe": {
+  "events": [],
+  "history": [],
+  "logs": [],
+  "setpoints": {},
+  "states": [
+   "rejected:RecipeError"
+  ]
+ },
+ "estop": {
+  "events": [
+   "reactor.run_start",
+   "reactor.estop"
+  ],
+  "history": [],
+  "logs": [
+   [
+    "info",
+    "\ud83d\udce5 queued g# (T=#\u00b0C, F_tot=# \u00b5L/min) via api"
+   ],
+   [
+    "info",
+    "\u23f2 arming g#: timed wait #s before pumps start (temperature gate off)"
+   ],
+   [
+    "info",
+    "\u23f2 arming g# \u2014 #s left of the timed wait (reactor #\u00b0C)"
+   ],
+   [
+    "ok",
+    "\u25b6 RUN START g# \u2014 pd_top_precursor=#, oleylamine=#, top=#, ode_dilution=# \u00b5L/min @ #\u00b0C for #s"
+   ],
+   [
+    "info",
+    "   ends on: first of \u2014 duration #s; measurement-complete signal; next queued condition (after #s dwell)"
+   ],
+   [
+    "warn",
+    "   \ud83d\udcf7 #D collection DISABLED (spec.enabled = false) \u2014 no data will be written this run"
+   ],
+   [
+    "error",
+    "\ud83d\uded1 EMERGENCY STOP \u2014 all pumps idle"
+   ],
+   [
+    "info",
+    "\u21ba reset to idle"
+   ]
+  ],
+  "setpoints": {
+   "ode_dilution": 24.0,
+   "ode_flush": 0.0,
+   "oleylamine": 8.0,
+   "pd_top_precursor": 36.0,
+   "top": 12.0
+  },
+  "states": [
+   "arming",
+   "running",
+   "estop",
+   "idle"
+  ]
+ },
+ "manual_flush": {
+  "events": [],
+  "history": [],
+  "logs": [
+   [
+    "info",
+    "\ud83e\uddfc FLUSH START (flush) \u2014 ode_dilution at # \u00b5L/min for #s; new recipes are blocked until it finishes"
+   ],
+   [
+    "ok",
+    "\u2713 flush complete (ode_dilution stopped) \u2014 no conditions queued \u2014 going idle"
+   ],
+   [
+    "info",
+    "\ud83d\udca4 no more conditions \u2014 pumps idled, waiting for next"
+   ]
+  ],
+  "setpoints": {},
+  "states": [
+   "flushing",
+   "ready"
+  ]
+ },
+ "normal": {
+  "events": [
+   "reactor.run_start",
+   "reactor.run_complete",
+   "reactor.ready"
+  ],
+  "history": [
+   {
+    "backend": "mock",
+    "reason": "duration elapsed",
+    "recipe_id": "g#",
+    "status": "ran"
+   }
+  ],
+  "logs": [
+   [
+    "info",
+    "\ud83d\udce5 queued g# (T=#\u00b0C, F_tot=# \u00b5L/min) via api"
+   ],
+   [
+    "info",
+    "\u23f2 arming g#: timed wait #s before pumps start (temperature gate off)"
+   ],
+   [
+    "info",
+    "\u23f2 arming g# \u2014 #s left of the timed wait (reactor #\u00b0C)"
+   ],
+   [
+    "ok",
+    "\u25b6 RUN START g# \u2014 pd_top_precursor=#, oleylamine=#, top=#, ode_dilution=# \u00b5L/min @ #\u00b0C for #s"
+   ],
+   [
+    "info",
+    "   ends on: first of \u2014 duration #s; measurement-complete signal; next queued condition (after #s dwell)"
+   ],
+   [
+    "warn",
+    "   \ud83d\udcf7 #D collection DISABLED (spec.enabled = false) \u2014 no data will be written this run"
+   ],
+   [
+    "info",
+    "\ud83c\udf21 synthesis complete \u2014 cooling to # \u00b0C"
+   ],
+   [
+    "ok",
+    "\u23f9 RUN END g# \u2014 ran #s of #s planned; stopped by: duration elapsed"
+   ],
+   [
+    "info",
+    "\ud83e\uddfc FLUSH START (flush) \u2014 ode_dilution at # \u00b5L/min for #s; new recipes are blocked until it finishes"
+   ],
+   [
+    "ok",
+    "\u2713 flush complete (ode_dilution stopped) \u2014 no conditions queued \u2014 going idle"
+   ],
+   [
+    "info",
+    "\ud83d\udca4 no more conditions \u2014 pumps idled, waiting for next"
+   ]
+  ],
+  "setpoints": {},
+  "states": [
+   "arming",
+   "running",
+   "flushing",
+   "ready"
+  ]
+ }
+}

@@ -7,6 +7,37 @@ already-predicted recipe and drives the pumps. It does **not** run the Bayesian
 optimization / SAXS analysis — those push recipes to it (the Analyzer app on
 port 5107 owns the optimizer).
 
+## Page layout (October 2026)
+
+- **Left column**: the synthesis route (Flow reactor; Liquid handling robot and
+  Syringe well plate are placeholders for later), and at its foot the **pump
+  controls**: Start (becomes "Start pumps now" while arming, with the arming
+  progress above it; it asks for confirmation, because it skips the
+  temperature wait), Stop → flush, Flush now, Vent all pumps, Reset, then
+  EMERGENCY STOP. They are visible from every tab.
+- **Hardware test** tab starts with **Run all checks**: a read-only checklist
+  (pumps connected, pumps answering, pressure under each ceiling, temperature
+  is a live reading, I₀/bstop arriving) with ✓/✗ and what to fix. It sends
+  nothing to the pumps or SPEC. Then, in order: 1 Tare pumps · 2 Pump limits and calibration ·
+  3 Probe: SAXS/WAXS beamline (live bstop and I₀, Collect now test shot) ·
+  4 Reactor temperature. UV Vis is a placeholder probe.
+- **Autonomous setup** tab, in order: 1 Recipe source (conditions folder) ·
+  2 Timing (start the pumps; synthesis duration, flush pump, rate, duration) ·
+  3 Data collection (SPEC exposure, frames, keywords, trigger, save folder) ·
+  4 Run (manual recipe, Add to queue, Run autonomously).
+- **Live plots** tab: flow rate, chamber pressure, beamline (temperature, bstop,
+  I₀), then Run status with the queue.
+- **Activity log**: docked under the tabs, always visible.
+- "Synthesis duration" in the UI is the `run_duration` setting
+  (`run.default_duration`).
+
+- **The flush is supervised** like the run: a flow fault warns (or E-stops when
+  `safety.flow_fault_estop` is true); a pump that should be idle but measures more
+  than a few µL/min for `safety.bad_flow_s` warns (same E-stop rule); a pump that
+  keeps delivering past its `volume_limit` while it should be idle E-stops.
+- **Changing the flush pump during a flush** applies from the NEXT flush; the
+  running flush finishes on, and stops, the pump it started with.
+
 ## Pumps & setpoints
 
 Five pumps: `pd_top_precursor`, `oleylamine`, `top`, `ode_dilution`, `ode_flush`.
@@ -63,7 +94,7 @@ Three ways in:
    do NOT combine it with starting the optimizer first — it would sweep away the
    first cold-start condition.
 
-   The folder can be changed live from the app's "📁 Conditions folder" card
+   The folder can be changed live in Autonomous setup, step 1 "Recipe source: conditions folder"
    (the path must already exist); the override is persisted in
    `reactor_settings.json` at the project root and reloaded on the next start.
 2. `POST /api/recipe` — JSON, for the BO/SAXS side.
@@ -140,8 +171,10 @@ A recipe may override with `arm_mode` / `arm_wait_s`. Anything other than
 stall the queue. There is no ramp arming mode.
 
 ### Ending a run
-The PRIMARY end condition is `run.end_on_measurement: true` — the run ends when a
-new SAXS averaged file appears. That is detected from the `file.averaged` bus
+The PRIMARY end condition is the measurement signal: the run ends when a new SAXS
+averaged file for the current recipe appears. This is always on. The config key
+`run.end_on_measurement` is NOT read by the code (a no-op kept for old configs):
+setting it to `false` does not disable measurement-end. That is detected from the `file.averaged` bus
 event, with a folder watch on `folders.averaged_watch` (`1D/SAXS/Averaged`) as a
 backstop. `run.default_duration` (600 s = 10 min) is only the FALLBACK if no
 measurement signal arrives; a manual Stop also ends the run.
@@ -295,20 +328,20 @@ were deleted.
 `POST /api/spec_settings`, `POST /api/run_settings`, `POST /api/tare`,
 `POST /api/backend`.
 
-`POST /api/tare` triggers a pump tare; `POST /api/backend` switches the
-mock/real backend at runtime.
+`POST /api/tare` triggers a pump tare; `POST /api/backend` switches between
+Simulation and Hardware mode at runtime (the UI toggle; API values `mock`/`real`).
 
 ## Hardware swap
 
-`backend=mock` (default) uses in-memory pumps so everything runs with no
+Simulation mode (`backend=mock`, the default) uses in-memory pumps so everything runs with no
 hardware. Set `SWAXS_REACTOR_BACKEND=real` to use the vendored `Py_P_Pump` SDK
 (`src/reactor/drivers/`). The real call points are marked `⟵ REAL DRIVER` in
 `src/reactor/hardware.py`. The same switch also selects the beamline backend, so
 one setting covers pumps and SPEC. Pumps are assumed **pre-tared** (the SDK tare
 is interactive and is done from a console).
 
-There is deliberately **no time compression anywhere**, mock included: every
-duration is real seconds on every backend, so a mock rehearsal is timed exactly
+There is deliberately **no time compression anywhere**, Simulation included: every
+duration is real seconds on every backend, so a Simulation rehearsal is timed exactly
 like the beamline run it stands in for. Shorten the durations themselves for a
 short test.
 

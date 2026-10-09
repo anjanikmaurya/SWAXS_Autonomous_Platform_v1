@@ -1,5 +1,5 @@
 """
-analyzer/app.py — Auto-Fit & Optimiser (port 5107)
+analyzer/app.py — Autonomous Analyser (port 5107)
 ===================================================
 Watches the SAXS Subtracted folder and, as each new profile appears, fits a
 polydisperse-sphere model to extract size, PDI, the (relative) Porod invariant,
@@ -34,6 +34,7 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from src.favicon import register_favicon               # noqa: E402
+from src.plot_lock import MPL_LOCK                      # noqa: E402  (process-wide pyplot lock)
 from src.analysis.nanoparticle import analyze_profile, model_intensity   # noqa: E402
 from src.utils.read_dat_metadata import read_dat_data_metadata           # noqa: E402
 from src.reactor.intake import decide_intake                             # noqa: E402
@@ -43,6 +44,8 @@ from src.ai.loop_advice import narrate_fit                               # noqa:
 from src.reactor import load_config                                      # noqa: E402
 from src.reactor.recipe import parse_param_file                          # noqa: E402
 from src.optimizer import ParameterSpace, CampaignController, NAMES      # noqa: E402
+from src.optimizer import methods as optimisers                         # noqa: E402  (pluggable optimiser registry)
+import src.fitting as fitting                                           # noqa: E402  (pluggable fitting registry)
 from src.optimizer.io import (to_param_file, match_recipe_id,           # noqa: E402
                               recipe_id_from_filename)
 from src.runstate import (save_state, load_state, clear_state,             # noqa: E402
@@ -75,6 +78,9 @@ app = Flask(__name__)
 register_favicon(app, "analyzer")
 
 _project_root: str = os.environ.get("SWAXS_PROJECT", "")
+
+from src.folder_browse import register_browse   # noqa: E402
+register_browse(app, lambda: _project_root)    # GET /api/browse for the Browse… button
 _sub_folder: str = "1D/SAXS/Subtracted"     # relative to project (or absolute)
 _cond_folder: str = "1D/SAXS/Conditions"    # where proposed conditions are written (reactor watches this)
 #: Sibling of Conditions/. One subfolder per campaign, written when the
@@ -85,6 +91,53 @@ _cond_folder: str = "1D/SAXS/Conditions"    # where proposed conditions are writ
 #: (docs/figures/*.png are NOT from a real run: tools/campaign_plots.py
 #: generates those in silico against the simulator, for documentation.)
 _results_folder: str = "1D/SAXS/Results"
+
+# ── selected methods (Setup tab) ───────────────────────────────────────────────
+# Defaults reproduce today's behaviour exactly: least-squares sphere fitter and
+# the GP+EI optimiser. See docs/AUTOFIT_REDESIGN.md.
+from src.operator_id import current_operator as _current_operator   # noqa: E402
+_active_fitter: str = fitting.DEFAULT_ID
+_active_optimiser: str = optimisers.DEFAULT_ID
+
+
+#: Goals that MAP a set rather than find one recipe: they run to the budget
+#: instead of stopping at the first in-spec hit (see CampaignController.stop_on_hit).
+_MAPPING_GOALS = ("level-set", "pareto")
+
+
+def _build_optimiser(space, goal, size_range, base_cfg, method_params=None,
+                     chosen=None):
+    """Instantiate the optimiser a campaign should use.
+
+    The campaign GOAL, not just the operator's dropdown, picks the acquisition:
+    level-set → BAX (band-membership entropy), Pareto → EHVI (size-vs-PDI
+    hypervolume). target-hit / benchmark keep the manually selected optimiser.
+
+    ``chosen`` is the strategy to honour; it defaults to the live dropdown, but a
+    RESUME passes the run's recorded optimiser (and its recorded method_params)
+    so a restarted TuRBO/UCB run comes back as itself with its κ / τ / trust size,
+    not silently as the dropdown default. Returns (controller, resolved_id).
+    """
+    opt_id = optimisers.for_goal(goal, chosen or _active_optimiser)
+    extra = {"stop_on_hit": (goal or "target-hit") not in _MAPPING_GOALS}
+    # method-specific inputs (UCB kappa, TuRBO size, BAX tau) for the RESOLVED
+    # optimiser only — never a foreign kwarg from a different method's dropdown.
+    mp = method_params or {}
+    for p in optimisers.params_for(opt_id):
+        if p["key"] in mp:
+            try:
+                extra[p["key"]] = float(mp[p["key"]])
+            except (TypeError, ValueError):
+                pass
+    # Pareto EHVI maps a diameter range; convert it to the radius the loop uses.
+    if opt_id == "pareto_ehvi" and isinstance(size_range, (list, tuple)) \
+            and len(size_range) == 2:
+        try:
+            lo, hi = sorted((float(size_range[0]), float(size_range[1])))
+            extra["size_lo"], extra["size_hi"] = lo / 2.0, hi / 2.0
+        except (TypeError, ValueError):
+            pass
+    return optimisers.make(opt_id, space, **base_cfg, **extra), opt_id
 
 # ── closed-loop campaign state ─────────────────────────────────────────────────
 _campaign: CampaignController | None = None
@@ -216,6 +269,15 @@ _run_seq: int = 0           # per-campaign proposal counter (in-memory, resets e
 _RUN_RE = re.compile(r"(?:^|[^A-Za-z])Run(\d+)_", re.IGNORECASE)
 
 
+def _run_no(s: str) -> int | None:
+    """The integer run number in a run tag or recipe_id ("Run12" or
+    "Run12_r003" → 12), or None. Used to attribute a fit record to its run."""
+    if not s:
+        return None
+    m = _RUN_RE.search(s if s.rstrip().endswith("_") else s + "_")
+    return int(m.group(1)) if m else None
+
+
 def _next_run_no() -> int:
     """The next Target-Run number = 1 + the highest Run<n> ALREADY ON DISK.
 
@@ -335,7 +397,7 @@ def _write_condition(rid: str, params: dict) -> None:
     _emit(f"➡ proposed {rid}: {sp}", "ok")
 
 
-def _clear_conditions_for_new_campaign() -> int:
+def _clear_conditions_for_new_campaign(why: str = "a new campaign started") -> int:
     """Set aside any leftover condition files before a NEW campaign proposes its
     first one.
 
@@ -369,18 +431,17 @@ def _clear_conditions_for_new_campaign() -> int:
                 dest = done / f.name
                 f.replace(dest)
                 with dest.open("a", encoding="utf-8") as fh:
-                    fh.write(f"\n# ── NOT RUN — set aside when a new campaign "
-                             f"started at "
+                    fh.write(f"\n# ── NOT RUN — set aside because {why} at "
                              f"{time.strftime('%Y-%m-%dT%H:%M:%S')}\n"
-                             f"# A new campaign invalidates conditions proposed by "
-                             f"a previous run. Move this file back into the "
-                             f"Conditions folder to run it.\n")
+                             f"# These conditions belong to a run that no longer "
+                             f"exists. Move this file back into the Conditions "
+                             f"folder to run it.\n")
                 moved.append(f.name)
             except Exception as exc:
                 _emit(f"⚠ could not set aside {f.name}: {exc}", "warn")
         if moved:
-            _emit(f"🧹 new campaign — set aside {len(moved)} leftover "
-                  f"condition(s) from a previous run "
+            _emit(f"🧹 {why}: set aside {len(moved)} queued "
+                  f"condition(s) "
                   f"({', '.join(moved[:6])}{' …' if len(moved) > 6 else ''}); "
                   f"they are in {done} and were NOT run.", "info")
         return len(moved)
@@ -395,6 +456,10 @@ def _advance_campaign() -> None:
         return
     if _campaign.status_str == "running":
         p = _campaign.ask()
+        if getattr(_campaign, "last_error", None):
+            _emit(f"⚠ search strategy failed ({_campaign.last_error}); proposed a "
+                  f"space-filling recipe instead so the loop keeps moving "
+                  f"(fallback #{_campaign.n_fallbacks})", "warn")
         if p is not None:
             rid = _new_rid()
             _pending[rid] = p
@@ -407,6 +472,15 @@ def _advance_campaign() -> None:
         _emit(f"🎯 campaign CONVERGED — size {cc.get('size')} at "
               f"{ {k: round(v,1) for k,v in (cc.get('params') or {}).items()} }", "ok")
         _oc = {"outcome": "converged", "converged_condition": cc,
+               "n_evaluations": _campaign.status().get("n_evaluations")}
+        _write_campaign_record(_oc); _write_campaign_results(_oc)
+        _record_campaign_in_manifest(_oc)
+    elif st == "exhausted" and not getattr(_campaign, "stop_on_hit", True):
+        # A mapping goal (level-set / Pareto) is SUPPOSED to use its whole budget.
+        _emit(f"✓ mapping complete: {_campaign.status()['n_evaluations']} recipes "
+              f"measured across the requested space", "ok")
+        _oc = {"outcome": "mapped", "best": _campaign.best,
+               "converged_condition": _campaign.converged_condition,
                "n_evaluations": _campaign.status().get("n_evaluations")}
         _write_campaign_record(_oc); _write_campaign_results(_oc)
         _record_campaign_in_manifest(_oc)
@@ -667,13 +741,22 @@ def _restore_campaign() -> None:
         _run_seq = _max_run_seq(_run_tag, _issued)
     try:
         space = ParameterSpace.from_config(load_config())
-        camp = CampaignController(space, **cfg)
+        # Rebuild the SAME acquisition the run used: for level-set/pareto the goal
+        # pins it (BAX / EHVI), recorded in meta["optimiser"]; _build_optimiser
+        # re-derives it from the goal so a resume never silently swaps methods.
+        camp, _ = _build_optimiser(space, _campaign_meta.get("goal"),
+                                   _campaign_meta.get("size_range"), cfg,
+                                   method_params=_campaign_meta.get("method_params"),
+                                   chosen=_campaign_meta.get("optimiser"))
         camp.start()
         for rec in hist:                       # rebuild the GP from real results
             camp.tell(rec.get("params") or {}, rec.get("size"),
                       rec.get("pdi"), float(rec.get("confidence") or 0.0),
                       recipe_id=rec.get("recipe_id", ""))
-        camp._n_asked = len(camp.history)      # next ask() proposes a NEW point, not an already-replayed seed
+        # Next ask() must skip every proposal already issued: the replayed results
+        # AND the conditions still in flight. Counting only history re-proposed an
+        # in-flight Sobol seed when a restart landed during seeding.
+        camp._n_asked = len(camp.history) + len(st.get("pending") or {})
         with _campaign_lock:
             _campaign = camp
             _campaign_cfg = cfg
@@ -754,14 +837,25 @@ def _expire_pending() -> None:
 # time limit, and reads ONLY permanent records — Results/campaign_<id>.json,
 # Results/Fit/*.dat, and the reactor's <recipe_id>.done.json feedback files —
 # so it works no matter how long ago the process died.
-def _load_fit_records_for_campaign(campaign_id: str) -> list:
-    """Every Results/Fit/*.dat header belonging to this campaign_id, oldest
-    first (by the "Written" timestamp), as {recipe_id, size, pdi, confidence}.
+def _load_fit_records_for_campaign(campaign_id: str, run_tag: str = "") -> list:
+    """Every Results/Fit/*.dat header belonging to this campaign, oldest first
+    (by the "Written" timestamp), as {recipe_id, size, pdi, confidence}.
 
     recipe_id comes from the ORIGINAL subtracted filename (the fit record's
     own stem, after stripping the "fit_" prefix _write_fit_record adds) via
-    recipe_id_from_filename — the header itself carries no recipe_id field."""
+    recipe_id_from_filename — the header itself carries no recipe_id field.
+
+    ``run_tag`` (e.g. "Run12") is the authoritative per-run identity and, when
+    given, is REQUIRED: a record counts only if its recipe_id belongs to this run
+    (``Run12_r...``). The header's "Campaign ID" alone is not trustworthy — it is
+    stamped with whatever campaign was active when the fit RAN, so a profile from
+    an earlier run that got (re-)fit during this campaign carries this
+    campaign_id even though it is not part of this run. Filtering by run_tag
+    excludes those, which is the "37 of 25" over-count fix. (This matters for
+    historical records already on disk; new records avoid the cross-stamp because
+    the watcher no longer re-fits the back-catalogue.)"""
     out = []
+    want_run = _run_no(run_tag) if run_tag else None
     try:
         fit_dir = _resolve_fit()
         if not fit_dir.is_dir():
@@ -788,6 +882,10 @@ def _load_fit_records_for_campaign(campaign_id: str) -> list:
             recipe_id = recipe_id_from_filename(stem)
             if not recipe_id:
                 continue
+            # Trust the run tag embedded in the recipe_id over the stamped
+            # Campaign ID (see docstring): drop records from other runs.
+            if want_run is not None and _run_no(recipe_id) != want_run:
+                continue
 
             def _num(key):
                 v = hdr.get(key)
@@ -809,6 +907,25 @@ def _load_fit_records_for_campaign(campaign_id: str) -> list:
         pass
     out.sort(key=lambda r: r.get("written") or "")
     return out
+
+
+def _fit_recs_by_recipe(fit_recs: list) -> list:
+    """Collapse fit records to ONE per recipe_id, keeping the first (oldest).
+
+    The run budget counts optimizer evaluations — i.e. distinct recipes — not Fit
+    files. A single condition yields several batch/scan profiles (and a past
+    re-fit storm can leave duplicate Fit records for the same profile), so a raw
+    len(fit_recs) over-counts badly (the "343 of 25 used" button). The live loop
+    feeds the campaign once per recipe (first matching profile wins, then the
+    pending entry is cleared); keeping the first record per recipe_id here makes
+    the count and the resume replay match that. Records with no recipe_id are
+    dropped — the live loop never fed those either."""
+    seen: dict = {}
+    for fr in fit_recs:
+        rid = fr.get("recipe_id") or ""
+        if rid and rid not in seen:
+            seen[rid] = fr
+    return list(seen.values())
 
 
 def _load_params_for_recipe(recipe_id: str) -> dict | None:
@@ -842,19 +959,30 @@ def _continue_run() -> dict:
         raise RuntimeError("no incomplete Target Run found")
 
     cfg_keys = ("target_size", "tolerance", "pdi_cap", "budget", "n_init")
-    meta_keys = ("objective", "started_at", "operator", "run_no", "run_tag")
+    meta_keys = ("objective", "started_at", "operator", "run_no", "run_tag",
+                 "goal", "spec_units", "optimiser", "optimiser_requested",
+                 "size_range", "fitter", "method_params")
     cfg = {k: rec[k] for k in cfg_keys if k in rec}
     meta = {k: rec[k] for k in meta_keys if k in rec}
     campaign_id = str(rec.get("campaign_id") or "")
     run_tag = str(meta.get("run_tag") or f"Run{rec['run_no']}")
 
-    fit_recs = _load_fit_records_for_campaign(campaign_id)
+    fit_recs = _load_fit_records_for_campaign(campaign_id, run_tag)
+    # Replay ONE evaluation per recipe (as the live loop did), not one per Fit
+    # file — otherwise a condition's several batch profiles, or duplicate records
+    # left by a past re-fit storm, inflate the history far past the budget. The
+    # run_tag scope above also keeps out other runs' profiles cross-stamped with
+    # this campaign_id.
+    recipe_recs = _fit_recs_by_recipe(fit_recs)
     space = ParameterSpace.from_config(load_config())
-    camp = CampaignController(space, **cfg)
+    camp, _ = _build_optimiser(space, meta.get("goal"),
+                               meta.get("size_range"), cfg,
+                               method_params=meta.get("method_params"),
+                               chosen=meta.get("optimiser"))
     camp.start()
 
     replayed, skipped = 0, 0
-    for fr in fit_recs:
+    for fr in recipe_recs:
         params = _load_params_for_recipe(fr["recipe_id"])
         if params is None:
             skipped += 1
@@ -886,6 +1014,9 @@ def _continue_run() -> dict:
                 _pending[rid] = {k: float(data[k]) for k in NAMES if k in data}
                 _pending_at[rid] = time.time()
             reissued.append(rid)
+    # Re-issued conditions are proposals already made: advance past them too, so
+    # a Continue during seeding doesn't hand the same Sobol seed out twice.
+    camp._n_asked = len(camp.history) + len(reissued)
 
     _run_tag = run_tag
     _run_seq = _max_run_seq(run_tag, [fr["recipe_id"] for fr in fit_recs] + reissued)
@@ -933,15 +1064,32 @@ def _feed_campaign(name: str, res: dict) -> None:
                       f"(expired or already fed) — not driving the loop", "warn")
             return
         params = _pending.pop(rid)
-        _pending_at.pop(rid, None)
+        t_issued = _pending_at.pop(rid, None)
         sz = res.get("size") or {}
         size = sz.get("radius")
         pdi = res.get("pdi")
         conf = res.get("confidence", 0.0)
-        _campaign.tell(params, size, pdi, conf, recipe_id=rid)
+        try:
+            _campaign.tell(params, size, pdi, conf, recipe_id=rid)
+        except Exception as exc:
+            # Put the condition back so expiry can still account for it, rather
+            # than losing both the measurement and the pending slot.
+            _pending[rid] = params
+            _pending_at[rid] = t_issued or time.time()
+            _emit(f"❌ could not record {rid} in the campaign ({type(exc).__name__}: "
+                  f"{exc}); left pending", "error")
+            return
         _emit(f"📊 told campaign {rid}: R={size} PDI={pdi} conf={conf} "
               f"(loss={_campaign.history[-1]['loss']:.3f})", "info")
-        _advance_campaign()
+        try:
+            _advance_campaign()
+        except Exception as exc:
+            # ask() already falls back internally; this catches failures in
+            # writing the condition file etc. Say so loudly instead of stalling
+            # silently (nothing pending + no proposal = a dead loop).
+            _emit(f"❌ could not issue the next condition after {rid} "
+                  f"({type(exc).__name__}: {exc}); the loop is stalled until "
+                  f"this is fixed and the campaign is continued", "error")
     _save_campaign()
 
 
@@ -957,6 +1105,40 @@ def _resolve_fit() -> Path:
     profile, so a fit can be checked or replotted after the beamtime without
     redoing it."""
     return _resolve_results() / "Fit"
+
+
+#: Keep at most this many fit-record pairs (PNG + .dat) in Results/Fit/. Durable
+#: records are the whole point, but "never pruned" grows the project volume without
+#: bound over weeks of a live loop and eventually fills the disk (which then breaks
+#: every savefig / state write). 0 disables pruning. 5000 pairs is generous — weeks
+#: of a 25-run loop — while still bounding disk. The newest are always kept.
+_FIT_RETENTION = int(os.environ.get("SWAXS_ANALYZER_FIT_RETENTION", 5000))
+#: Pruning globs the folder (O(N)), so it is not run on every write — only once
+#: per this many records, which bounds the amortised cost.
+_FIT_PRUNE_EVERY = 200
+_fit_writes_since_prune = 0
+
+
+def _prune_fit_dir(out_dir: Path) -> None:
+    """Delete the oldest fit-record pairs beyond _FIT_RETENTION. Best-effort:
+    a pruning failure must never disturb the analysis."""
+    if _FIT_RETENTION <= 0:
+        return
+    try:
+        dats = sorted(out_dir.glob("fit_*.dat"), key=lambda p: p.stat().st_mtime)
+        excess = len(dats) - _FIT_RETENTION
+        if excess <= 0:
+            return
+        for d in dats[:excess]:
+            for p in (d, d.with_suffix(".png")):
+                try:
+                    p.unlink()
+                except OSError:
+                    pass
+        _emit(f"🧹 Results/Fit: pruned {excess} old record(s), keeping the newest "
+              f"{_FIT_RETENTION}", "info")
+    except Exception:
+        pass
 
 
 def _write_fit_record(path: Path, q, I, sigma, model, summary: dict, res: dict) -> str:
@@ -981,36 +1163,44 @@ def _write_fit_record(path: Path, q, I, sigma, model, summary: dict, res: dict) 
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt                       # noqa: PLC0415
 
-        fig, ax = plt.subplots(figsize=(5.2, 3.8), dpi=120)
-        ax.loglog(q, np.maximum(I, 1e-12), lw=1.0, color="#5b8fc9",
-                  marker="o", ms=2.2, alpha=0.75, mew=0, label="subtracted I(q)")
-        if model is not None:
-            ax.loglog(q, np.maximum(model, 1e-12), lw=1.8, color="#e2402c", label="fit")
-        ax.set_xlabel("q (nm$^{-1}$)"); ax.set_ylabel("I (a.u.)")
-        ax.set_title(path.name, fontsize=9)
-        ax.legend(fontsize=7, loc="lower left")
+        # pyplot has global state: this runs in the WATCHER thread while the
+        # campaign-plot route renders figures in request threads. Serialise on the
+        # one process-wide lock, and ALWAYS close the figure (try/finally) so an
+        # error between subplots() and close() cannot leak a Figure — a slow memory
+        # and file-descriptor leak over days of running.
+        with MPL_LOCK:
+            fig, ax = plt.subplots(figsize=(5.2, 3.8), dpi=120)
+            try:
+                ax.loglog(q, np.maximum(I, 1e-12), lw=1.0, color="#5b8fc9",
+                          marker="o", ms=2.2, alpha=0.75, mew=0, label="subtracted I(q)")
+                if model is not None:
+                    ax.loglog(q, np.maximum(model, 1e-12), lw=1.8, color="#e2402c", label="fit")
+                ax.set_xlabel("q (nm$^{-1}$)"); ax.set_ylabel("I (a.u.)")
+                ax.set_title(path.name, fontsize=9)
+                ax.legend(fontsize=7, loc="lower left")
 
-        value_lines = [
-            f"R = {summary.get('radius')} nm" if summary.get("radius") is not None else None,
-            f"D = {summary.get('diameter')} nm" if summary.get("diameter") is not None else None,
-            f"PDI = {summary.get('pdi')}" if summary.get("pdi") is not None else None,
-            f"phase = {summary.get('phase')}" if summary.get("phase") else None,
-            f"dist = {summary.get('distribution')}" if summary.get("distribution") else None,
-            f"conf = {summary.get('confidence')}" if summary.get("confidence") is not None else None,
-        ]
-        text = "\n".join(v for v in value_lines if v)
-        if text:
-            ax.text(0.98, 0.98, text, transform=ax.transAxes, ha="right", va="top",
-                    fontsize=8, family="monospace", linespacing=1.5,
-                    bbox=dict(boxstyle="round", fc="white", ec="#999", alpha=0.88))
-        fig.tight_layout()
-        fig.savefig(png_path)
-        plt.close(fig)
+                value_lines = [
+                    f"R = {summary.get('radius')} nm" if summary.get("radius") is not None else None,
+                    f"D = {summary.get('diameter')} nm" if summary.get("diameter") is not None else None,
+                    f"PDI = {summary.get('pdi')}" if summary.get("pdi") is not None else None,
+                    f"phase = {summary.get('phase')}" if summary.get("phase") else None,
+                    f"dist = {summary.get('distribution')}" if summary.get("distribution") else None,
+                    f"conf = {summary.get('confidence')}" if summary.get("confidence") is not None else None,
+                ]
+                text = "\n".join(v for v in value_lines if v)
+                if text:
+                    ax.text(0.98, 0.98, text, transform=ax.transAxes, ha="right", va="top",
+                            fontsize=8, family="monospace", linespacing=1.5,
+                            bbox=dict(boxstyle="round", fc="white", ec="#999", alpha=0.88))
+                fig.tight_layout()
+                fig.savefig(png_path)
+            finally:
+                plt.close(fig)
 
         sig_col = np.asarray(sigma, float) if sigma is not None else np.full_like(q, np.nan)
         fit_col = np.asarray(model, float) if model is not None else np.full_like(q, np.nan)
         header = [
-            "# Nanoparticle fit record -- Auto-Fit & Optimiser (analyzer)",
+            "# Nanoparticle fit record -- Autonomous Analyser (analyzer)",
             f"# Source file     : {path}",
             f"# Written         : {datetime.datetime.now().isoformat(timespec='seconds')}",
             f"# Radius (nm)     : {summary.get('radius')}",
@@ -1036,6 +1226,11 @@ def _write_fit_record(path: Path, q, I, sigma, model, summary: dict, res: dict) 
         body = "\n".join(f"{qi:.6e}  {Ii:.6e}  {si:.6e}  {fi:.6e}"
                          for qi, Ii, si, fi in zip(q, I, sig_col, fit_col))
         dat_path.write_text("\n".join(header) + "\n" + body + "\n", encoding="utf-8")
+        global _fit_writes_since_prune
+        _fit_writes_since_prune += 1
+        if _fit_writes_since_prune >= _FIT_PRUNE_EVERY:
+            _fit_writes_since_prune = 0
+            _prune_fit_dir(out_dir)
         return str(png_path)
     except Exception as exc:
         _emit(f"⚠ could not write the fit record: {exc}", "warn")
@@ -1107,7 +1302,7 @@ def _analyze_file(path: Path, drive_loop: bool = True) -> None:
         # aren't 10× off and the campaign optimizes toward the right target.
         if _q_is_angstrom(hdr):
             q = q * 10.0                       # Å⁻¹ → nm⁻¹
-        res = analyze_profile(q, I, sigma, dist="auto")
+        res = fitting.get(_active_fitter).fit(q, I, sigma, dist="auto")
     except Exception as exc:
         _emit(f"✗ {path.name}: {exc}", "error")
         return
@@ -1221,6 +1416,9 @@ def _analyze_file(path: Path, drive_loop: bool = True) -> None:
 # ── folder watcher ─────────────────────────────────────────────────────────────
 _handled: dict = {}
 _lastsig: dict = {}
+#: "seen-once" memo for the pending-recipe flat-folder pass (_watch_pending_in_flat).
+#: Separate from _lastsig because the main watch prunes _lastsig to the Good/ files.
+_flat_lastsig: dict = {}
 #: Paths that were ALREADY in the watched folder when the analyzer started (or when
 #: the folder/project last changed). These are pre-existing profiles, not live
 #: arrivals, so the watcher must NEVER auto-fit them — that is the re-fit-on-restart
@@ -1298,15 +1496,24 @@ def _watch_once() -> None:
         # the gate is populating it, else the flat Subtracted/). Non-recursive so
         # the Good/ & NeedsReview/ copies never get double-analysed alongside the
         # flat originals.
-        files = sorted(d.glob("*.dat"), key=lambda p: p.stat().st_mtime)
+        # Enumerate names (glob does not stat). `present` must list EVERY current
+        # file so the cleanup below can drop memos for vanished ones.
+        all_dats = list(d.glob("*.dat"))
+        present = set(str(p) for p in all_dats)
         fit_dir = _resolve_fit()
-        present = set()
+        # Only STAT the files we might act on. Over weeks the folder holds
+        # thousands of already-handled / startup-frozen profiles; stat-ing all of
+        # them every 3 s was O(N) per poll and climbing. Files still "waiting"
+        # (in _lastsig, mid-write) are not in _handled, so they stay candidates.
+        candidates = [p for p in all_dats
+                      if str(p) not in _handled and str(p) not in _startup_present]
+        files = sorted(candidates, key=lambda p: p.stat().st_mtime)
         # Decide for every file FIRST, fit second: the fit-me list has to be
         # known in full before any fitting starts, or _triage_backlog can't
         # tell a two-file poll from a two-hundred-file one.
         go: list = []
         for f in files:
-            key = str(f); present.add(key)
+            key = str(f)
             try:
                 st = f.stat(); sig = (st.st_size, st.st_mtime_ns)
             except OSError:
@@ -1354,15 +1561,80 @@ def _watch_once() -> None:
             if len(_handled) > _MAX_RESULTS * 2:
                 for k in list(_handled)[:len(_handled) - _MAX_RESULTS]:
                     _handled.pop(k, None)
-    _expire_pending()      # self-heal a proposal whose data never arrived
+    _watch_pending_in_flat()   # never stall the loop on a pending recipe
+    _expire_pending()          # self-heal a proposal whose data never arrived
+
+
+def _watch_pending_in_flat() -> None:
+    """Pick up profiles for PENDING proposed recipes from the flat Subtracted/
+    folder, even when the gate routes the main watch to Good/.
+
+    When a prior run has left a populated Good/, `_resolve_sub` watches Good/ and
+    the analyzer only sees profiles the Quality Gate has promoted there. A running
+    campaign then stalls after proposing one condition: the profile it is waiting
+    for sits in the flat Subtracted/ and is never fit (the reported
+    continue-then-no-fit bug). The loop must not depend on the gate for the very
+    recipes it asked for, so here we additionally fit flat-folder files whose
+    recipe_id matches a pending condition. Targeted by pending id, so ungraded or
+    rejected NON-loop profiles are still excluded; the durable Fit-record check
+    keeps it from double-fitting a profile the gate later promotes to Good/."""
+    with _campaign_lock:
+        pend = list(_pending.keys()) if (
+            _campaign is not None and _campaign.status_str == "running") else []
+    if not pend:
+        return
+    d = _resolve_sub()
+    base = _resolve_sub_base()
+    if base == d or not base.is_dir():      # already watching the flat folder
+        return
+    fit_dir = _resolve_fit()
+    for f in sorted(base.glob("*.dat"), key=lambda p: p.stat().st_mtime):
+        key = str(f)
+        if key in _handled or not match_recipe_id(f.name, pend):
+            continue
+        try:
+            st = f.stat(); sig = (st.st_size, st.st_mtime_ns)
+        except OSError:
+            continue
+        if (fit_dir / f"fit_{f.stem}.dat").is_file():
+            with _intake_lock:
+                _handled[key] = sig
+            continue
+        # Use a SEPARATE "seen-once" memo: the main pass prunes _lastsig to the
+        # files in the Good/ watch, which would delete this flat file's entry
+        # between polls and trap it at "wait" forever.
+        action = decide_intake(key, sig, _handled, _flat_lastsig)
+        if action == "wait":
+            _flat_lastsig[key] = sig
+            continue
+        if action == "skip":
+            continue
+        _analyze_file(f)
+        with _intake_lock:
+            _handled[key] = sig
+        _flat_lastsig.pop(key, None)
+
+
+#: Throttle for watcher-loop error reporting — a persistent fault (a malformed
+#: file it chokes on every poll, a permissions/disk error) must not spam the log
+#: every 3 s, but it must NOT be invisible either: a silent `except: pass` let a
+#: stuck watcher read as "running" with nothing happening for a whole night.
+_WATCH_ERR_THROTTLE_S = 60.0
+_last_watch_err = (0.0, "")
 
 
 def _watcher() -> None:
+    global _last_watch_err
     while True:
         try:
             _watch_once()
-        except Exception:
-            pass
+        except Exception as exc:
+            now = time.time()
+            msg = f"{type(exc).__name__}: {exc}"
+            last_t, last_msg = _last_watch_err
+            if msg != last_msg or (now - last_t) > _WATCH_ERR_THROTTLE_S:
+                _emit(f"⚠ watcher poll failed ({msg}) — retrying", "warn")
+                _last_watch_err = (now, msg)
         time.sleep(3.0)
 
 
@@ -1589,6 +1861,82 @@ def set_project():
     return jsonify({"ok": True, "watching": str(_resolve_sub())})
 
 
+@app.route("/api/methods", methods=["GET", "POST"])
+def api_methods():
+    """List the available fitting + optimising methods and the active ones, and
+    (POST) set the active ones. Changing the optimiser while a campaign is running
+    is refused — it would swap the strategy mid-loop; abort first."""
+    global _active_fitter, _active_optimiser
+    if request.method == "POST":
+        body = request.get_json(silent=True) or {}
+        fit_id = (body.get("fitter") or "").strip()
+        opt_id = (body.get("optimiser") or "").strip()
+        ready_fit = {m["id"] for m in fitting.available() if m["ready"]}
+        ready_opt = {m["id"] for m in optimisers.available() if m["ready"]}
+        if fit_id:
+            if fit_id not in ready_fit:
+                return jsonify({"ok": False, "error": f"fitter '{fit_id}' is not available"}), 400
+            _active_fitter = fit_id
+        if opt_id:
+            if _campaign is not None:
+                return jsonify({"ok": False, "error": "a campaign is running — abort it before changing the optimiser"}), 409
+            if opt_id not in ready_opt:
+                return jsonify({"ok": False, "error": f"optimiser '{opt_id}' is not available"}), 400
+            _active_optimiser = opt_id
+    return jsonify({
+        "fitters": fitting.available(),
+        "optimisers": optimisers.available(),
+        "goals": optimisers.goals_payload(),      # goal → {methods, default}
+        "active": {"fitter": _active_fitter, "optimiser": _active_optimiser},
+    })
+
+
+_study_lock = threading.Lock()
+_study_result: dict | None = None     # last run_study() output, for the Report figure
+
+
+@app.route("/api/study", methods=["POST"])
+def api_study():
+    """Run an in-silico method-comparison: drive the chosen optimisers through a
+    campaign against the hidden ground-truth simulator and keep the per-method
+    best-loss curves for /api/study/plot.png. Pure computation — never touches the
+    live campaign, the reactor, or real data."""
+    global _study_result
+    body = request.get_json(silent=True) or {}
+    ready_opt = {m["id"] for m in optimisers.available() if m["ready"]}
+    ids = [m for m in (body.get("methods") or []) if m in ready_opt]
+    if not ids:
+        return jsonify({"ok": False, "error": "select at least one available optimiser"}), 400
+    try:
+        from src.optimizer import study as _study                 # noqa: PLC0415
+        cfg = _study.default_cfg()
+        for k in ("target_size", "tolerance", "pdi_cap", "budget", "n_init"):
+            if k in body:
+                cfg[k] = (int if k in ("budget", "n_init") else float)(body[k])
+        repeats = max(1, min(int(body.get("repeats", 3)), 10))
+        space = ParameterSpace.from_config(load_config())
+        res = _study.run_study(space, ids, cfg, repeats=repeats)
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    with _study_lock:
+        _study_result = res
+    summary = {mid: {"label": r["label"],
+                     "runs": [{"status": x["status"], "n": x["n"], "best": x["best"]}
+                              for x in r["repeats"]]}
+               for mid, r in res.items()}
+    return jsonify({"ok": True, "cfg": cfg, "repeats": repeats, "summary": summary})
+
+
+@app.route("/api/study/plot.png")
+def api_study_plot():
+    from src.optimizer import plots as opl                         # noqa: PLC0415
+    with _study_lock:
+        res = _study_result
+    png = opl.study_figure(res or {})
+    return Response(png, mimetype="image/png",
+                    headers={"Cache-Control": "no-store"})
+
+
 @app.route("/api/folder", methods=["GET", "POST"])
 def api_folder():
     global _sub_folder, _gate_mode, _gate_note_shown
@@ -1653,6 +2001,12 @@ def _campaign_status() -> dict:
         st = _campaign.status()
         st["pending"] = list(_pending.keys())
     st["conditions_folder"] = str(_resolve_cond())
+    # Goal + size range so the Live Progress panel can read the run the way the
+    # operator set it up: a single target for target-hit / level-set, a diameter
+    # RANGE for Pareto (where "distance to one target" is meaningless).
+    st["goal"] = str((_campaign_meta or {}).get("goal") or "target-hit")
+    if (_campaign_meta or {}).get("size_range"):
+        st["size_range"] = _campaign_meta["size_range"]
     return st
 
 
@@ -1684,13 +2038,19 @@ def api_campaign_incomplete():
                         "latest_run_tag": tag,
                         "latest_outcome": latest.get("outcome")})
     campaign_id = str(rec.get("campaign_id") or "")
-    fit_recs = _load_fit_records_for_campaign(campaign_id)
-    sized = [r for r in fit_recs if r.get("size") is not None]
+    run_tag = str(rec.get("run_tag") or (f"Run{rec.get('run_no')}" if rec.get("run_no") else ""))
+    # Count by distinct recipe (optimizer evaluations), not by Fit-file count —
+    # one condition yields several batch profiles, so len(fit_recs) over-counts
+    # (the "343 of 25 used" bug). Scope to this run_tag so records from other runs
+    # that were (re-)fit while this campaign was active and thus carry its
+    # Campaign ID are excluded (the "37 of 25" bug).
+    recs = _fit_recs_by_recipe(_load_fit_records_for_campaign(campaign_id, run_tag))
+    sized = [r for r in recs if r.get("size") is not None]
     best = (min(sized, key=lambda r: abs(r["size"] - float(rec.get("target_size", 0))))
             if sized else None)
     return jsonify({
         "run_tag": rec.get("run_tag") or f"Run{rec.get('run_no')}",
-        "used": len(fit_recs), "budget": int(rec.get("budget") or 0),
+        "used": len(recs), "budget": int(rec.get("budget") or 0),
         "best_size": (best or {}).get("size"),
     })
 
@@ -1724,13 +2084,27 @@ def api_campaign_start():
             # propose the first one. (The reactor no longer clears on boot — this
             # is what keeps the pipeline clean while startup stays order-free.)
             _clear_conditions_for_new_campaign()
-            _campaign = CampaignController(
-                space,
+            # Campaign goal (proposal Aim 1): target-hit | level-set | pareto |
+            # benchmark. It is resolved BEFORE building the optimiser because the
+            # goal itself picks the acquisition for two of the four (level-set →
+            # BAX, pareto → EHVI); target-hit / benchmark keep the dropdown choice.
+            _goal = str(b.get("goal") or "target-hit")
+            if _goal not in ("target-hit", "level-set", "pareto", "benchmark"):
+                _goal = "target-hit"
+            _size_range = None
+            if isinstance(b.get("size_range"), (list, tuple)) and len(b["size_range"]) == 2:
+                try:
+                    _size_range = [float(b["size_range"][0]), float(b["size_range"][1])]
+                except (TypeError, ValueError):
+                    _size_range = None
+            _base_cfg = dict(
                 target_size=float(b.get("target_size", 5.0)),
                 tolerance=float(b.get("tolerance", 0.3)),
                 pdi_cap=float(b.get("pdi_cap", 0.15)),
                 budget=int(b.get("budget", 25)),
                 n_init=int(b.get("n_init", 10)))
+            _campaign, _opt_id = _build_optimiser(
+                space, _goal, _size_range, _base_cfg, b.get("method_params"))
             _campaign_id = (datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
                             + "_" + uuid.uuid4().hex[:4])
             # New Target Run: derive N from disk (max existing + 1) and reset the
@@ -1746,13 +2120,30 @@ def api_campaign_start():
                 "budget": _campaign.budget,
                 "n_init": int(b.get("n_init", 10)),
             }
+            # Recorded with the run so the Report tab and the durable record know
+            # what the campaign pursued. `optimiser` is the RESOLVED acquisition
+            # (goal-driven for level-set/pareto), so resume rebuilds the same one.
             _campaign_meta = {
                 "objective": "min ((size - target_size)/tolerance)^2 + w*(PDI/pdi_cap)",
                 "started_at": datetime.datetime.now().isoformat(timespec="seconds"),
-                "operator": os.environ.get("SWAXS_USER_ID", "") or "",
+                "operator": _current_operator(_project_root),   # set once in the hub
                 "run_no": _run_no,          # Target-Run number (also read back by _next_run_no)
                 "run_tag": _run_tag,
+                "goal": _goal,
+                "spec_units": str(b.get("spec_units") or "diameter"),
+                "optimiser": _opt_id,
+                "optimiser_requested": _active_optimiser,
+                "fitter": _active_fitter,
+                # the strategy's own knobs (κ, τ, trust size) so a resume rebuilds
+                # the same search, not the defaults
+                "method_params": {p["key"]: (b.get("method_params") or {})[p["key"]]
+                                  for p in optimisers.params_for(_opt_id)
+                                  if p["key"] in (b.get("method_params") or {})},
             }
+            # Pareto goal carries the diameter size-range it maps (the EHVI
+            # acquisition maps the best PDI across it; recorded for the Report).
+            if _size_range is not None:
+                _campaign_meta["size_range"] = _size_range
             _campaign.start()
             _emit(f"🚀 campaign started — target R={_campaign.target_size}±{_campaign.tolerance} nm, "
                   f"PDI<{_campaign.pdi_cap}, budget {_campaign.budget}", "ok")
@@ -1773,6 +2164,12 @@ def api_campaign_abort():
         if _campaign is not None:
             _campaign.abort()
             _emit("⏹ campaign aborted by operator", "warn")
+            # Tell the reactor, via the existing file contract: withdraw every
+            # condition this run left queued (moved to Conditions/done/ with a
+            # NOT RUN note). The reactor drops queued recipes whose file was
+            # withdrawn, so it stops dosing for a campaign that no longer exists.
+            # A condition already RUNNING is not interrupted; it finishes safely.
+            _clear_conditions_for_new_campaign(why="the campaign was aborted")
             # An operator abort does NOT pass through _advance_campaign, so save
             # the results here too — an aborted run is still a run worth keeping.
             _oc = {"outcome": "aborted", "best": _campaign.best}
@@ -1916,7 +2313,7 @@ def api_stream():
 if __name__ == "__main__":
     _project_root = os.environ.get("SWAXS_PROJECT", _project_root)
     print("━" * 52)
-    print("  Auto-Fit & Optimiser  →  http://localhost:5107")
+    print("  Autonomous Analyser  →  http://localhost:5107")
     print(f"  watching: {_resolve_sub()}")
     print("━" * 52)
     app.run(host="127.0.0.1", port=5107, debug=False, threaded=True)

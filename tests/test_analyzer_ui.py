@@ -191,7 +191,9 @@ def test_fetches_cannot_throw_into_the_page():
 
 def test_the_status_strip_reports_the_whole_loop():
     html = TPL.read_text()
-    for pid in ("p_conn", "p_camp", "p_count", "p_best", "p_watch"):
+    # The watched-folder pill duplicated the project folder shown on the right of
+    # every top bar (operator, Oct 2026); the folder is the standard barProject.
+    for pid in ("p_conn", "p_camp", "p_count", "p_best", "barProject"):
         assert f'id="{pid}"' in html, f"status strip is missing {pid}"
 
 

@@ -101,7 +101,7 @@ def _subtract(q_sam: np.ndarray, I_sam: np.ndarray, sig_sam: np.ndarray,
 
 def truncate_rebin(q_nm: np.ndarray, I: np.ndarray, sigma: np.ndarray,
                    q_min: float, q_max: float, n_points: int,
-                   spacing: str = "linear", q_unit: str = "A"):
+                   spacing: str = "linear", q_unit: str = "nm"):
     """Truncate to [q_min, q_max] and resample onto n_points. Source q is nm⁻¹;
     output q is in q_unit ('A' → Å⁻¹ = nm⁻¹/10). Linear or log grid. Intensity is
     interpolated in log-space (same scheme as the background interpolation)."""
@@ -112,7 +112,7 @@ def truncate_rebin(q_nm: np.ndarray, I: np.ndarray, sigma: np.ndarray,
 
     # NEVER extrapolate. np.interp holds the edge value flat outside the source
     # range, so a window wider than the detector's actual q coverage produced a
-    # long fabricated plateau (measured: 74% of the default 0.03–0.6 Å⁻¹ grid on a
+    # long fabricated plateau (measured: 74% of the old 0.03 to 0.6 Å⁻¹ grid on a
     # 3 m camera). That plateau is invented data: it biases the fitted PDI ~2× and
     # corrupts the confidence the optimizer gates on. Clip the request to what was
     # really measured and report the clip.

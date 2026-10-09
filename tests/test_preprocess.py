@@ -71,9 +71,10 @@ def test_convert_dir_failsoft(tmp_path):
 
 
 def test_calib_helpers(tmp_path):
-    assert "AgBehenate" in CALIBRANTS and "LaB6" in CALIBRANTS
+    assert "AgBh" in CALIBRANTS and "LaB6" in CALIBRANTS
     cmd = build_calib2_command("/x/img.cbf", "AgBehenate", 12.0, pixel_um=172.0)
-    assert cmd[0] == "pyFAI-calib2" and "--calibrant" in cmd and "AgBehenate" in cmd
+    # the legacy name is mapped to pyFAI's own spelling
+    assert cmd[0] == "pyFAI-calib2" and cmd[cmd.index("--calibrant") + 1] == "AgBh"
     assert "12.0" in cmd and cmd[-1] == "/x/img.cbf"
     # pyFAI's --pixel is in MICRONS, not metres
     assert cmd[cmd.index("--pixel") + 1] == "172.0"

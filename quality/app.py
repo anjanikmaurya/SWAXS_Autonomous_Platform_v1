@@ -41,6 +41,7 @@ if str(_ROOT) not in sys.path:
 from src.favicon import register_favicon               # noqa: E402
 from src.quality import (                                       # noqa: E402
     grade_profile, score_metrics, DEFAULT_THRESHOLDS, thresholds_for, sample_key,
+    detector_of,
 )
 from src.manifest import (                                      # noqa: E402
     update_manifest, add_quality_entry, make_provenance,
@@ -73,6 +74,18 @@ _seq: int = 0
 # path -> graded record (latest).  Records carry score/verdict/flags/metrics/
 # reasons/spark/detector + any user override.
 _results: dict = {}
+#: Guards every mutation of AND iteration over ``_results``. The event-bus thread
+#: inserts records while the grader thread / Flask handlers iterate; iterating a
+#: dict another thread is resizing raises "dictionary changed size during
+#: iteration", which used to kill the grader thread for good. Re-entrant so a
+#: helper may be called with the lock already held.
+_results_lock = threading.RLock()
+
+
+def _results_snapshot() -> list:
+    """A list copy of the current records, taken under ``_results_lock``."""
+    with _results_lock:
+        return list(_results.values())
 _overrides: dict = {}                 # path -> {"verdict": str, "note": str}
 # Sparse user overrides for ANY scoring parameter (weights, thresholds, score_pass,
 # borderline).  Empty = use the per-detector defaults.  Persisted to a config file.
@@ -329,7 +342,7 @@ def _llm_suggest_params() -> dict | None:
     if client is None:
         return None
     examples = []
-    for path, ov in _overrides.items():
+    for path, ov in list(_overrides.items()):
         rec = _results.get(path)
         if rec:
             examples.append({"user_verdict": ov["verdict"], "score": rec["score"],
@@ -385,8 +398,9 @@ def _grade_and_record(path: Path, det: str) -> dict | None:
     verdict = _effective_verdict(rec)     # honor any user override
     rec["verdict"] = verdict
 
-    prev = _results.get(rec["path"])
-    _results[rec["path"]] = rec
+    with _results_lock:
+        prev = _results.get(rec["path"])
+        _results[rec["path"]] = rec
 
     dst = _sort_into_folder(path, verdict)
     rec["sorted_to"] = str(dst) if dst else None
@@ -429,16 +443,17 @@ def _grade_and_record(path: Path, det: str) -> dict | None:
 
 
 def _recount() -> None:
-    good = sum(1 for r in _results.values() if r["verdict"] == "good")
-    bad  = len(_results) - good
-    _status.update({"graded": len(_results), "good": good, "bad": bad,
+    recs = _results_snapshot()            # never iterate the live dict
+    good = sum(1 for r in recs if r.get("verdict") == "good")
+    bad  = len(recs) - good
+    _status.update({"graded": len(recs), "good": good, "bad": bad,
                     "threshold": _pass_threshold()})
 
 
 def _recolor() -> None:
     """Re-derive verdicts from the current threshold without re-reading files."""
     _invalidate_grades()   # rules changed → re-grade next cycle
-    for rec in _results.values():
+    for rec in _results_snapshot():
         rec["verdict"] = _effective_verdict(rec)
         try:
             _sort_into_folder(Path(rec["path"]), rec["verdict"])
@@ -452,7 +467,7 @@ def _rescore_all() -> None:
     metrics (no file re-read) after a scoring-parameter change, then re-derive
     verdicts and re-sort."""
     _invalidate_grades()   # rules changed → re-grade next cycle
-    for rec in _results.values():
+    for rec in _results_snapshot():
         t = _active_thresholds(rec.get("detector"))
         score, flags, reasons = score_metrics(rec.get("metrics", {}), t)
         rec["score"] = score
@@ -500,7 +515,7 @@ def _on_bus_event(event: dict) -> None:
     if not fp:
         return
     p = Path(fp)
-    det = "waxs" if "waxs" in str(p).lower() else "saxs"
+    det = detector_of(p)   # not a substring test: "waxs" is inside "SWAXS"
     try:
         _grade_and_record(p, det)
         # Record the signature so the poll loop does NOT immediately re-grade
@@ -536,40 +551,46 @@ def _grader_loop(dets, interval):
     _emit(f"▶  Quality grading started — every {interval}s  ·  "
           f"threshold {_pass_threshold():.0f}/100", "ok")
     while _grading:
-        for det, folder in dets:
-            fp = Path(folder)
-            if not fp.is_dir() or _is_output_dir(fp):
-                continue
-            for prof in _list_profiles(fp):
-                if not _grading:
-                    break
-                # Skip files that have not changed since we graded them.
-                #
-                # This loop used to re-grade EVERY profile on EVERY cycle. Each
-                # re-grade re-reads the file twice, re-runs the LLM call for a
-                # borderline profile, and performs a full locked
-                # read-modify-write of manifest.json. With 300 profiles and the
-                # default 10 s interval that is ~2.6 million manifest rewrites a
-                # night, holding the same cross-process lock that reduction,
-                # background and the analyzer need in order to record data — and
-                # a paid API call per borderline profile per cycle. Nothing in the
-                # log looked wrong, because a line is only emitted when the
-                # verdict changes.
-                try:
-                    st = prof.stat(); sig = (st.st_size, st.st_mtime_ns)
-                except OSError:
+        # One bad cycle (a racing folder, an unreadable file, a manifest
+        # hiccup) must not kill the grader thread for the rest of the night.
+        # Only Exception is caught: SystemExit / KeyboardInterrupt still stop it.
+        try:
+            for det, folder in dets:
+                fp = Path(folder)
+                if not fp.is_dir() or _is_output_dir(fp):
                     continue
-                rp = str(prof.resolve())
-                if _graded.get(rp) == sig:
-                    continue
-                try:
-                    _grade_and_record(prof, det)
-                    _graded[rp] = sig
-                except Exception as exc:
-                    _emit(f"✗  {prof.name}: {exc}", "error")
-                    _graded[rp] = sig       # don't retry a hard failure forever
-        _recount()
-        gc.collect()
+                for prof in _list_profiles(fp):
+                    if not _grading:
+                        break
+                    # Skip files that have not changed since we graded them.
+                    #
+                    # This loop used to re-grade EVERY profile on EVERY cycle. Each
+                    # re-grade re-reads the file twice, re-runs the LLM call for a
+                    # borderline profile, and performs a full locked
+                    # read-modify-write of manifest.json. With 300 profiles and the
+                    # default 10 s interval that is ~2.6 million manifest rewrites a
+                    # night, holding the same cross-process lock that reduction,
+                    # background and the analyzer need in order to record data — and
+                    # a paid API call per borderline profile per cycle. Nothing in the
+                    # log looked wrong, because a line is only emitted when the
+                    # verdict changes.
+                    try:
+                        st = prof.stat(); sig = (st.st_size, st.st_mtime_ns)
+                    except OSError:
+                        continue
+                    rp = str(prof.resolve())
+                    if _graded.get(rp) == sig:
+                        continue
+                    try:
+                        _grade_and_record(prof, det)
+                        _graded[rp] = sig
+                    except Exception as exc:
+                        _emit(f"✗  {prof.name}: {exc}", "error")
+                        _graded[rp] = sig       # don't retry a hard failure forever
+            _recount()
+            gc.collect()
+        except Exception as exc:
+            _emit(f"✗  grading cycle failed (will retry): {type(exc).__name__}: {exc}", "error")
         time.sleep(interval)
     _grading = False
     _status["monitoring"] = False
@@ -609,18 +630,10 @@ def api_project():
 
 @app.route("/api/browse")
 def api_browse():
-    raw = (request.args.get("path", "") or "").strip()
-    p = Path(raw) if raw else Path.home()
-    while not p.exists() and p != p.parent:
-        p = p.parent
-    if not p.is_dir():
-        p = Path.home()
-    try:
-        dirs = sorted(d.name for d in p.iterdir() if d.is_dir() and not d.name.startswith("."))
-    except PermissionError:
-        dirs = []
-    return jsonify({"current": str(p), "parent": str(p.parent) if p != p.parent else None,
-                    "dirs": dirs})
+    """Folder listing for the Browse… button (shared: src/folder_browse.py)."""
+    from src.folder_browse import list_dirs  # noqa: PLC0415
+    return jsonify(list_dirs(request.args.get("path", ""),
+                           _project_root or os.environ.get("SWAXS_PROJECT") or None))
 
 
 def _public(rec: dict) -> dict:
@@ -661,13 +674,13 @@ def api_grade():
                 _emit(f"✗  {prof.name}: {exc}", "error")
     _recount()
     return jsonify({"ok": True, "graded": n,
-                    "results": [_public(r) for r in _results.values()],
+                    "results": [_public(r) for r in _results_snapshot()],
                     "status": _status})
 
 
 @app.route("/api/results")
 def api_results():
-    return jsonify({"results": [_public(r) for r in _results.values()],
+    return jsonify({"results": [_public(r) for r in _results_snapshot()],
                     "status": _status, "threshold": _pass_threshold()})
 
 
@@ -698,7 +711,7 @@ def api_threshold():
     _save_params()
     _recolor()
     return jsonify({"ok": True, "threshold": _pass_threshold(),
-                    "results": [_public(r) for r in _results.values()], "status": _status})
+                    "results": [_public(r) for r in _results_snapshot()], "status": _status})
 
 
 @app.route("/api/override", methods=["POST"])
@@ -733,7 +746,7 @@ def api_override():
           f"{(' — ' + note) if note else ''}  (threshold now {_pass_threshold():.0f})", "info")
     _recount()
     return jsonify({"ok": True, "threshold": _pass_threshold(),
-                    "results": [_public(r) for r in _results.values()], "status": _status})
+                    "results": [_public(r) for r in _results_snapshot()], "status": _status})
 
 
 @app.route("/api/params", methods=["GET", "POST"])
@@ -756,7 +769,7 @@ def api_params():
         _emit(f"⚙  scoring parameters updated ({changed} field(s))", "info")
         return jsonify({"ok": True, "changed": changed,
                         "params": _effective_params(),
-                        "results": [_public(r) for r in _results.values()],
+                        "results": [_public(r) for r in _results_snapshot()],
                         "status": _status, "threshold": _pass_threshold()})
     return jsonify({"params": _effective_params(),
                     "defaults": dict(DEFAULT_THRESHOLDS),
@@ -771,7 +784,7 @@ def api_params_reset():
     _rescore_all()
     _emit("⚙  scoring parameters reset to defaults", "info")
     return jsonify({"ok": True, "params": _effective_params(),
-                    "results": [_public(r) for r in _results.values()],
+                    "results": [_public(r) for r in _results_snapshot()],
                     "status": _status, "threshold": _pass_threshold()})
 
 
@@ -793,7 +806,7 @@ def api_llm_grade():
     _sort_into_folder(Path(rec["path"]), rec["verdict"])
     _recount()
     _emit(f"🧠  AI re-grade: {rec['name']} → {adj['verdict'].upper()} — {adj['note']}", "ok")
-    return jsonify({"ok": True, "results": [_public(r) for r in _results.values()],
+    return jsonify({"ok": True, "results": [_public(r) for r in _results_snapshot()],
                     "status": _status})
 
 
@@ -812,37 +825,61 @@ def api_refine_ai():
                     "current": _effective_params()})
 
 
+def _report_dir(detector: str) -> Path:
+    """<project>/1D/<SAXS|WAXS>/Results/QualityReports for one detector."""
+    det = "WAXS" if (detector or "").lower() == "waxs" else "SAXS"
+    return Path(_project_root) / "1D" / det / "Results" / "QualityReports"
+
+
+def _report_line(r: dict) -> str:
+    return ",".join([
+        r["name"], r["detector"] or "", r["sample"] or "", f"{r['score']:.1f}",
+        r["verdict"], "|".join(r["flags"]), "yes" if r["overridden"] else "no",
+        (" ".join(r["reasons"])).replace(",", ";"),
+    ])
+
+
 @app.route("/api/report")
 def api_report():
     """Write a QC summary report (CSV + accepted-list) under the project and
     return its contents."""
-    rows = [_public(r) for r in _results.values()]
+    rows = [_public(r) for r in _results_snapshot()]
     rows.sort(key=lambda r: (r["detector"] or "", -r["score"]))
     hdr = ["name", "detector", "sample", "score", "verdict", "flags", "overridden", "reasons"]
     lines = [",".join(hdr)]
     for r in rows:
-        lines.append(",".join([
-            r["name"], r["detector"] or "", r["sample"] or "", f"{r['score']:.1f}",
-            r["verdict"], "|".join(r["flags"]), "yes" if r["overridden"] else "no",
-            (" ".join(r["reasons"])).replace(",", ";"),
-        ]))
+        lines.append(_report_line(r))
     csv = "\n".join(lines) + "\n"
     accepted = [r["name"] for r in rows if r["verdict"] == "good"]
     saved = None
+    saved_dirs: dict = {}
     if _project_root:
-        try:
-            # Lives under Results/ with everything else this platform keeps
-            # after the fact (campaign figures, fit records) — not a bare
-            # top-level folder next to the working stages.
-            rep_dir = Path(_project_root) / "1D" / "SAXS" / "Results" / "QualityReports"
-            rep_dir.mkdir(parents=True, exist_ok=True)
-            stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            (rep_dir / f"quality_report_{stamp}.csv").write_text(csv, encoding="utf-8")
-            (rep_dir / f"accepted_{stamp}.txt").write_text("\n".join(accepted) + "\n", encoding="utf-8")
-            saved = str(rep_dir)
-        except Exception:
-            pass
+        # Lives under Results/ with everything else this platform keeps after
+        # the fact (campaign figures, fit records), routed by detector: WAXS
+        # profiles go to 1D/WAXS/Results/QualityReports, not the SAXS tree.
+        stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        by_det: dict = {}
+        for r in rows:
+            d = (r["detector"] or "").lower()
+            if d not in ("saxs", "waxs"):
+                d = detector_of(r["path"])
+            by_det.setdefault(d, []).append(r)
+        if not by_det:
+            by_det["saxs"] = []           # empty report: keep the old location
+        for d, drows in sorted(by_det.items()):
+            try:
+                rep_dir = _report_dir(d)
+                rep_dir.mkdir(parents=True, exist_ok=True)
+                dcsv = "\n".join([lines[0]] + [_report_line(r) for r in drows]) + "\n"
+                dacc = [r["name"] for r in drows if r["verdict"] == "good"]
+                (rep_dir / f"quality_report_{stamp}.csv").write_text(dcsv, encoding="utf-8")
+                (rep_dir / f"accepted_{stamp}.txt").write_text("\n".join(dacc) + "\n", encoding="utf-8")
+                saved_dirs[d] = str(rep_dir)
+            except Exception as exc:
+                _emit(f"⚠  quality report ({d}) not saved: {exc}", "warn")
+        saved = "; ".join(saved_dirs[d] for d in sorted(saved_dirs)) or None
     return jsonify({"csv": csv, "accepted": accepted, "saved_to": saved,
+                    "saved_dirs": saved_dirs,
                     "counts": {"good": _status["good"], "bad": _status["bad"],
                                "total": _status["graded"]}})
 

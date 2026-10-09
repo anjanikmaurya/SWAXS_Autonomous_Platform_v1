@@ -1,37 +1,63 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Auto-Fit & Optimiser — SWAXS</title>
+<title>Autonomous Analyser · SWAXS</title>
     <link rel="icon" href="/app-icon">   <!-- per-app tab icon, from apps.yml (src/favicon.py) -->
 <link rel="stylesheet" href="/static/swaxs-tokens.css">
+{% include "_theme_boot.html" %}
 <style>
 /* ── SWAXS shared design system ──────────────────────────────────────────── */
-html{font-size:18px}
+html{font-size:18px}          /* larger base — matches reactor / assistant readability */
 :root{
-  --fs-xs:.82rem;--fs-sm:.94rem;--fs-md:1.05rem;--fs-lg:1.45rem;--radius:9px;
-  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
-  --bg:#f4f5f7;--surface:#ffffff;--surface2:#eef0f3;--border:#d8dce2;--border-strong:#b9c0ca;
-  --text:#1c2128;--muted:#5c6470;--accent:#B83A4B;--accent-d:#8c1515;
-  --ok:#15803d;--warn:#b45309;--err:#b3261e;--info:#1d4ed8;
+  /* ── SWAXS shared design system — Light theme (canonical: reduction) ── */
+  --bg:#f5f7fa; --surface:#ffffff; --surface2:#f0f2f5;
+  --sidebar:#eef1f5; --sidebar-h:#e3e7ed; --sf:31,41,55;
+  --sidebar-active-bg:rgba(177,4,14,.10); --sidebar-active-fg:#8C1515;
+  --accent:#B1040E; --accent-d:#8C1515; --accent-lt:#fee2e2;
+  --teal:#B83A4B; --teal-lt:#fee2e2;
+  --ok:#16a34a; --ok-lt:#dcfce7; --warn:#d97706; --warn-lt:#fef3c7; --err:#dc2626; --err-lt:#fee2e2;
+  --ok-text:#15803d; --warn-text:#b45309; --err-text:#b91c1c; --info-text:#1d4ed8;
+  --txt:#1f2937; --txt-strong:#111827; --muted:#4b5563; --faint:#6b7280; --disabled:#9ca3af;
+  --border:#e5e7eb; --border-strong:#c3c9d1;
+  --font:'Inter','Segoe UI',system-ui,-apple-system,sans-serif;
+  --mono:'JetBrains Mono','Fira Code','Cascadia Code',ui-monospace,Menlo,Consolas,monospace;
+  --fs-2xs:.72rem; --fs-xs:.82rem; --fs-sm:.94rem; --fs-md:1.05rem;
+  --fs-base:1rem; --fs-lg:1.45rem; --fs-xl:1.6rem; --fs-2xl:1.9rem;
+  --fw-regular:400; --fw-medium:500; --fw-semibold:600; --fw-bold:700;
+  --lh-tight:1.25; --lh-snug:1.4; --lh-normal:1.5; --ls-label:.06em;
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:24px; --sp-6:32px;
+  --radius:8px;
+  /* legacy aliases used throughout analyzer CSS — map onto the shared tokens
+     so every existing var(--text)/var(--info) resolves (and follows dark mode) */
+  --text:var(--txt); --info:var(--info-text);
 }
 :root[data-theme="dark"]{
   --bg:#15161a;--surface:#1f2126;--surface2:#272a31;--border:#343842;--border-strong:#4c515c;
-  --text:#e7e9ee;--muted:#a4abb6;--accent:#d44a55;--accent-d:#b1040e;
-  --ok:#4ade80;--warn:#d8a657;--err:#f87171;--info:#7da9d8;
+  --txt:#e7e9ee;--txt-strong:#f5f7fa;--muted:#a4abb6;--faint:#7d848f;--disabled:#5a606b;
+  --accent:#d44a55;--accent-d:#b1040e;--accent-lt:#3a2023;--teal:#d44a55;--teal-lt:#3a2023;
+  --sidebar:#1f2126;--sidebar-h:#2a2d34;--sf:231,233,238;
+  --sidebar-active-bg:rgba(212,74,85,.22);--sidebar-active-fg:#f0a6ab;
+  /* brighter semantics so the dark log / pills stay legible */
+  --ok:#4ade80;--warn:#d8a657;--err:#f87171;--info-text:#7da9d8;
 }
 *{box-sizing:border-box}
-body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--text);font-size:1.02rem}
-.topbar{display:flex;align-items:center;gap:12px;padding:10px 18px;background:#1a1c21;border-bottom:1px solid var(--border)}
-.topbar h1{font-size:var(--fs-lg);font-weight:700;margin:0;color:#fff;white-space:nowrap}
-.topbar h1 span{color:#f0a6ab;font-weight:500}
-.topbar .sub{font-size:var(--fs-xs);color:#a4abb6}
-.topbar a{color:#f0a6ab;text-decoration:none}
-.theme-toggle{width:34px;height:30px;border:1px solid rgba(255,255,255,.25);border-radius:7px;background:transparent;color:#fff;cursor:pointer;font-size:1rem}
-.theme-toggle:hover{background:rgba(255,255,255,.1)}
-.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;margin-bottom:14px}
-.card-hd{font-size:var(--fs-sm);font-weight:700;margin-bottom:10px;display:flex;align-items:center;gap:8px}
+body{margin:0;font-family:var(--font);background:var(--bg);color:var(--text);font-size:1.02rem}
+.topbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 18px;background:var(--surface);border-bottom:1px solid var(--border)}
+.topbar h1{font-size:var(--fs-lg);font-weight:700;margin:0;color:var(--txt-strong);white-space:nowrap}
+.topbar h1 span{color:var(--accent);font-weight:500}
+.topbar .sub{font-size:var(--fs-xs);color:var(--muted)}
+.topbar a{color:var(--accent);text-decoration:none}
+.theme-toggle{width:34px;height:30px;border:1px solid var(--border-strong);border-radius:7px;background:transparent;color:var(--txt);cursor:pointer;font-size:1rem}
+.theme-toggle:hover{background:var(--surface2)}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;margin-bottom:14px}
+/* Shared heading spec (reduction · average · background): 15px uppercase accent
+   with a rule under it. Keeps the analyzer's panel furniture identical to the
+   rest of the platform. */
+.card-hd{font-size:15px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--accent);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border);
+  display:flex;align-items:center;gap:8px}
 .card-hd .hd-right{margin-left:auto;display:flex;gap:6px;align-items:center;font-weight:400}
 label{font-size:var(--fs-xs);color:var(--muted);font-weight:600;display:block;margin-bottom:3px}
 input,select{width:100%;background:var(--surface2);border:1px solid var(--border-strong);border-radius:6px;color:var(--text);padding:6px 9px;font-size:var(--fs-sm)}
@@ -44,33 +70,89 @@ input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 
 .btn:hover:not(:disabled){filter:brightness(1.12)}
 .btn-row,.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:flex-end}
 .sub{font-size:var(--fs-xs);color:var(--muted)}
+/* Plain-language explainer block (optimiser physics) — shared-token styling. */
+.explain{margin-top:12px;padding:11px 13px;background:var(--surface2);
+  border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:8px}
+.explain-hd{font-size:var(--fs-xs);font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--accent);margin-bottom:6px}
+.explain p{margin:0 0 7px;font-size:var(--fs-sm);line-height:1.5;color:var(--muted)}
+.explain p:last-child{margin-bottom:0}
+.explain .eq{font-family:var(--mono);font-size:var(--fs-sm);color:var(--text);
+  background:var(--surface);border:1px solid var(--border);border-radius:6px;
+  padding:7px 10px;overflow-x:auto}
 /* Sits in .btn-row where the Continue button would be, saying why it is not. */
 .hint{font-size:var(--fs-xs);color:var(--muted);align-self:center;line-height:1.4}
 .log{max-height:170px;overflow-y:auto;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 11px;font-family:var(--mono);font-size:var(--fs-xs);line-height:1.55}
 
 /* ── status strip: the whole state of the loop, at a glance ───────────────── */
-.statusbar{display:flex;gap:9px;flex-wrap:wrap;align-items:center;
-  padding:9px 32px;background:var(--surface);border-bottom:1px solid var(--border)}
-.pill{display:inline-flex;align-items:center;gap:6px;font-size:var(--fs-xs);
-  padding:4px 11px;border-radius:999px;background:var(--surface2);
-  border:1px solid var(--border);white-space:nowrap}
-.pill b{font-weight:700}
-.pill .led{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
+/* Status pills now live INSIDE the dark top bar — an inline group, not a strip. */
+.statusbar{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
+.pill{display:inline-flex;align-items:center;gap:7px;font-size:var(--fs-sm);
+  padding:5px 13px;border-radius:999px;white-space:nowrap;
+  background:var(--surface2);border:1px solid var(--border);color:var(--txt)}
+.pill b{font-weight:700;color:var(--txt-strong)}
+.pill .led{width:9px;height:9px;border-radius:50%;background:var(--faint);flex:none}
 .pill.on .led{background:var(--ok)} .pill.off .led{background:var(--err)}
 .pill.warn .led{background:var(--warn)}
 .pill.off{border-color:var(--err)}
 .pill.path{font-family:var(--mono);max-width:44ch;overflow:hidden;text-overflow:ellipsis}
 
 /* ── layout ──────────────────────────────────────────────────────────────── */
-.wrap{padding:14px 32px 40px;display:grid;grid-template-columns:minmax(340px,420px) minmax(0,1fr);
-  gap:20px;align-items:start}
-@media (max-width:1180px){.wrap{grid-template-columns:minmax(0,1fr)}}
+/* ── top tabs: Setup · Fitting · Report (the analysis-app pattern) ───────── */
+.toptabbar{display:flex;gap:4px;padding:0 32px;background:var(--surface);
+  border-bottom:2px solid var(--border);position:sticky;top:0;z-index:5}
+.toptab{padding:11px 20px;border:none;background:transparent;color:var(--muted);
+  font-size:var(--fs-md);font-weight:600;cursor:pointer;border-bottom:3px solid transparent;
+  margin-bottom:-2px;display:flex;align-items:center;gap:7px}
+.toptab:hover{color:var(--text)}
+.toptab.active{color:var(--accent);font-weight:700;border-bottom-color:var(--accent)}
+.page{display:none}
+.page.active{display:block}
+
+/* Single full-width column: every panel spans the page, left to right. */
+.wrap{padding:14px 32px 40px;display:flex;flex-direction:column}
+/* Profiles table (left) beside the fit plot (right) in one row, so a profile
+   can be picked and its fit seen side by side. Stacks on a narrow window. */
+.fitrow{display:grid;grid-template-columns:minmax(300px,380px) minmax(0,1fr);
+  gap:14px;align-items:stretch}
+.fitrow>.card{margin-bottom:14px}
+/* Left (profiles) card fills the row's full height so its table matches the fit
+   figure's height — the table grows and scrolls instead of being capped short. */
+.fitrow>.card:first-child{display:flex;flex-direction:column}
+.fitrow>.card:first-child .tablewrap{flex:1;max-height:none}
+/* Right (fit) card: the plot grows to fill the card instead of a fixed 340px
+   box, so there is no dead grey space below the figure. drawPlot() measures the
+   available height. */
+.fitrow>.card:last-child{display:flex;flex-direction:column}
+.fitrow>.card:last-child .plotwrap{flex:1;min-height:300px;display:flex;flex-direction:column}
+.fitrow>.card:last-child #plot{flex:1;height:auto}
+@media (max-width:1100px){.fitrow{grid-template-columns:1fr}
+  .fitrow>.card:first-child .tablewrap{max-height:340px}
+  .fitrow>.card:last-child .plotwrap{min-height:380px}}
 
 /* collapsible cards — the log and the setup form do not need to be open all day */
 .fold>.card-hd{cursor:pointer;user-select:none}
 .fold>.card-hd .chev{transition:transform .15s;display:inline-block;color:var(--muted)}
 .fold.shut>.card-hd .chev{transform:rotate(-90deg)}
 .fold.shut>.foldbody{display:none}
+/* Method details & maths explainer */
+.mblk{margin-bottom:12px}
+.mblk:last-child{margin-bottom:0}
+.mhd{font-size:var(--fs-xs);font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--accent);margin-bottom:5px}
+.mblk p{margin:0 0 6px;font-size:var(--fs-sm);line-height:1.5;color:var(--muted)}
+.mblk .eq{font-family:var(--mono);font-size:var(--fs-sm);color:var(--text);
+  background:var(--surface2);border:1px solid var(--border);border-radius:6px;
+  padding:6px 9px;overflow-x:auto;white-space:nowrap;margin:0 0 6px}
+.mintro{font-size:var(--fs-sm);line-height:1.5;color:var(--text);margin:0 0 10px}
+.mblk p.note, .mlist .note{font-size:var(--fs-xs);color:var(--faint);font-style:italic}
+.mlist{margin:0;padding-left:18px}
+.mlist li{font-size:var(--fs-sm);line-height:1.5;color:var(--muted);margin-bottom:7px}
+.mlist li:last-child{margin-bottom:0}
+.mlist .note{display:block;margin-top:2px}
+.advtoggle{margin-top:10px;background:none;border:none;color:var(--accent);cursor:pointer;
+  font-size:var(--fs-sm);font-weight:600;padding:2px 0}
+.advtoggle:hover{text-decoration:underline}
 
 /* ── KPI tiles ───────────────────────────────────────────────────────────── */
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:8px;margin:4px 0 11px}
@@ -84,7 +166,7 @@ input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 
 .bar{height:7px;border-radius:999px;background:var(--surface2);overflow:hidden;margin:8px 0 4px}
 .bar i{display:block;height:100%;background:var(--accent);width:0;transition:width .3s}
 .bar.done i{background:var(--ok)}
-#spark{display:block;width:100%;height:92px;background:var(--surface2);border-radius:8px}
+#spark{display:block;width:100%;height:96px;background:var(--surface2);border-radius:8px}
 
 /* ── results table ───────────────────────────────────────────────────────── */
 table{width:100%;border-collapse:collapse;font-size:var(--fs-sm)}
@@ -102,7 +184,7 @@ tbody tr.sel{background:var(--surface2);box-shadow:inset 3px 0 0 var(--accent)}
 .tablewrap th:nth-child(3){width:14%} .tablewrap th:nth-child(4){width:13%}
 td.name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .badge{display:inline-block;padding:1px 8px;border-radius:999px;font-size:var(--fs-xs);font-weight:700}
-.b-hi{background:#1f3a29;color:#4ade80}.b-mid{background:#3a3120;color:#d8a657}.b-lo{background:#3a3d44;color:#c9ced6}
+.b-hi{background:var(--ok-lt);color:var(--ok-text)}.b-mid{background:var(--warn-lt);color:var(--warn-text)}.b-lo{background:var(--surface2);color:var(--muted)}
 /* a long campaign produces hundreds of rows — contain them instead of letting
    the page grow to thousands of pixels (that scroll cost is felt as "lag" too) */
 .tablewrap{max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:8px}
@@ -178,200 +260,327 @@ td.name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
    tools/build_icon_sprite.py. */
 .app-mark { width:26px; height:26px; flex-shrink:0; color:var(--swaxs-autofit); }
 .app-lockup { display:flex; align-items:center; gap:10px; min-width:0 }
+.acqbox { margin-top:6px; padding:7px 9px; border:1px solid var(--border);
+          border-radius:7px; background:var(--panel2,rgba(127,127,127,.06));
+          font-size:var(--fs-xs); line-height:1.5 }
+.acqbox .acqf { display:block; margin-top:3px; padding:4px 6px; border-radius:5px;
+          background:rgba(127,127,127,.12); font-family:var(--mono);
+          font-size:var(--fs-xs); white-space:normal; word-break:break-word; color:var(--text) }
+.acqbox .acqp { margin-top:3px; color:var(--muted,#8a93a3) }
+/* Setup is one top-to-bottom flow of numbered steps (goal → spec → methods). */
+.step { padding:12px 0; border-top:1px solid var(--border) }
+.step:first-of-type { border-top:0; padding-top:4px }
+.step-h { font-size:var(--fs-sm); font-weight:700; color:var(--text);
+          margin-bottom:8px; display:flex; align-items:center; gap:8px }
+.step-n { display:inline-flex; align-items:center; justify-content:center;
+          width:1.4em; height:1.4em; border-radius:50%; font-size:var(--fs-xs);
+          background:var(--swaxs-autofit,#7c6cf0); color:#fff; flex-shrink:0 }
+.step-sub { font-weight:400; color:var(--muted,#8a93a3) }
+/* Setup: form (left) beside live progress + score reference (right) on a wide
+   screen; one stacked column when narrow. The side column sticks while the form
+   scrolls. Cards already carry their own bottom margin. */
+.setup-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,380px);
+  gap:16px;align-items:start}
+.setup-side{position:sticky;top:64px}
+@media (max-width:1000px){ .setup-grid{grid-template-columns:1fr} .setup-side{position:static} }
 </style></head>
 <body>
 {% include "_icon_sprite.svg" %}
+{% include "_icon_helpers.html" %}
 <div class="topbar">
   <div class="app-lockup">
     {% include "_app_mark.svg" %}
-    <h1>Auto-Fit &amp; <span>Optimiser</span></h1>
+    <h1>Autonomous <span>Analyser</span></h1>
   </div>
-  <span class="sub">Port 5107 · <a href="http://localhost:5100">← Hub</a></span>
-  <span class="hd-right" style="margin-left:auto">
-    <button class="theme-toggle" id="themeBtn" onclick="toggleTheme()" title="Toggle light / dark">☾</button>
-  </span>
+  <span class="pill" id="p_conn"><i class="led"></i><span>connecting…</span></span>
+  <div class="bar-extras">
+    <span class="pill" id="p_camp"><i class="led"></i><span>campaign idle</span></span>
+    <span class="pill" id="p_count">0 profiles fitted</span>
+    <span class="pill" id="p_best">best n/a</span>
+  </div>
+  <span class="proj" id="barProject" title="Project folder">No project selected</span>
+  <button class="theme-toggle" id="themeBtn" onclick="toggleTheme()" title="Light or dark theme"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-moon"/></svg></button>
+  <span class="topbar-sub">Port 5107 · <a href="http://localhost:5100">← Hub</a></span>
 </div>
 
 <div class="restart-banner" id="restartBanner">
-  <span class="rb-x" onclick="this.parentElement.classList.remove('show')"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-close"/></svg></span>
+  <span class="rb-x" onclick="this.parentElement.classList.remove('show')"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-close"/></svg></span>
   <span id="restartBannerMsg"></span>
 </div>
 
-<!-- The whole state of the loop in one strip. Before this you had to read four
-     separate cards to answer "is it running and is it working?" -->
-<div class="statusbar">
-  <span class="pill" id="p_conn"><i class="led"></i><span>connecting…</span></span>
-  <span class="pill" id="p_camp"><i class="led"></i><span>campaign idle</span></span>
-  <span class="pill" id="p_count">— profiles fitted</span>
-  <span class="pill" id="p_best">best —</span>
-  <span class="pill path" id="p_watch" title="watched folder">watching…</span>
+
+<div class="toptabbar">
+  <button class="toptab active" data-tab="setup"   onclick="showTab('setup')">Setup</button>
+  <button class="toptab"        data-tab="fitting" onclick="showTab('fitting')">Fitting</button>
+  <button class="toptab"        data-tab="report"  onclick="showTab('report')">Report</button>
 </div>
 
 <div class="wrap">
-  <!-- ══ left: control ══════════════════════════════════════════════════ -->
-  <div>
+  <!-- ══ TAB: Setup — watched folder, campaign, method selection ══════════ -->
+  <!-- Two columns on a wide screen: the FORM you fill (folder + campaign steps)
+       on the left, the LIVE PROGRESS + score reference on the right, so the width
+       is used and the page is short. Stacks to one column when narrow. -->
+  <section class="page active" id="page-setup">
+   <div class="setup-grid">
+    <div class="setup-main">
     <div class="card fold" id="fold-setup">
       <div class="card-hd" onclick="toggleFold('fold-setup')">
-        <span class="chev">▾</span> <svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg> Watched folder
+        <span class="chev">▾</span> <svg class="ico" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg> Watched folder
         <span class="hd-right sub" id="setupHint"></span>
       </div>
       <div class="foldbody">
-        <div class="row">
-          <div style="flex:1"><label>Folder (relative to the project, or absolute)</label>
-            <input id="folder" placeholder="1D/SAXS/Subtracted"></div>
-          <button class="btn btn-accent" onclick="setFolder()">Set</button>
+        <div class="path-row">
+          <label for="folder">Folder</label>
+          <div class="browse-row">
+            <input id="folder" placeholder="1D/SAXS/Subtracted" title="Project relative or absolute">
+            <button type="button" class="btn btn-ghost btn-sm" onclick="swaxsBrowse('folder')">Browse…</button>
+            <button class="btn btn-accent" onclick="setFolder()">Set</button>
+          </div>
         </div>
         <div class="sub" id="resolved" style="margin-top:6px"></div>
         <div class="sub" style="margin-top:4px">New <b>.dat</b> profiles here are fitted automatically
-          (sphere + Schulz / log-normal). Every result carries a 0–1 confidence.</div>
+          (sphere + Schulz or log-normal), each with a 0 to 1 confidence.</div>
         <div class="row" style="margin-top:8px;align-items:center">
           <button class="btn btn-ghost" id="backfillBtn" onclick="analyzeExisting()"
-                  title="Fit previously-collected profiles that were never analysed. Runs in the background, oldest first, and yields to any live run.">
-            <svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-start"/></svg>
+                  title="Fit older profiles that were never analysed. Runs in the background, oldest first, and yields to live runs.">
+            <svg class="ico" aria-hidden="true"><use href="#swaxs-ui-start"/></svg>
             Analyse existing profiles</button>
           <span class="sub" id="backfillHint" style="margin-left:8px"></span>
         </div>
-        <div class="sub" style="margin-top:4px">Use this once when you point the analyzer at a folder of
-          <b>previously collected</b> data: the live watcher only fits new profiles, so old, never-fit
-          ones need this backfill. It does not drive the optimizer.</div>
+        <div class="sub" style="margin-top:4px">Use once on a folder of <b>previously collected</b> data:
+          the live watcher only fits new profiles. It does not drive the optimiser.</div>
       </div>
     </div>
 
     <div class="card">
-      <div class="card-hd">🔁 Closed-loop campaign
+      <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-mode-autonomous"/></svg> Closed-loop campaign
         <span class="hd-right sub" id="c_badge"></span>
       </div>
-      <div class="grid2">
-        <div><label>Target radius (nm)</label><input id="c_target" type="number" value="5" step="0.1" min="0.1"></div>
-        <div><label>Tolerance ± (nm)</label><input id="c_tol" type="number" value="0.3" step="0.05" min="0.01"></div>
-        <div><label>PDI cap</label><input id="c_pdi" type="number" value="0.15" step="0.01" min="0.001"></div>
-        <div><label>Run budget</label><input id="c_budget" type="number" value="25" step="1" min="1"></div>
+      <!-- One logical flow, top to bottom: choose the GOAL, set the TARGET & LIMITS
+           (size inputs adapt to the goal), choose HOW it fits & searches (the
+           strategy list is filtered to the goal), then Start. No Advanced split. -->
+
+      <!-- STEP 1 — goal -->
+      <div class="step">
+        <div class="step-h"><span class="step-n">1</span> Campaign goal <span class="step-sub">(what should the loop achieve?)</span></div>
+        <div class="viewtabs" id="c_goal" style="margin-bottom:4px">
+          <button data-goal="target-hit" class="on" onclick="setGoal('target-hit')">Target-hit</button>
+          <button data-goal="level-set" onclick="setGoal('level-set')">Level-set</button>
+          <button data-goal="pareto" onclick="setGoal('pareto')">Size-PDI Pareto</button>
+          <button data-goal="benchmark" onclick="setGoal('benchmark')">BAX vs BO</button>
+        </div>
+        <div class="sub" id="c_goal_desc" style="line-height:1.45"></div>
       </div>
-      <div class="btn-row">
-        <button class="btn btn-accent" id="c_start" onclick="startCampaign()"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-start"/></svg> Start campaign</button>
+
+      <!-- STEP 2 — target & limits (size inputs adapt to the goal) -->
+      <div class="step">
+        <div class="step-h"><span class="step-n">2</span> Target &amp; limits <span class="step-sub">(the spec the loop aims for)</span></div>
+        <div class="grid2">
+          <div id="grp_target" title="Target particle diameter you want the loop to hit">
+            <label>Target diameter (nm)</label>
+            <input id="c_target" type="number" value="5" step="0.1" min="0.2" max="100" oninput="echoSpec()"></div>
+          <div id="grp_tol" title="How close counts as a hit, in diameter (±)">
+            <label>Tolerance ± (nm)</label>
+            <input id="c_tol" type="number" value="0.6" step="0.05" min="0.02" oninput="echoSpec()"></div>
+          <div id="grp_dmin" style="display:none" title="Smallest diameter to map">
+            <label>Min diameter (nm)</label>
+            <input id="c_dmin" type="number" value="2" step="0.1" min="0.2" max="100" oninput="echoSpec()"></div>
+          <div id="grp_dmax" style="display:none" title="Largest diameter to map">
+            <label>Max diameter (nm)</label>
+            <input id="c_dmax" type="number" value="10" step="0.1" min="0.3" max="100" oninput="echoSpec()"></div>
+          <div><label title="Largest acceptable polydispersity (size spread), 0 to 1">Max PDI (spread)</label>
+            <input id="c_pdi" type="number" value="0.1" step="0.01" min="0.001" max="1"></div>
+          <div><label title="Max number of autonomous experiments before stopping">Max experiments</label>
+            <input id="c_budget" type="number" value="30" step="1" min="1" max="500"></div>
+        </div>
+        <div class="sub" id="c_spec_note" style="margin-top:4px"></div>
+      </div>
+
+      <!-- STEP 3 — how it fits & searches (strategy filtered to the goal) -->
+      <div class="step">
+        <div class="step-h"><span class="step-n">3</span> How it fits &amp; searches <span class="step-sub">(how runs are scored and the next is picked)</span></div>
+        <div class="grid2" style="align-items:start">
+          <div><label>Fitting method</label>
+            <select id="m_fitter" onchange="setMethods()" aria-label="fitting method"></select>
+            <div class="sub" id="m_fitter_desc" style="margin-top:5px;line-height:1.45"></div></div>
+          <div id="m_opt_wrap"><label>Search strategy</label>
+            <select id="m_optimiser" onchange="setMethods()" aria-label="search strategy"></select>
+            <div class="sub" id="m_opt_desc" style="margin-top:5px;line-height:1.45"></div></div>
+        </div>
+        <div id="m_opt_params" class="grid2" style="margin-top:8px"></div>
+        <div class="sub" id="m_hint" style="margin-top:6px"></div>
+      </div>
+
+      <div class="btn-row" style="margin-top:8px">
+        <button class="btn btn-accent" id="c_start" onclick="startCampaign()"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-start"/></svg> Start campaign</button>
         <button class="btn btn-ghost" id="c_continue" onclick="continueCampaign()" style="display:none"></button>
-        <button class="btn btn-ghost" id="c_abort" onclick="abortCampaign()" disabled><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-stop"/></svg> Abort</button>
+        <button class="btn btn-ghost" id="c_abort" onclick="abortCampaign()" disabled><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-stop"/></svg> Abort</button>
         <!-- Why Continue is unavailable. A blank space where a button was
              reads as "broken"; the reason reads as "Start a new one". -->
         <span class="hint" id="c_continue_hint"></span>
       </div>
+      <div class="sub" id="c_lock_hint" style="display:none;margin-top:4px"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-lock"/></svg> Campaign running. Spec, goal and methods are locked until it finishes or you Abort.</div>
+    </div>
+    </div><!-- /setup-main -->
+
+    <!-- RIGHT column: live progress + score reference -->
+    <div class="setup-side">
+    <div class="card">
+      <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-mode-autonomous"/></svg> Live progress</div>
       <div class="bar" id="c_bar"><i></i></div>
-      <div class="sub" id="c_status">idle — set a target and start</div>
+      <div class="sub" id="c_status">Idle. Set a target and start.</div>
       <div class="kpis" id="c_kpis" style="display:none">
-        <div class="kpi"><span>best radius</span><b id="k_r">—</b></div>
+        <div class="kpi"><span>Best radius</span><b id="k_r">—</b></div>
         <div class="kpi"><span>Δ to target</span><b id="k_d">—</b></div>
-        <div class="kpi"><span>best PDI</span><b id="k_p">—</b></div>
-        <div class="kpi"><span>runs</span><b id="k_n">—</b></div>
+        <div class="kpi"><span>Best PDI</span><b id="k_p">—</b></div>
+        <div class="kpi"><span>Runs</span><b id="k_n">—</b></div>
       </div>
       <!-- the small chart answers "is it converging?" without opening a figure -->
       <canvas id="spark" style="display:none" role="img"
               aria-label="Measured radius per run against the acceptance band"></canvas>
       <div class="sub" id="sparkNote" style="margin-top:5px"></div>
-      <div class="sub" style="margin-top:6px">Proposes conditions to the reactor's Conditions folder;
-        stops when a confident run hits the band or the budget runs out.</div>
     </div>
 
-    <div class="card">
-      <div class="card-hd">🧬 Analysed profiles
-        <span class="hd-right">
-          <button class="btn btn-ghost btn-sm" onclick="exportCsv()" title="Download the table as CSV">⭳ CSV</button>
-        </span>
+    <div class="card fold shut" id="fold-maths">
+      <div class="card-hd" onclick="toggleFold('fold-maths')">
+        <span class="chev">▾</span> How the score works
       </div>
-      <input id="filter" placeholder="filter by file name — e.g. scan1, recipe id, SAXS"
-             oninput="applyFilter()" style="margin-bottom:8px">
-      <div class="tablewrap" id="tablewrap">
-        <table><thead><tr>
-          <th class="sortable" data-k="name" onclick="setSort('name')">file <span class="arrow"></span></th>
-          <th class="sortable" data-k="radius" onclick="setSort('radius')">R (nm) <span class="arrow"></span></th>
-          <th class="sortable" data-k="pdi" onclick="setSort('pdi')">PDI <span class="arrow"></span></th>
-          <th class="sortable" data-k="confidence" onclick="setSort('confidence')">conf <span class="arrow"></span></th>
-          <th>phase</th>
-        </tr></thead>
-        <tbody id="rows"><tr><td colspan="5" class="sub">waiting for profiles…</td></tr></tbody></table>
-      </div>
-      <div class="rowsnote"><span id="rowsnote"></span>
-        <span class="sub" style="margin-left:auto"><kbd>↑</kbd><kbd>↓</kbd> step through fits</span>
+      <div class="foldbody">
+        <p class="mintro">Each measured recipe gets one score (lower is better): distance from
+          the target size plus a spread penalty. The strategy uses it to pick the next recipe
+          (see Acquisition under Search strategy).</p>
+        <ul class="mlist">
+          <li><b>Score</b> (size error plus spread); one tolerance off the target counts as 1.
+            <span class="note">score = ((R−R<sub>t</sub>)/tol)² + w·(PDI/cap); You enter a diameter; R<sub>t</sub> = diameter/2.</span></li>
+        </ul>
       </div>
     </div>
+    </div><!-- /setup-side -->
+   </div><!-- /setup-grid -->
+  </section>
 
-    <div class="card fold" id="fold-log">
-      <div class="card-hd" onclick="toggleFold('fold-log')">
-        <span class="chev">▾</span> <svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-log"/></svg> Log
-        <span class="hd-right sub" id="logHint"></span>
-      </div>
-      <div class="foldbody"><div class="log" id="log"></div></div>
-    </div>
-  </div>
-
-  <!-- ══ right: the science ═════════════════════════════════════════════ -->
-  <div>
-    <div class="card">
-      <div class="card-hd">📈 Fit — <span id="selName" class="sub">select a profile</span></div>
-      <div class="kpis">
-        <div class="kpi"><span>radius</span><b id="n-r">—</b></div>
-        <div class="kpi"><span>diameter</span><b id="n-d">—</b></div>
-        <div class="kpi"><span>PDI</span><b id="n-pdi">—</b></div>
-        <div class="kpi"><span>confidence</span><b id="n-conf">—</b></div>
-        <div class="kpi"><span>R<sub>g</sub> (Guinier)</span><b id="n-rg">—</b></div>
-        <div class="kpi"><span>invariant (rel)</span><b id="n-inv">—</b></div>
-        <div class="kpi"><span>phase</span><b id="n-phase">—</b></div>
-      </div>
-      <div class="plottools">
-        <div class="scalebar" id="scalebar">
-          <button data-scale="loglog"  onclick="setScale('loglog')"  title="log I vs log q — the standard SAXS view; power laws are straight lines">log–log</button>
-          <button data-scale="semilogy" onclick="setScale('semilogy')" title="log I vs linear q — shows the high-q decay clearly">semilog Y</button>
-          <button data-scale="semilogx" onclick="setScale('semilogx')" title="linear I vs log q">semilog X</button>
-          <button data-scale="linear"  onclick="setScale('linear')"  title="linear both — useful for a single dominant feature">linear</button>
-          <button data-scale="guinier" onclick="setScale('guinier')" title="ln I vs q² — a straight line confirms the Guinier region and gives Rg">Guinier</button>
+  <!-- ══ TAB: Fitting — profiles table (left) beside the fit plot (right) ══ -->
+  <section class="page" id="page-fitting">
+    <div class="fitrow">
+      <div class="card">
+        <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-analysis"/></svg> Analysed profiles
+          <span class="hd-right">
+            <button class="btn btn-ghost btn-sm" onclick="exportCsv()" title="Download the table as CSV"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-download"/></svg> CSV</button>
+          </span>
         </div>
-        <label><input type="checkbox" id="showResid" checked onchange="redraw()" style="width:auto"> residuals</label>
-        <label><input type="checkbox" id="showErr" onchange="redraw()" style="width:auto"> error bars</label>
+        <input id="filter" placeholder="Filter by file name (e.g. scan1, recipe ID, SAXS)"
+               oninput="applyFilter()" style="margin-bottom:8px">
+        <div class="tablewrap" id="tablewrap">
+          <table><thead><tr>
+            <th class="sortable" data-k="name" onclick="setSort('name')">File <span class="arrow"></span></th>
+            <th class="sortable" data-k="radius" onclick="setSort('radius')">R (nm) <span class="arrow"></span></th>
+            <th class="sortable" data-k="pdi" onclick="setSort('pdi')">PDI <span class="arrow"></span></th>
+            <th class="sortable" data-k="confidence" onclick="setSort('confidence')">Conf. <span class="arrow"></span></th>
+            <th>Phase</th>
+          </tr></thead>
+          <tbody id="rows"><tr><td colspan="5" class="sub">Waiting for profiles…</td></tr></tbody></table>
+        </div>
+        <div class="rowsnote"><span id="rowsnote"></span>
+          <span class="sub" style="margin-left:auto"><kbd>↑</kbd><kbd>↓</kbd> step through fits</span>
+        </div>
       </div>
-      <div class="plotwrap">
-        <canvas id="plot" role="img" aria-label="Measured scattering intensity with the fitted model"></canvas>
-        <canvas id="resid"></canvas>
-        <div id="readout"></div>
-      </div>
-      <div class="legend">
-        <span><span class="dot line" style="background:var(--info)"></span>measured I(q)</span>
-        <span><span class="dot line" style="background:var(--accent)"></span>fitted model</span>
-        <span id="lg-stats" class="sub"></span>
-      </div>
-      <div class="sub" id="llmNote" style="margin-top:8px"></div>
-    </div>
 
+      <div class="card">
+        <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-autofit"/></svg> Fit: <span id="selName" class="sub">select a profile</span></div>
+        <div class="kpis">
+          <div class="kpi"><span>Radius</span><b id="n-r">—</b></div>
+          <div class="kpi"><span>Diameter</span><b id="n-d">—</b></div>
+          <div class="kpi"><span>PDI</span><b id="n-pdi">—</b></div>
+          <div class="kpi"><span>Confidence</span><b id="n-conf">—</b></div>
+          <div class="kpi"><span>R<sub>g</sub> (Guinier)</span><b id="n-rg">—</b></div>
+          <div class="kpi"><span>Invariant (rel.)</span><b id="n-inv">—</b></div>
+          <div class="kpi"><span>Phase</span><b id="n-phase">—</b></div>
+        </div>
+        <div class="plottools">
+          <div class="scalebar" id="scalebar">
+            <button data-scale="loglog"  onclick="setScale('loglog')"  title="Log I vs log q, the standard SAXS view; power laws are straight lines">Log-log</button>
+            <button data-scale="semilogy" onclick="setScale('semilogy')" title="Log I vs linear q; shows the high-q decay clearly">Semilog Y</button>
+            <button data-scale="semilogx" onclick="setScale('semilogx')" title="Linear I vs log q">Semilog X</button>
+            <button data-scale="linear"  onclick="setScale('linear')"  title="Both axes linear; useful for one dominant feature">Linear</button>
+            <button data-scale="guinier" onclick="setScale('guinier')" title="ln I vs q²; a straight line confirms the Guinier region and gives Rg">Guinier</button>
+          </div>
+          <label><input type="checkbox" id="showResid" checked onchange="redraw()" style="width:auto"> Residuals</label>
+          <label><input type="checkbox" id="showErr" onchange="redraw()" style="width:auto"> Error bars</label>
+        </div>
+        <div class="plotwrap">
+          <canvas id="plot" role="img" aria-label="Measured scattering intensity with the fitted model"></canvas>
+          <canvas id="resid"></canvas>
+          <div id="readout"></div>
+        </div>
+        <div class="legend">
+          <span><span class="dot line" style="background:var(--info)"></span>Measured I(q)</span>
+          <span><span class="dot line" style="background:var(--accent)"></span>Fitted model</span>
+          <span id="lg-stats" class="sub"></span>
+        </div>
+        <div class="sub" id="llmNote" style="margin-top:8px"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ TAB: Report — convergence / parameter space, plus the live log ═══ -->
+  <section class="page" id="page-report">
     <div class="card pspace">
-      <div class="card-hd">🗺 Parameter space &amp; convergence
+      <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-visualisation"/></svg> Parameter space &amp; convergence
         <span class="hd-right">
-          <button class="btn btn-ghost btn-sm" onclick="psLoad(true)" title="Re-render from the current campaign">⟳</button>
+          <button class="btn btn-ghost btn-sm" onclick="psLoad(true)" title="Refresh from the current campaign">⟳</button>
         </span>
       </div>
       <div class="selrow">
         <div class="viewtabs" id="ps_tabs">
           <button data-view="slice" onclick="psView('slice')"
-                  title="GP posterior mean, uncertainty, acquisition, and the predicted-size contour">surrogate</button>
+                  title="GP posterior mean, uncertainty, acquisition, and the predicted-size contour">Surrogate</button>
           <button data-view="convergence" onclick="psView('convergence')"
-                  title="Best-so-far loss, size vs the acceptance band, PDI vs cap, uncertainty decay">convergence</button>
+                  title="Best-so-far loss, size vs the acceptance band, PDI vs cap, uncertainty decay">Convergence</button>
           <button data-view="trajectory" onclick="psView('trajectory')"
-                  title="Every recipe tried, and whether the search narrowed">trajectory</button>
+                  title="Every recipe tried, and whether the search narrowed">Trajectory</button>
+          <button data-view="levelset" onclick="psView('levelset')"
+                  title="Level-set goal: the region of recipes predicted to meet the spec">Level set</button>
+          <button data-view="pareto" onclick="psView('pareto')"
+                  title="Pareto goal: the best achievable size-PDI trade-off">Pareto</button>
         </div>
         <span id="ps_axes" style="display:flex;gap:8px;align-items:center">
           <select id="ps_x" onchange="psLoad()" aria-label="slice x axis"></select>
           <span class="sub">vs</span>
           <select id="ps_y" onchange="psLoad()" aria-label="slice y axis"></select>
           <select id="ps_anchor" onchange="psLoad()" aria-label="slice anchor">
-            <option value="best">through the best recipe</option>
-            <option value="mid">through the box centre</option>
+            <option value="best">Through best recipe</option>
+            <option value="mid">Through box centre</option>
           </select>
         </span>
       </div>
       <div id="ps_wrap"><div class="ph" id="ps_ph">Start a campaign to see where the loop predicts
         the next measurement, and how that prediction converges.</div></div>
       <div class="diag" id="ps_diag"></div>
-      <div class="sub" style="margin-top:8px">Read-only — opening this panel cannot change the next
-        proposed recipe. Click a figure to enlarge. Reading guide:
+      <div class="sub" style="margin-top:8px">Read-only: viewing never changes the next recipe.
+        Click a figure to enlarge. Guide:
         <b>docs/PARAMETER_SPACE_AND_CONVERGENCE.md</b></div>
     </div>
+
+    <div class="card">
+      <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-quality"/></svg> Method comparison (in silico)
+        <span class="hd-right"><button class="btn btn-accent btn-sm" id="studyBtn" onclick="runStudy()">Run comparison</button></span>
+      </div>
+      <div class="sub" style="margin-bottom:8px">Races the selected optimisers on the ground-truth
+        simulator (same recipes, same loss) to compare sample efficiency. Simulation only; the
+        reactor and live runs are untouched.</div>
+      <div id="studyMethods" class="row" style="gap:14px;margin-bottom:8px"></div>
+      <div id="studyWrap"><div class="ph" id="studyPh" style="min-height:160px;display:flex;align-items:center;justify-content:center;color:var(--muted)">Pick optimisers and run a comparison.</div></div>
+      <div class="sub" id="studyNote" style="margin-top:6px"></div>
+    </div>
+  </section>
+
+  <!-- ══ Log — OUTSIDE the tab pages, so it stays visible on every tab ════ -->
+  <div class="card fold" id="fold-log" style="margin-top:4px">
+    <div class="card-hd" onclick="toggleFold('fold-log')">
+      <span class="chev">▾</span> <svg class="ico" aria-hidden="true"><use href="#swaxs-ui-log"/></svg> Log
+      <span class="hd-right sub" id="logHint"></span>
+    </div>
+    <div class="foldbody"><div class="log" id="log"></div></div>
   </div>
 </div>
 
@@ -408,8 +617,9 @@ function toggleFold(id, force){
   el.classList.toggle('shut', shut);
   try{ localStorage.setItem('swaxs-an-'+id, shut?'1':'0'); }catch(_){}
 }
-['fold-setup','fold-log'].forEach(id=>{
-  try{ if(localStorage.getItem('swaxs-an-'+id)==='1') toggleFold(id,true); }catch(_){}
+['fold-setup','fold-log','fold-maths'].forEach(id=>{
+  // fold-maths defaults collapsed (class shut in markup); the others default open
+  try{ const v=localStorage.getItem('swaxs-an-'+id); if(v==='1') toggleFold(id,true); else if(v==='0') toggleFold(id,false); }catch(_){}
 });
 
 /* ── status strip ────────────────────────────────────────────────────────── */
@@ -455,7 +665,7 @@ function paintTable(){
   const tb=$('rows'), want=visibleRows();
   if(!want.length){
     tb.innerHTML = '<tr><td colspan="5" class="sub">' +
-      (_rows.size ? 'no file matches “'+_filter+'”' : 'waiting for profiles…') + '</td></tr>';
+      (_rows.size ? 'No file matches “'+_filter+'”' : 'Waiting for profiles…') + '</td></tr>';
     _rowEls.clear(); rowsNote(); return;
   }
   const keep=new Set(want.map(r=>r.name));
@@ -495,7 +705,7 @@ function rowsNote(total){
   const t=rowsNote._total||_rows.size, shown=_rowEls.size;
   el.textContent = _filter
     ? `${shown} of ${_rows.size} shown · filter “${_filter}”`
-    : (t>shown ? `showing the ${shown} most recent of ${t} this session`
+    : (t>shown ? `Showing the ${shown} most recent of ${t} this session`
                : (shown ? `${shown} profile${shown===1?'':'s'} analysed` : ''));
 }
 
@@ -543,7 +753,7 @@ async function select(name){
   _sel=name;
   document.querySelectorAll('#rows tr').forEach(t=>t.classList.toggle('sel',t.dataset.n===name));
   const d=await api('/api/result/'+encodeURIComponent(name));
-  if(d.error){ $('selName').textContent=name+' — could not load ('+d.error+')'; return; }
+  if(d.error){ $('selName').textContent=name+': could not load ('+d.error+')'; return; }
   const s=d.summary;
   $('selName').textContent=name;
   $('n-r').textContent=s.radius!=null?s.radius+' nm':'—';
@@ -553,8 +763,8 @@ async function select(name){
   $('n-phase').textContent=(d.full.phase&&d.full.phase.phase)||'—';
   $('n-rg').textContent=s.guinier_rg!=null?s.guinier_rg+' nm':'—';
   $('n-inv').textContent=s.invariant_rel??'—';
-  const llm=d.full.llm||{}; const note=[llm.summary,(llm.flags||[]).join(', ')].filter(Boolean).join(' — ');
-  $('llmNote').textContent = note ? ('🧠 '+note) : '';
+  const llm=d.full.llm||{}; const note=[llm.summary,(llm.flags||[]).join(', ')].filter(Boolean).join('; ');
+  if(note) setIco($('llmNote'),'ai',note); else $('llmNote').textContent = '';
   _lastPlot=d.plot; drawPlot(d.plot);
 }
 /* ── fit plot ──────────────────────────────────────────────────────────────
@@ -614,7 +824,13 @@ let _px = null;   // last pixel mapping, for the hover readout
 function drawPlot(p){
   if(!p) return; _lastPlot = p;
   const showR = $('showResid').checked && p.model;
-  const { ctx, W, H } = fitCanvas($('plot'), showR ? 300 : 340);
+  // Fill the plot card's available height (it stretches to the profiles table)
+  // rather than a fixed box, so the figure has no dead grey space. Fall back to
+  // the old fixed heights when the wrap hasn't been laid out (or is unstretched).
+  const wrap = $('plot').parentElement;          // .plotwrap
+  const avail = (wrap.clientHeight || 0) - 8 - (showR ? 80 : 0);
+  const plotH = avail > 220 ? avail : (showR ? 300 : 340);
+  const { ctx, W, H } = fitCanvas($('plot'), plotH);
   const m = axisMap(_scale);
   const cGrid = cssv('--border'), cAxis = cssv('--border-strong'),
         cText = cssv('--muted'), cData = cssv('--info'), cModel = cssv('--accent');
@@ -636,7 +852,7 @@ function drawPlot(p){
   }
   if(!pts.length){
     ctx.fillStyle = cText; ctx.font = '13px system-ui';
-    ctx.fillText('no positive points for this scale', L, H / 2);
+    ctx.fillText('No positive points for this scale', L, H / 2);
     _px = null; return;
   }
 
@@ -765,7 +981,7 @@ function drawResiduals(p, show, sxOuter, x0, x1, L, R){
   ctx.fillText('+' + fmt(lim), L - 8, sy(lim));
   ctx.fillText('0', L - 8, sy(0));
   ctx.textAlign = 'left';
-  ctx.fillText('residual (' + unit + ')', L + 6, T + 8);
+  ctx.fillText('Residual (' + unit + ')', L + 6, T + 8);
 }
 function quantile(a, p){ const b = [...a].sort((x, y) => x - y); return b[Math.min(b.length - 1, Math.floor(p * b.length))]; }
 
@@ -829,39 +1045,226 @@ function logLines(ls){
 async function setFolder(){
   const f=$('folder').value.trim();
   const r=await api('/api/folder',{folder:f});
-  if(r.error){ $('resolved').textContent='could not set the folder: '+r.error; return; }
-  $('resolved').textContent='Watching: '+r.resolved;
+  if(r.error){ $('resolved').textContent='Could not set the folder: '+r.error; return; }
+  $('resolved').textContent=r.resolved?'Watching: '+r.resolved:'';
   setPill('p_watch','', r.resolved);
   $('setupHint').textContent=(r.resolved||'').split('/').slice(-2).join('/');
 }
 
+/* ── top tabs: Setup · Fitting · Report ─────────────────────────────────── */
+function showTab(t){
+  document.querySelectorAll('.toptab').forEach(b=>b.classList.toggle('active', b.dataset.tab===t));
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  const pg=$('page-'+t); if(pg) pg.classList.add('active');
+  try{ localStorage.setItem('swaxs-an-tab', t); }catch(_){}
+  // Canvases laid out while hidden have zero size; refit on reveal.
+  if(t==='fitting') setTimeout(redraw, 0);
+  if(t==='report')  setTimeout(()=>psLoad(), 0);
+}
+
+/* ── method selection (fitting + optimiser) ─────────────────────────────── */
+let _methodData={fitters:[], optimisers:[], goals:{}};
+function _fillMethodSelect(sel, methods, active){
+  sel.innerHTML='';
+  methods.forEach(m=>{
+    const o=document.createElement('option');
+    o.value=m.id; o.textContent=m.label + (m.ready?'':' (soon)');
+    if(!m.ready) o.disabled=true;
+    if(m.id===active) o.selected=true;
+    sel.appendChild(o);
+  });
+}
+function _descFor(list, id){ const m=(list||[]).find(x=>x.id===id); return m?m.desc||'':''; }
+function _methodFor(list, id){ return (list||[]).find(x=>x.id===id)||{}; }
+function renderOptParams(){
+  const m=_methodFor(_methodData.optimisers, $('m_optimiser').value);
+  const box=$('m_opt_params'); box.innerHTML='';
+  (m.params||[]).forEach(p=>{
+    const d=document.createElement('div');
+    d.innerHTML=`<label title="${p.help||''}">${p.label}</label>`
+      +`<input id="mp_${p.key}" type="number" value="${p.default}" `
+      +`step="${p.step||'any'}" ${p.min!=null?`min="${p.min}"`:''} ${p.max!=null?`max="${p.max}"`:''}>`;
+    box.appendChild(d);
+  });
+}
+function collectOptParams(){
+  const m=_methodFor(_methodData.optimisers, $('m_optimiser').value);
+  const out={};
+  (m.params||[]).forEach(p=>{ const el=$('mp_'+p.key); if(el&&el.value!=='') out[p.key]=+el.value; });
+  return out;
+}
+function updateMethodDescs(){
+  $('m_fitter_desc').textContent=_descFor(_methodData.fitters, $('m_fitter').value);
+  // Strategy: plain-language description PLUS its acquisition function (the rule
+  // it maximises to pick the next recipe), so the maths is explicit per strategy.
+  const m=_methodFor(_methodData.optimisers, $('m_optimiser').value);
+  const a=m.acq||{};
+  const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  let html=esc(m.desc||'');
+  if(a.name){
+    html+=`<div class="acqbox"><div><b>Acquisition:</b> ${esc(a.name)}</div>`
+        + (a.formula?`<code class="acqf">${esc(a.formula)}</code>`:'')
+        + (a.picks?`<div class="acqp">↳ picks ${esc(a.picks)}</div>`:'')
+        + `</div>`;
+  }
+  $('m_opt_desc').innerHTML=html;
+  renderOptParams();
+}
+async function loadMethods(){
+  const r=await api('/api/methods');
+  // An error or a partial reply (older server, endpoint down) must not throw:
+  // this runs during page start-up, and an exception here stops the rest of init.
+  if(!r || r.error || !Array.isArray(r.fitters) || !Array.isArray(r.optimisers)) return;
+  r.active = r.active || {};
+  _methodData={fitters:r.fitters, optimisers:r.optimisers, goals:r.goals||{}};
+  _fillMethodSelect($('m_fitter'), r.fitters, r.active.fitter);
+  // The strategy dropdown is filtered to the current goal (goal-first design),
+  // so fill it through the goal filter rather than with the whole list.
+  applyGoalStrategies(r.active.optimiser);
+  updateMethodDescs();
+}
+
+/* Show only the search strategies valid for the current goal, preselect the
+   goal's default (or `keep` if still valid), and hide the whole strategy row
+   when the goal allows just one — there's nothing to choose. */
+function applyGoalStrategies(keep){
+  const g=_goal, info=(_methodData.goals||{})[g];
+  const all=_methodData.optimisers||[];
+  const ids=info?info.methods:all.map(m=>m.id);
+  const list=all.filter(m=>ids.includes(m.id));
+  const want=(keep && ids.includes(keep)) ? keep : (info?info.default:(list[0]||{}).id);
+  _fillMethodSelect($('m_optimiser'), list, want);
+  // Always show the picker — even when a goal has just one valid strategy today
+  // (BAX for level-set, EHVI for pareto). Keeping it visible makes the choice
+  // explicit and leaves an obvious place to add more strategies per goal later.
+  const wrap=$('m_opt_wrap');
+  if(wrap) wrap.style.display = '';
+}
+async function setMethods(){
+  updateMethodDescs();
+  const r=await api('/api/methods',{fitter:$('m_fitter').value, optimiser:$('m_optimiser').value});
+  if(r.error){ $('m_hint').textContent='✗ '+r.error; await loadMethods(); return; }
+  $('m_hint').textContent='Active fitter: '+r.active.fitter+' · strategy: '+r.active.optimiser;
+}
+
+/* ── in-silico method comparison (Report tab) ───────────────────────────── */
+async function loadStudyMethods(){
+  const r=await api('/api/methods');
+  if(!r || r.error || !Array.isArray(r.optimisers)) return;
+  const box=$('studyMethods'); box.innerHTML='';
+  r.optimisers.filter(m=>m.ready).forEach((m,i)=>{
+    const id='study_'+m.id;
+    const lbl=document.createElement('label');
+    lbl.style.cssText='display:flex;gap:6px;align-items:center;font-size:var(--fs-sm);color:var(--text)';
+    lbl.innerHTML=`<input type="checkbox" id="${id}" value="${m.id}" ${i<3?'checked':''} style="width:auto"> ${m.label}`;
+    box.appendChild(lbl);
+  });
+}
+async function runStudy(){
+  const ids=[...document.querySelectorAll('#studyMethods input:checked')].map(c=>c.value);
+  const btn=$('studyBtn'), note=$('studyNote');
+  if(!ids.length){ note.textContent='Pick at least one optimiser.'; return; }
+  btn.setAttribute('disabled',''); note.textContent='Running '+ids.length+' method(s) on the simulator…';
+  const r=await api('/api/study',{methods:ids, repeats:3});
+  btn.removeAttribute('disabled');
+  if(r.error||r.ok===false){ note.textContent='✗ '+(r.error||'Comparison failed'); return; }
+  $('studyWrap').innerHTML='<img src="/api/study/plot.png?t='+Date.now()+'" alt="method comparison" style="width:100%;border-radius:8px;cursor:zoom-in" onclick="lightboxSrc(this.src)">';
+  const parts=Object.entries(r.summary).map(([k,v])=>{
+    const best=v.runs.map(x=>x.best.size).filter(x=>x!=null);
+    const conv=v.runs.filter(x=>x.status==='converged').length;
+    return `${v.label}: ${conv}/${v.runs.length} converged`;
+  });
+  note.textContent='Target radius '+r.cfg.target_size+' nm · '+r.repeats+' repeats · '+parts.join('  ·  ');
+}
+function lightboxSrc(src){ const lb=$('lightbox'); $('lbimg').src=src; lb.classList.add('open'); }
+
 async function analyzeExisting(){
   const btn=$('backfillBtn'), hint=$('backfillHint');
   btn.setAttribute('disabled','');
-  hint.textContent='scanning…';
+  hint.textContent='Scanning…';
   const r=await api('/api/analyze_existing',{});
   if(r.error){
-    hint.textContent='could not start backfill: '+r.error;
+    hint.textContent='Could not start backfill: '+r.error;
   }else if(r.ok){
-    hint.textContent='backfill started — '+r.message+'. Watch the live log; results appear in the table.';
+    hint.textContent='Backfill started: '+r.message+'. Results appear in the table and log.';
   }else{
-    hint.textContent=r.message||'nothing to do';
+    hint.textContent=r.message||'Nothing to do.';
   }
   // Re-enable shortly; the backfill runs server-side and reports progress via the log/table.
   setTimeout(()=>btn.removeAttribute('disabled'), 3000);
 }
 
-async function startCampaign(){
-  const body={target_size:+$('c_target').value, tolerance:+$('c_tol').value,
-              pdi_cap:+$('c_pdi').value, budget:+$('c_budget').value};
-  for(const [k,v] of Object.entries(body)){
-    if(!isFinite(v)||v<=0){ $('c_status').textContent='✗ '+k+' must be a positive number'; return; }
+function echoSpec(){
+  const el=$('c_spec_note');
+  if(_goal==='pareto'){
+    const a=+$('c_dmin').value, b=+$('c_dmax').value;
+    if(!(a>0&&b>a)){ el.textContent='Enter a size range with max greater than min.'; return; }
+    el.textContent=`→ maps the best PDI across ${a} to ${b} nm diameter `
+      +`(radius ${(a/2).toFixed(2)} to ${(b/2).toFixed(2)} nm).`;
+    return;
   }
+  const d=+$('c_target').value, t=+$('c_tol').value;
+  if(!(d>0&&t>0)){ el.textContent='Enter a positive diameter and tolerance.'; return; }
+  el.textContent=`→ radius ${(d/2).toFixed(2)} ± ${(t/2).toFixed(2)} nm sent to the optimiser `
+    +`(accepts ${(d-t).toFixed(2)} to ${(d+t).toFixed(2)} nm diameter).`;
+}
+
+let _goal='target-hit';
+const _GOAL_DESC={
+  'target-hit':'Find one recipe inside the spec; stops when a confident run lands in the band (Aim 1a).',
+  'level-set':'Map every recipe that meets the spec, giving robustness margins, not one fragile recipe (Aim 1b). Uses BAX.',
+  'pareto':'Map the best achievable size-PDI trade-off across the range (Aim 1c). Uses EHVI. Pareto scoring is partial.',
+  'benchmark':'Compare BAX vs BO on the same spec. Run it in Report → Method comparison (Aim 1c).'
+};
+async function setGoal(g){
+  _goal=g;
+  document.querySelectorAll('#c_goal button').forEach(b=>b.classList.toggle('on', b.dataset.goal===g));
+  $('c_goal_desc').textContent=_GOAL_DESC[g]||'';
+  // Pareto maps a size RANGE, not a single target → swap the size inputs.
+  const pareto = g==='pareto';
+  $('grp_target').style.display = pareto?'none':'';
+  $('grp_tol').style.display    = pareto?'none':'';
+  $('grp_dmin').style.display   = pareto?'':'none';
+  $('grp_dmax').style.display   = pareto?'':'none';
+  echoSpec();
+  // Goal-first: filter the strategy dropdown to the strategies valid for this
+  // goal, preselecting the default. Keep the current pick if it's still valid
+  // (so switching between target-hit styles doesn't reset the operator's choice).
+  if(_methodData.optimisers && _methodData.optimisers.length){
+    const cur=$('m_optimiser').value;
+    applyGoalStrategies(cur);
+    updateMethodDescs();
+    await setMethods();            // persist the resolved strategy on the server
+  }
+}
+
+async function startCampaign(){
+  const pdi=+$('c_pdi').value, budget=+$('c_budget').value;
+  let target_size, tolerance, extra={};
+  if(_goal==='pareto'){                                         // spec is a size RANGE (diameter)
+    const a=+$('c_dmin').value, b=+$('c_dmax').value;
+    if(!(a>0&&b>a&&pdi>0&&budget>0)){
+      $('c_status').textContent='✗ Max diameter must exceed min; PDI cap and experiments must be positive.'; return; }
+    target_size=((a+b)/2)/2; tolerance=((b-a)/2)/2;            // centre & half-range, in radius
+    extra.size_range=[a,b];
+  } else {                                                      // single target (diameter)
+    const dia=+$('c_target').value, dtol=+$('c_tol').value;
+    if(!(dia>0&&dtol>0&&pdi>0&&budget>0)){
+      $('c_status').textContent='✗ Diameter, tolerance, PDI cap and experiments must be positive.'; return; }
+    target_size=dia/2; tolerance=dtol/2;                        // optimiser works in radius
+  }
+  const body={target_size, tolerance, pdi_cap:pdi, budget,
+              goal:_goal, spec_units:'diameter', ...extra};
+  body.method_params=collectOptParams();      // UCB kappa / TuRBO size / BAX tau, per the active optimiser
   $('c_start').disabled=true;
   const r=await api('/api/campaign/start', body);
   $('c_start').disabled=false;
-  if(r.error||r.ok===false) $('c_status').textContent='✗ could not start: '+(r.error||'rejected');
+  if(r.error||r.ok===false) $('c_status').textContent='✗ Could not start: '+(r.error||'rejected');
 }
+
+/* Proposal Aim 1(a): monometallic Pd/Pt target-hitting with BAX, PDI < 0.1,
+   30-iteration budget. Diameter 8.0 nm → R 4.0 nm, the simulator optimum, so it
+   converges in-silico for testing. */
 
 async function abortCampaign(){
   if(!confirm('Abort the campaign? The reactor keeps whatever recipe it is running.')) return;
@@ -889,7 +1292,7 @@ async function refreshContinueButton(){
       if(hint) hint.textContent = r && r.reason ? r.reason : '';
       return;
     }
-    btn.textContent=`Continue ${r.run_tag} — ${r.used} of ${r.budget} used`;
+    btn.textContent=`Continue ${r.run_tag}: ${r.used} of ${r.budget} used`;
     btn.style.display='inline-block';
     if(hint) hint.textContent='';
   }catch(e){
@@ -904,7 +1307,7 @@ async function continueCampaign(){
   const r=await api('/api/campaign/continue',{});
   btn.disabled=false;
   if(r.error||r.ok===false){
-    $('c_status').textContent='✗ could not continue: '+(r.error||'rejected');
+    $('c_status').textContent='✗ Could not continue: '+(r.error||'rejected');
     return;
   }
   btn.style.display='none';
@@ -913,29 +1316,45 @@ async function continueCampaign(){
   const skipTxt = r.skipped ? ` · ${r.skipped} measurement(s) could not be restored` : '';
   const b=document.getElementById('restartBanner');
   b.className='restart-banner show restored';
-  document.getElementById('restartBannerMsg').textContent =
-    `♻ Restored ${r.replayed} measurement(s) from ${r.run_tag}${bestTxt}, `+
-    `${r.budget-r.used} of ${r.budget} remaining.${reissueTxt}${skipTxt}`;
+  setIco(document.getElementById('restartBannerMsg'),'mode-autonomous',
+    `Restored ${r.replayed} measurement(s) from ${r.run_tag}${bestTxt}, `+
+    `${r.budget-r.used} of ${r.budget} remaining.${reissueTxt}${skipTxt}`);
 }
 
 /* ── campaign card ───────────────────────────────────────────────────────── */
-const _BADGE={running:'🟢 running',converged:'🎯 converged',
-              exhausted:'⏹ budget exhausted',aborted:'⏹ aborted',idle:'idle'};
+/* Plain text — the pill's LED already shows state colour; an emoji here made the
+   'running' pill look like it had two green dots. */
+const _BADGE={running:'running',converged:'converged',
+              exhausted:'budget exhausted',aborted:'aborted',idle:'idle'};
+
+function lockSetup(running){
+  // While a campaign runs, its spec, goal and methods are fixed — changing them
+  // would not affect the live run and only misleads. Lock them until it ends.
+  ['c_target','c_tol','c_dmin','c_dmax','c_pdi','c_budget','m_fitter','m_optimiser'].forEach(id=>{
+    const el=$(id); if(el) el.disabled=running; });
+  document.querySelectorAll('#c_goal button, #m_opt_params input').forEach(el=>el.disabled=running);
+  const hint=$('c_lock_hint'); if(hint) hint.style.display=running?'block':'none';
+}
 
 function renderCampaign(c){
   const idle = !c || c.status==='idle';
-  $('c_abort').disabled = !c || c.status!=='running';
-  $('c_start').disabled = !!(c && c.status==='running');
+  const running = !!(c && c.status==='running');
+  $('c_abort').disabled = !running;
+  $('c_start').disabled = running;
+  lockSetup(running);
   if(!idle) $('c_continue').style.display='none';
-  $('c_badge').textContent = idle?'':(_BADGE[c.status]||c.status);
-  setPill('p_camp', idle?'':(c.status==='running'?'on':(c.status==='converged'?'on':'warn')),
-          idle?'campaign idle':(_BADGE[c.status]||c.status)+
-               ' · '+c.n_evaluations+'/'+c.budget);
+  // Level-set and Pareto MAP a set and are meant to use the whole budget, so a
+  // finished one is "mapping complete" (good), not "budget exhausted" (warning).
+  const mapped = !!(c && c.status==='exhausted' && (c.goal==='pareto'||c.goal==='level-set'));
+  const label = idle?'':(mapped?'mapping complete':(_BADGE[c.status]||c.status));
+  $('c_badge').textContent = label;
+  setPill('p_camp', idle?'':((c.status==='running'||c.status==='converged'||mapped)?'on':'warn'),
+          idle?'campaign idle':label+' · '+c.n_evaluations+'/'+c.budget);
   if(idle){
-    $('c_status').textContent='idle — set a target and start';
+    $('c_status').textContent='Idle. Set a target and start.';
     $('c_bar').style.display='none'; $('c_kpis').style.display='none';
     $('spark').style.display='none'; $('sparkNote').textContent='';
-    setPill('p_best','','best —');
+    setPill('p_best','','best n/a');
     return;
   }
   const frac = c.budget ? Math.min(1, c.n_evaluations/c.budget) : 0;
@@ -944,24 +1363,42 @@ function renderCampaign(c){
   bar.firstElementChild.style.width=(100*frac).toFixed(1)+'%';
 
   const b=c.best;
+  const pareto = c.goal==='pareto';
   $('c_kpis').style.display='grid';
-  const dr = (b&&b.size!=null) ? Math.abs(b.size-c.target_size) : null;
+  const dLabel=$('k_d').parentElement.querySelector('span');
   $('k_r').textContent = b&&b.size!=null ? num(b.size,3)+' nm' : '—';
-  $('k_d').textContent = dr!=null ? (dr<=c.tolerance?'✓ ':'')+num(dr,3)+' nm' : '—';
-  $('k_d').parentElement.className='kpi'+(dr==null?'':(dr<=c.tolerance?' hit':' miss'));
+  if(pareto){
+    // No single target in a Pareto run: distance-to-target is meaningless, so the
+    // middle tile shows the best diameter mapped so far (operator set a diameter range).
+    dLabel.textContent='Best diameter';
+    $('k_d').textContent = b&&b.size!=null ? num(b.size*2,3)+' nm' : '—';
+    $('k_d').parentElement.className='kpi';
+  } else {
+    const dr = (b&&b.size!=null) ? Math.abs(b.size-c.target_size) : null;
+    dLabel.textContent='Δ to target';
+    $('k_d').textContent = dr!=null ? (dr<=c.tolerance?'✓ ':'')+num(dr,3)+' nm' : '—';
+    $('k_d').parentElement.className='kpi'+(dr==null?'':(dr<=c.tolerance?' hit':' miss'));
+  }
   $('k_p').textContent = b&&b.pdi!=null ? num(b.pdi,3) : '—';
   $('k_p').parentElement.className='kpi'+(b&&b.pdi!=null?(b.pdi<=c.pdi_cap?' hit':' miss'):'');
   $('k_n').textContent = c.n_evaluations+' / '+c.budget;
 
-  let txt=`target ${c.target_size} ± ${c.tolerance} nm · PDI ≤ ${c.pdi_cap}`;
+  let txt;
+  if(pareto){
+    const sr=c.size_range;
+    txt = sr ? `Mapping ${sr[0]} to ${sr[1]} nm diameter · PDI ≤ ${c.pdi_cap}`
+             : `Mapping the size range · PDI ≤ ${c.pdi_cap}`;
+  } else {
+    txt = `Target radius ${c.target_size} ± ${c.tolerance} nm · PDI ≤ ${c.pdi_cap}`;
+  }
   if(c.status==='converged'&&c.converged_condition){
     const p=c.converged_condition.params;
-    txt += ` → accepted T=${num(p.T_reac,0)}°C F=${num(p.F_tot,0)} `+
+    txt += ` → accepted: T=${num(p.T_reac,0)}°C F=${num(p.F_tot,0)} `+
            `x=(${num(p.x_ODE)},${num(p.x_TOP)},${num(p.x_oley)})`;
   }
   $('c_status').textContent=txt;
   setPill('p_best','', b&&b.size!=null
-    ? `best ${num(b.size,3)} nm · PDI ${num(b.pdi,3)}` : 'best — no valid fit yet');
+    ? `best ${num(b.size,3)} nm · PDI ${num(b.pdi,3)}` : 'best: no valid fit yet');
 }
 
 /* ── convergence sparkline ───────────────────────────────────────────────── */
@@ -972,21 +1409,23 @@ function drawSpark(conv){
   const sz=(conv&&conv.size||[]).map(v=>v==null?NaN:+v);
   if(!sz.length || !sz.some(v=>isFinite(v))){ cv.style.display='none'; return; }
   cv.style.display='block';
-  const {ctx,W,H}=fitCanvas(cv,92);
-  const L=34,R=8,T=8,B=16;
+  const {ctx,W,H}=fitCanvas(cv,96);
+  const L=42,R=10,T=10,B=10;
   const tgt=+conv.target_size, tol=+conv.tolerance;
   const fin=sz.filter(isFinite);
   let lo=Math.min(tgt-1.6*tol,...fin), hi=Math.max(tgt+1.6*tol,...fin);
   const pad=(hi-lo)*0.08||0.1; lo-=pad; hi+=pad;
   const sx=i=>L+(sz.length<2?0.5:i/(sz.length-1))*(W-L-R);
   const sy=v=>H-B-((v-lo)/(hi-lo))*(H-T-B);
+  const clampY=y=>Math.max(T,Math.min(H-B,y));
   ctx.clearRect(0,0,W,H);
-  // acceptance band
+  // acceptance band — clamped to the plot area so it never spills past the axes
+  const bTop=clampY(sy(tgt+tol)), bBot=clampY(sy(tgt-tol));
   ctx.fillStyle=cssv('--accent'); ctx.globalAlpha=.16;
-  ctx.fillRect(L, sy(tgt+tol), W-L-R, Math.max(1, sy(tgt-tol)-sy(tgt+tol)));
+  ctx.fillRect(L, bTop, W-L-R, Math.max(1, bBot-bTop));
   ctx.globalAlpha=1;
   ctx.strokeStyle=cssv('--accent'); ctx.lineWidth=1.2;
-  ctx.beginPath(); ctx.moveTo(L,sy(tgt)); ctx.lineTo(W-R,sy(tgt)); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(L,clampY(sy(tgt))); ctx.lineTo(W-R,clampY(sy(tgt))); ctx.stroke();
   // the Sobol → BO handoff, so a flat prefix is not misread as a stalled optimizer
   if(conv.n_init && conv.n_init < sz.length){
     ctx.strokeStyle=cssv('--muted'); ctx.setLineDash([3,3]); ctx.beginPath();
@@ -996,16 +1435,15 @@ function drawSpark(conv){
   // measured radii
   ctx.fillStyle=cssv('--info');
   sz.forEach((v,i)=>{ if(!isFinite(v)) return;
-    ctx.beginPath(); ctx.arc(sx(i), Math.max(T,Math.min(H-B,sy(v))), 2.4, 0, 6.2832); ctx.fill(); });
-  // axis labels
-  ctx.fillStyle=cssv('--muted'); ctx.font='10px system-ui';
-  ctx.textAlign='right'; ctx.textBaseline='middle';
-  ctx.fillText(fmt(hi),L-5,T+3); ctx.fillText(fmt(lo),L-5,H-B-3);
-  ctx.textAlign='left'; ctx.fillText('nm',4,T+3);
-  ctx.textAlign='center'; ctx.textBaseline='top';
-  ctx.fillText('run '+sz.length, (L+W-R)/2, H-B+3);
+    ctx.beginPath(); ctx.arc(sx(i), clampY(sy(v)), 2.4, 0, 6.2832); ctx.fill(); });
+  // y ticks only — top value top-aligned, bottom value bottom-aligned, so they
+  // never collide; unit + run count live in the note below (no room in 96 px).
+  ctx.fillStyle=cssv('--muted'); ctx.font='10px system-ui'; ctx.textAlign='right';
+  ctx.textBaseline='top';    ctx.fillText(fmt(hi), L-5, T);
+  ctx.textBaseline='bottom'; ctx.fillText(fmt(lo), L-5, H-B);
   const inband=sz.filter(v=>isFinite(v)&&Math.abs(v-tgt)<=tol).length;
-  $('sparkNote').textContent=`${inband}/${sz.filter(isFinite).length} runs inside the band`;
+  $('sparkNote').textContent=
+    `Radius (nm) vs band · ${inband}/${fin.length} inside · ${sz.length} run${sz.length===1?'':'s'}`;
 }
 
 /* ── parameter space panel ─────────────────────────────────────────────────
@@ -1039,20 +1477,20 @@ function psLoad(force){
   if(slice){
     const x=$('ps_x').value, y=$('ps_y').value;
     if(x && y && x===y){                       // a degenerate slice is meaningless
-      $('ps_wrap').innerHTML='<div class="ph">pick two different axes</div>';
+      $('ps_wrap').innerHTML='<div class="ph">Pick two different axes.</div>';
       return;
     }
     if(x&&y) url+=`&x=${x}&y=${y}&anchor=${$('ps_anchor').value}`;
   }
   const wrap=$('ps_wrap');
-  if(!wrap.querySelector('img')) wrap.innerHTML='<div class="ph">rendering…</div>';
+  if(!wrap.querySelector('img')) wrap.innerHTML='<div class="ph">Rendering…</div>';
   _psBusy=true;
   const img=new Image();
   img.alt=_psView+' figure';
   img.onclick=()=>{ $('lbimg').src=img.src; $('lightbox').classList.add('open'); };
   img.onload=()=>{ _psBusy=false; wrap.innerHTML=''; wrap.appendChild(img); };
   img.onerror=()=>{ _psBusy=false;
-    wrap.innerHTML='<div class="ph">could not render this figure — is a campaign running?</div>'; };
+    wrap.innerHTML='<div class="ph">Could not render this figure. Is a campaign running?</div>'; };
   img.src=url;
   psDiag();
 }
@@ -1063,19 +1501,19 @@ async function psDiag(){
   if(d.names) psAxes(d.names);
   const s=d.summary, pct=v=>(v==null||!isFinite(v))?'—':(100*v).toFixed(0)+'%';
   $('ps_diag').innerHTML =
-    `<div><span>runs</span><b>${s.n} / ${s.budget}</b></div>` +
-    `<div><span>best loss</span><b>${num(s.best_loss,3)}</b></div>` +
-    `<div title="fraction of the prior uncertainty the surrogate has removed">` +
-      `<span>space explained</span><b>${pct(s.uncertainty_drop)}</b></div>` +
-    `<div title="distance between consecutive proposals in the unit cube — falls as the loop exploits">` +
-      `<span>step early → late</span><b>${num(s.mean_step_early)} → ${num(s.mean_step_late)}</b></div>`;
+    `<div><span>Runs</span><b>${s.n} / ${s.budget}</b></div>` +
+    `<div><span>Best loss</span><b>${num(s.best_loss,3)}</b></div>` +
+    `<div title="Fraction of the prior uncertainty the surrogate has removed">` +
+      `<span>Space explained</span><b>${pct(s.uncertainty_drop)}</b></div>` +
+    `<div title="Distance between consecutive proposals in the unit cube; falls as the loop exploits">` +
+      `<span>Step early → late</span><b>${num(s.mean_step_early)} → ${num(s.mean_step_late)}</b></div>`;
   if(d.convergence) drawSpark(d.convergence);
 }
 
 /* ── theme ───────────────────────────────────────────────────────────────── */
-(function(){const K='swaxs-theme';let d=localStorage.getItem(K)?localStorage.getItem(K)==='dark':true;
+(function(){const K='swaxs-theme';let d=document.documentElement.getAttribute('data-theme')==='dark';
   function ap(x){document.documentElement.setAttribute('data-theme',x?'dark':'light');
-    const b=$('themeBtn');if(b)b.textContent=x?'☀':'☾';
+    const b=$('themeBtn');if(b)b.innerHTML='<svg class="ico" aria-hidden="true"><use href="#swaxs-ui-'+(x?'sun':'moon')+'"/></svg>';
     if(_lastPlot)drawPlot(_lastPlot);}
   ap(d);window.toggleTheme=function(){d=!d;localStorage.setItem(K,d?'dark':'light');ap(d);};})();
 
@@ -1086,13 +1524,19 @@ async function psDiag(){
   const f=await api('/api/folder');
   if(!f.error){
     $('folder').value=f.folder||'';
-    $('resolved').textContent='Watching: '+f.resolved;
+    $('resolved').textContent=f.resolved?'Watching: '+f.resolved:'Not watching a folder yet.';
     setPill('p_watch','',f.resolved);
     $('setupHint').textContent=(f.resolved||'').split('/').slice(-2).join('/');
   }
   try{ psView(localStorage.getItem('swaxs-an-psview')||'slice'); }catch(_){ psView('slice'); }
   sortArrows(); setScale(_scale);
   refreshContinueButton();
+  await loadMethods();              // populate strategies before the goal filters them
+  loadStudyMethods();
+  await setGoal('target-hit');
+  echoSpec();
+  let _tab='setup'; try{ _tab=localStorage.getItem('swaxs-an-tab')||'setup'; }catch(_){}
+  showTab(_tab);
 })();
 
 /* ── live stream, with reconnect ───────────────────────────────────────────
@@ -1136,7 +1580,7 @@ async function showRestartNotice(){
     if(!n||!n.level||n.level==='none') return;   // nothing to report → stay quiet
     const b=document.getElementById('restartBanner');
     b.className='restart-banner show '+n.level;   // .restored (calm) | .lost (loud)
-    document.getElementById('restartBannerMsg').textContent=(n.level==='lost'?'⚠ ':'♻ ')+(n.message||'');
+    setIco(document.getElementById('restartBannerMsg'),n.level==='lost'?'warning':'mode-autonomous',n.message||'');
   }catch(_){}
 }
 showRestartNotice();

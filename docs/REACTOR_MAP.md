@@ -23,7 +23,7 @@ across edits) — search the file for the name.
 | E-stop / Stop behaviour | `controller.estop` (pumps only; also sets `auto_run = False`), `abort` |
 | Nothing runs after an E-stop + Reset | `controller.estop` disabled auto-run — re-arm **▶ Run autonomously** |
 | Reactor won't cool after run | `controller._end_run` (cooldown); `config.yml temperature.cooldown_c` |
-| Mock/Real toggle issues | `controller.switch_backend`; `app.py /api/backend` |
+| Simulation/Hardware toggle issues | `controller.switch_backend`; `app.py /api/backend` |
 | SPEC still "held" after quitting | `controller.shutdown` + `atexit` in `app.py` |
 | Pump on wrong COM / not found | `src/reactor/hardware.py RealPump`, `PumpBank`; serial matching |
 | UI field not applying | `templates/index.html` `pushSpec()` / `pushRun()` → matching `/api/*` route |
@@ -106,6 +106,15 @@ Abort-during-flush. They are behaviourally distinct, but only by the resulting
   (`t-cur`, `t-bstop`, …).
 
 ## src/reactor/controller.py — the brain (state machine + run loop)
+
+> **Split, October 2026.** `ReactorController` is now one class spread over four
+> files (methods moved verbatim; it inherits the three mixins):
+> `controller.py` (public API, E-stop, loop, status, shutdown) ·
+> `sequence.py` (`_begin_next`, `_start_recipe`, `_enter_running`, `_end_run`,
+> `_enter_flush`, `_end_flush`, `_to_idle`, `_abandon_condition`, `_arm_progress`) ·
+> `supervisor.py` (`_safety_check`, `_check_flush_safety`) ·
+> `collection.py` (SPEC settings, `collect_now`, `_fire_spec_collection`).
+> Line numbers below refer to the pre-split file; search by method name.
 
 States: `idle`, `arming`, `running`, `flushing`, `ready`; `estop` from anywhere.
 With the shipped `spec.background_when: "before"` the **order is

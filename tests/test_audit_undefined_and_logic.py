@@ -102,7 +102,7 @@ def _code_only(text: str) -> str:
 
 def test_the_estop_runs_before_anything_that_could_fail():
     """Ordering is the whole fix: logging first is what skipped the E-stop."""
-    src = (ROOT / "src" / "reactor" / "controller.py").read_text()
+    src = "".join((ROOT / "src" / "reactor" / f).read_text() for f in ("controller.py", "sequence.py", "supervisor.py", "collection.py"))
     body = src[src.index("    def _loop(self)"):src.index("    def _tick_once(self)")]
     handler = _code_only(body[body.index("except Exception as exc:"):])
     assert handler.index("self.estop()") < handler.index("logger.exception"), \

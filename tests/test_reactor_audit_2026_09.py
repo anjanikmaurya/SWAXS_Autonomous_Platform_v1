@@ -641,7 +641,7 @@ def test_r22_status_is_shared_across_clients_not_rebuilt_per_stream():
 
 
 def test_r23_the_dead_branches_are_gone():
-    assert "if True:" not in (_ROOT / "src" / "reactor" / "controller.py").read_text()
+    assert "if True:" not in "".join((_ROOT / "src" / "reactor" / f).read_text() for f in ("controller.py", "sequence.py", "supervisor.py", "collection.py"))
     src = _app_src()
     assert 'elif etype == "fit.complete"' not in src
 
@@ -883,11 +883,18 @@ def test_r26_the_intake_order_is_deterministic(tmp_path, monkeypatch):
     thing it is named for is worse than none."""
     mod, conds = _boot_app(tmp_path, monkeypatch)
     try:
+        # Stage outside the watched folder, stamp identically, THEN move all three
+        # in. Writing in place left a window where a loaded machine let the
+        # watcher ingest r003 before the stamps were equalised (flaky in the full
+        # suite). os.replace keeps the mtime, so the tie is what the watcher sees.
+        stage = tmp_path / "_stage"; stage.mkdir()
         for rid in ("r003", "r001", "r002"):      # created out of order …
-            _drop(conds, rid)
+            _drop(stage, rid)
         stamp = time.time() - 60
-        for p in conds.glob("*.txt"):             # … and stamped identically
+        for p in stage.glob("*.txt"):             # … and stamped identically
             os.utime(p, (stamp, stamp))
+        for p in list(stage.glob("*.txt")):       # filesystem order, microseconds apart
+            os.replace(p, conds / p.name)
         _wait_queue(mod._ctrl, 3)
         assert list(mod._ctrl.status()["queue"]) == ["r001", "r002", "r003"], \
             "identical timestamps still leave the order to the filesystem"

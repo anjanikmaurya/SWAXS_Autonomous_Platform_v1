@@ -178,7 +178,7 @@ def test_background_trunc_unrestorable_shouts_not_silently_default(tmp_path, mon
     f.write_text(json.dumps(d))
 
     b = _load("bgpd_lost", "background/app.py")
-    assert b._TRUNC["q_min"] == 0.03 and b._TRUNC["n_points"] == 549, \
+    assert b._TRUNC["q_min"] == 0.3 and b._TRUNC["n_points"] == 549, \
         "a stale grid was silently applied instead of the visible defaults"
     assert b._TRUNC_NOTICE["level"] == "lost"
     assert b._TRUNC_NOTICE["params"], "lost banner names nothing"
@@ -191,7 +191,7 @@ def test_background_fresh_start_no_banner_and_defaults_shown(tmp_path, monkeypat
     b = _load("bgpd_fresh", "background/app.py")
     assert b._TRUNC_NOTICE["level"] == "none"
     shown = b.app.test_client().get("/api/truncation").get_json()
-    assert shown["q_min"] == 0.03 and shown["q_max"] == 0.6 and shown["n_points"] == 549
+    assert shown["q_min"] == 0.3 and shown["q_max"] == 6.0 and shown["n_points"] == 549
 
 
 # ══ AVERAGE (the app the operator originally observed) ═══════════════════════

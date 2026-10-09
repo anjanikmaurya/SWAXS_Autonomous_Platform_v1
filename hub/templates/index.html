@@ -6,12 +6,13 @@
 <title>SWAXS Platform Hub</title>
     <link rel="icon" href="/app-icon">   <!-- per-app tab icon, from apps.yml (src/favicon.py) -->
 <link rel="stylesheet" href="/static/swaxs-tokens.css">
+{% include "_theme_boot.html" %}
 <style>
-/* The hub is dark-only (no toggle, no light palette), but swaxs-tokens.css
-   resolves its light-dark() pairs from `color-scheme`, which defaults to
-   following the OS. Pinning it to dark here is what makes an icon on this page
-   take the dark-tuned value (~6.4:1 on #0d1117) instead of the light one. */
-:root { color-scheme: dark }
+/* Day/night: the active theme is set by data-theme on <html> (default dark).
+   color-scheme follows it so swaxs-tokens.css resolves its light-dark() icon
+   pairs to the matching tuned value. */
+:root[data-theme="dark"]  { color-scheme: dark }
+:root[data-theme="light"] { color-scheme: light }
 
 /* Icon marks. Sized by the element, coloured by `color` — every symbol in the
    sprite is drawn with stroke="currentColor", so the accent token is the only
@@ -44,7 +45,7 @@
   --ok-text:#3fb950; --warn-text:#d29922; --err-text:#f85149; --info-text:#58a6ff;
   /* Typography scale (shared across all SWAXS apps) */
   --font:      'Inter','Segoe UI',system-ui,-apple-system,sans-serif;
-  --mono:      'JetBrains Mono','Fira Code','Cascadia Code',monospace;
+  --mono:      'JetBrains Mono','Fira Code','Cascadia Code',ui-monospace,Menlo,Consolas,monospace;
   --fs-2xs:.6875rem; --fs-xs:.75rem; --fs-sm:.8125rem; --fs-md:.875rem;
   --fs-base:1rem;    --fs-lg:1.125rem; --fs-xl:1.375rem; --fs-2xl:1.75rem;
   --fw-regular:400; --fw-medium:500; --fw-semibold:600; --fw-bold:700;
@@ -52,7 +53,30 @@
   --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:24px; --sp-6:32px;
   --radius:    8px;
 }
+/* ── Light theme (Hub day mode) — overrides only the colours that change ──── */
+:root[data-theme="light"]{
+  --bg:        #f5f7fa;
+  --surface:   #ffffff;
+  --surface2:  #f0f2f5;
+  --border:    #e5e7eb;
+  --border-strong:#c3c9d1;
+  --text:      #1f2937;      /* 14.7:1 on white */
+  --muted:     #4b5563;      /* 7.6:1 */
+  --disabled:  #9ca3af;
+  --accent:    #B1040E;
+  --accent-d:  #8C1515;
+  --accent-text:#8C1515;     /* dark accent text on light bg */
+  --green:     #16a34a;
+  --yellow:    #b45309;
+  --red:       #dc2626;
+  --ok-text:#15803d; --warn-text:#b45309; --err-text:#b91c1c; --info-text:#1d4ed8;
+}
 html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--font);font-size:16px}
+/* Theme toggle — token-styled so it reads in both themes (the topbar flips too) */
+.theme-toggle{width:34px;height:30px;flex-shrink:0;border:1px solid var(--border-strong);
+  border-radius:7px;background:var(--surface);color:var(--text);cursor:pointer;
+  font-size:1rem;line-height:1}
+.theme-toggle:hover{background:var(--surface2)}
 
 /* ── Layout ─────────────────────────────────────────────────────────────── */
 .shell{display:flex;flex-direction:column;height:100vh}
@@ -83,10 +107,10 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
   text-align:right;pointer-events:none;
 }
 .corner-brand .cb-name{font-size:14px;font-weight:700;color:var(--muted);letter-spacing:.02em}
-.corner-brand .cb-dept{font-size:13px;color:#484f58;margin-top:1px}
+.corner-brand .cb-dept{font-size:13px;color:var(--faint);margin-top:1px}
 .project-pill{
   display:flex;align-items:center;gap:8px;
-  background:#21262d;border:1px solid var(--border);border-radius:8px;
+  background:var(--surface2);border:1px solid var(--border);border-radius:8px;
   padding:6px 12px;cursor:pointer;transition:border-color .15s;max-width:380px;
 }
 .project-pill:hover{border-color:var(--accent)}
@@ -99,12 +123,12 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
 /* ── Event bus badge ─────────────────────────────────────────────────────── */
 .bus-badge{
   display:flex;align-items:center;gap:6px;
-  background:#21262d;border:1px solid var(--border);border-radius:6px;
+  background:var(--surface2);border:1px solid var(--border);border-radius:6px;
   padding:5px 10px;font-size:13px;color:var(--muted);
   cursor:default;user-select:none;white-space:nowrap;
   transition:border-color .3s;
 }
-.bus-badge.connected{border-color:#3fb95055}
+.bus-badge.connected{border-color:color-mix(in srgb,var(--ok) 35%,transparent)}
 .bus-badge .bdot{
   width:7px;height:7px;border-radius:50%;
   background:var(--muted);flex-shrink:0;transition:background .3s,box-shadow .3s;
@@ -112,7 +136,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
 .bus-badge.connected .bdot{background:var(--green);box-shadow:0 0 5px var(--green)}
 .bus-badge .bcount{
   color:var(--text);font-weight:600;
-  background:#30363d;border-radius:3px;padding:0 4px;font-size:12px;
+  background:var(--border);border-radius:3px;padding:0 4px;font-size:12px;
 }
 
 /* ── Main content area ───────────────────────────────────────────────────── */
@@ -132,10 +156,10 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
   line-height:1.7;flex-shrink:0;
 }
 .section-hint b{color:var(--text);font-weight:600}
-.section-hint .arrow{color:#484f58;margin:0 2px}
+.section-hint .arrow{color:var(--faint);margin:0 2px}
 .flow-icon{width:15px;height:15px;border-radius:4px;object-fit:cover;vertical-align:-3px;margin-right:2px}
 .section-hint code{
-  background:#21262d;border:1px solid var(--border);border-radius:4px;
+  background:var(--surface2);border:1px solid var(--border);border-radius:4px;
   padding:1px 5px;font-size:12.5px;
 }
 .flow-row{margin-bottom:10px}
@@ -146,9 +170,9 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
   font-size:11px;font-weight:700;letter-spacing:.05em;margin-right:8px;
   vertical-align:2px;
 }
-.flow-badge.flow-standard{background:#0d2b0d;color:#3fb950}
-.flow-badge.flow-autonomous{background:#1a1434;color:#a78bfa}
-.log-empty{color:#484f58;font-size:13px;padding:14px 4px;font-style:italic}
+.flow-badge.flow-standard{background:var(--ok-lt);color:var(--ok-text)}
+.flow-badge.flow-autonomous{background:var(--violet-lt);color:var(--violet-text)}
+.log-empty{color:var(--faint);font-size:13px;padding:14px 4px;font-style:italic}
 
 /* ── App grid ────────────────────────────────────────────────────────────── */
 .app-grid{
@@ -160,12 +184,15 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
   padding:18px 18px 14px;display:flex;flex-direction:column;gap:10px;
   transition:border-color .2s,box-shadow .2s;position:relative;overflow:hidden;
 }
-.app-card:hover{border-color:#484f58;box-shadow:0 4px 24px #0006}
+.app-card:hover{border-color:var(--border-strong);box-shadow:var(--shadow)}
 .app-card::before{
   content:'';position:absolute;top:0;left:0;right:0;height:3px;
   background:var(--card-color,#888);
 }
-.card-header{display:flex;align-items:flex-start;gap:12px}
+/* The header takes the spare height, so the status line and the Start / Stop /
+   Open row sit at the bottom of every card and line up across a row, however
+   long each app's description is. (Cards in a grid row share one height.) */
+.card-header{display:flex;align-items:flex-start;gap:12px;flex:1}
 .card-icon{font-size:26px;line-height:1;flex-shrink:0}
 .card-meta{flex:1;min-width:0}
 .card-name{font-size:15px;font-weight:600}
@@ -184,24 +211,24 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
 .status-dot.error   {color:var(--swaxs-status-error)}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 .status-label{font-size:13px;color:var(--muted)}
-.qbadge{display:inline-block;margin-left:8px;padding:1px 8px;border-radius:999px;background:#0003;border:1px solid #ffffff14;font-size:12px;font-weight:700}
+.qbadge{display:inline-block;margin-left:8px;padding:1px 8px;border-radius:999px;background:var(--surface2);border:1px solid var(--border);font-size:12px;font-weight:700}
 .card-footer{display:flex;gap:8px;margin-top:2px}
 .btn{
   padding:5px 12px;border-radius:6px;border:1px solid transparent;
   font-size:13px;font-weight:600;cursor:pointer;transition:all .15s;
   text-decoration:none;display:inline-flex;align-items:center;gap:5px;
 }
-.btn-start{background:#1f6feb22;border-color:#1f6feb88;color:#58a6ff}
-.btn-start:hover{background:#1f6feb44;border-color:#1f6feb}
-.btn-stop{background:#f8514922;border-color:#f8514988;color:#f85149}
-.btn-stop:hover{background:#f8514944;border-color:#f85149}
-.btn-open{background:#3fb95022;border-color:#3fb95088;color:#3fb950}
-.btn-open:hover{background:#3fb95044;border-color:#3fb950}
+.btn-start{background:color-mix(in srgb,var(--info-text) 13%,transparent);border-color:color-mix(in srgb,var(--info-text) 50%,transparent);color:var(--info-text)}
+.btn-start:hover{background:color-mix(in srgb,var(--info-text) 26%,transparent);border-color:var(--info-text)}
+.btn-stop{background:color-mix(in srgb,var(--err-text) 13%,transparent);border-color:color-mix(in srgb,var(--err-text) 50%,transparent);color:var(--err-text)}
+.btn-stop:hover{background:color-mix(in srgb,var(--err-text) 26%,transparent);border-color:var(--err-text)}
+.btn-open{background:color-mix(in srgb,var(--ok-text) 13%,transparent);border-color:color-mix(in srgb,var(--ok-text) 50%,transparent);color:var(--ok-text)}
+.btn-open:hover{background:color-mix(in srgb,var(--ok-text) 26%,transparent);border-color:var(--ok-text)}
 .btn-open[disabled]{opacity:.4;pointer-events:none}
 .btn-primary{background:var(--accent);border-color:var(--accent-d);color:#fff;padding:8px 18px;font-size:15px}
 .btn-primary:hover{background:var(--accent-d)}
 .btn-ghost{background:transparent;border-color:var(--border);color:var(--text);padding:8px 18px;font-size:15px}
-.btn-ghost:hover{background:#21262d}
+.btn-ghost:hover{background:var(--surface2)}
 
 /* ── Log area ────────────────────────────────────────────────────────────── */
 .log-header{
@@ -209,7 +236,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
   margin-bottom:10px;flex-shrink:0;
 }
 .log-meta{display:flex;align-items:center;gap:10px}
-.log-count{font-size:13px;color:#484f58}
+.log-count{font-size:13px;color:var(--faint)}
 .log-actions{display:flex;gap:6px}
 .btn-xs{
   padding:3px 9px;border-radius:4px;border:1px solid var(--border);
@@ -220,15 +247,15 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
 
 .log-panel{
   background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
-  padding:10px 14px;font-family:'JetBrains Mono','Fira Code',monospace;font-size:13px;
+  padding:10px 14px;font-family:var(--mono);font-size:13px;
   color:var(--muted);overflow-y:auto;flex:1;min-height:160px;
 }
 .log-entry{
   display:flex;align-items:baseline;flex-wrap:nowrap;
-  margin-bottom:2px;line-height:1.8;border-bottom:1px solid #1c2128;padding-bottom:1px;
+  margin-bottom:2px;line-height:1.8;border-bottom:1px solid var(--border);padding-bottom:1px;
 }
 .log-entry:last-child{border-bottom:none}
-.log-entry .ts{color:#484f58;margin-right:8px;white-space:nowrap;font-size:12px;flex-shrink:0}
+.log-entry .ts{color:var(--faint);margin-right:8px;white-space:nowrap;font-size:12px;flex-shrink:0}
 .log-entry .ev-detail{color:var(--muted);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* ── Event chips ─────────────────────────────────────────────────────────── */
@@ -237,19 +264,19 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
   font-size:12px;font-weight:700;letter-spacing:.02em;
   margin-right:5px;white-space:nowrap;flex-shrink:0;line-height:1.6;
 }
-.ev-app            {background:#21262d;color:var(--muted)}
-.ev-file-reduced   {background:#0d2b0d;color:#3fb950}
-.ev-file-averaged  {background:#0a2430;color:#39c5d8}
-.ev-file-stitched  {background:#0a2430;color:#39c5d8}
-.ev-file-subtracted{background:#2e1d00;color:#d29922}
-.ev-analysis       {background:#1a1434;color:#a78bfa}
-.ev-fit            {background:#1a1434;color:#ff8a80}
-.ev-watch          {background:#2b2000;color:#e3b341}
-.ev-ai             {background:#270d3a;color:#c084fc}
-.ev-app-start      {background:#0d2b0d;color:#3fb950}
-.ev-app-stop       {background:#2b0d0d;color:#f85149}
-.ev-project        {background:#2b0d14;color:var(--accent-text)}
-.ev-default        {background:#21262d;color:var(--muted)}
+.ev-app            {background:var(--surface2);color:var(--muted)}
+.ev-file-reduced   {background:var(--ok-lt);color:var(--ok-text)}
+.ev-file-averaged  {background:var(--info-lt);color:var(--info-text)}
+.ev-file-stitched  {background:var(--info-lt);color:var(--info-text)}
+.ev-file-subtracted{background:var(--warn-lt);color:var(--warn-text)}
+.ev-analysis       {background:var(--violet-lt);color:var(--violet-text)}
+.ev-fit            {background:var(--violet-lt);color:var(--violet-text)}
+.ev-watch          {background:var(--warn-lt);color:var(--warn-text)}
+.ev-ai             {background:var(--violet-lt);color:var(--violet-text)}
+.ev-app-start      {background:var(--ok-lt);color:var(--ok-text)}
+.ev-app-stop       {background:var(--err-lt);color:var(--err-text)}
+.ev-project        {background:var(--accent-lt);color:var(--accent-text)}
+.ev-default        {background:var(--surface2);color:var(--muted)}
 
 /* ── Modal ──────────────────────────────────────────────────────────────── */
 .modal-backdrop{
@@ -280,7 +307,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
   display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:6px;
   cursor:pointer;transition:background .1s;
 }
-.dir-item:hover{background:#21262d}
+.dir-item:hover{background:var(--surface2)}
 .dir-item .dicon{font-size:15px;color:var(--muted)}
 .dir-item .dname{font-size:14px}
 .modal-foot{
@@ -303,6 +330,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,
      not edit here. (Deliberately no literal use/href example in this
      comment: a scan for unresolved references reads it as a real one.) -->
 {% include "_icon_sprite.svg" %}
+{% include "_icon_helpers.html" %}
 
 <div class="shell">
 
@@ -317,17 +345,26 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,
     </div>
     <div class="topbar-spacer"></div>
     <!-- Event bus connectivity badge -->
-    <div class="bus-badge" id="busBadge" title="WebSocket event bus — receives live events from all apps">
+    <div class="bus-badge" id="busBadge" title="Event bus: live events from all apps">
       <svg class="ico" style="width:18px;height:18px;color:var(--swaxs-chrome)" aria-hidden="true"><use href="#swaxs-ui-bus"/></svg>
       <div class="bdot" id="busDot"></div>
       <span>Bus</span>
       <span class="bcount" id="busCount" style="display:none">0</span>
     </div>
+    <!-- Operator: entered ONCE, here. Every app records it with its results
+         (src/operator_id.py); the apps no longer have their own field. -->
+    <label class="bar-operator" title="Who is running the beamline. Saved with every reduced file and campaign.">
+      <span>Operator</span>
+      <input id="hubOperator" placeholder="Name or initials" maxlength="40" autocomplete="off"
+             onchange="saveOperator(this.value)" onkeydown="if(event.key==='Enter')this.blur()">
+    </label>
     <div class="project-pill" id="projectPill" onclick="openBrowser()">
       <span class="picon"><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-chrome)" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg></span>
-      <span class="ppath" id="projectPath">No project selected — click to choose</span>
+      <span class="ppath" id="projectPath">No project selected. Click to choose.</span>
       <span class="pchange"><svg class="ico" style="width:16px;height:16px;color:var(--swaxs-chrome)" aria-hidden="true"><use href="#swaxs-ui-folder-change"/></svg>Change</span>
     </div>
+    <button class="theme-toggle" id="themeBtn" onclick="toggleTheme()" title="Toggle light / dark"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-moon"/></svg></button>
+    <span class="topbar-sub">Port 5100</span>
   </header>
 
   <!-- Main -->
@@ -336,7 +373,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,
       <span>Applications</span>
       <span style="margin-left:auto;display:flex;gap:8px;font-weight:400">
         <button class="btn btn-stop" onclick="stopAllApps()"
-                title="Stop every app and leave no process running"><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-status-error)" aria-hidden="true"><use href="#swaxs-ui-stop-all"/></svg>Stop all</button>
+                title="Stop every app, leaving no process running"><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-status-error)" aria-hidden="true"><use href="#swaxs-ui-stop-all"/></svg>Stop all</button>
         <button class="btn btn-stop" onclick="whoHasPorts()"
                 title="Show what is holding each app's port"><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-chrome)" aria-hidden="true"><use href="#swaxs-ui-ports"/></svg>Ports</button>
       </span>
@@ -344,11 +381,11 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,
     <div class="section-hint">
       <div class="flow-row">
         <span class="flow-badge flow-standard"><svg class="ico" style="width:16px;height:16px;color:var(--swaxs-visualisation)" aria-hidden="true"><use href="#swaxs-ui-mode-standard"/></svg>STANDARD</span>
-        Pick your project folder, then work through: <b><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-calibration)" aria-hidden="true"><use href="#swaxs-calibration"/></svg>Calibration</b><span class="arrow"><svg class="ico" style="width:16px;height:16px;color:var(--swaxs-chrome)" aria-hidden="true"><use href="#swaxs-ui-flow-next"/></svg></span><b><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-reduction)" aria-hidden="true"><use href="#swaxs-reduction"/></svg>Reduction</b><span class="arrow"><svg class="ico" style="width:16px;height:16px;color:var(--swaxs-chrome)" aria-hidden="true"><use href="#swaxs-ui-flow-next"/></svg></span><b><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-visualisation)" aria-hidden="true"><use href="#swaxs-visualisation"/></svg> Visualisation &amp; Average</b><span class="arrow"><svg class="ico" style="width:16px;height:16px;color:var(--swaxs-chrome)" aria-hidden="true"><use href="#swaxs-ui-flow-next"/></svg></span><b><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-subtraction)" aria-hidden="true"><use href="#swaxs-subtraction"/></svg> Subtraction</b><span class="arrow"><svg class="ico" style="width:16px;height:16px;color:var(--swaxs-chrome)" aria-hidden="true"><use href="#swaxs-ui-flow-next"/></svg></span><b><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-analysis)" aria-hidden="true"><use href="#swaxs-analysis"/></svg> Analysis</b>. Stuck? Use <b><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-guinier)" aria-hidden="true"><use href="#swaxs-guinier-ai"/></svg> Guinier</b> AI assistant any time.
+        Pick a project folder, then work through: <b><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-calibration)" aria-hidden="true"><use href="#swaxs-calibration"/></svg>Calibration</b><span class="arrow"><svg class="ico" style="width:16px;height:16px;color:var(--swaxs-chrome)" aria-hidden="true"><use href="#swaxs-ui-flow-next"/></svg></span><b><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-reduction)" aria-hidden="true"><use href="#swaxs-reduction"/></svg>Reduction</b><span class="arrow"><svg class="ico" style="width:16px;height:16px;color:var(--swaxs-chrome)" aria-hidden="true"><use href="#swaxs-ui-flow-next"/></svg></span><b><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-visualisation)" aria-hidden="true"><use href="#swaxs-visualisation"/></svg> Visualisation &amp; Average</b><span class="arrow"><svg class="ico" style="width:16px;height:16px;color:var(--swaxs-chrome)" aria-hidden="true"><use href="#swaxs-ui-flow-next"/></svg></span><b><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-subtraction)" aria-hidden="true"><use href="#swaxs-subtraction"/></svg> Subtraction</b><span class="arrow"><svg class="ico" style="width:16px;height:16px;color:var(--swaxs-chrome)" aria-hidden="true"><use href="#swaxs-ui-flow-next"/></svg></span><b><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-analysis)" aria-hidden="true"><use href="#swaxs-analysis"/></svg> Analysis</b>. Stuck? Ask the <b><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-guinier)" aria-hidden="true"><use href="#swaxs-guinier-ai"/></svg> Guinier</b> AI assistant.
       </div>
       <div class="flow-row flow-auto">
         <span class="flow-badge flow-autonomous"><svg class="ico" style="width:16px;height:16px;color:var(--swaxs-subtraction)" aria-hidden="true"><use href="#swaxs-ui-mode-autonomous"/></svg>AUTONOMOUS</span>
-        The reactor and optimiser close the loop: <b><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-synthesis)" aria-hidden="true"><use href="#swaxs-synthesis"/></svg>Autonomous Synthesis</b> collects a sample<span class="arrow"><svg class="ico" style="width:16px;height:16px;color:var(--swaxs-chrome)" aria-hidden="true"><use href="#swaxs-ui-flow-next"/></svg></span>pipeline reduces it<span class="arrow"><svg class="ico" style="width:16px;height:16px;color:var(--swaxs-chrome)" aria-hidden="true"><use href="#swaxs-ui-flow-next"/></svg></span><b><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-autofit)" aria-hidden="true"><use href="#swaxs-autofit"/></svg>Auto-Fit &amp; Optimiser</b> proposes what's next<span class="arrow"><svg class="ico" style="width:16px;height:16px;color:var(--swaxs-chrome)" aria-hidden="true"><use href="#swaxs-ui-flow-next"/></svg></span>back to <b><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-synthesis)" aria-hidden="true"><use href="#swaxs-synthesis"/></svg>Autonomous Synthesis</b>. Stuck? Use <b><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-guinier)" aria-hidden="true"><use href="#swaxs-guinier-ai"/></svg> Guinier</b> AI assistant any time.
+        The reactor and optimiser close the loop: <b><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-synthesis)" aria-hidden="true"><use href="#swaxs-synthesis"/></svg>Autonomous Synthesis</b> collects a sample<span class="arrow"><svg class="ico" style="width:16px;height:16px;color:var(--swaxs-chrome)" aria-hidden="true"><use href="#swaxs-ui-flow-next"/></svg></span>pipeline reduces it<span class="arrow"><svg class="ico" style="width:16px;height:16px;color:var(--swaxs-chrome)" aria-hidden="true"><use href="#swaxs-ui-flow-next"/></svg></span><b><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-autofit)" aria-hidden="true"><use href="#swaxs-autofit"/></svg>Autonomous Analyser</b> proposes the next one<span class="arrow"><svg class="ico" style="width:16px;height:16px;color:var(--swaxs-chrome)" aria-hidden="true"><use href="#swaxs-ui-flow-next"/></svg></span>back to <b><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-synthesis)" aria-hidden="true"><use href="#swaxs-synthesis"/></svg>Autonomous Synthesis</b>. Stuck? Ask the <b><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-guinier)" aria-hidden="true"><use href="#swaxs-guinier-ai"/></svg> Guinier</b> AI assistant.
       </div>
     </div>
 
@@ -382,7 +419,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,
 
     <!-- Live Event Log -->
     <div class="log-header">
-      <div class="section-title" style="margin-bottom:0;display:flex;align-items:center;gap:8px"><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-chrome)" aria-hidden="true"><use href="#swaxs-ui-log"/></svg>Live Event Log</div>
+      <div class="section-title" style="margin-bottom:0;display:flex;align-items:center;gap:8px"><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-chrome)" aria-hidden="true"><use href="#swaxs-ui-log"/></svg>Live event log</div>
       <div class="log-meta">
         <span class="log-count" id="logCount"></span>
         <div class="log-actions">
@@ -391,7 +428,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,
       </div>
     </div>
     <div class="log-panel" id="logPanel">
-      <div class="log-empty" id="logEmpty">No events yet — start an app or pick a project folder to see live activity here.</div>
+      <div class="log-empty" id="logEmpty">No events yet. Start an app or pick a project folder to see live activity.</div>
     </div>
   </main>
 
@@ -407,7 +444,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,
 <div class="modal-backdrop" id="browserModal">
   <div class="modal">
     <div class="modal-head">
-      <h2>Select Project Folder</h2>
+      <h2>Select project folder</h2>
       <button class="modal-close" onclick="closeBrowser()" aria-label="Close"><svg class="ico" style="width:18px;height:18px;color:var(--swaxs-chrome)" aria-hidden="true"><use href="#swaxs-ui-close"/></svg></button>
     </div>
     <div class="modal-body">
@@ -422,12 +459,27 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,
     <div class="modal-foot">
       <span class="curr-path" id="currPath"></span>
       <button class="btn btn-ghost" onclick="closeBrowser()">Cancel</button>
-      <button class="btn btn-primary" onclick="selectCurrent()">Select This Folder</button>
+      <button class="btn btn-primary" onclick="selectCurrent()">Select this folder</button>
     </div>
   </div>
 </div>
 
 <script>
+// ── Day / night theme (matches the apps) ───────────────────────────────────
+function applyTheme(dark){
+  document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  const b = document.getElementById('themeBtn');
+  if (b) b.innerHTML='<svg class="ico" aria-hidden="true"><use href="#swaxs-ui-'+(dark?'sun':'moon')+'"/></svg>';
+  try{ localStorage.setItem('swaxs-theme', dark ? 'dark' : 'light'); }catch(_){}
+}
+function toggleTheme(){
+  applyTheme(document.documentElement.getAttribute('data-theme') !== 'dark');
+}
+// Start from the platform-wide choice made by _theme_boot.html (shared key
+// `swaxs-theme`). The hub used to keep its own `swaxs-hub-theme`, so a toggle
+// here never reached the apps, and theirs never reached the hub.
+applyTheme(document.documentElement.getAttribute('data-theme') === 'dark');
+
 // ── State ──────────────────────────────────────────────────────────────────
 let _currentBrowsePath = '';
 let _projectRoot       = '';
@@ -464,8 +516,8 @@ function connectStatus() {
     try { es.close(); } catch (_) { }
     _esTries = Math.min(_esTries + 1, 6);
     const wait = 500 * Math.pow(2, _esTries);
-    setHubLink(false, `reconnecting in ${Math.round(wait / 1000)}s`);
-    try { log(`Status stream lost — reconnecting in ${Math.round(wait / 1000)}s`, 'err'); }
+    setHubLink(false, `reconnecting in ${Math.round(wait / 1000)} s`);
+    try { log(`Status stream lost. Reconnecting in ${Math.round(wait / 1000)} s.`, 'err'); }
     catch (_) { }
     setTimeout(connectStatus, wait);
   };
@@ -480,7 +532,7 @@ function setHubLink(ok, note) {
     b = document.createElement('div');
     b.id = 'hubLink';
     b.style.cssText = 'display:none;margin:0 0 10px;padding:8px 12px;border-radius:8px;' +
-      'background:#7f1d1d33;border:1px solid #f8717188;color:#f8b4b4;font-size:13px';
+      'background:var(--err-lt);border:1px solid var(--err);color:var(--err-text);font-size:13px';
     const main = document.querySelector('.main');
     if (main) main.insertBefore(b, main.firstChild);
   }
@@ -489,13 +541,13 @@ function setHubLink(ok, note) {
   // innerHTML, not textContent, so the mark renders. `note` is server-supplied
   // and is escaped — the icon is the only markup we add here.
   b.innerHTML = '<svg class="ico" style="width:18px;height:18px;color:var(--swaxs-status-warning)" aria-hidden="true"><use href="#swaxs-ui-warning"/></svg>' +
-    ' Not receiving status from the hub' + (note ? ' — ' + _esc(note) : '') +
-    '. The values below may be stale.';
+    ' Not receiving status from the hub' + (note ? ' (' + _esc(note) + ')' : '') +
+    '. Values below may be out of date.';
 }
 
 setInterval(() => {
   if (_lastTick && Date.now() - _lastTick > 9000)
-    setHubLink(false, `no update for ${Math.round((Date.now() - _lastTick) / 1000)}s`);
+    setHubLink(false, `no update for ${Math.round((Date.now() - _lastTick) / 1000)} s`);
 }, 3000);
 
 const onStatus = (e) => {
@@ -509,7 +561,7 @@ const onStatus = (e) => {
   setHubLink(true);
   _projectRoot = data.project_root || '';
   document.getElementById('projectPath').textContent =
-    _projectRoot || 'No project selected — click to choose';
+    _projectRoot || 'No project selected. Click to choose.';
   for (const [id, info] of Object.entries(data.apps)) {
     updateCard(id, info);
   }
@@ -520,7 +572,7 @@ const onStatus = (e) => {
       // Subtract 1 for this browser tab itself if bus is connected
       const subApps = Math.max(0, data.ws_clients - (_busWs ? 1 : 0));
       el.textContent  = data.ws_clients;
-      el.title        = `${data.ws_clients} WebSocket client(s) connected to bus (incl. this tab)`;
+      el.title        = `${data.ws_clients} client(s) on the event bus, including this tab`;
       el.style.display = data.ws_clients > 0 ? '' : 'none';
     }
   }
@@ -537,21 +589,20 @@ function showHubWarnings(data) {
     bar = document.createElement('div');
     bar.id = 'hubWarn';
     bar.style.cssText = 'margin:8px 0;padding:8px 12px;border-radius:8px;' +
-      'font-size:.9rem;line-height:1.5;background:#3a2020;color:#ffb4b4;' +
-      'border:1px solid #6b2b2b;display:none';
+      'font-size:.9rem;line-height:1.5;background:var(--err-lt);color:var(--err-text);' +
+      'border:1px solid var(--err);display:none';
     const host = document.querySelector('.wrap') || document.body;
     host.insertBefore(bar, host.firstChild);
   }
   const msgs = [];
   if (data.event_bus === false) {
-    msgs.push('<svg class="ico" style="width:18px;height:18px;color:var(--swaxs-status-warning)" aria-hidden="true"><use href="#swaxs-ui-warning"/></svg> <b>Event bus DOWN</b> — remote fit reports and the ' +
-              'measurement-complete signal are disabled; runs will end on the ' +
-              'timer instead. Install <code>flask-sock</code> + ' +
+    msgs.push('<svg class="ico" style="width:18px;height:18px;color:var(--swaxs-status-warning)" aria-hidden="true"><use href="#swaxs-ui-warning"/></svg> <b>Event bus DOWN.</b> Fit reports and the measurement-complete signal ' +
+              'are off, so runs end on the timer. Install <code>flask-sock</code> and ' +
               '<code>websocket-client</code>.');
   }
   if (typeof data.disk_free_gb === 'number' && data.disk_free_gb < 20) {
-    msgs.push(`<svg class="ico" style="width:18px;height:18px;color:var(--swaxs-status-warning)" aria-hidden="true"><use href="#swaxs-ui-warning"/></svg> <b>Only ${data.disk_free_gb} GB free</b> on the project volume — ` +
-              'a full disk truncates .dat files that still look valid downstream.');
+    msgs.push(`<svg class="ico" style="width:18px;height:18px;color:var(--swaxs-status-warning)" aria-hidden="true"><use href="#swaxs-ui-warning"/></svg> <b>Only ${data.disk_free_gb} GB free</b> on the project disk. ` +
+              'A full disk cuts .dat files short, and they still look valid downstream.');
   }
   bar.innerHTML = msgs.join('<br>');
   bar.style.display = msgs.length ? '' : 'none';
@@ -571,7 +622,7 @@ function updateCard(id, info) {
     info.healthy ? '#swaxs-ui-status-running' : '#swaxs-ui-status-stopped');
   if (info.healthy) {
     dot.classList.add('healthy');
-    lbl.textContent = `Running  ·  port ${info.port}`;
+    lbl.textContent = `Running  ·  Port ${info.port}`;
     if (info.summary && (info.summary.good || info.summary.bad)) {
       const s = info.summary;
       lbl.insertAdjacentHTML('beforeend',
@@ -590,7 +641,7 @@ function updateCard(id, info) {
     const secs = Math.round((Date.now() - t0[id]) / 1000);
     if (secs > 20) {
       dot.classList.add('stopped');
-      lbl.innerHTML = `<b style="color:var(--red)">Not responding</b> · ${secs}s ` +
+      lbl.innerHTML = `<b style="color:var(--red)">Not responding</b> · ${secs} s ` +
                       `· check logs/${id}.log`;
     } else {
       dot.classList.add('starting');
@@ -607,19 +658,19 @@ function updateCard(id, info) {
     const c = info.crashed;
     const why = c.reason || (c.exit_code == null ? 'reason unknown' : `exit ${c.exit_code}`);
     lbl.innerHTML = `<b style="color:var(--swaxs-status-error)">`
-      + `<svg class="ico" style="width:16px;height:16px;color:var(--swaxs-status-warning)" aria-hidden="true"><use href="#swaxs-ui-warning"/></svg> CRASHED</b> (${_esc(why)}) · press Start`;
+      + `<svg class="ico" style="width:16px;height:16px;color:var(--swaxs-status-warning)" aria-hidden="true"><use href="#swaxs-ui-warning"/></svg> CRASHED</b> (${_esc(why)}) · Press Start`;
     const tail = (c.tail || []).filter(Boolean);
     let box = document.getElementById(`crash-${id}`);
     if (tail.length) {
       if (!box) {
         box = document.createElement('pre');
         box.id = `crash-${id}`;
-        box.style.cssText = 'margin:6px 0 0;padding:7px 9px;background:#00000033;' +
+        box.style.cssText = 'margin:6px 0 0;padding:7px 9px;background:var(--surface2);' +
           'border-radius:6px;font-size:11px;line-height:1.45;max-height:104px;' +
-          'overflow:auto;white-space:pre-wrap;color:#f0a6ab';
+          'overflow:auto;white-space:pre-wrap;color:var(--err-text)';
         lbl.parentElement.appendChild(box);
       }
-      box.textContent = tail.slice(-6).join('\n') + `\n— logs/${id}.log`;
+      box.textContent = tail.slice(-6).join('\n') + `\nFull log: logs/${id}.log`;
     } else if (box) { box.remove(); }
     open.setAttribute('disabled', '');
     if (window._startSeen) delete window._startSeen[id];
@@ -709,10 +760,10 @@ function _summarize(type, data) {
       // Analyzer's nanoparticle fit -- a DIFFERENT payload shape from
       // analysis.complete above (file/size/pdi, not analysis_type/file_path).
       // Sharing that case for this event used to render "undefined on ?".
-      return `${data.recipe_id||_base(data.file)} — R=${data.size??'?'} nm `
+      return `${data.recipe_id||_base(data.file)}: R=${data.size??'?'} nm `
            + `PDI=${data.pdi??'?'} conf=${data.confidence??'?'}`;
     case 'watch.new_raw':
-      return `new raw: ${_base(data.file_path)} [${data.detector}]`;
+      return `New raw: ${_base(data.file_path)} [${data.detector}]`;
     case 'ai.hint':
       return String(data.hint || '').slice(0, 120);
     case 'app.started':
@@ -720,7 +771,7 @@ function _summarize(type, data) {
     case 'app.stopped':
       return `${data.app_id} stopped`;
     case 'project.set':
-      return `project → ${data.path}`;
+      return `Project → ${data.path}`;
     default:
       return JSON.stringify(data).slice(0, 100);
   }
@@ -762,7 +813,7 @@ function _insertLogRow(ts, innerHtml) {
 
 function clearLog() {
   document.getElementById('logPanel').innerHTML =
-    '<div class="log-empty" id="logEmpty">No events yet — start an app or pick a project folder to see live activity here.</div>';
+    '<div class="log-empty" id="logEmpty">No events yet. Start an app or pick a project folder to see live activity.</div>';
   _logCount = 0;
   const countEl = document.getElementById('logCount');
   if (countEl) countEl.textContent = '';
@@ -791,7 +842,7 @@ async function _ctl(path, id, verb) {
     // Always show the server's own message. It carries the part that matters —
     // "reclaimed port 5104 from orphaned app process(es) 8141" — which used to be
     // swallowed by a hard-coded "stopped".
-    log(`${id}: ${j.message || (j.ok ? 'ok' : 'failed')}`, j.ok ? 'ok' : 'err');
+    log(`${id}: ${j.message || (j.ok ? 'OK' : 'failed')}`, j.ok ? 'ok' : 'err');
     if (!j.ok) await whoHasPort(id);
     return j;
   } catch (e) {
@@ -810,12 +861,12 @@ async function whoHasPort(id) {
     const row = (j.ports || []).find(p => p.app_id === id);
     if (!row || !row.in_use) return;
     if (!row.holders.length) {
-      log(`port ${row.port} is busy but its owner could not be identified`, 'warn');
+      log(`Port ${row.port} is busy, owner unknown`, 'warn');
       return;
     }
     row.holders.forEach(h => log(
-      `port ${row.port} held by PID ${h.pid} (${h.name})` +
-      (h.ours ? ' — an orphan of ours; press Start to reclaim it' : ' — NOT part of this platform') +
+      `Port ${row.port} held by PID ${h.pid} (${h.name})` +
+      (h.ours ? ', a leftover platform process. Press Start to reclaim it' : ', NOT part of this platform') +
       `: ${h.cmdline}`, h.ours ? 'warn' : 'err'));
   } catch (_) { }
 }
@@ -827,16 +878,16 @@ async function whoHasPorts() {
     const busy = (j.ports || []).filter(p => p.in_use);
     if (!busy.length) { log('All app ports are free.', 'ok'); return; }
     busy.forEach(p => {
-      if (p.managed) { log(`port ${p.port} — ${p.app_id} (started by this hub)`, 'ok'); return; }
+      if (p.managed) { log(`Port ${p.port}: ${p.app_id} (started by this hub)`, 'ok'); return; }
       if (!p.holders.length) {
-        log(`port ${p.port} — ${p.app_id}: busy, owner not identifiable`, 'warn'); return;
+        log(`Port ${p.port}: ${p.app_id}, busy, owner unknown`, 'warn'); return;
       }
       p.holders.forEach(h => log(
-        `port ${p.port} — ${p.app_id}: PID ${h.pid} (${h.name})` +
-        (h.ours ? ' — orphan of ours; Start will reclaim it' : ' — foreign process'),
+        `Port ${p.port}: ${p.app_id}, PID ${h.pid} (${h.name})` +
+        (h.ours ? ', leftover platform process. Start will reclaim it' : ', not a platform process'),
         h.ours ? 'warn' : 'err'));
     });
-  } catch (e) { log(`port check failed: ${e.message}`, 'err'); }
+  } catch (e) { log(`Port check failed: ${e.message}`, 'err'); }
 }
 
 /* Close every app and leave no process behind. */
@@ -848,9 +899,9 @@ async function stopAllApps() {
     Object.entries(j.results || {}).forEach(([id, r]) => {
       if (r.message !== 'Not running') log(`${id}: ${r.message}`, r.ok ? 'ok' : 'err');
     });
-    log(j.ok ? 'All apps stopped — no processes left running.'
+    log(j.ok ? 'All apps stopped. No processes left running.'
              : `Could not stop: ${(j.stuck || []).join(', ')}`, j.ok ? 'ok' : 'err');
-  } catch (e) { log(`stop all failed: ${e.message}`, 'err'); }
+  } catch (e) { log(`Stop all failed: ${e.message}`, 'err'); }
 }
 
 // ── Folder browser ─────────────────────────────────────────────────────────
@@ -960,6 +1011,19 @@ document.getElementById('browserModal').addEventListener('click', e => {
 
 // ── Boot ───────────────────────────────────────────────────────────────────
 connectBus();
+</script>
+<script>
+/* Operator — set once in the hub; the hub saves it, exports it to the apps it
+   launches and records it in the project manifest. */
+async function loadOperator(){
+  try{ const r=await fetch('/api/operator'); const d=await r.json();
+       const el=document.getElementById('hubOperator'); if(el&&document.activeElement!==el) el.value=d.operator||''; }catch(_){}
+}
+async function saveOperator(v){
+  try{ await fetch('/api/operator',{method:'POST',headers:{'Content-Type':'application/json'},
+                                    body:JSON.stringify({operator:v})}); }catch(_){}
+}
+loadOperator();
 </script>
 </body>
 </html>

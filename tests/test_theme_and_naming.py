@@ -99,10 +99,10 @@ def test_the_app_name_comes_first_in_the_title(app_id):
 
 
 def test_every_title_uses_one_format():
-    formats = {_unescape(_title(html)).split(" — ")[-1]
+    formats = {_unescape(_title(html)).split(" · ")[-1]
                for _a, html in _templates() if _title(html)}
     assert formats == {"SWAXS"}, (
-        f"titles end with {sorted(formats)} — five different patterns is how "
+        f"titles end with {sorted(formats)}; five different patterns is how "
         f"a ten-app platform stops looking like one product")
 
 
@@ -125,11 +125,11 @@ def test_the_apps_that_do_not_theme_are_the_known_two():
     rather than discovering when a user opens it next to nine dark panels."""
     untoggled = {a["id"] for a, html in _templates()
                  if "swaxs-theme" not in _strip_comments(html)}
-    # The hub has no apps.yml entry of its own (it is the launcher), so it is
-    # never yielded here; calibration is the one registered single-theme app.
-    assert untoggled == {"calibration"}, (
-        f"apps with no theme toggle: {sorted(untoggled)} — "
-        f"docs/DESIGN_SYSTEM.md lists only hub and calibration")
+    # October 2026: every app themes — calibration was the last single-theme
+    # app and now has the same toggle and shared palette as the rest.
+    assert untoggled == set(), (
+        f"apps with no theme toggle: {sorted(untoggled)} — every app must "
+        f"follow the shared light/dark palette (docs/DESIGN_SYSTEM.md)")
 
 
 # ── icons ───────────────────────────────────────────────────────────────────

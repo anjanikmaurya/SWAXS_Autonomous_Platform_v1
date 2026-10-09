@@ -394,10 +394,8 @@ def test_read_during_collect_also_clears_the_blind_window():
 def test_the_two_messages_are_distinguishable():
     """An operator must be able to tell "we are mid-acquisition" from "your
     sensor is dead" — the old wording only ever said the latter."""
-    src = (_ROOT / "src" / "reactor" / "controller.py").read_text() \
-        if "ROOT" in dir() else \
-        (__import__("pathlib").Path(__file__).resolve().parents[1]
-         / "src" / "reactor" / "controller.py").read_text()
+    # the controller and the parts split out of it (Oct 2026)
+    src = "".join((_ROOT / "src" / "reactor" / f).read_text() for f in ("controller.py", "sequence.py", "supervisor.py", "collection.py"))
     assert "temperature polling is paused" in src
     assert 'spec.read_source: \\"epics\\"' in src or 'read_source: "epics"' in src, \
         "the note does not name the remedy"
@@ -411,7 +409,7 @@ def test_the_two_messages_are_distinguishable():
 # rehearsal must be timed exactly like the beamline run it stands in for, so a
 # 60 s synthesis takes 60 s everywhere. This test keeps it out.
 def test_no_time_compression_exists_anywhere_in_the_reactor():
-    src = (_ROOT / "src" / "reactor" / "controller.py").read_text()
+    src = "".join((_ROOT / "src" / "reactor" / f).read_text() for f in ("controller.py", "sequence.py", "supervisor.py", "collection.py"))
     for banned in ("time_scale", "_scaled(", "mock_time_scale"):
         assert banned not in src, \
             f"time compression is back in the controller ({banned})"

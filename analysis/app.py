@@ -14,6 +14,7 @@ Open: http://localhost:5106
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -95,18 +96,10 @@ def api_project():
 
 @app.route("/api/browse")
 def api_browse():
-    raw = request.args.get("path", "").strip()
-    p   = Path(raw) if raw else Path.home()
-    while not p.exists() and p != p.parent:
-        p = p.parent
-    if not p.is_dir():
-        p = Path.home()
-    try:
-        dirs = sorted(d.name for d in p.iterdir()
-                      if d.is_dir() and not d.name.startswith("."))
-    except PermissionError:
-        dirs = []
-    return jsonify({"current": str(p), "parent": str(p.parent) if p != p.parent else None, "dirs": dirs})
+    """Folder listing for the Browse… button (shared: src/folder_browse.py)."""
+    from src.folder_browse import list_dirs  # noqa: PLC0415
+    return jsonify(list_dirs(request.args.get("path", ""),
+                           _project_root or os.environ.get("SWAXS_PROJECT") or None))
 
 
 @app.route("/api/load_dat", methods=["POST"])

@@ -73,9 +73,14 @@ SWAXS_Autonomous_Platform_v1/
 │   ├── analysis/               # core.py · io.py · atsas.py · nanoparticle.py
 │   ├── optimizer/              # campaign.py · space.py · gp.py · io.py
 │   │                           #   · diagnostics.py · plots.py
-│   ├── reactor/                # controller.py · hardware.py · config.py
-│   │                           #   · recipe.py · intake.py · drivers/Py_P_Pump.py
+│   ├── reactor/                # controller.py (API, loop, status) + its parts split out
+│   │                           #   Oct 2026: sequence.py (run order) · supervisor.py (safety)
+│   │                           #   · collection.py (SPEC shots) · checks.py (read-only
+│   │                           #   hardware checklist) · hardware.py · config.py · recipe.py
+│   │                           #   · intake.py · drivers/Py_P_Pump.py
 │   ├── beamline/driver.py      # SPEC bServer HTTP + EPICS reads
+│   ├── synthesis/              # Instrument contract (phase 0, not used by the reactor yet):
+│   │                           #   types · instrument (gated InstrumentSession) · registry · toy
 │   ├── simulator/              # Mock-only synthetic 2D data: ground_truth · pattern
 │   │                           #   · writer · collector
 │   ├── notify/                 # slack.py · email_notify.py · multi.py — legacy,
@@ -365,6 +370,7 @@ Encoding failures drop the single event, not the connection.
 | `docs/audits/OPEN_DEFECTS.md` | **The register of known open defects** |
 | `docs/audits/REACTOR_AUDIT.md` | Deep audit of the reactor app + `src/reactor/` + `src/beamline/` (R1–R25): hardware safety, unattended stability, campaign integrity, every control traced |
 | `docs/audits/ASSISTANT_AUDIT.md` | Audit of the assistant app + `src/ai/` (tools, secrets, run_python sandbox, P(r) fix) |
+| `docs/design/SYNTHESIS_PLATFORM_PLAN.md` | Plan for the modular Synthesis app: one instrument contract, simulated twins, chained workflows, gated Test → Setup → Run, generic telemetry, migration phases. Only the page layout is built so far (Oct 2026) |
 | `docs/CONTINUOUS_RUN_HARDENING_PLAN.md` | Plan (not yet implemented) for the defects that threaten a multi-day autonomous run — what to fix, in what order, and the test that proves each |
 | `docs/audits/PRE_BEAMTIME_READINESS.md` | Go/no-go checklist |
 | `docs/audits/BEAMLINE_SAFETY_AUDIT.md` | Every SPEC command the platform issues |

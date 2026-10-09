@@ -175,7 +175,7 @@ def test_run_start_warns_when_mock_simulator_is_off(tmp_path):
     cfg = _cfg(tmp_path)
     cfg["spec"]["simulator"]["enabled"] = False
     _, msgs, _ = _run(cfg)
-    assert _has(msgs, "MOCK backend with the 2D simulator OFF")
+    assert _has(msgs, "Simulation mode with the 2D simulator OFF")
 
 
 def test_unwritable_save_folder_is_reported_before_the_first_frame(tmp_path):

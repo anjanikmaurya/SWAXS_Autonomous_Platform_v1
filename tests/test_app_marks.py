@@ -106,7 +106,7 @@ def test_every_app_shows_a_different_mark():
 @pytest.mark.parametrize("app_id", _IDS)
 def test_the_mark_reaches_the_rendered_page(app_id, pages):
     html, _c = pages[app_id]
-    body = html[html.index("<body>"):]
+    body = html[re.search(r"<body[^>]*>", html).start():]
     assert 'class="app-mark"' in body, f"{app_id} renders no mark"
     # CONTRACT CHANGED (September 2026). Apps used to be forbidden from
     # <use>-ing sprite symbols, because only the hub inlined the sprite and a
@@ -122,8 +122,14 @@ def test_the_mark_reaches_the_rendered_page(app_id, pages):
         # and every referenced id must actually be a symbol in that sprite
         import re as _re
         defined = set(_re.findall(r'<symbol[^>]*\bid="([^"]+)"', body))
-        for ref in _re.findall(r'<use href="#([^"]+)"', body):
+        from tests._icon_refs import static_refs, runtime_icon_names
+        for ref in static_refs(body):
             assert ref in defined, f"{app_id}: <use href=#{ref}> has no matching symbol"
+        # Runtime icon names (icoSvg / setIco / theme toggle): a typo there is a
+        # blank square on screen, so every literal name must be a real symbol.
+        missing = sorted(n for n in runtime_icon_names(body)
+                         if f"swaxs-ui-{n}" not in defined)
+        assert not missing, f"{app_id}: runtime icon name(s) with no symbol: {missing}"
 
 
 @pytest.mark.parametrize("app_id", _IDS)

@@ -35,6 +35,8 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from src.favicon import register_favicon               # noqa: E402
+from src.preprocess.calib import CALIBRANT_LABELS, list_detectors   # noqa: E402
+from src.preprocess.raw_convert import raw_to_cbf               # noqa: E402
 from src.preprocess import (                                    # noqa: E402
     DEFAULT_SHAPES, find_raw_files, read_raw, convert_dir,
     CALIBRANTS, launch_calib2, list_poni_files,
@@ -143,7 +145,8 @@ def api_project():
 
 @app.route("/api/calibrants")
 def api_calibrants():
-    return jsonify({"calibrants": CALIBRANTS})
+    return jsonify({"calibrants": CALIBRANTS,
+                    "labels": {c: CALIBRANT_LABELS.get(c, c) for c in CALIBRANTS}})
 
 
 @app.route("/api/list_raw", methods=["POST"])
@@ -186,22 +189,61 @@ def api_convert():
     return jsonify({"results": results, "out_dir": out_dir})
 
 
+_DETECTORS_CACHE: list = []
+
+
+@app.route("/api/detectors")
+def api_detectors():
+    """Every detector model pyFAI knows (id, name, manufacturer, shape, pixel),
+    for the Detector menu. Built once; it only depends on the pyFAI version."""
+    if not _DETECTORS_CACHE:
+        _DETECTORS_CACHE.extend(list_detectors())
+    return jsonify({"detectors": _DETECTORS_CACHE})
+
+
 @app.route("/api/calibrate/launch", methods=["POST"])
 def api_calib_launch():
     """Open the pyFAI-calib2 GUI preloaded with the image, calibrant and energy.
-    The GUI's cwd is the project poni/ folder so its save dialog lands there."""
-    b = request.get_json(force=True)
-    cbf = (b.get("cbf", "") or "").strip()
-    if not cbf:
+
+    Calibration only: this opens a separate, detached GUI and returns. It writes
+    no .poni, config or manifest entry, and touches no other app; the user saves
+    the .poni from the GUI (its save dialog starts in the project poni/ folder).
+    A .raw is converted to CBF first, because pyFAI cannot read the headerless
+    .raw (the shape comes from the detector table)."""
+    b = request.get_json(force=True) or {}
+    img = (b.get("cbf", "") or "").strip()
+    if not img:
         return jsonify({"ok": False, "error": "no image given"}), 400
-    if not Path(cbf).is_file():
-        return jsonify({"ok": False, "error": f"file not found: {cbf}"}), 400
+    p = Path(img)
+    if not p.is_file():
+        return jsonify({"ok": False, "error": f"file not found: {img}"}), 400
+    try:
+        energy = float(b.get("energy_keV") or 0)
+    except (TypeError, ValueError):
+        energy = 0
+    if energy <= 0:
+        return jsonify({"ok": False, "error": "enter the X-ray energy in keV"}), 400
+    try:
+        pixel = float(b.get("pixel_um") or 0) or None
+    except (TypeError, ValueError):
+        pixel = None
+    converted = None
+    if p.suffix.lower() == ".raw":
+        try:
+            r = raw_to_cbf(p, p.parent / "cbf_output", _shapes())
+        except Exception as exc:
+            return jsonify({"ok": False, "error": f"could not convert {p.name} to CBF "
+                            f"for pyFAI: {exc}"}), 400
+        converted = r["out"]
+        p = Path(converted)
     poni_dir = _poni_dir()
-    ok, msg, cmd = launch_calib2(cbf, b.get("calibrant", "AgBehenate"),
-                                 b.get("energy_keV", 12.0),
-                                 pixel_um=float(b.get("pixel_um", 172.0)),
-                                 workdir=str(poni_dir))
-    return jsonify({"ok": ok, "message": msg, "command": cmd, "poni_dir": str(poni_dir)})
+    detector = (b.get("detector") or "auto").strip()
+    ok, msg, cmd = launch_calib2(str(p), b.get("calibrant") or "AgBh", energy,
+                                 pixel_um=pixel, detector=detector, workdir=str(poni_dir))
+    if ok and converted:
+        msg = f"Converted to {Path(converted).name}. " + msg
+    return jsonify({"ok": ok, "message": msg, "command": cmd,
+                    "image": str(p), "poni_dir": str(poni_dir)})
 
 
 @app.route("/api/poni")

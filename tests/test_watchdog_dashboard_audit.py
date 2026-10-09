@@ -274,6 +274,7 @@ def test_the_throughput_card_and_its_axis_agree_on_what_is_counted():
     """The card said "frames reduced" while the axis said .dat files. The scan
     counts both Reduction/SAXS and Reduction/WAXS, so in SWAXS mode one frame
     makes two files and "frames" overstates the rate by 2x."""
-    hd = _TPL.split("📈 Throughput")[1].split("</div>")[0]
+    # split on the title TEXT: the heading icon is a sprite <svg>, not an emoji
+    hd = _TPL.split("</svg> Throughput")[1].split("</div>")[0]
     assert ".dat files" in hd, f"the Throughput subtitle still says: {hd.strip()[:120]}"
     assert "frames reduced" not in hd

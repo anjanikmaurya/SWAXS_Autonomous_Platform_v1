@@ -454,9 +454,9 @@ a platform-level change rather than something to bolt onto one model.
 Your program proposing conditions means your program can heat a reactor and
 consume reagents. Before pointing it at real hardware:
 
-- **Test against the mock backend first.** Mock is already the shipped default
-  (`SWAXS_REACTOR_BACKEND` sets the startup default; the app's Mock/Real toggle
-  governs at runtime). Confirm the app says Mock before you trust it — do not
+- **Test against Simulation mode first.** Simulation is already the shipped default
+  (`SWAXS_REACTOR_BACKEND` sets the startup default; the app's Simulation/Hardware toggle
+  governs at runtime). Confirm the app says Simulation before you trust it — do not
   assume the env var alone protects you.
 - **Out-of-range recipes are rejected, never silently clipped.** Limits come
   from three independent places: `bounds:`/`safety:` in `reactor/config.yml`,

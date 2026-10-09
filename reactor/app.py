@@ -38,6 +38,7 @@ from src.reactor import load_config, ReactorController, RecipeError   # noqa: E4
 from src.reactor.config import hub_to_spec_dir                        # noqa: E402
 from src.reactor.recipe import parse_param_file                       # noqa: E402
 from src.reactor.intake import decide_intake                          # noqa: E402
+from src.reactor import checks as _checks                              # noqa: E402
 from src.loop_naming import split_role, is_background                 # noqa: E402
 from src.manifest import update_manifest, add_reactor_run            # noqa: E402
 
@@ -55,6 +56,9 @@ app = Flask(__name__)
 register_favicon(app, "reactor")
 
 _project_root: str = os.environ.get("SWAXS_PROJECT", "")   # folder selected in the hub
+
+from src.folder_browse import register_browse   # noqa: E402
+register_browse(app, lambda: _project_root)    # GET /api/browse for the Browse… button
 _CFG = load_config()
 # Normalise and validate: the pump layer and the beamline layer used to compare
 # this string differently ("== 'real'" vs ".lower() == 'real'"), so a value like
@@ -769,6 +773,20 @@ def _folder_watcher() -> None:
                     _watch_lastsig.pop(k, None)
                 for k in [k for k in _watch_handled if k not in present]:
                     _watch_handled.pop(k, None)
+                    # A handled (queued) condition whose file the PRODUCER moved to
+                    # done/ has been withdrawn (new campaign / abort): drop it from
+                    # the queue so it is not dosed for a run that no longer exists.
+                    # Strict signal on purpose: same folder, and the file is now in
+                    # done/. An empty listing or a switched folder never withdraws.
+                    kp = Path(k)
+                    in_done = ((rdir / "done" / kp.name).exists()
+                               or (_resolve("processed") / kp.name).exists())
+                    if kp.parent == rdir and in_done:
+                        try:
+                            _ctrl.withdraw_source(f"folder:{kp.name}",
+                                                  reason="withdrawn by the analyzer")
+                        except Exception as e:
+                            _emit(f"⚠ could not withdraw {kp.name}: {e}", "warn")
         except Exception:
             pass
         time.sleep(interval)
@@ -781,6 +799,18 @@ threading.Thread(target=_folder_watcher, daemon=True).start()
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+@app.route("/api/shutdown", methods=["POST"])
+def api_shutdown():
+    """Make the rig safe NOW (idle pumps, close shutter, release SPEC), before
+    the hub kills this process. The hub calls this first because on Windows its
+    kill is TerminateProcess, which never runs the SIGTERM/atexit handler.
+    Local callers only. Idempotent: a second call (or the later atexit) no-ops."""
+    if request.remote_addr not in ("127.0.0.1", "::1", "localhost"):
+        return jsonify({"ok": False, "error": "local requests only"}), 403
+    _shutdown_once("hub stop")
+    return jsonify({"ok": True, "safe": True})
 
 
 @app.route("/api/health")
@@ -850,6 +880,29 @@ def set_project():
         _load_limits()          # pick up saved per-pump flow limits
         _load_recipes_folder()  # pick up saved conditions-folder override
     return jsonify({"ok": True})
+
+
+@app.route("/api/checks", methods=["GET"])
+def api_checks():
+    """The Hardware test checklist (read only; see src/reactor/checks.py)."""
+    return jsonify({"checks": [{"id": c.id, "title": c.title} for c in _checks.CHECKS]})
+
+
+@app.route("/api/checks/run", methods=["POST"])
+def api_checks_run():
+    """Run one check or all of them against the latest readings. Sends nothing
+    to the pumps or SPEC: it only reads the controller's current status."""
+    body = request.get_json(silent=True) or {}
+    status, cfg = _ctrl.status(), _ctrl.cfg
+    which = body.get("id", "all")
+    if which == "all":
+        return jsonify({"ok": True, "results": _checks.run_all(status, cfg), "backend": status.get("backend")})
+    try:
+        r = _checks.run_check(which, status, cfg)
+    except KeyError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    return jsonify({"ok": True, "results": [{"id": which, "ok": r.ok, "value": r.value,
+                                             "expected": r.expected, "hint": r.hint}]})
 
 
 @app.route("/api/pumps", methods=["GET", "POST"])

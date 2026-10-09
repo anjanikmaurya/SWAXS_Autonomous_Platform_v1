@@ -442,6 +442,9 @@ def _resolve_project_root() -> str | None:
 # Backwards-compatible alias (older callers).
 _hub_project_root = _resolve_project_root
 
+from src.folder_browse import register_browse   # noqa: E402
+register_browse(app, lambda: os.environ.get("SWAXS_PROJECT"))   # Browse… for the project field
+
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 

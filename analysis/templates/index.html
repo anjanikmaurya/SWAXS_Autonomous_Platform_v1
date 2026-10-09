@@ -3,10 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Data Analysis — SWAXS</title>
+<title>Data Analysis · SWAXS</title>
     <link rel="icon" href="/app-icon">   <!-- per-app tab icon, from apps.yml (src/favicon.py) -->
 <script src="/static/vendor/plotly.min.js"></script>
 <link rel="stylesheet" href="/static/swaxs-tokens.css">
+{% include "_theme_boot.html" %}
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -16,7 +17,7 @@
   --sidebar:#eef1f5;--sidebar-h:#e3e7ed;--sf:31,41,55;
   --sidebar-active-bg:rgba(177,4,14,.10);--sidebar-active-fg:#8C1515;
   --green:#16a34a;--ok-text:#15803d;--warn-text:#b45309;--err-text:#b91c1c;--info-text:#1d4ed8;
-  --font:'Inter','Segoe UI',system-ui,-apple-system,sans-serif;--mono:'JetBrains Mono',monospace;
+  --font:'Inter','Segoe UI',system-ui,-apple-system,sans-serif;--mono:'JetBrains Mono','Fira Code','Cascadia Code',ui-monospace,Menlo,Consolas,monospace;
   --fs-2xs:.6875rem;--fs-xs:.75rem;--fs-sm:.8125rem;--fs-md:.875rem;--fs-lg:1.125rem;
   --radius:8px;--ls-label:.06em;
 }
@@ -48,7 +49,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
 .card h3{font-size:var(--fs-md);font-weight:700;margin-bottom:10px}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
 label{font-size:var(--fs-sm);color:var(--muted)}
-select,input[type=text],input[type=number]{background:#fff;border:1px solid var(--border-strong);border-radius:6px;padding:6px 9px;font-size:var(--fs-sm);color:var(--text)}
+select,input[type=text],input[type=number]{background:var(--surface);border:1px solid var(--border-strong);border-radius:6px;padding:6px 9px;font-size:var(--fs-sm);color:var(--text)}
 input[type=number]{width:96px}
 .seg{display:inline-flex;border:1px solid var(--border-strong);border-radius:6px;overflow:hidden}
 .seg button{padding:6px 14px;border:none;background:var(--surface2);color:var(--muted);font-size:var(--fs-sm);font-weight:600;cursor:pointer;border-right:1px solid var(--border)}
@@ -64,7 +65,7 @@ table.res td{padding:5px 10px;border-top:1px solid var(--border)}
 table.res td:first-child{color:var(--muted);width:45%}
 table.res td:last-child{font-family:var(--mono);font-weight:600}
 .badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:var(--fs-xs);font-weight:700}
-.badge.PASS{background:#dcfce7;color:var(--ok-text)}.badge.WARN{background:#fef3c7;color:var(--warn-text)}.badge.FAIL{background:#fee2e2;color:var(--err-text)}
+.badge.PASS{background:var(--ok-lt);color:var(--ok-text)}.badge.WARN{background:var(--warn-lt);color:var(--warn-text)}.badge.FAIL{background:var(--err-lt);color:var(--err-text)}
 .warn{font-size:var(--fs-sm);color:var(--warn-text);margin-top:6px}
 .muted{color:var(--muted);font-size:var(--fs-sm)}
 .bigtable{width:100%;border-collapse:collapse;font-size:var(--fs-sm)}
@@ -93,29 +94,37 @@ table.res td:last-child{font-family:var(--mono);font-weight:600}
    tools/build_icon_sprite.py. */
 .app-mark { width:26px; height:26px; flex-shrink:0; color:var(--swaxs-analysis); }
 .app-lockup { display:flex; align-items:center; gap:10px; min-width:0 }
+.topbar-sub{font-size:var(--fs-sm);color:var(--muted);white-space:nowrap}
+
 </style>
 </head>
-<body>
-<div class="shell">
-  <header class="topbar">
-    <div class="app-lockup">
-      {% include "_app_mark.svg" %}
-      <h1>SWAXS <span>Analysis</span></h1>
-    </div>
-    <span class="sub" id="projSub">no project</span>
-    <div class="spacer"></div>
-    <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" title="Toggle light / dark">☾</button>
-    <a href="http://localhost:5100" style="text-decoration:none"><button class="btn">← Hub</button></a>
-  </header>
+<body class="swaxs-shell">
+{% include "_icon_sprite.svg" %}
+{% include "_icon_helpers.html" %}
+<header class="topbar">
+  <div class="app-lockup">
+    {% include "_app_mark.svg" %}
+    <h1>Data <span>Analysis</span></h1>
+  </div>
+  <span class="bar-status" id="barStatus" title="Connection to this app"><span class="dot"></span><span class="bar-status-txt">Connecting…</span></span>
+  <span class="proj" id="projSub">No project</span>
+  <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" title="Light or dark theme"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-moon"/></svg></button>
+  <span class="topbar-sub">Port 5106 · <a href="http://localhost:5100">← Hub</a></span>
+</header>
+<div class="shell" id="app">
+  <nav id="sidebar">
+  
+  <div class="nav-section-label">SAXS</div>
+  <button class="nav-btn navtab active" data-cat="classical" onclick="setCat('classical')"><span class="nav-icon"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-chart"/></svg></span> Classical</button>
+  <button class="nav-btn navtab" data-cat="sasview" onclick="setCat('sasview')"><span class="nav-icon"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-model"/></svg></span> SASView</button>
+  <button class="nav-btn navtab" data-cat="atsas" onclick="setCat('atsas')"><span class="nav-icon"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-pr"/></svg></span> ATSAS</button>
+  <div class="nav-section-label">WAXS</div>
+  <button class="nav-btn navtab" data-cat="peaks" onclick="setCat('peaks')"><span class="nav-icon"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-peak"/></svg></span> Peak fitting</button>
+  
+</nav>
+  <div id="main">
+  
   <div class="body">
-    <nav class="nav">
-      <div class="lbl">SAXS</div>
-      <button class="navtab active" data-cat="classical" onclick="setCat('classical')">⬡ Classical</button>
-      <button class="navtab" data-cat="sasview" onclick="setCat('sasview')">◎ SASView</button>
-      <button class="navtab" data-cat="atsas" onclick="setCat('atsas')">⚛ ATSAS</button>
-      <div class="lbl" style="margin-top:10px">WAXS</div>
-      <button class="navtab" data-cat="peaks" onclick="setCat('peaks')">⌁ Peak fitting</button>
-    </nav>
     <div class="main">
       <div class="toptabbar">
         <button class="toptab active" data-tab="setup" onclick="showTab('setup')">Setup</button>
@@ -128,15 +137,18 @@ table.res td:last-child{font-family:var(--mono);font-weight:600}
           <h3>1 · Sample</h3>
           <div class="row">
             <label>Detector</label>
-            <span class="badge" id="detBadge" title="Set automatically from the analysis you select (SAXS analyses → SAXS; Peak fitting → WAXS).">SAXS</span>
-            <span class="muted" style="font-size:.85em">follows the selected analysis</span>
+            <span class="badge" id="detBadge" title="Set by the selected analysis: SAXS methods use SAXS, Peak fitting uses WAXS.">SAXS</span>
+            <span class="muted" style="font-size:.85em">Follows the selected analysis</span>
             <label>Filter</label>
-            <input type="text" id="kw" placeholder="keyword…" oninput="loadFiles()" style="width:140px">
-            <button class="btn" onclick="loadFiles()">&#8635;</button>
+            <input type="text" id="kw" placeholder="Keyword…" oninput="loadFiles()" style="width:140px">
+            <button class="btn" onclick="loadFiles()" title="Refresh file list">&#8635;</button>
           </div>
-          <div class="row">
-            <label>Folder</label>
-            <input type="text" id="folder" placeholder="(defaults to the project Subtracted folder; type a path to override)" style="flex:1;min-width:260px" oninput="folderEdited()" onchange="loadFiles()">
+          <div class="path-row" style="margin:8px 0">
+            <label for="folder">Folder</label>
+            <div class="browse-row">
+              <input type="text" id="folder" placeholder="Project Subtracted folder (default)" title="Blank uses the project's Subtracted folder. Type or browse to override." oninput="folderEdited()" onchange="loadFiles()">
+              <button type="button" class="btn btn-ghost btn-sm" onclick="swaxsBrowse('folder')">Browse…</button>
+            </div>
           </div>
           <div class="filelist" id="files"><div class="fl-row"><span class="muted">Loading…</span></div></div>
         </div>
@@ -152,7 +164,7 @@ table.res td:last-child{font-family:var(--mono);font-weight:600}
               <option value="pair_distance">p(r) &amp; Dmax</option>
               <option value="invariant">Invariant (Q, Vp, MW, Vc)</option>
             </select>
-            <label><input type="checkbox" id="auto" checked onchange="toggleAuto()"> auto q-range</label>
+            <label><input type="checkbox" id="auto" checked onchange="toggleAuto()"> Auto q-range</label>
             <label>q_min</label><input type="number" id="qmin" step="0.001" disabled>
             <label>q_max</label><input type="number" id="qmax" step="0.001" disabled>
             <span id="dmaxWrap" style="display:none"><label>Dmax</label><input type="number" id="dmax" step="0.5" placeholder="nm"></span>
@@ -167,19 +179,19 @@ table.res td:last-child{font-family:var(--mono);font-weight:600}
           <h3>2 · SASView model fit</h3>
           <div class="row">
             <label>Model</label>
-            <select id="model" onchange="loadModelParams()" style="min-width:170px"><option>loading…</option></select>
+            <select id="model" onchange="loadModelParams()" style="min-width:170px"><option>Loading…</option></select>
             <label>S(q)</label>
             <select id="sf">
-              <option value="">none</option><option value="hardsphere">hardsphere</option>
+              <option value="">None</option><option value="hardsphere">hardsphere</option>
               <option value="hayter_msa">hayter_msa</option><option value="stickyhardsphere">stickyhardsphere</option>
               <option value="squarewell">squarewell</option>
             </select>
             <label>q_min</label><input type="number" id="mqmin" step="0.001">
             <label>q_max</label><input type="number" id="mqmax" step="0.001">
-            <label title="Unit of q in your data. sasmodels works in Å⁻¹, so nm⁻¹ data is converted before fitting and sizes are reported in Å.">q unit</label>
+            <label title="Unit of q in your data. sasmodels works in Å⁻¹, so nm⁻¹ data is converted and sizes are reported in Å.">q unit</label>
             <select id="mqunit"><option value="nm^-1">nm⁻¹ (platform)</option><option value="A^-1">Å⁻¹</option></select>
           </div>
-          <div class="muted" style="margin:4px 0 8px">Check <b>fit</b> to optimise a parameter; set bounds (optional). Polydispersity params (e.g. <code>radius_pd</code>) appear in the list. <b>Units:</b> sasmodels is native in Å⁻¹ — q is converted accordingly, so fitted lengths (radius, length…) are in <b>Å</b> and SLDs in <b>1e-6 Å⁻²</b>.</div>
+          <div class="muted" style="margin:4px 0 8px">Tick <b>Fit</b> to free a parameter; bounds are optional. Polydispersity (e.g. <code>radius_pd</code>) is listed too. Fitted lengths are in <b>Å</b>, SLDs in <b>1e-6 Å⁻²</b>.</div>
           <div style="max-height:260px;overflow:auto;border:1px solid var(--border);border-radius:6px">
             <table class="bigtable" id="paramTable"><tr><td class="muted">Select a model…</td></tr></table>
           </div>
@@ -195,7 +207,7 @@ table.res td:last-child{font-family:var(--mono);font-weight:600}
             <label>Shape</label>
             <select id="pshape"><option value="gaussian">Gaussian</option><option value="lorentzian">Lorentzian</option><option value="voigt">Voigt (pseudo)</option></select>
             <label>Peaks</label>
-            <select id="pmode" onchange="document.getElementById('npk').style.display=this.value==='manual'?'inline':'none'"><option value="auto">auto-detect</option><option value="manual">fixed N</option></select>
+            <select id="pmode" onchange="document.getElementById('npk').style.display=this.value==='manual'?'inline':'none'"><option value="auto">Auto-detect</option><option value="manual">Fixed N</option></select>
             <input type="number" id="npk" min="1" max="12" value="2" style="width:64px;display:none">
             <label>Source</label>
             <select id="pstage" onchange="setPeakStage(this.value)"><option value="Subtracted">Subtracted</option><option value="Averaged">Averaged</option></select>
@@ -203,7 +215,7 @@ table.res td:last-child{font-family:var(--mono);font-weight:600}
           <div class="row">
             <label>q_min</label><input type="number" id="pqmin" step="0.1">
             <label>q_max</label><input type="number" id="pqmax" step="0.1">
-            <span class="muted">d-spacing = 2π/q reported in nm and Å.</span>
+            <span class="muted">d-spacing = 2π/q, reported in nm and Å.</span>
           </div>
           <div class="row">
             <button class="btn btn-primary" onclick="runPeaks()">Fit peaks</button>
@@ -225,14 +237,14 @@ table.res td:last-child{font-family:var(--mono);font-weight:600}
               <option value="dammif">DAMMIF bead model (slow)</option>
             </select>
             <span id="rgWrap" style="display:none"><label>Rg hint</label><input type="number" id="argg" step="0.1" placeholder="nm"></span>
-            <span id="mwWrap" style="display:none"><label>method</label>
+            <span id="mwWrap" style="display:none"><label>Method</label>
               <select id="amethod"><option>vc</option><option>vp</option><option>bayes</option><option>shape</option></select></span>
           </div>
           <div class="row">
             <button class="btn btn-primary" onclick="runAtsas()">Run</button>
             <span class="muted" id="atsasStatus"></span>
           </div>
-          <div class="muted" id="dammifNote" style="display:none">DAMMIF can take minutes — it runs a GNOM first, then bead modelling; models are written to Analysed/ATSAS/.</div>
+          <div class="muted" id="dammifNote" style="display:none">DAMMIF takes minutes: it runs GNOM, then bead modelling. Models are saved to Analysed/ATSAS/.</div>
         </div>
       </section>
 
@@ -244,7 +256,7 @@ table.res td:last-child{font-family:var(--mono);font-weight:600}
           <div id="qcWarn"></div>
           <div class="row" style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px">
             <button class="btn btn-primary" id="saveBtn" onclick="saveResult()" disabled>&#128190; Save to Analysed</button>
-            <span class="muted" id="savedInfo">Review the fit; save only when it's good.</span>
+            <span class="muted" id="savedInfo">Review the fit; save only if it is good.</span>
           </div>
         </div>
       </section>
@@ -254,7 +266,7 @@ table.res td:last-child{font-family:var(--mono);font-weight:600}
           <h3>Batch by keyword</h3>
           <div class="row">
             <label>Detector</label>
-            <span class="badge" id="bdetBadge" title="Set automatically from the selected analysis.">SAXS</span>
+            <span class="badge" id="bdetBadge" title="Set by the selected analysis.">SAXS</span>
             <label>Keyword</label><input type="text" id="bkw" placeholder="e.g. 12CE" style="width:160px">
             <label>Type</label>
             <select id="banalysis">
@@ -274,6 +286,7 @@ table.res td:last-child{font-family:var(--mono);font-weight:600}
       </section>
     </div>
   </div>
+  </div><!-- /#main -->
 </div>
 
 <script>
@@ -281,7 +294,7 @@ let PROJ="", DET="SAXS", BDET="SAXS", CURRENT=null;
 
 fetch('/api/project').then(r=>r.json()).then(d=>{
   PROJ=d.project_root||"";
-  document.getElementById('projSub').textContent = PROJ ? PROJ : 'no project — set it in the Hub';
+  document.getElementById('projSub').textContent = PROJ ? PROJ : 'No project: set it in the Hub';
   loadFiles();
 }).catch(()=>loadFiles());
 
@@ -306,7 +319,7 @@ function detOf(p){ p=(p||'').toUpperCase(); return (p.indexOf('/WAXS/')>=0||p.in
 function setLast(atype, results, params, fitCurve){
   LAST={path:CURRENT, detector:detOf(CURRENT), analysis_type:atype, params:params||{}, results:results||{}, fit_curve:fitCurve||null};
   const b=document.getElementById('saveBtn'); if(b) b.disabled=false;
-  document.getElementById('savedInfo').textContent='Fit ready — click Save if it looks good.';
+  document.getElementById('savedInfo').textContent='Fit ready. Save it if it looks good.';
 }
 function saveResult(){
   if(!LAST){ return; }
@@ -323,7 +336,7 @@ function loadAtsasAvail(){
   fetch('/api/atsas/available').then(r=>r.json()).then(d=>{
     ATSAS_CHECKED=true; const t=d.tools||{};
     const note=document.getElementById('atsasAvail');
-    if(!d.any){ note.innerHTML='<span style="color:var(--err-text)">ATSAS not found on PATH — install/activate it, then restart this app.</span>'; return; }
+    if(!d.any){ note.innerHTML='<span style="color:var(--err-text)">ATSAS not found on PATH. Install or activate it, then restart this app.</span>'; return; }
     note.innerHTML='Detected: '+Object.entries(t).filter(([k,v])=>v).map(([k])=>k).join(', ');
     const map={autorg:'autorg',gnom:'datgnom',datporod:'datporod',datvc:'datvc',datmw:'datmw',dammif:'dammif'};
     [...document.querySelectorAll('#atool option')].forEach(o=>{ const bin=map[o.value]; if(bin && !t[bin]){ o.disabled=true; o.text+=' (missing)'; }});
@@ -345,7 +358,7 @@ function runAtsas(){
   fetch('/api/atsas',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
     .then(r=>r.json()).then(d=>{
       if(d.error){ document.getElementById('atsasStatus').textContent='✗ '+d.error; return; }
-      document.getElementById('atsasStatus').textContent='✓ done';
+      document.getElementById('atsasStatus').textContent='✓ Done';
       renderAtsas(tool,d); setLast('atsas', d.results, {tool}, (d.plot&&d.plot.r?[d.plot.r,d.plot.pr]:null)); showTab('result');
     }).catch(e=>document.getElementById('atsasStatus').textContent='✗ '+e.message);
 }
@@ -355,34 +368,34 @@ function renderAtsas(tool,d){
     Plotly.newPlot('plot',[{x:pl.r,y:pl.pr,mode:'lines',fill:'tozeroy',name:'p(r)',line:{color:'#1565C0'}}],
       {template:'plotly_white',height:430,margin:{t:44,l:64,r:18,b:48},title:{text:'GNOM p(r) · Dmax='+(pl.Dmax||res.Dmax)+' nm',x:.5},xaxis:{title:{text:'r (nm)'}},yaxis:{title:{text:'p(r)'}}},{responsive:false,displaylogo:false});
   } else {
-    Plotly.purge('plot'); document.getElementById('plot').innerHTML='<div class="muted" style="padding:40px;text-align:center">'+tool+' — see results below'+(res.models?' · model PDB(s) saved':'')+'</div>';
+    Plotly.purge('plot'); document.getElementById('plot').innerHTML='<div class="muted" style="padding:40px;text-align:center">'+tool+': see results below'+(res.models?' · model PDB(s) saved':'')+'</div>';
   }
   const skip=new Set(['r','pr','raw','plot','out_file','models','tool']);
   let html=Object.entries(res).filter(([k,v])=>!skip.has(k) && (typeof v==='number'||typeof v==='string')).map(([k,v])=>`<tr><td>${k}</td><td>${typeof v==='number'?(+v).toPrecision(5):v}</td></tr>`).join('');
   if(res.models) html+='<tr><td>models</td><td>'+res.models.map(m=>m.split(/[\\/]/).slice(-1)[0]).join(', ')+'</td></tr>';
-  document.getElementById('resTable').innerHTML=html||'<tr><td class="muted">no parsed values — see raw</td></tr>';
+  document.getElementById('resTable').innerHTML=html||'<tr><td class="muted">No parsed values; see raw output below</td></tr>';
   document.getElementById('qcBadge').innerHTML=''; document.getElementById('qcWarn').innerHTML = res.raw?('<div class="muted" style="margin-top:8px;white-space:pre-wrap;font-family:var(--mono);font-size:var(--fs-xs);max-height:160px;overflow:auto">'+res.raw.replace(/[<>]/g,'')+'</div>'):'';
   const s=d.saved; document.getElementById('savedInfo').textContent=s?('Saved to '+(s.json||'').split(/[\\/]/).slice(-3).join('/')+(s.annotated?' · .dat annotated':'')+(s.analysis_id?' · registered':'')):'';
 }
 function loadModels(){
   fetch('/api/sasmodels/list').then(r=>r.json()).then(d=>{
     const sel=document.getElementById('model');
-    if(!d.models||!d.models.length){ sel.innerHTML='<option value="">sasmodels not installed</option>'; return; }
+    if(!d.models||!d.models.length){ sel.innerHTML='<option value="">sasmodels is not installed</option>'; return; }
     MODELS_LOADED=true;
     const common=['sphere','core_shell_sphere','ellipsoid','cylinder','core_shell_cylinder','flexible_cylinder','lamellar','lamellar_stack_paracrystal','broad_peak','correlation_length','power_law','guinier_porod','mass_fractal'];
     const inCat=common.filter(m=>d.models.includes(m));
     const rest=d.models.filter(m=>!inCat.includes(m));
-    sel.innerHTML='<optgroup label="common">'+inCat.map(m=>`<option>${m}</option>`).join('')+'</optgroup>'+
-                  '<optgroup label="all">'+rest.map(m=>`<option>${m}</option>`).join('')+'</optgroup>';
+    sel.innerHTML='<optgroup label="Common">'+inCat.map(m=>`<option>${m}</option>`).join('')+'</optgroup>'+
+                  '<optgroup label="All">'+rest.map(m=>`<option>${m}</option>`).join('')+'</optgroup>';
     loadModelParams();
-  }).catch(()=>{document.getElementById('model').innerHTML='<option value="">list failed</option>';});
+  }).catch(()=>{document.getElementById('model').innerHTML='<option value="">Could not list models</option>';});
 }
 function loadModelParams(){
   const m=document.getElementById('model').value; if(!m) return;
-  document.getElementById('paramTable').innerHTML='<tr><td class="muted">loading params…</td></tr>';
+  document.getElementById('paramTable').innerHTML='<tr><td class="muted">Loading parameters…</td></tr>';
   fetch('/api/sasmodels/params?model='+encodeURIComponent(m)).then(r=>r.json()).then(d=>{
     if(d.error){ document.getElementById('paramTable').innerHTML='<tr><td class="muted">'+d.error+'</td></tr>'; return; }
-    const head='<tr><th>fit</th><th>parameter</th><th>value</th><th>lower</th><th>upper</th><th>units</th></tr>';
+    const head='<tr><th>Fit</th><th>Parameter</th><th>Value</th><th>Lower</th><th>Upper</th><th>Units</th></tr>';
     const rows=d.parameters.map(p=>{
       const fitDefault=['scale','background','radius','length','thickness','sld','rg'].includes(p.name);
       return `<tr>
@@ -394,7 +407,7 @@ function loadModelParams(){
         <td class="muted">${p.units||''}</td></tr>`;
     }).join('');
     document.getElementById('paramTable').innerHTML=head+rows;
-  }).catch(()=>{document.getElementById('paramTable').innerHTML='<tr><td class="muted">params failed</td></tr>';});
+  }).catch(()=>{document.getElementById('paramTable').innerHTML='<tr><td class="muted">Could not load parameters</td></tr>';});
 }
 function _collectModel(){
   const params={}, free=[], bounds={};
@@ -421,7 +434,7 @@ function runModel(){
   fetch('/api/sasview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(_collectModel())})
     .then(r=>r.json()).then(d=>{
       if(d.error){ document.getElementById('modelStatus').textContent='✗ '+d.error; return; }
-      document.getElementById('modelStatus').textContent='✓ done';
+      document.getElementById('modelStatus').textContent='✓ Done';
       renderModelResult(d); { const m=_collectModel(); const pl=(d.results&&d.results.plot)||{}; setLast('model', d.results, {model_name:m.model_name,free:m.free,bounds:m.bounds,structure_factor:m.structure_factor}, (pl.q_fit?[pl.q_fit,pl.I_fit]:null)); } showTab('result');
     }).catch(e=>document.getElementById('modelStatus').textContent='✗ '+e.message);
 }
@@ -434,7 +447,7 @@ function renderModelResult(d){
   const fig={data:[
     {x:qd,y:Id,xaxis:'x',yaxis:'y',mode:'markers',name:'data',marker:{size:3,color:'#1565C0'}},
     {x:qf,y:If,xaxis:'x',yaxis:'y',mode:'lines',name:res.model+' fit',line:{color:'#E53935',width:2}},
-    {x:qd,y:resid,xaxis:'x',yaxis:'y2',mode:'markers',name:'resid',marker:{size:3,color:'#1565C0'}}],
+    {x:qd,y:resid,xaxis:'x',yaxis:'y2',mode:'markers',name:'residual',marker:{size:3,color:'#1565C0'}}],
     layout:{template:'plotly_white',height:460,margin:{t:40,l:64,r:18,b:46},showlegend:true,
       title:{text:'Model fit: '+res.model+'  (χ²ᵣ='+res.chi2+')',x:.5},
       xaxis:{domain:[0,1],anchor:'y2',type:'log',title:{text:'q ('+(res.q_unit==='A^-1'?'Å⁻¹':'nm⁻¹')+')'}},
@@ -444,7 +457,7 @@ function renderModelResult(d){
   const pr=res.params||{};
   const trs=Object.entries(pr).map(([k,v])=>`<tr><td>${k}</td><td>${(+v).toPrecision(5)}</td></tr>`).join('')+
     `<tr><td>reduced χ²</td><td>${res.chi2}</td></tr><tr><td>converged</td><td>${res.converged}</td></tr>`+
-    `<tr><td class="muted" colspan="2" style="font-size:.85em">lengths in Å · SLD in 1e-6 Å⁻² (sasmodels native; q was ${res.q_unit||'nm^-1'})</td></tr>`;
+    `<tr><td class="muted" colspan="2" style="font-size:.85em">Lengths in Å · SLD in 1e-6 Å⁻² (input q in ${res.q_unit||'nm^-1'})</td></tr>`;
   document.getElementById('resTable').innerHTML=trs;
   const qc=d.qc; const badge=document.getElementById('qcBadge'); const warn=document.getElementById('qcWarn');
   if(qc){ badge.innerHTML=`<span class="badge ${qc.verdict}">${qc.verdict}</span>`; warn.innerHTML=(qc.warnings||[]).map(w=>`<div class="warn">⚠ ${w}</div>`).join(''); }
@@ -500,7 +513,7 @@ function loadFiles(){
   fetch(`/api/list_subtracted?detector=${DET}&keyword=${kw}&stage=${STAGE}&dir=${dir}`).then(r=>r.json()).then(d=>{
     if(AUTO_FOLDER) fEl.value = d.dir || '';   // show the resolved project Subtracted path
     const el=document.getElementById('files');
-    if(!d.files||!d.files.length){ el.innerHTML='<div class="fl-row"><span class="muted">No Subtracted '+DET+' files'+(PROJ?'':' (set project in Hub)')+'.</span></div>'; return; }
+    if(!d.files||!d.files.length){ el.innerHTML='<div class="fl-row"><span class="muted">No '+STAGE+' '+DET+' files'+(PROJ?'':' (set the project in the Hub)')+'.</span></div>'; return; }
     el.innerHTML=d.files.map(f=>`<div class="fl-row" data-path="${f.path}" onclick="selFile(this)"><span class="nm" title="${f.name}">${f.name}</span></div>`).join('');
   }).catch(()=>{document.getElementById('files').innerHTML='<div class="fl-row"><span class="muted">Could not list files.</span></div>';});
 }
@@ -520,7 +533,7 @@ function runClassical(){
   fetch('/api/classical',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
     .then(r=>r.json()).then(d=>{
       if(d.error){ document.getElementById('runStatus').textContent='✗ '+d.error; return; }
-      document.getElementById('runStatus').textContent='✓ done';
+      document.getElementById('runStatus').textContent='✓ Done';
       renderResult(analysis, d); setLast(analysis, d.results, body, d.fit_curve); showTab('result');
     }).catch(e=>document.getElementById('runStatus').textContent='✗ '+e.message);
 }
@@ -548,7 +561,7 @@ function plotFor(a, res){
   if(a==='porod') return {data:[
       {x:p.lnq_data,y:p.lnI_data,mode:'markers',name:'data',marker:{size:4,color:'#1565C0'}},
       {x:p.lnq_fit,y:p.lnI_fit,mode:'lines',name:'fit n='+res.n,line:{color:'#E53935',width:2}}],
-      layout:L('Porod (log–log)','ln q','ln I')};
+      layout:L('Porod (log-log)','ln q','ln I')};
   if(a==='kratky') return {data:[{x:res.q,y:res.Iq2,mode:'lines',name:'I·q²',line:{color:'#1565C0'}}],
       layout:L('Kratky','q (nm⁻¹)','I·q²')};
   if(a==='dimensionless_kratky') return {data:[
@@ -557,7 +570,7 @@ function plotFor(a, res){
       layout:L('Dimensionless Kratky','q·Rg','(q·Rg)²·I/I₀')};
   if(a==='pair_distance') return {data:[{x:res.r,y:res.pr,mode:'lines',name:'p(r)',fill:'tozeroy',line:{color:'#1565C0'}}],
       layout:L('p(r)  ·  Dmax='+res.Dmax+' nm','r (nm)','p(r)')};
-  return {data:[], layout:L('Invariant — see results table','q','I')};
+  return {data:[], layout:L('Invariant: see results table','q','I')};
 }
 
 function runBatch(){
@@ -591,8 +604,8 @@ function runBatch(){
       document.getElementById('batchStatus').textContent='✓ '+d.n_ok+' fitted, '+d.n_error+' errors';
       const rows=d.rows||[];
       document.getElementById('batchCard').style.display='block';
-      document.getElementById('batchSummary').textContent = d.summary ? ('summary: '+(d.summary.csv||'').split(/[\\/]/).slice(-1)[0]) : '';
-      if(!rows.length){ document.getElementById('batchTable').innerHTML='<tr><td>no results</td></tr>'; return; }
+      document.getElementById('batchSummary').textContent = d.summary ? ('Summary: '+(d.summary.csv||'').split(/[\\/]/).slice(-1)[0]) : '';
+      if(!rows.length){ document.getElementById('batchTable').innerHTML='<tr><td>No results</td></tr>'; return; }
       const cols=[]; rows.forEach(r=>Object.keys(r).forEach(k=>{if(!cols.includes(k))cols.push(k);}));
       const head='<tr>'+cols.map(c=>'<th>'+c+'</th>').join('')+'</tr>';
       const trs=rows.map(r=>'<tr>'+cols.map(c=>'<td>'+(r[c]!==undefined?(typeof r[c]==='number'?(+r[c]).toPrecision(5):r[c]):'')+'</td>').join('')+'</tr>').join('');
@@ -602,9 +615,9 @@ function runBatch(){
 </script>
 <script>
 (function(){var K='swaxs-theme',s=localStorage.getItem(K),
- d=s?s==='dark':matchMedia('(prefers-color-scheme:dark)').matches;
+ d=document.documentElement.getAttribute('data-theme')==='dark';
  function ap(x){document.documentElement.setAttribute('data-theme',x?'dark':'light');
-  var b=document.getElementById('themeToggle');if(b)b.textContent=x?'☀':'☾';}
+  var b=document.getElementById('themeToggle');if(b)b.innerHTML='<svg class="ico" aria-hidden="true"><use href="#swaxs-ui-'+(x?'sun':'moon')+'"/></svg>';}
  ap(d);window.toggleTheme=function(){d=!d;localStorage.setItem(K,d?'dark':'light');ap(d);};})();
 </script>
 </body>

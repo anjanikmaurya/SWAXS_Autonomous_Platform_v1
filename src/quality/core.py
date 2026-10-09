@@ -87,6 +87,34 @@ def thresholds_for(detector: str | None) -> dict:
     t.update(DETECTOR_THRESHOLDS.get((detector or "").lower(), {}))
     return t
 
+
+_DETECTORS = ("saxs", "waxs")
+
+
+def detector_of(path: str | Path) -> str:
+    """Infer the detector ("saxs" / "waxs") a profile belongs to.
+
+    A plain substring test is wrong: "waxs" is a substring of "SWAXS", so any
+    project folder named e.g. ``SWAXS_data`` made every SAXS profile grade with
+    the WAXS thresholds. Order of evidence:
+
+    1. a whole ``_``/``-``/``.``-delimited token ``SAXS`` / ``WAXS`` in the file stem
+       (the last one wins, i.e. the suffix), case-insensitive;
+    2. the nearest path component exactly equal to ``SAXS`` / ``WAXS``
+       (the ``1D/<DET>/...`` detector folder), case-insensitive;
+    3. default ``"saxs"``.
+    """
+    # Normalise separators so a Windows path is parsed the same on any OS.
+    p = Path(str(path).replace("\\", "/"))
+    for tok in reversed(re.split(r"[_\-.]", p.stem)):
+        if tok.lower() in _DETECTORS:
+            return tok.lower()
+    for part in reversed(p.parent.parts):
+        if part.lower() in _DETECTORS:
+            return part.lower()
+    return "saxs"
+
+
 # Strip averaging / subtraction boilerplate to recover the sample identity.
 _SUFFIX_RE = re.compile(
     r"(_sub)?(_batch\d+)?(_\d+files)?(_(?:Average|Avg))?$", re.IGNORECASE)

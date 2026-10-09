@@ -113,7 +113,7 @@ QC plot attached when the fit is suspect.
 2. **Visualisation & Average app** → *▶ Start auto-averaging* (Reduction → Averaged).
 3. **Background app** → *▶ Start auto-subtraction* (Averaged → Subtracted).
    - Confirm sample/background keywords + scale method; ML truncate/rebin panel
-     as needed (default 0.03–0.6, 549 pts).
+     as needed (default 0.3 to 6.0 nm⁻¹, 549 pts).
 4. (Optional) **Quality app** for review — not required by the loop.
 
 ## 6. Start the optimizer campaign (Analyzer app, :5107)

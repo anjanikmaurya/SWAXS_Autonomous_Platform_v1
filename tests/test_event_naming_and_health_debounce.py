@@ -101,18 +101,39 @@ def test_a_single_missed_health_probe_does_not_flip_a_running_app_to_not_respond
     aid = h.APPS[0]["id"]
     monkeypatch.setattr(h, "_is_running", lambda a: True)
 
-    calls = {"n": 0}
-    def flaky_probe(port, timeout=1.0):
-        calls["n"] += 1
-        return (False, None) if calls["n"] == 1 else (True, None)
-    monkeypatch.setattr(h, "_health_probe", flaky_probe)
+    # Probe sequence: answers (app is now serving) → one miss → answers again.
+    # The debounce applies to an app that has ALREADY answered once; an app that
+    # has never answered is still cold-starting and must not read healthy (the
+    # readiness gate that stops "Open" pointing at an unbound port).
+    # _app_status probes EVERY app per tick, so drive the answer per tick, not
+    # per call.
+    tick = {"alive": True}
+    monkeypatch.setattr(h, "_health_probe",
+                        lambda port, timeout=1.0: (tick["alive"], None))
 
+    out0 = h._app_status()
+    assert out0[aid]["healthy"] is True, "first answer — app is serving"
+
+    tick["alive"] = False
     out1 = h._app_status()
     assert out1[aid]["healthy"] is True, \
         "a single missed probe must not report the app as not responding"
 
+    tick["alive"] = True
     out2 = h._app_status()
     assert out2[aid]["healthy"] is True, "probe recovered — should read healthy"
+
+
+def test_a_cold_starting_app_is_not_healthy_until_it_answers(monkeypatch):
+    """Process alive but port not yet bound (pyFAI import): must read 'starting',
+    not healthy, or the hub's Open button points at a refused connection."""
+    monkeypatch.setenv("SWAXS_NO_RESUME", "1")
+    h = _load("hub_coldstart", "hub/app.py")
+    aid = h.APPS[0]["id"]
+    monkeypatch.setattr(h, "_is_running", lambda a: True)
+    monkeypatch.setattr(h, "_health_probe", lambda port, timeout=1.0: (False, None))
+    h._ready.pop(aid, None)
+    assert h._app_status()[aid]["healthy"] is False
 
 
 def test_consecutive_missed_probes_report_not_responding_after_the_threshold(monkeypatch):
@@ -124,7 +145,12 @@ def test_consecutive_missed_probes_report_not_responding_after_the_threshold(mon
 
     aid = h.APPS[0]["id"]
     monkeypatch.setattr(h, "_is_running", lambda a: True)
-    monkeypatch.setattr(h, "_health_probe", lambda port, timeout=1.0: (False, None))
+    tick = {"alive": True}
+    monkeypatch.setattr(h, "_health_probe",
+                        lambda port, timeout=1.0: (tick["alive"], None))
+    # The app has served once (debounce only applies after readiness)…
+    assert h._app_status()[aid]["healthy"] is True
+    tick["alive"] = False
 
     # Every miss up to (but not including) the threshold stays optimistic.
     for _ in range(h._HEALTH_FAIL_THRESHOLD - 1):

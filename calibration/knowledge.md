@@ -74,14 +74,16 @@ Energy in **keV** is the required input. The conversion is
 `energy_keV` in the project `config.yml` (surfaced by `GET /api/project`).
 
 ## Supported calibrants
-`CALIBRANTS` (pyFAI `get_calibrant` names):
+`CALIBRANTS` (pyFAI calibrant names, case sensitive):
 
 ```
-AgBehenate, LaB6, CeO2, Si, Cr2O3, Au, Ni, alpha_Al2O3
+AgBh, LaB6, CeO2, Si, Cr2O3, Au, Ni, alpha_Al2O3
 ```
 
-`GET /api/calibrants` returns this list. AgBehenate is the default in the launch
-route and the usual choice for transmission SAXS; LaB6 / CeO2 / Si suit the WAXS
+Silver behenate is **AgBh** in pyFAI. "AgBehenate" is not a pyFAI name (passing it
+opened the GUI with no calibrant), so `resolve_calibrant` maps AgBehenate / AgBeh
+to AgBh. `GET /api/calibrants` returns this list plus display labels. AgBh is the
+default in the launch route and the usual choice for transmission SAXS; LaB6 / CeO2 / Si suit the WAXS
 detector's higher q range.
 
 ## Calibration route — interactive pyFAI-calib2
@@ -91,24 +93,49 @@ The user picks rings, refines, and saves the `.poni` themselves.
 
 Command construction (`build_calib2_command`):
 ```
-<launcher> --calibrant <name> --energy <keV> [--pixel <microns>] [--poni <init>] <image>
+<launcher> --calibrant <name> --energy <keV> [--detector <model>] [--poni <init>] <image>
 ```
-`--pixel` is in **MICRONS**, not metres (the app's default is 172.0 µm).
+**Detector menu** (replaces the old Pixel field, October 2026): every detector
+model pyFAI knows (`GET /api/detectors`, from `list_detectors`), grouped by
+manufacturer, with its image size and pixel size. pyFAI already knows each
+model's pixel size, image size and module gaps, so nothing has to be typed. A
+chosen model is checked against the image first (`check_detector`): a mismatch
+(e.g. a Pilatus 2M for a 1043 × 981 image) is refused with a message and nothing
+is started; a binned image is accepted. With **Auto** (the default) the
+detector model is chosen from the image shape (`detector_for_image`):
+1043 × 981 → `pilatus1m` (SAXS), 195 × 487 → `pilatus100k` (WAXS), and other
+Pilatus sizes; the model must also match the Pixel (µm) field (172 µm). A bare
+`--pixel` is never sent: on pyFAI 2024 it builds a detector with no shape and the
+GUI crashes on start (`detector.max_shape[1] … 'NoneType' object is not
+subscriptable`). With no matching model the GUI opens without a detector and asks
+for one. A .poni saved this way records `Detector: Pilatus1M` (or 100k), so pyFAI
+also knows the module gaps of the Pilatus when it integrates.
 
 How the launcher is resolved (`_calib2_launcher`):
-1. `shutil.which("pyFAI-calib2")` — the console script, if it is on PATH.
-2. Otherwise `[sys.executable, "-m", "pyFAI.app.calib2"]` — the same module run
-   through the CURRENT interpreter. This fallback is what makes the app work when
-   the hub spawns it without the virtualenv's `bin/` on PATH.
+1. `[sys.executable, "-m", "pyFAI.app.calib2"]`: the CURRENT interpreter, i.e. the
+   environment with the platform's pyFAI and PySide6. Preferred, because a
+   `pyFAI-calib2` script on PATH may belong to another environment without Qt.
+2. Otherwise `shutil.which("pyFAI-calib2")`, the console script on PATH.
+
+**Image.** Pick a CBF, or a `.raw` straight from the List step: a `.raw` is
+converted to CBF (into `cbf_output/` next to it) before the GUI opens, because
+pyFAI cannot read the headerless `.raw`. Energy must be a positive keV value.
+
+**Isolated from the rest of the platform.** The launch writes no `.poni`, config
+or manifest entry and touches no other app. The GUI is started through a short
+helper process in its own session, so it is not a child of the calibration app:
+stopping or restarting the app (or the hub) does not close a calibration in
+progress.
 
 The GUI's working directory is set to the project's poni folder, so its
 "Save as…" dialog already points there. The environment passed to the GUI has
 `MPLBACKEND` and `QT_QPA_PLATFORM` REMOVED, so the GUI does not inherit the
 app's forced `Agg` backend or an `offscreen` Qt platform.
 
-The launch is verified: after 1.5 s the app checks whether the process already
-exited and, if so, reports its stderr tail instead of falsely claiming success
-("pyFAI-calib2 exited immediately (rc=…)"). The response always includes the full
+The launch is verified: the helper watches the GUI for 6 s (a cold silx + Qt
+import can take several seconds) and, if it closed, the app reports its stderr
+tail instead of falsely claiming success ("pyFAI-calib2 closed right after
+starting (rc=…)"). The response always includes the full
 `command` string, so the user can run it by hand in a terminal with the platform
 environment active.
 

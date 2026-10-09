@@ -392,19 +392,20 @@ single-session change. Ranked by what they cost during an unattended run.
 
 ### Reactor & beamline — 8 residual risks
 
-From the July 28 reactor safety audit. All eight re-verified open, and none were
-in any register before this consolidation — the biggest gap the merge closed.
+From the July 28 reactor safety audit. **Re-checked against the code in October
+2026:** R1, R2, R3 were already fixed; R4, R5, R6, R7, R8 fixed then (tests in
+`tests/test_reactor_open_defects_2026_10.py`). **All eight are now closed.**
 
 | # | Sev | Finding | Consequence |
 |---|---|---|---|
-| R1 | **HIGH** | **E-stop latency.** `_end_run` runs the cooldown `set_temperature`, `_manifest` and `_feedback` inline (`src/reactor/controller.py:698`, `:723-726`, `:766-779`) while callers hold `self._lock` (`:408-412`, `:1087-1103`). | Measured E-stop latency with a blocking manifest write: **7.8 s**. Fix: do the bookkeeping outside the lock, or make E-stop lock-free. |
-| R2 | **HIGH** | **Serial retry latency.** `for _ in range(5)` retries at ~1 s each while holding the per-pump lock (`src/reactor/drivers/Py_P_Pump.py:168`). | One unresponsive pump stalls every other pump command for 5 s, E-stop included. |
-| R3 | **HIGH** | **Negative flows are accepted.** `set_run_settings` / `flush_now` never validate sign (`src/reactor/controller.py:298-325`). | `flush_rate: -500` reaches the pump; `arm_wait_s: -99` skips timed arming entirely, so a recipe runs before it reaches temperature. |
-| R4 | **HIGH** | **`run.end_on_measurement` is dead config.** Assigned at `src/reactor/controller.py:99` and referenced nowhere else in the repo. | The documented primary run-end condition is not wired to the flag that claims to control it. Either wire it or delete the key. |
-| R5 | **MED** | **`start_now()` bypasses the temperature gate** (`src/reactor/controller.py:205-212`). | A manual start can inject reagent into a cold reactor. |
-| R6 | **MED** | **Volume limits and flow faults are only checked while `running`** — `if self.state == "running":` at `src/reactor/controller.py:1248-1249`. | During `flushing` (the longest phase, 20 min shipped) neither check runs. |
-| R7 | **MED** | **`shutdown()` never joins the loop thread or closes the serial ports** (`src/reactor/controller.py:1324-1341`). | On Windows the COM ports stay locked, so the next start cannot find the pumps. |
-| R8 | **MED** | **Run records carry no `backend` flag.** `backend` appears only in the `reactor.run_start` event (`:696`) and `status()` (`:1289`), not in the record `_end_run` writes. | A campaign resuming from `manifest.json` cannot tell mock-derived observations from real ones, and will train the GP on both. |
+| R1 | HIGH · **FIXED** (found Oct 2026: `estop()` idles pumps before taking the lock) | **E-stop latency.** `_end_run` runs the cooldown `set_temperature`, `_manifest` and `_feedback` inline (`src/reactor/controller.py:698`, `:723-726`, `:766-779`) while callers hold `self._lock` (`:408-412`, `:1087-1103`). | Measured E-stop latency with a blocking manifest write: **7.8 s**. Fix: do the bookkeeping outside the lock, or make E-stop lock-free. |
+| R2 | HIGH · **MOSTLY FIXED** (found Oct 2026: the pump lock is per command, not across retries; E-stop idles each pump separately) | **Serial retry latency.** `for _ in range(5)` retries at ~1 s each while holding the per-pump lock (`src/reactor/drivers/Py_P_Pump.py:168`). | One unresponsive pump stalls every other pump command for 5 s, E-stop included. |
+| R3 | HIGH · **FIXED** (found Oct 2026: `set_run_settings` rejects negatives; flush falls back to config) | **Negative flows are accepted.** `set_run_settings` / `flush_now` never validate sign (`src/reactor/controller.py:298-325`). | `flush_rate: -500` reaches the pump; `arm_wait_s: -99` skips timed arming entirely, so a recipe runs before it reaches temperature. |
+| R4 | HIGH · **FIXED, Oct 2026** (documented no-op: measurement-end is always on; key not read) | **`run.end_on_measurement` is dead config.** Assigned at `src/reactor/controller.py:99` and referenced nowhere else in the repo. | The documented primary run-end condition is not wired to the flag that claims to control it. Either wire it or delete the key. |
+| R5 | MED · **FIXED, Oct 2026** (the skip stays, but the UI asks first and the log records the temperature it started at) | **`start_now()` bypasses the temperature gate** (`src/reactor/controller.py:205-212`). | A manual start can inject reagent into a cold reactor. |
+| R6 | MED · **FIXED, Oct 2026** (the flush is supervised: flow faults warn or E-stop as in a run; a pump that keeps delivering past its volume limit E-stops) | **Volume limits and flow faults are only checked while `running`** — `if self.state == "running":` at `src/reactor/controller.py:1248-1249`. | During `flushing` (the longest phase, 20 min shipped) neither check runs. |
+| R7 | MED · **FIXED, Oct 2026** (`shutdown()` joins the loop and closes every pump port after idling) | **`shutdown()` never joins the loop thread or closes the serial ports** (`src/reactor/controller.py:1324-1341`). | On Windows the COM ports stay locked, so the next start cannot find the pumps. |
+| R8 | MED · **FIXED, Oct 2026** (`backend` in every run record and manifest entry) | **Run records carry no `backend` flag.** `backend` appears only in the `reactor.run_start` event (`:696`) and `status()` (`:1289`), not in the record `_end_run` writes. | A campaign resuming from `manifest.json` cannot tell mock-derived observations from real ones, and will train the GP on both. |
 
 ### Manifest & optimizer (`O`)
 

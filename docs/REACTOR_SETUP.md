@@ -15,7 +15,7 @@ For the physical rig (pumps, temperature, beamline components + wiring) see
 - For **real hardware only** (see §5): USB access to the Mitos pumps and network
   access to the SPEC bServer (default `http://127.0.0.1:18085`).
 
-The app runs on Windows, macOS, or Linux. Mock mode needs no hardware at all.
+The app runs on Windows, macOS, or Linux. Simulation mode needs no hardware at all.
 
 ## 2. Get the code and a Python environment
 
@@ -41,22 +41,22 @@ no `requirements.txt`; it was a `pip freeze` of a Mac that failed to install on
 Windows and was removed.)
 
 **Extra packages for REAL hardware** (not in `requirements-core.txt`, imported
-lazily so Mock mode works without them):
+lazily so Simulation mode works without them):
 
 ```bash
 pip install -r requirements-hardware.txt   # pyserial (pumps) + pyepics (temperature)
 ```
 
-Mock mode (default) needs neither — good for developing the loop off the rig.
+Simulation mode (default) needs neither — good for developing the loop off the rig.
 
-## 4. Backends: Mock vs Real
+## 4. Backends: Simulation vs Hardware
 
 The reactor talks to two hardware layers — **pumps** and **beamline** — and one
 toggle covers both.
 
 - **Startup default:** environment variable `SWAXS_REACTOR_BACKEND` = `mock`
   (default) or `real`. e.g. `SWAXS_REACTOR_BACKEND=real`.
-- **At runtime:** the Mock/Real pill in the app UI (`/api/backend`) switches both
+- **At runtime:** the Simulation/Hardware toggle in the app UI (`/api/backend`) switches both
   pumps and beamline live and re-wires everything.
 
 Start in **mock** to learn the UI; switch to **real** only on the rig.
@@ -101,7 +101,7 @@ Everything rig-specific lives here; no code changes needed. Key sections:
   - `data_dir` — the SPEC (Linux) folder shots are saved to = the pipeline's 2D base
   - `data_dir_from_hub` + `hub_path_map` — follow the hub's project folder into
     `data_dir`, translating the Windows prefix to the Linux one SPEC writes to
-  - `mock_data_dir` — where the mock backend writes instead (blank = the hub folder)
+  - `mock_data_dir` — where Simulation mode writes instead (blank = the hub folder)
   - `background_when` — `"before"` (shipped) or `"after"`; see §7 step 3
   - `spec_lead_s`, `exposure_s`, `frames`, `sample_tag`, `bkg_tag`
   - `simulator.*` — mock-only synthetic 2D data generator (poni/mask, brightness,
@@ -129,7 +129,7 @@ environment — use `python` here too.
 
 1. `pip install -r requirements-core.txt` succeeds; add `requirements-hardware.txt` for real.
 2. App opens at `http://localhost:5108`, backend pill shows the expected mode.
-3. **Mock:** submit a recipe, Start — with the shipped `background_when: "before"`
+3. **Simulation:** submit a recipe, Start — with the shipped `background_when: "before"`
    the sequence is **flush → background shot → arm → run → sample shot → flush**.
    The first thing you see is a flush (20 min at the shipped `flush.duration`), not
    arming; that is correct, the app has not hung. Live plot animates throughout.
@@ -166,7 +166,7 @@ Closing an app frees its port; closing the hub stops all its sub-apps.
   tolerates counter reads mid-scan.
 - With `read_source: "spec"`, while the reactor app is open in Real mode it
   **holds SPEC remote control** (for the `ct` live-plot refresh); close the app or
-  switch to Mock to hand control back. `read_source: "epics"` never takes SPEC
+  switch to Simulation to hand control back. `read_source: "epics"` never takes SPEC
   control for reads.
 - Run **one SPEC client at a time** — don't run the bench tools and the app against
   Real simultaneously.

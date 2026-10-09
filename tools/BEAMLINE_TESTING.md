@@ -37,7 +37,7 @@ cd C:\path\to\SWAXS_Autonomous_Platform_v1
 > remote control and fire `ct`. SPEC is single-threaded, so running a tool *and*
 > the reactor app against the **real** backend simultaneously makes them fight
 > over control and muddies the readings. While script-testing on real hardware,
-> **stop the reactor app** (or switch it to the **Mock** backend) so the script is
+> **stop the reactor app** (or switch it to the **Simulation** mode) so the script is
 > the sole SPEC client. Reopen / switch back to Real when you're done.
 > (`beamline_epics_test.py` is the exception — it never touches SPEC, so it can run
 > alongside the app.)

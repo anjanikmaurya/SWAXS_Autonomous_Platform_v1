@@ -151,8 +151,11 @@ def test_an_app_that_dies_at_startup_reports_its_traceback(hub, tmp_path):
     hub.APPS.append({"id": "boom", "port": 5199, "entry": str(entry),
                      "icon": "x", "name": "Boom", "color": "#000"})
     hub._procs["boom"] = None
-    ok, _ = hub._start_app("boom")
-    assert ok
+    # _start_app waits for readiness, so an app that dies during startup is now
+    # reported as a failed start straight away (not a false "Started")…
+    ok, msg = hub._start_app("boom")
+    assert not ok and "exited during startup" in msg, msg
+    # …and the crash record still carries the reason and the traceback tail.
     assert _wait(lambda: (hub._detect_crashes(), hub._crashed.get("boom"))[1] is not None,
                  timeout=15)
     c = hub._crashed["boom"]

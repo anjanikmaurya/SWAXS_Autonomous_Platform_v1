@@ -119,8 +119,15 @@ def test_analyzer_prefers_the_quality_gates_good_folder(tmp_path, monkeypatch):
     base.mkdir(parents=True)
     assert az._resolve_sub() == base, "no Good/ yet → flat folder, with a warning"
 
+    # An EMPTY Good/ must NOT divert the analyzer: a bare directory (left over, or
+    # present because the Quality Gate app isn't running) would otherwise starve
+    # the loop watching an empty folder while profiles sit in the flat Subtracted/.
     (base / "Good").mkdir()
-    assert az._resolve_sub() == base / "Good", "Good/ exists → must analyse only it"
+    assert az._resolve_sub() == base, "empty Good/ → stay on flat folder"
+
+    # Good/ with actual .dat data → analyse only it (the gate is now effective).
+    (base / "Good" / "s1_sample_Average_sub.dat").write_text("# q I\n0.1 1.0\n")
+    assert az._resolve_sub() == base / "Good", "populated Good/ → analyse only it"
 
 
 def test_gate_mode_off_restores_the_flat_folder(tmp_path, monkeypatch):

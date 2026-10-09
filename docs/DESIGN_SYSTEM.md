@@ -1,10 +1,35 @@
 # SWAXS Platform — Design System
 
-The typography, spacing, and color tokens the platform's apps are *meant* to
-share. It is **not** a single source of truth: each app owns its own `:root`
-block in `<app>/templates/index.html`, and they have diverged. Section 0 says
-exactly how far, per app, so you know whether a token you reference will
-actually resolve.
+The typography, spacing, and color tokens the platform's apps share.
+
+**Colours and the light/dark theme have ONE source of truth (October 2026):**
+`assets/icons/swaxs-tokens.css`, shipped to every app's `static/` by
+`python tools/build_icon_sprite.py`. Its palette blocks
+(`html:root:not([data-theme="dark"])` and `html:root[data-theme="dark"]`) are
+one specificity step above an app's own `:root`, so they win over any leftover
+app palette. To change a colour, change it there and rebuild — never in an app.
+The same file carries the page chrome (top bar, theme toggle, tab rows). Every
+page includes `_theme_boot.html` in `<head>` (saved choice under the shared key
+`swaxs-theme`, else the OS), so apps start with no light/dark flash. Each app runs
+on its own port and the browser keeps saved settings PER PORT, so links between
+apps (hub Open buttons, every ← Hub) carry `?theme=…`, which the boot script
+adopts and saves; two open tabs of the SAME app also follow each other live.
+
+**Top row, same order in every app:** logo + name │ status │ project folder │
+app extras (one fixed slot) │ theme switch │ Port · ← Hub. Apps without their own
+status or project display carry `#barStatus` / `#barProject`, filled by the
+shared helper from the app's `/api/health` and `/api/project`. The **Operator**
+is entered once, in the hub only; `src/operator_id.py` passes it to every app
+(project manifest + `SWAXS_USER_ID`). Plotly charts take colours
+from `swaxsPlotTheme()` and re-colour themselves on a theme change
+(`swaxsRethemePlots`, in `_icon_helpers.html`). Component colours use tokens,
+not hex: text on a tint pairs `--x-text` with `--x-lt` (ok/warn/err/info/violet);
+text in the brand colour uses `--accent-text` (`--accent` is a fill — white
+labels on it). Contrast floors (WCAG AA) are enforced by
+`tests/test_ui_theme_uniform.py`.
+
+Typography and spacing tokens are still per app; Section 0 says how far they
+have diverged.
 
 The canonical, most complete implementation is
 `reduction/templates/index.html:9-51` (light) and `:366-372` (dark). When this
@@ -74,6 +99,55 @@ text on a white box. The shared focus rule restates `background:var(--surface2)`
 
 ---
 
+---
+
+## Icons, fonts and page chrome (October 2026)
+
+**Icons come from the platform sprite only. No emoji.** Emoji render differently
+on every OS, ignore the light/dark theme, and do not match the drawn icon set.
+
+* The set lives in `assets/icons/swaxs-icons-svg/` — 24×24, `stroke="currentColor"`,
+  2.0 main stroke, 1.5 detail stroke, round caps/joins, 1.8 corner radii, a filled
+  accent dot where useful. 11 app marks + 62 UI icons (`swaxs-ui-*`).
+* `python tools/build_icon_sprite.py` builds the sprite and ships, to every app:
+  `templates/_icon_sprite.svg` (inlined after `<body>`), `templates/_icon_helpers.html`
+  (included right after it) and `static/swaxs-tokens.css` (which carries `.ico`).
+* In markup: `<svg class="ico" aria-hidden="true"><use href="#swaxs-ui-NAME"/></svg>`.
+  `.ico` sizes to the text (1em) and takes its colour from `color`.
+* In script: `icoSvg('NAME')` returns that markup; `setIco(el, 'NAME', text)` sets an
+  icon plus text, with the text in a TEXT node so a server string can never be
+  parsed as HTML. Use these instead of writing glyphs into `textContent`.
+* Theme toggle: every themed app shows `swaxs-ui-sun` in dark mode (click to go
+  light) and `swaxs-ui-moon` in light mode.
+* Plain text marks (✓ ✗ ⚠, arrows, ▲▼ sort, ▾ disclosure) are typography and fine.
+* Guarded by `tests/test_ui_icon_policy.py` (no emoji, sprite + helpers included),
+  `tests/test_app_marks.py` / `tests/test_hub_icon_sprite.py` (every static AND
+  runtime icon name resolves to a symbol) and `tests/test_page_scripts_parse.py`
+  (every page script parses).
+
+**Fonts.** Every app: `--font: 'Inter','Segoe UI',system-ui,-apple-system,sans-serif`
+and `--mono: 'JetBrains Mono','Fira Code','Cascadia Code',ui-monospace,Menlo,Consolas,monospace`,
+and nothing names a font family directly — always `var(--font)` / `var(--mono)`.
+
+**Page chrome.** The header title is the app's name exactly as in `apps.yml` (two-tone:
+first word plain, the rest in the accent span). The right edge of a top bar is the
+theme toggle followed by `Port NNNN · ← Hub`. Every app links back to the hub.
+
+**One top bar everywhere; a left column for multi-section apps (operator's
+choice, October 2026).** Every app has the same full-width `header.topbar`: logo
+and name, live status, project path, theme switch, `Port NNNN · ← Hub`. The
+multi-section apps (reduction, calibration, watchdog, average, analysis,
+background, reactor) add a left column UNDER it holding only their sections (`#sidebar` /
+`.nav-btn`), with each section's task tabs (`.toptabbar`) inside the page; their
+`<body class="swaxs-shell">` stacks bar over column + content. In the reactor the
+column lists the synthesis routes, with the pump controls and emergency stop at
+its foot (`#sidebar-controls`), and the Activity log is docked under the tabs.
+Single-workspace apps (analyzer, quality, assistant) have the top bar only. All of it is
+styled in the shared stylesheet. Side panels that hold
+CONTENT (the assistant's knowledge base) are fine. Guarded by `tests/test_ui_icon_policy.py`.
+
+---
+
 ## 0. Per-app conformance
 
 | App | Port | Type scale | Weights / line-heights / spacing | `--font` | `--radius` | Base size | Dark mode | `:focus-visible` |
@@ -85,9 +159,9 @@ text on a white box. The shared focus rule restates `background:var(--surface2)`
 | watchdog | 5110 | all 8 | yes | Inter | 8px | **17px** | toggle, defaults dark | yes |
 | background | 5104 | 7 of 8 (`--fs-2xl` missing) | `--fw-*` partial; no `--lh-*`, no `--sp-*` | Inter | 8px | 16px | toggle + OS | 1 rule |
 | analysis | 5106 | 5 of 8 | none | Inter | 8px | **18px** | toggle + OS | **none** |
-| quality | 5105 | 6 of 8 | none | **unset** (system-ui literal) | **9px** | 16px | toggle + OS | **none** |
-| reactor | 5108 | 4 tokens, **different values** | none | **unset** | **9px** | 1.02rem | toggle, defaults dark | **none** |
-| analyzer | 5107 | 4 tokens, **different values** | none | **unset** | **9px** | 1.02rem | toggle, defaults dark | **none** |
+| quality | 5105 | 6 of 8 | none | Inter | **9px** | 16px | toggle + OS | **none** |
+| reactor | 5108 | 4 tokens, **different values** | none | Inter | **9px** | 1.02rem | toggle, defaults dark | **none** |
+| analyzer | 5107 | 4 tokens, **different values** | none | Inter | **9px** | 1.02rem | toggle, defaults dark | **none** |
 | calibration | 5101 | **none** | none | Inter | 8px | 16px | light only, no toggle | **none** |
 
 Consequences worth knowing before you write CSS:

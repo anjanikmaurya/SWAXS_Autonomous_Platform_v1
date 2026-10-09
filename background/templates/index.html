@@ -3,10 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Background Subtraction — SWAXS</title>
+<title>Background Subtraction · SWAXS</title>
     <link rel="icon" href="/app-icon">   <!-- per-app tab icon, from apps.yml (src/favicon.py) -->
 <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 <link rel="stylesheet" href="/static/swaxs-tokens.css">
+{% include "_theme_boot.html" %}
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -28,7 +29,7 @@
      --text/--text-strong above are this app's names. Both resolve now, so a
      block copied between the apps keeps its colours. */
   --txt:#1f2937;--txt-strong:#111827;
-  --font:'Inter','Segoe UI',system-ui,-apple-system,sans-serif;--mono:'JetBrains Mono','Fira Code',monospace;
+  --font:'Inter','Segoe UI',system-ui,-apple-system,sans-serif;--mono:'JetBrains Mono','Fira Code','Cascadia Code',ui-monospace,Menlo,Consolas,monospace;
   --fs-2xs:.6875rem;--fs-xs:.75rem;--fs-sm:.8125rem;--fs-md:.875rem;--fs-base:1rem;--fs-lg:1.125rem;--fs-xl:1.375rem;
   --fw-semibold:600;--fw-bold:700;--ls-label:.06em;--radius:8px;
 }
@@ -38,7 +39,7 @@
    The page also fits noticeably more of a form on one screen at 16px, which
    is the other half of why this changed. */
 html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--font);font-size:16px}
-.shell{display:grid;grid-template-rows:56px 1fr;height:100vh}
+.shell{display:grid;grid-template-rows:auto 1fr;height:100vh}
 .topbar{display:flex;align-items:center;gap:14px;padding:0 20px;background:var(--surface);border-bottom:1px solid var(--border)}
 .topbar h1{font-size:var(--fs-lg);font-weight:700}.topbar h1 span{color:var(--accent)}
 .topbar-sub{font-size:14px;color:var(--muted)}
@@ -93,7 +94,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
 /* file list + suggest table */
 .filelist{border:1px solid var(--border);border-radius:6px;max-height:200px;overflow-y:auto;background:var(--surface2)}
 .fl-row{display:flex;align-items:center;gap:8px;padding:6px 9px;border-bottom:1px solid var(--border);cursor:pointer;font-size:var(--fs-sm)}
-.fl-row:last-child{border-bottom:none}.fl-row:hover{background:#eef1f5}.fl-row.sel{background:var(--accent-lt)}
+.fl-row:last-child{border-bottom:none}.fl-row:hover{background:var(--surface2)}.fl-row.sel{background:var(--accent-lt)}
 .fl-row.bgrow{background:rgba(217,119,6,.12)}
 .fl-row .nm{flex:1;min-width:0;font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bgpick{display:inline-flex;align-items:center;gap:3px;font-size:var(--fs-2xs);color:var(--muted);cursor:pointer;flex-shrink:0}
@@ -168,7 +169,7 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{ou
 .restart-banner{display:none;padding:10px 20px;border-bottom:1px solid var(--border);line-height:1.4;font-size:var(--fs-sm)}
 .restart-banner.show{display:block}
 .restart-banner.restored{background:var(--accent-lt);color:var(--info-text);border-bottom-color:var(--info-text)}
-.restart-banner.lost{background:#fde8e8;color:var(--err-text);font-weight:700;border-bottom:2px solid var(--err-text)}
+.restart-banner.lost{background:var(--err-lt);color:var(--err-text);font-weight:700;border-bottom:2px solid var(--err-text)}
 .restart-banner .rb-x{float:right;cursor:pointer;opacity:.6;font-weight:700;margin-left:12px}
 
 /* ── Auto-monitor control — SHARED between average and background ──────────
@@ -248,7 +249,7 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{ou
    them moving to a size it was not designed at.
 
    The focus rule restates the background colour on purpose. average had
-   `input:focus{background:#fff}` with NO dark-mode override, so focusing any
+   `input:focus{background:var(--surface)}` with NO dark-mode override, so focusing any
    input in dark mode turned it white under near-white text — invisible while
    typing. Omitting the property here would not have undone it.
 
@@ -295,51 +296,59 @@ input:focus, select:focus {
    tools/build_icon_sprite.py. */
 .app-mark { width:26px; height:26px; flex-shrink:0; color:var(--swaxs-subtraction); }
 .app-lockup { display:flex; align-items:center; gap:10px; min-width:0 }
+
+
+/* The mode list now lives in the shared left column (#sidebar), so the page body
+   is a single column; it fills #main under the slim bar. */
+.body{grid-template-columns:1fr;flex:1;min-height:0;height:auto}
 </style>
 </head>
-<body>
+<body class="swaxs-shell">
 {% include "_icon_sprite.svg" %}
-<div class="shell">
-  <header class="topbar">
-    <div class="app-lockup">
-      {% include "_app_mark.svg" %}
-      <h1>SWAXS <span>Subtraction</span></h1>
-    </div>
-    <div style="flex:1"></div>
-    <span class="proj" id="projPath"></span>
-    <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" title="Toggle light / dark">☾</button>
-    <span class="topbar-sub">Port 5104 · <a href="http://localhost:5100" style="color:var(--accent);text-decoration:none">← Hub</a></span>
-  </header>
+{% include "_icon_helpers.html" %}
+<header class="topbar">
+  <div class="app-lockup">
+    {% include "_app_mark.svg" %}
+    <h1>Background <span>Subtraction</span></h1>
+  </div>
+  <span class="bar-status" id="barStatus" title="Connection to this app"><span class="dot"></span><span class="bar-status-txt">Connecting…</span></span>
+  <span class="proj" id="projPath"></span>
+  <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" title="Toggle light / dark"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-moon"/></svg></button>
+  <span class="topbar-sub">Port 5104 · <a href="http://localhost:5100">← Hub</a></span>
+</header>
+<div class="shell" id="app">
+  <nav id="sidebar">
+  
+  <div class="nav-section-label">Mode</div>
+  <button class="nav-btn navtab active" id="m-individual" onclick="setMode('individual')"><span class="nav-icon"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-document"/></svg></span> Individual</button>
+  <button class="nav-btn navtab" id="m-batch" onclick="setMode('batch')"><span class="nav-icon"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-open"/></svg></span> Scan</button>
+  <button class="nav-btn navtab" id="m-suggest" onclick="setMode('suggest')"><span class="nav-icon"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-ai"/></svg></span> Suggested</button>
+  <button class="nav-btn navtab" id="m-auto" onclick="setMode('auto')"><span class="nav-icon"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-mode-autonomous"/></svg></span> Auto-Subtract</button>
+  <div class="nav-hint" id="modeHint">List the Averaged folder, mark one file as BG and check the samples.</div>
+  
+</nav>
+  <div id="main">
+  
 
   <div class="restart-banner" id="restartBanner">
-    <span class="rb-x" onclick="this.parentElement.classList.remove('show')"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-close"/></svg></span>
+    <span class="rb-x" onclick="this.parentElement.classList.remove('show')"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-close"/></svg></span>
     <span id="restartBannerMsg"></span>
   </div>
-
   <div class="body">
-    <!-- Left nav -->
-    <nav class="nav">
-      <div class="lbl">Mode</div>
-      <button class="navtab active" id="m-individual" onclick="setMode('individual')"><span class="ic">📄</span> Individual</button>
-      <button class="navtab" id="m-batch" onclick="setMode('batch')"><span class="ic"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-open"/></svg></span> Scan</button>
-      <button class="navtab" id="m-suggest" onclick="setMode('suggest')"><span class="ic">✨</span> Suggested</button>
-      <button class="navtab" id="m-auto" onclick="setMode('auto')"><span class="ic">🤖</span> Auto-Subtract</button>
-      <div class="lbl" id="modeHint" style="text-transform:none;letter-spacing:0;font-weight:400;color:rgba(var(--sf),.65);line-height:1.5;margin-top:8px">Pick specific sample file(s) and one background file.</div>
-    </nav>
 
     <div class="content">
       <div class="toptabbar">
         <button class="toptab active" data-tab="setup" onclick="showPage('setup')">Setup</button>
         <button class="toptab" data-tab="saxs" onclick="showPage('saxs')">BG-Sub 1D SAXS</button>
         <button class="toptab" data-tab="waxs" onclick="showPage('waxs')">BG-Sub 1D WAXS</button>
-        <button class="toptab" data-tab="meta" onclick="showPage('meta')">Average Metadata</button>
+        <button class="toptab" data-tab="meta" onclick="showPage('meta')">Averaged metadata</button>
       </div>
       <!-- ===== SETUP ===== -->
       <div class="page active" id="page-setup" style="flex-direction:column">
           <section class="inputs" style="border-right:none;flex:1">
            <div id="manual-setup">
             <div class="hint" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;color:var(--muted)">
-              <b>1.</b> Pick a mode (left) &nbsp;·&nbsp; <b>2.</b> set folders &amp; background &nbsp;·&nbsp; <b>3.</b> choose method &nbsp;·&nbsp; <b>4.</b> Preview &amp; plot → Subtract &amp; Save
+              <b>1.</b> Pick a mode (left) &nbsp;·&nbsp; <b>2.</b> Set folders &amp; background &nbsp;·&nbsp; <b>3.</b> Choose method &nbsp;·&nbsp; <b>4.</b> Preview &amp; plot, then Subtract &amp; save
             </div>
             <div class="section">
               <div class="section-title">Detector</div>
@@ -351,7 +360,7 @@ input:focus, select:focus {
             </div>
 
             <div class="section">
-              <div class="section-title">ML output — truncate &amp; rebin</div>
+              <div class="section-title">ML output: truncate &amp; rebin</div>
               <label style="display:flex;align-items:center;gap:8px">
                 <input type="checkbox" id="tr-enabled" onchange="pushTrunc()">
                 Truncate &amp; rebin every subtracted file (for the ML model)
@@ -363,9 +372,9 @@ input:focus, select:focus {
                 <div class="field"><label>Spacing</label>
                   <select id="tr-spacing" onchange="pushTrunc()"><option value="linear">linear</option><option value="log">log</option></select></div>
                 <div class="field"><label>q unit</label>
-                  <select id="tr-unit" onchange="pushTrunc()"><option value="A">Å⁻¹</option><option value="nm">nm⁻¹</option></select></div>
+                  <select id="tr-unit" onchange="pushTrunc()"><option value="nm">nm⁻¹</option><option value="A">Å⁻¹</option></select></div>
               </div>
-              <div class="hint" id="tr-hint">Default 0.03–0.6 Å⁻¹, 549 pts (linear). Source q is nm⁻¹ and is converted. This replaces the subtracted .dat with the fixed ML grid.</div>
+              <div class="hint" id="tr-hint">Default 0.3 to 6.0 nm⁻¹, 549 points, linear. Pick Å⁻¹ to convert. Overwrites the subtracted .dat with this grid.</div>
             </div>
 
             <!-- folders -->
@@ -375,7 +384,7 @@ input:focus, select:focus {
                 <label>Sample folder</label>
                 <div class="browse-row">
                   <input type="text" id="sam-folder" placeholder="/…/1D/SAXS/Averaged">
-                  <button class="btn btn-sm" onclick="openBrowser('sam-folder')"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg></button>
+                  <button class="btn btn-ghost btn-sm" onclick="openBrowser('sam-folder')">Browse…</button>
                   <button class="btn btn-sm" onclick="listSamples()">List</button>
                 </div>
               </div>
@@ -383,21 +392,21 @@ input:focus, select:focus {
                 <label>Background folder</label>
                 <div class="browse-row">
                   <input type="text" id="bkg-folder" placeholder="/…/1D/SAXS/Averaged">
-                  <button class="btn btn-sm" onclick="openBrowser('bkg-folder')"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg></button>
+                  <button class="btn btn-ghost btn-sm" onclick="openBrowser('bkg-folder')">Browse…</button>
                 </div>
               </div>
               <div class="field" id="row-bkg-file">
                 <label>Background file (.dat)</label>
                 <div class="browse-row">
                   <input type="text" id="bkg-file" placeholder="/…/buffer_avg.dat">
-                  <button class="btn btn-sm" onclick="openBrowser('bkg-file',true)"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg></button>
+                  <button class="btn btn-ghost btn-sm" onclick="openBrowser('bkg-file',true)">Browse…</button>
                 </div>
               </div>
               <div class="field">
-                <label>Output folder (blank = sample/Subtracted)</label>
+                <label>Output folder</label>
                 <div class="browse-row">
-                  <input type="text" id="out-folder" placeholder="optional">
-                  <button class="btn btn-sm" onclick="openBrowser('out-folder')"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg></button>
+                  <input type="text" id="out-folder" placeholder="Blank: sample folder/Subtracted">
+                  <button class="btn btn-ghost btn-sm" onclick="openBrowser('out-folder')">Browse…</button>
                 </div>
               </div>
             </div>
@@ -406,7 +415,7 @@ input:focus, select:focus {
             <div class="section" id="sec-files">
               <div class="fl-head">
                 <span class="section-title" style="margin:0">Files in folder</span>
-                <span class="fl-count" id="sam-count">none listed</span>
+                <span class="fl-count" id="sam-count">None listed</span>
               </div>
               <div class="hint" style="margin:0 0 6px">Mark one file as <b style="color:var(--warn-text)">BG</b> (background); check the rest as <b style="color:var(--accent)">samples</b>.</div>
               <div class="row" style="margin:0 0 6px">
@@ -415,7 +424,7 @@ input:focus, select:focus {
                 <div class="field"><label>Sample name filter</label>
                   <input type="text" id="ind-sam-kw" placeholder="e.g. Dilution · Sample" oninput="renderSamples()"></div>
               </div>
-              <div class="hint" style="margin:0 0 6px">Comma-separated, case-insensitive, blank = all. Shortens the list: <b>BG</b> can only be marked on a background-filter match, and only sample-filter matches can be checked.</div>
+              <div class="hint" style="margin:0 0 6px">Comma-separated, not case-sensitive; blank = all. <b>BG</b> can only go on a background match, samples only on a sample match.</div>
               <div class="filelist" id="sam-filelist"><div class="fl-empty">Click “List” to load .dat files</div></div>
               <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
                 <button class="btn btn-sm" onclick="toggleAll()">Select all samples</button>
@@ -432,7 +441,7 @@ input:focus, select:focus {
               <div id="suggest-controls">
                 <div class="field">
                   <label>Match by filename token (optional)</label>
-                  <input type="text" id="suggest-hint" placeholder="e.g. buffer · blank · or a shared run id">
+                  <input type="text" id="suggest-hint" placeholder="e.g. buffer, blank or a shared run ID">
                 </div>
               </div>
 
@@ -443,20 +452,20 @@ input:focus, select:focus {
                   <div class="field"><label>Background keyword</label><input type="text" id="scan-bkg-kw" placeholder="e.g. Empty"></div>
                   <div class="field"><label>Match number after</label><input type="text" id="scan-counter" placeholder="e.g. ctr"></div>
                 </div>
-                <div class="hint" style="margin:4px 0 0">Samples whose name contains the <b>sample keyword</b> are paired with backgrounds containing the <b>background keyword</b>, by the number right after the <b>match token</b> — e.g. <code>…ctr0…</code> ↔ <code>…ctr0…</code>. Pairs are listed in order of that number for easy checking. Leave a keyword blank to include all files.</div>
+                <div class="hint" style="margin:4px 0 0">Pairs each <b>sample keyword</b> file with the <b>background keyword</b> file that has the same number after the <b>match token</b> (e.g. <code>…ctr0…</code> ↔ <code>…ctr0…</code>). Blank keyword = all files.</div>
               </div>
 
               <div class="fl-head" style="margin-top:8px">
                 <span class="fl-count" id="suggest-count">No matches yet</span>
                 <span style="display:flex;gap:6px">
-                  <button class="btn btn-sm" onclick="reviewRows()">🔎 Review</button>
-                  <button class="btn btn-primary btn-sm" id="match-btn" onclick="runMatch()">✨ Match</button>
+                  <button class="btn btn-sm" onclick="reviewRows()"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-search"/></svg> Review</button>
+                  <button class="btn btn-primary btn-sm" id="match-btn" onclick="runMatch()"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-ai"/></svg> Match</button>
                 </span>
               </div>
               <div class="tblwrap" style="max-height:240px;border:1px solid var(--border);border-radius:6px">
                 <table class="tbl" id="suggestTbl"><tbody><tr><td class="fl-empty">Set folders, then “Match”.</td></tr></tbody></table>
               </div>
-              <div class="hint">Edit any background in the table before applying. “Review” fills the per-row scale + QC.</div>
+              <div class="hint">You can change any background in the table before saving. Review fills in each row's scale and QC.</div>
             </div>
 
             <!-- method + scale -->
@@ -484,54 +493,52 @@ input:focus, select:focus {
             </div>
 
             <div class="actions">
-              <button class="btn btn-ghost" onclick="preview()">🔍 Preview &amp; plot</button>
-              <button class="btn btn-primary" id="btnRun" onclick="run()">✓ Subtract &amp; Save</button>
+              <button class="btn btn-ghost" onclick="preview()"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-search"/></svg> Preview &amp; plot</button>
+              <button class="btn btn-primary" id="btnRun" onclick="run()"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-pass"/></svg> Subtract &amp; save</button>
             </div>
            </div><!-- /manual-setup -->
 
            <!-- ===== AUTOMATED (mode) ===== -->
            <div id="auto-setup" style="display:none">
             <div class="hint" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;color:var(--muted)">
-              Watches the <b>Averaged</b> folder(s) and subtracts each new sample automatically.
-              Backgrounds are detected by name (<code>buffer · blank · empty · solvent · water · bkg</code>);
-              every unsubtracted sample is paired with its <b>nearest-index</b> background, the scale is
-              auto-set to zero the high-q residual (bounded near the high-q least-squares fit), and the
-              result is written to <code>Subtracted/</code>. Files that still trip QC are saved as the
-              best attempt and flagged in the manifest.
+              Watches the <b>Averaged</b> folders and subtracts each new sample. Backgrounds are found by
+              name (<code>buffer · blank · empty · solvent · water · bkg</code>); each sample uses the
+              <b>nearest-index</b> background. Output goes to <code>Subtracted/</code>; files that still
+              fail QC are saved and flagged.
             </div>
 
             <div class="section">
-              <div class="section-title"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg> Averaged folders to watch</div>
+              <div class="section-title"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg> Averaged folders to watch</div>
               <div class="field">
                 <label>SAXS Averaged folder</label>
                 <div class="browse-row">
                   <input type="text" id="auto-saxs-folder" placeholder="/…/1D/SAXS/Averaged">
-                  <button class="btn btn-sm" onclick="openBrowser('auto-saxs-folder')"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg></button>
+                  <button class="btn btn-ghost btn-sm" onclick="openBrowser('auto-saxs-folder')">Browse…</button>
                 </div>
               </div>
               <div class="field">
                 <label>WAXS Averaged folder</label>
                 <div class="browse-row">
                   <input type="text" id="auto-waxs-folder" placeholder="/…/1D/WAXS/Averaged">
-                  <button class="btn btn-sm" onclick="openBrowser('auto-waxs-folder')"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg></button>
+                  <button class="btn btn-ghost btn-sm" onclick="openBrowser('auto-waxs-folder')">Browse…</button>
                 </div>
               </div>
-              <div class="hint" style="margin:0">Leave a folder blank to skip that detector. Output goes to <code>1D/&lt;DET&gt;/Subtracted/</code> (a sibling of Averaged).</div>
+              <div class="hint" style="margin:0">Leave a folder blank to skip that detector. Output goes to <code>1D/&lt;DET&gt;/Subtracted/</code>.</div>
             </div>
 
             <div class="section">
-              <div class="section-title">🔑 Sample &amp; background keywords (optional)</div>
+              <div class="section-title"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-tag"/></svg> Sample &amp; background keywords (optional)</div>
               <div class="row">
                 <div class="field"><label>Sample keyword</label>
-                  <input type="text" id="auto-sample-kw" placeholder="e.g. PIP_TMC  ·  blank = all non-background"></div>
+                  <input type="text" id="auto-sample-kw" placeholder="e.g. PIP_TMC (blank = all non-background)"></div>
                 <div class="field"><label>Background keyword</label>
-                  <input type="text" id="auto-bkg-kw" placeholder="e.g. buffer  ·  blank = auto-detect"></div>
+                  <input type="text" id="auto-bkg-kw" placeholder="e.g. buffer (blank = auto-detect)"></div>
               </div>
-              <div class="hint" style="margin:4px 0 0">Background keyword overrides name-token detection (buffer/blank/empty/…). Sample keyword restricts which files are treated as samples.</div>
+              <div class="hint" style="margin:4px 0 0">Background keyword replaces name detection (buffer, blank, empty…). Sample keyword limits which files count as samples.</div>
             </div>
 
             <div class="section">
-              <div class="section-title">✂ ML output — truncate &amp; rebin</div>
+              <div class="section-title"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-truncate"/></svg> ML output: truncate &amp; rebin</div>
               <label style="display:flex;align-items:center;gap:8px">
                 <input type="checkbox" id="atr-enabled" onchange="pushTrunc('a')">
                 Truncate &amp; rebin every subtracted file (for the ML model)
@@ -543,16 +550,16 @@ input:focus, select:focus {
                 <div class="field"><label>Spacing</label>
                   <select id="atr-spacing" onchange="pushTrunc('a')"><option value="linear">linear</option><option value="log">log</option></select></div>
                 <div class="field"><label>q unit</label>
-                  <select id="atr-unit" onchange="pushTrunc('a')"><option value="A">Å⁻¹</option><option value="nm">nm⁻¹</option></select></div>
+                  <select id="atr-unit" onchange="pushTrunc('a')"><option value="nm">nm⁻¹</option><option value="A">Å⁻¹</option></select></div>
               </div>
-              <div class="hint" style="margin:4px 0 0">Same setting as the manual tab — applies to every auto-subtracted file. Default 0.03–0.6 Å⁻¹, 549 pts (linear).</div>
+              <div class="hint" style="margin:4px 0 0">Shared with the manual modes; applies to every auto-subtracted file. Default 0.3 to 6.0 nm⁻¹, 549 points, linear.</div>
             </div>
 
             <!-- Scale and Schedule are both small; .row puts them side by
                  side and collapses to one column when the pane is narrow. -->
             <div class="row">
             <div class="section">
-              <div class="section-title">⚙ Scale</div>
+              <div class="section-title"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-settings"/></svg> Scale</div>
               <div class="seg">
                 <button id="auto-meth-auto" class="active" onclick="setAutoScaleMode('auto')">Auto high-q</button>
                 <button id="auto-meth-fixed" onclick="setAutoScaleMode('fixed')">Fixed value</button>
@@ -565,7 +572,7 @@ input:focus, select:focus {
             </div>
 
             <div class="section">
-              <div class="section-title">⏱ Schedule</div>
+              <div class="section-title"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-timer"/></svg> Schedule</div>
               <div class="field" style="max-width:220px">
                 <label>Check interval (seconds)</label>
                 <input type="number" id="auto-interval" value="3" min="1">
@@ -579,10 +586,10 @@ input:focus, select:focus {
                  the two apps' Start/Stop looked unrelated. The .auto-* block
                  inside is shared between the apps byte for byte. -->
             <div class="section">
-              <div class="section-title"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-start"/></svg> Monitor</div>
+              <div class="section-title"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-start"/></svg> Monitor</div>
               <div class="auto-actions">
-                <button class="btn btn-primary" id="auto-start" onclick="startAutoSub()"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-start"/></svg> Start auto-subtraction</button>
-                <button class="btn btn-ghost" id="auto-stop" onclick="stopAutoSub()" disabled><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-stop"/></svg> Stop</button>
+                <button class="btn btn-primary" id="auto-start" onclick="startAutoSub()"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-start"/></svg> Start auto-subtraction</button>
+                <button class="btn btn-ghost" id="auto-stop" onclick="stopAutoSub()" disabled><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-stop"/></svg> Stop</button>
                 <span class="auto-state" id="auto-state">Idle</span>
                 <span class="auto-count" id="auto-count"></span>
               </div>
@@ -599,12 +606,12 @@ input:focus, select:focus {
           <div class="plotbar">
             <b style="font-size:var(--fs-sm)">Background-subtracted 1D SAXS</b>
             <span class="viewseg" id="saxs-viewseg"><button data-v="overlay" class="active" onclick="setView('saxs','overlay')">Overlay</button><button data-v="residual" onclick="setView('saxs','residual')">Residual</button><button data-v="ratio" onclick="setView('saxs','ratio')">Ratio</button></span>
-            <span class="viewseg" id="saxs-axisseg"><button data-a="loglog" class="active" onclick="setAxis('saxs','loglog')">Log–Log</button><button data-a="semilogy" onclick="setAxis('saxs','semilogy')">Semilog</button><button data-a="linear" onclick="setAxis('saxs','linear')">Linear</button></span>
-            <label><input type="checkbox" id="saxs-raw" checked onchange="redraw('saxs')"> raw+bkg</label>
-            <label><input type="checkbox" id="saxs-sub" checked onchange="redraw('saxs')"> subtracted</label>
+            <span class="viewseg" id="saxs-axisseg"><button data-a="loglog" class="active" onclick="setAxis('saxs','loglog')">Log-log</button><button data-a="semilogy" onclick="setAxis('saxs','semilogy')">Semilog</button><button data-a="linear" onclick="setAxis('saxs','linear')">Linear</button></span>
+            <label><input type="checkbox" id="saxs-raw" checked onchange="redraw('saxs')"> Raw + bkg</label>
+            <label><input type="checkbox" id="saxs-sub" checked onchange="redraw('saxs')"> Subtracted</label>
             <button class="btn btn-sm" onclick="compareMethods('saxs')">⇄ Compare methods</button>
             <span style="flex:1"></span>
-            <label>scale <input type="range" id="saxs-scale" min="0" max="2" step="0.01" value="1" style="width:120px;accent-color:var(--accent)" oninput="rescale('saxs',this.value)"> <b id="saxs-scaleval">1.00</b></label>
+            <label>Scale <input type="range" id="saxs-scale" min="0" max="2" step="0.01" value="1" style="width:120px;accent-color:var(--accent)" oninput="rescale('saxs',this.value)"> <b id="saxs-scaleval">1.00</b></label>
           </div>
           <div id="saxs-qc" class="qc" style="padding:0 14px"></div>
           <div class="plot-div" id="saxsPlot"></div>
@@ -617,12 +624,12 @@ input:focus, select:focus {
           <div class="plotbar">
             <b style="font-size:var(--fs-sm)">Background-subtracted 1D WAXS</b>
             <span class="viewseg" id="waxs-viewseg"><button data-v="overlay" class="active" onclick="setView('waxs','overlay')">Overlay</button><button data-v="residual" onclick="setView('waxs','residual')">Residual</button><button data-v="ratio" onclick="setView('waxs','ratio')">Ratio</button></span>
-            <span class="viewseg" id="waxs-axisseg"><button data-a="loglog" class="active" onclick="setAxis('waxs','loglog')">Log–Log</button><button data-a="semilogy" onclick="setAxis('waxs','semilogy')">Semilog</button><button data-a="linear" onclick="setAxis('waxs','linear')">Linear</button></span>
-            <label><input type="checkbox" id="waxs-raw" checked onchange="redraw('waxs')"> raw+bkg</label>
-            <label><input type="checkbox" id="waxs-sub" checked onchange="redraw('waxs')"> subtracted</label>
+            <span class="viewseg" id="waxs-axisseg"><button data-a="loglog" class="active" onclick="setAxis('waxs','loglog')">Log-log</button><button data-a="semilogy" onclick="setAxis('waxs','semilogy')">Semilog</button><button data-a="linear" onclick="setAxis('waxs','linear')">Linear</button></span>
+            <label><input type="checkbox" id="waxs-raw" checked onchange="redraw('waxs')"> Raw + bkg</label>
+            <label><input type="checkbox" id="waxs-sub" checked onchange="redraw('waxs')"> Subtracted</label>
             <button class="btn btn-sm" onclick="compareMethods('waxs')">⇄ Compare methods</button>
             <span style="flex:1"></span>
-            <label>scale <input type="range" id="waxs-scale" min="0" max="2" step="0.01" value="1" style="width:120px;accent-color:var(--accent)" oninput="rescale('waxs',this.value)"> <b id="waxs-scaleval">1.00</b></label>
+            <label>Scale <input type="range" id="waxs-scale" min="0" max="2" step="0.01" value="1" style="width:120px;accent-color:var(--accent)" oninput="rescale('waxs',this.value)"> <b id="waxs-scaleval">1.00</b></label>
           </div>
           <div id="waxs-qc" class="qc" style="padding:0 14px"></div>
           <div class="plot-div" id="waxsPlot"></div>
@@ -632,7 +639,7 @@ input:focus, select:focus {
       <!-- ===== METADATA ===== -->
       <div class="page" id="page-meta">
         <div class="plotwrap" style="flex:1">
-          <div class="plotbar"><b style="font-size:var(--fs-sm)">Average metadata</b>
+          <div class="plotbar"><b style="font-size:var(--fs-sm)">Averaged metadata</b>
             <button class="btn btn-sm" onclick="loadMetadata()">Refresh from sample folder</button>
             <span class="hint" id="metaInfo"></span></div>
           <div class="tblwrap" style="padding:0 14px"><table class="tbl" id="metaTbl"><tbody><tr><td class="fl-empty">Click “Refresh” to load metadata for the sample folder.</td></tr></tbody></table></div>
@@ -641,12 +648,13 @@ input:focus, select:focus {
 
     </div>
   </div>
+  </div><!-- /#main -->
 </div>
 
 <!-- browser modal -->
 <div class="modal-backdrop" id="browserModal">
   <div class="modal">
-    <div class="modal-head"><h2 id="modalTitle">Browse</h2><button class="modal-close" onclick="closeBrowser()"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-close"/></svg></button></div>
+    <div class="modal-head"><h2 id="modalTitle">Browse</h2><button class="modal-close" onclick="closeBrowser()"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-close"/></svg></button></div>
     <div class="modal-body"><div id="dirList" style="display:flex;flex-direction:column;gap:3px"></div></div>
     <div class="modal-foot"><span class="curr-path" id="currPath"></span>
       <button class="btn btn-sm" onclick="closeBrowser()">Cancel</button>
@@ -696,15 +704,15 @@ function setMode(m){
   document.getElementById('suggest-controls').style.display = m==='suggest'?'':'none';
   document.getElementById('scan-controls').style.display    = m==='batch'?'':'none';
   document.getElementById('match-title').textContent = m==='batch' ? 'Match by number & review' : 'Match & review';
-  const mb=document.getElementById('match-btn'); if(mb) mb.textContent = m==='batch' ? '🔢 Match by number' : '✨ Suggest backgrounds';
+  const mb=document.getElementById('match-btn'); if(mb) setIco(mb, m==='batch'?'tag':'ai', m==='batch' ? 'Match by number' : 'Suggest backgrounds');
   document.getElementById('modeHint').textContent = m==='individual'
-    ? 'List the Averaged folder, mark one file as BG (background) and check the rest as samples.'
-    : m==='batch' ? 'Group by a keyword then pair by counter — e.g. Nylon6*ctr ↔ Empty*ctr — then review.'
-    : 'Auto-match each sample to a background by filename/keywords (review before applying).';
+    ? 'List the Averaged folder, mark one file as BG and check the samples.'
+    : m==='batch' ? 'Pair samples and backgrounds by keyword and counter number (e.g. Nylon6*ctr ↔ Empty*ctr), then review.'
+    : 'Auto-match each sample to a background by filename, then review before saving.';
   document.getElementById('btnRun').textContent = m==='individual'
-    ? '✓ Subtract selected & Save'
-    : m==='batch' ? '✓ Subtract matched & Save'
-    : '✓ Apply suggested & Save';
+    ? '✓ Subtract selected & save'
+    : m==='batch' ? '✓ Subtract matched & save'
+    : '✓ Apply suggested & save';
 }
 function runMatch(){ return state.mode==='batch' ? runMatchToken() : runSuggest(); }
 async function runMatchToken(){
@@ -713,7 +721,7 @@ async function runMatchToken(){
   const sk=document.getElementById('scan-sam-kw').value.trim(),
         bk=document.getElementById('scan-bkg-kw').value.trim(),
         ct=document.getElementById('scan-counter').value.trim();
-  if(!ct){setStatus('Enter the match token to read the number after (e.g. ctr)','err');return;}
+  if(!ct){setStatus('Enter the match token (e.g. ctr)','err');return;}
   setStatus('Matching by number…','busy');
   try{
     const d=await post('/api/match_token',{sample_folder:sf,bkg_folder:bf,
@@ -754,7 +762,7 @@ let _samFiles=[], _bgIndex=-1, _samSel=new Set();   // selection kept out of the
                                                     // so keyword filtering never loses it
 async function listSamples(){
   const folder=document.getElementById('sam-folder').value.trim();
-  if(!folder){setStatus('Set a folder','err');return;}
+  if(!folder){setStatus('Set a sample folder','err');return;}
   setStatus('Listing…','busy');
   try{
     const d=await post('/api/scan',{folder});
@@ -801,7 +809,7 @@ function renderSamples(){
       `<span class="nm" title="${f.name}">${f.name}</span>`+
       `<span class="rbadge" id="rbadge-${i}"></span>`;
     r.querySelector('.nm').onclick=()=>{
-      if(i===_bgIndex){setStatus('That file is the background — click a sample to preview','');return;}
+      if(i===_bgIndex){setStatus('That file is the background; click a sample to preview','');return;}
       if(_bgIndex<0){setStatus('Mark one file as BG (background) first','err');return;}
       if(!role.samOk){setStatus('That file does not match the sample filter','err');return;}
       toggleSam(i,true);
@@ -869,8 +877,8 @@ async function runSuggest(){
 function renderSuggest(){
   const t=document.getElementById('suggestTbl');
   if(!_suggest.length){t.innerHTML='<tbody><tr><td class="fl-empty">No samples.</td></tr></tbody>';return;}
-  const opts=sel=>'<option value="">— none —</option>'+_suggestBkgs.map(b=>`<option ${b===sel?'selected':''}>${b}</option>`).join('');
-  let h='<thead><tr><th>Sample</th><th>Background (used for this sample)</th><th>Scale</th><th>QC</th><th>why</th></tr></thead><tbody>';
+  const opts=sel=>'<option value="">(none)</option>'+_suggestBkgs.map(b=>`<option ${b===sel?'selected':''}>${b}</option>`).join('');
+  let h='<thead><tr><th>Sample</th><th>Background</th><th>Scale</th><th>QC</th><th>Why</th></tr></thead><tbody>';
   _suggest.forEach((p,i)=>{const sel=p.suggested?p.suggested.name:'';
     h+=`<tr><td title="${p.sample}">${p.sample}</td>`+
        `<td><select data-i="${i}" style="width:100%;font-family:var(--mono);font-size:var(--fs-xs);padding:4px 5px;border:1px solid var(--border-strong);border-radius:4px">${opts(sel)}</select></td>`+
@@ -880,7 +888,7 @@ function renderSuggest(){
   t.innerHTML=h+'</tbody>';
 }
 async function reviewRows(){
-  if(!_suggest.length){setStatus('Run “Suggest backgrounds” first','err');return;}
+  if(!_suggest.length){setStatus('Run matching first','err');return;}
   setStatus('Reviewing pairs (scale + QC)…','busy');
   const method=state.method, scale=getScale();
   let attention=0, done=0;
@@ -896,7 +904,7 @@ async function reviewRows(){
       if(sc) sc.textContent=d.scale;
       if(qcc)qcc.innerHTML=`<span class="qcdot ${sev}"></span>${d.qc.pct_negative}% neg`;
       done++;
-    }catch(e){if(qcc)qcc.innerHTML='<span class="qcdot error"></span>err';attention++;}
+    }catch(e){if(qcc)qcc.innerHTML='<span class="qcdot error"></span>error';attention++;}
   }
   setStatus(`Reviewed ${done} pair(s)${attention?` · ${attention} need attention`:' · all look OK'}`, attention?'err':'ok');
 }
@@ -920,7 +928,7 @@ async function preview(){
     // batch (token match) / suggest: preview the first matched pair from the review table
     if(!_suggest.length) await runMatch();
     const idx=_suggest.findIndex(x=>x.suggested);
-    if(idx<0){setStatus('No matched pair — run Match first','err');return;}
+    if(idx<0){setStatus('No matched pair; run matching first','err');return;}
     const p=_suggest[idx];
     const bname=document.querySelector(`#suggestTbl select[data-i="${idx}"]`)?.value || (p.suggested&&p.suggested.name);
     if(!bname){setStatus('No background chosen for this sample','err');return;}
@@ -941,7 +949,7 @@ async function doPreview(sample_file,bkg_file){
     syncResultScale(det,d.scale_used);
     showPage(det);   // show the plot on the BG-Sub SAXS/WAXS tab
     const win=d.window?` · window q∈[${d.window.q_min.toFixed(3)}, ${d.window.q_max.toFixed(3)}]`:'';
-    setStatus(`Preview ${sample_file.split(/[\\/]/).pop()} — scale=${d.scale_used} (${d.method})${win}`,'ok');
+    setStatus(`Preview ${sample_file.split(/[\\/]/).pop()}: scale=${d.scale_used} (${d.method})${win}`,'ok');
   }catch(e){setStatus('Preview error: '+e,'err');}
 }
 
@@ -956,7 +964,7 @@ async function run(){
     if(!files.length){setStatus('Check at least one file as a sample','err');return;}
     endpoint='/api/subtract/individual';body={...common,sample_files:files,bkg_file:bkg};
   }else{ // batch (token match) / suggest → run each pair via individual, grouped by background
-    if(!_suggest.length){setStatus('Run “Match” first','err');return;}
+    if(!_suggest.length){setStatus('Run matching first','err');return;}
     const bf=(_suggestBkgFolder||document.getElementById('bkg-folder').value.trim().replace(/[\\/]+$/,''));
     const groups={};let unmatched=0;
     _suggest.forEach((p,i)=>{const bname=document.querySelector(`#suggestTbl select[data-i="${i}"]`)?.value||(p.suggested&&p.suggested.name);
@@ -972,7 +980,7 @@ async function run(){
         if(d.results&&d.results.length) allRes.push(...d.results);   // collect EVERY subtracted curve
       }
       renderBatchResults(det,{saved:allSaved,errors:allErrs,results:allRes});
-      setStatus(`Done — ${allSaved.length} saved${allErrs.length?` (${allErrs.length} errors)`:''} · plotted ${allRes.length} curve(s)`,allErrs.length?'err':'ok');showPage(det);
+      setStatus(`Done: ${allSaved.length} saved${allErrs.length?` (${allErrs.length} errors)`:''} · plotted ${allRes.length} curve(s)`,allErrs.length?'err':'ok');showPage(det);
     }catch(e){setStatus('Error: '+e,'err');}finally{document.getElementById('btnRun').disabled=false;}
     return;
   }
@@ -981,7 +989,7 @@ async function run(){
     const d=await post(endpoint,body);
     if(d.error){setStatus(d.error,'err');return;}
     renderBatchResults(det,d);
-    const ne=(d.errors||[]).length;setStatus(`Done — ${d.saved.length} saved${ne?` (${ne} errors)`:''}${d.warning?' · '+d.warning:''}`,ne?'err':'ok');
+    const ne=(d.errors||[]).length;setStatus(`Done: ${d.saved.length} saved${ne?` (${ne} errors)`:''}${d.warning?' · '+d.warning:''}`,ne?'err':'ok');
     showPage(det);
   }catch(e){setStatus('Error: '+e,'err');}finally{document.getElementById('btnRun').disabled=false;}
 }
@@ -992,11 +1000,12 @@ function axisOf(det){return (state.axis&&state.axis[det])||'loglog';}
 function axisSpec(det){const a=axisOf(det);return a==='linear'?{x:'linear',y:'linear'}:a==='semilogy'?{x:'linear',y:'log'}:{x:'log',y:'log'};}
 function axisLayout(det,forceLinearY,zeroline){
   const s=axisSpec(det), ytype=forceLinearY?'linear':s.y;
-  return{paper_bgcolor:WHITE,plot_bgcolor:WHITE,font:{color:'#1f2937',size:13},
+  const T=swaxsPlotTheme();   // theme colours (light or dark), see _icon_helpers.html
+  return{paper_bgcolor:T.bg,plot_bgcolor:T.bg,font:{color:T.fg,size:13},
     margin:{t:24,b:52,l:66,r:18},legend:{orientation:'h',y:-0.18},
-    xaxis:{title:'q (nm⁻¹)',type:s.x,color:'#4b5563',gridcolor:'#e5e7eb'},
-    yaxis:{title:'I (a.u.)',type:ytype,color:'#4b5563',gridcolor:'#e5e7eb',
-           zeroline:!!zeroline,zerolinecolor:'#b91c1c',zerolinewidth:1.5},
+    xaxis:{title:'q (nm⁻¹)',type:s.x,color:T.muted,gridcolor:T.grid},
+    yaxis:{title:'I (a.u.)',type:ytype,color:T.muted,gridcolor:T.grid,
+           zeroline:!!zeroline,zerolinecolor:T.err,zerolinewidth:1.5},
     hovermode:'closest'};
 }
 function setView(det,v){
@@ -1043,7 +1052,7 @@ function renderResult(det){
         mode:'lines',line:{color:COLORS[3],width:2}}],L,{responsive:true,displaylogo:false});
       return;
     }
-    setStatus('Ratio view needs a single preview — showing overlay instead','');
+    setStatus('Ratio view needs a single preview; showing overlay','');
   }
   const residual=(view==='residual');           // residual: y forced linear (+zero line) to show negatives
   const logY=!residual && axisSpec(det).y==='log';
@@ -1078,7 +1087,7 @@ function renderResult(det){
     // When legends are hidden, show a colorbar guide (first → last).
     if(many) tr.push({x:[null],y:[null],type:'scattergl',mode:'markers',
       marker:{color:[0,1],colorscale:'Viridis',cmin:0,cmax:1,showscale:true,
-        colorbar:{title:{text:'order'},thickness:10,len:0.55,tickvals:[0,1],ticktext:['first','last']}},
+        colorbar:{title:{text:'Order'},thickness:10,len:0.55,tickvals:[0,1],ticktext:['First','Last']}},
       showlegend:false,hoverinfo:'skip'});
   }
   // log y-axis: drop all-non-positive data traces (keep the colorbar guide trace)
@@ -1129,7 +1138,7 @@ async function compareMethods(det){
             manual_scale:m.scale_used,auto_scale:a.scale_used}};
     renderResult(det);
     renderQC(det,a.qc,`manual ×${m.scale_used} vs auto ×${a.scale_used}`);
-    setStatus(`Compared — manual ×${m.scale_used} vs auto high-q ×${a.scale_used}`,'ok');
+    setStatus(`Compared: manual ×${m.scale_used} vs auto high-q ×${a.scale_used}`,'ok');
   }catch(e){setStatus('Compare error: '+e,'err');}
 }
 
@@ -1138,7 +1147,7 @@ async function loadMetadata(){
   let files=selectedSamples();
   if(!files.length)files=_samFiles.map(f=>f.path);
   if(!files.length){const folder=document.getElementById('sam-folder').value.trim();if(folder){const d=await post('/api/scan',{folder});files=(d.files||[]).map(f=>folder.replace(/[\\/]+$/,'')+'/'+f.name);}}
-  if(!files.length){document.getElementById('metaInfo').textContent='No files — list a sample folder first.';return;}
+  if(!files.length){document.getElementById('metaInfo').textContent='No files. List a sample folder first.';return;}
   const d=await post('/api/metadata',{files});
   const t=document.getElementById('metaTbl');
   if(!d.rows.length){t.innerHTML='<tbody><tr><td class="fl-empty">No metadata.</td></tr></tbody>';return;}
@@ -1156,9 +1165,9 @@ async function browseTo(path){
   const data=await (await fetch('/api/browse?path='+encodeURIComponent(path))).json();
   _bp=data.current;document.getElementById('currPath').textContent=data.current;
   const list=document.getElementById('dirList');list.innerHTML='';
-  if(data.parent){const u=document.createElement('div');u.className='dir-item';u.innerHTML='<span>⬆</span><span>..</span>';u.onclick=()=>browseTo(data.parent);list.appendChild(u);}
-  (data.dirs||[]).forEach(d=>{const it=document.createElement('div');it.className='dir-item';it.innerHTML=`<span>📁</span><span>${d}</span>`;it.onclick=()=>browseTo(_bp.replace(/[\\/]+$/,'')+'/'+d);list.appendChild(it);});
-  if(_bfile)(data.files||[]).forEach(f=>{const it=document.createElement('div');it.className='dir-item file';it.innerHTML=`<span>📄</span><span>${f}</span>`;it.onclick=()=>{document.getElementById(_bt).value=_bp.replace(/[\\/]+$/,'')+'/'+f;closeBrowser();};list.appendChild(it);});
+  if(data.parent){const u=document.createElement('div');u.className='dir-item';u.innerHTML='<span>'+icoSvg('parent-dir')+'</span><span>..</span>';u.onclick=()=>browseTo(data.parent);list.appendChild(u);}
+  (data.dirs||[]).forEach(d=>{const it=document.createElement('div');it.className='dir-item';it.innerHTML=`<span>${icoSvg('folder')}</span><span>${d}</span>`;it.onclick=()=>browseTo(_bp.replace(/[\\/]+$/,'')+'/'+d);list.appendChild(it);});
+  if(_bfile)(data.files||[]).forEach(f=>{const it=document.createElement('div');it.className='dir-item file';it.innerHTML=`<span>${icoSvg('document')}</span><span>${f}</span>`;it.onclick=()=>{document.getElementById(_bt).value=_bp.replace(/[\\/]+$/,'')+'/'+f;closeBrowser();};list.appendChild(it);});
 }
 function selectCurrent(){if(_bt)document.getElementById(_bt).value=_bp;closeBrowser();}
 document.getElementById('browserModal').addEventListener('click',e=>{if(e.target.id==='browserModal')closeBrowser();});
@@ -1282,7 +1291,7 @@ async function showRestartNotice(){
     b.className='restart-banner show '+n.level;   // .restored (calm) | .lost (loud)
     let msg=n.message||'';
     if(n.params&&n.params.length) msg+=' ('+n.params.join(', ')+')';
-    document.getElementById('restartBannerMsg').textContent=(n.level==='lost'?'⚠ ':'♻ ')+msg;
+    setIco(document.getElementById('restartBannerMsg'),n.level==='lost'?'warning':'mode-autonomous',msg);
   }catch(_){}
 }
 window.addEventListener('DOMContentLoaded',()=>{ try{ autoPollStatus(); }catch(_){ } try{ initTrunc(); }catch(_){ } try{ showRestartNotice(); }catch(_){ } });
@@ -1313,9 +1322,9 @@ window.addEventListener('DOMContentLoaded',()=>{ try{ autoPollStatus(); }catch(_
 </script>
 <script>
 (function(){var K='swaxs-theme',s=localStorage.getItem(K),
- d=s?s==='dark':matchMedia('(prefers-color-scheme:dark)').matches;
+ d=document.documentElement.getAttribute('data-theme')==='dark';
  function ap(x){document.documentElement.setAttribute('data-theme',x?'dark':'light');
-  var b=document.getElementById('themeToggle');if(b)b.textContent=x?'☀':'☾';}
+  var b=document.getElementById('themeToggle');if(b)b.innerHTML='<svg class="ico" aria-hidden="true"><use href="#swaxs-ui-'+(x?'sun':'moon')+'"/></svg>';}
  ap(d);window.toggleTheme=function(){d=!d;localStorage.setItem(K,d?'dark':'light');ap(d);};})();
 </script>
 </body>

@@ -1,0 +1,2210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Autonomous Synthesis · simulated (mockup)</title>
+<style>/* SWAXS Platform icon accents.
+ *
+ * Two ways to use these, pick one:
+ *
+ * 1. --swaxs-x        single value, ~4.3:1 on both #0d1117 and #fff. Clears the
+ *                     WCAG 1.4.11 bar for non-text contrast (3:1) in either theme
+ *                     with no swap. No single hex can reach 4.5:1 against both
+ *                     backgrounds at once, so if you want that, use option 2.
+ * 2. --swaxs-x-dark / --swaxs-x-light   per-theme pair, ~6.4:1 each, which meets
+ *                     the stricter 4.5:1 text-grade bar Carbon applies to icons.
+ *                     The light-dark() block below wires them up automatically.
+ */
+:root {
+  color-scheme: light dark;
+
+  --swaxs-calibration: #ed1632;
+  --swaxs-reduction: #2374ee;
+  --swaxs-visualisation: #0b8c47;
+  --swaxs-subtraction: #ab43f1;
+  --swaxs-quality: #0a8783;
+  --swaxs-analysis: #a56d0c;
+  --swaxs-autofit: #815ef3;
+  --swaxs-synthesis: #0d81b2;
+  --swaxs-guinier: #e011a2;
+  --swaxs-watch: #dc4011;
+
+  --swaxs-calibration-light: #be0e26;  /* 6.4:1 on #fff   */
+  --swaxs-calibration-dark:  #f4677a;  /* 6.37:1 on #0d1117 */
+  --swaxs-reduction-light: #0f59c7;  /* 6.41:1 on #fff   */
+  --swaxs-reduction-dark:  #5a97f3;  /* 6.45:1 on #0d1117 */
+  --swaxs-visualisation-light: #086e38;  /* 6.37:1 on #fff   */
+  --swaxs-visualisation-dark:  #0dad57;  /* 6.43:1 on #0d1117 */
+  --swaxs-subtraction-light: #8d11e0;  /* 6.38:1 on #fff   */
+  --swaxs-subtraction-dark:  #c175f5;  /* 6.43:1 on #0d1117 */
+  --swaxs-quality-light: #086a67;  /* 6.43:1 on #fff   */
+  --swaxs-quality-dark:  #0da7a2;  /* 6.37:1 on #0d1117 */
+  --swaxs-analysis-light: #83570a;  /* 6.3:1 on #fff   */
+  --swaxs-analysis-dark:  #cd870f;  /* 6.37:1 on #0d1117 */
+  --swaxs-autofit-light: #6136f0;  /* 6.37:1 on #fff   */
+  --swaxs-autofit-dark:  #9e84f6;  /* 6.38:1 on #0d1117 */
+  --swaxs-synthesis-light: #0b678e;  /* 6.28:1 on #fff   */
+  --swaxs-synthesis-dark:  #11a0de;  /* 6.4:1 on #0d1117 */
+  --swaxs-guinier-light: #b20d81;  /* 6.43:1 on #fff   */
+  --swaxs-guinier-dark:  #f35ac5;  /* 6.38:1 on #0d1117 */
+  --swaxs-watch-light: #af330d;  /* 6.36:1 on #fff   */
+  --swaxs-watch-dark:  #f16f47;  /* 6.4:1 on #0d1117 */
+
+  /* Hub chrome: structural icons stay neutral so they don't compete with the
+     ten coloured app marks. Colour is reserved for status. */
+  --swaxs-chrome-light: #586170;  /* 6.25:1 on #fff   */
+  --swaxs-chrome-dark:  #98a3b3;  /* 7.41:1 on #0d1117 */
+  --swaxs-chrome-strong-light: #12161c;  /* 18.15:1 on #fff   */
+  --swaxs-chrome-strong-dark:  #e6edf3;  /* 16.02:1 on #0d1117 */
+  --swaxs-status-running-light: #086e33;  /* 6.39:1 on #fff   */
+  --swaxs-status-running-dark:  #0dad50;  /* 6.41:1 on #0d1117 */
+  --swaxs-status-stopped-light: #55606d;  /* 6.4:1 on #fff   */
+  --swaxs-status-stopped-dark:  #8c97a4;  /* 6.38:1 on #0d1117 */
+  --swaxs-status-warning-light: #7b5909;  /* 6.41:1 on #fff   */
+  --swaxs-status-warning-dark:  #c38d0f;  /* 6.43:1 on #0d1117 */
+  --swaxs-status-error-light: #ba1f0e;  /* 6.38:1 on #fff   */
+  --swaxs-status-error-dark:  #f36b5c;  /* 6.37:1 on #0d1117 */
+
+  /* Unsuffixed names, which is what components should reference.
+     Dark values are the default; the blocks below switch them. */
+  --swaxs-chrome: #98a3b3;
+  --swaxs-chrome-strong: #e6edf3;
+  --swaxs-status-running: #0dad50;
+  --swaxs-status-stopped: #8c97a4;
+  --swaxs-status-warning: #c38d0f;
+  --swaxs-status-error: #f36b5c;
+}
+
+/* Fallback for engines without light-dark(). */
+@media (prefers-color-scheme: light) {
+  :root {
+    --swaxs-calibration: #be0e26;
+    --swaxs-reduction: #0f59c7;
+    --swaxs-visualisation: #086e38;
+    --swaxs-subtraction: #8d11e0;
+    --swaxs-quality: #086a67;
+    --swaxs-analysis: #83570a;
+    --swaxs-autofit: #6136f0;
+    --swaxs-synthesis: #0b678e;
+    --swaxs-guinier: #b20d81;
+    --swaxs-watch: #af330d;
+    --swaxs-chrome: #586170;
+    --swaxs-chrome-strong: #12161c;
+    --swaxs-status-running: #086e33;
+    --swaxs-status-stopped: #55606d;
+    --swaxs-status-warning: #7b5909;
+    --swaxs-status-error: #ba1f0e;
+  }
+}
+
+/* Option 2: resolve per theme automatically. */
+@supports (color: light-dark(#000, #fff)) {
+  :root {
+    --swaxs-calibration: light-dark(var(--swaxs-calibration-light), var(--swaxs-calibration-dark));
+    --swaxs-reduction: light-dark(var(--swaxs-reduction-light), var(--swaxs-reduction-dark));
+    --swaxs-visualisation: light-dark(var(--swaxs-visualisation-light), var(--swaxs-visualisation-dark));
+    --swaxs-subtraction: light-dark(var(--swaxs-subtraction-light), var(--swaxs-subtraction-dark));
+    --swaxs-quality: light-dark(var(--swaxs-quality-light), var(--swaxs-quality-dark));
+    --swaxs-analysis: light-dark(var(--swaxs-analysis-light), var(--swaxs-analysis-dark));
+    --swaxs-autofit: light-dark(var(--swaxs-autofit-light), var(--swaxs-autofit-dark));
+    --swaxs-synthesis: light-dark(var(--swaxs-synthesis-light), var(--swaxs-synthesis-dark));
+    --swaxs-guinier: light-dark(var(--swaxs-guinier-light), var(--swaxs-guinier-dark));
+    --swaxs-watch: light-dark(var(--swaxs-watch-light), var(--swaxs-watch-dark));
+    --swaxs-chrome: light-dark(var(--swaxs-chrome-light), var(--swaxs-chrome-dark));
+    --swaxs-chrome-strong: light-dark(var(--swaxs-chrome-strong-light), var(--swaxs-chrome-strong-dark));
+    --swaxs-status-running: light-dark(var(--swaxs-status-running-light), var(--swaxs-status-running-dark));
+    --swaxs-status-stopped: light-dark(var(--swaxs-status-stopped-light), var(--swaxs-status-stopped-dark));
+    --swaxs-status-warning: light-dark(var(--swaxs-status-warning-light), var(--swaxs-status-warning-dark));
+    --swaxs-status-error: light-dark(var(--swaxs-status-error-light), var(--swaxs-status-error-dark));
+  }
+}
+
+/* A dark-only surface must pin the scheme, or light-dark() follows the OS and
+ * hands a dark page the light values:
+ *     :root { color-scheme: dark; }
+ */
+/* Icons inherit colour, so a card needs only:
+ *   .card--reduction .card__icon   { color: var(--swaxs-reduction); }
+ *   .card--reduction .card__stripe { background: var(--swaxs-reduction); }
+ *
+ * Stroke scales with size: the set is drawn at 2px on a 24px canvas (1/12 of the
+ * icon size). At 16px use ~1.33, at 20px ~1.67, at 32px ~2.67 — or set
+ * vector-effect:non-scaling-stroke if you prefer a fixed rendered width.
+ */
+
+/* ── Shared inline icon ─────────────────────────────────────────────────────
+ * Every in-UI icon is a sprite symbol: <svg class="ico"><use href="#swaxs-ui-…"/></svg>
+ * It sizes to the surrounding text and takes its colour from `color`, so the
+ * same markup works in buttons, headings and pills, in both themes. Emoji are
+ * not used as icons anywhere: they render differently on every OS and do not
+ * follow the theme.
+ */
+.ico { width: 1em; height: 1em; display: inline-block; vertical-align: -0.14em;
+       flex: none; overflow: visible; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * ONE light/dark palette and ONE page chrome for every app (October 2026)
+ * ═══════════════════════════════════════════════════════════════════════════
+ * Every app used to own a :root palette, and they had drifted: different
+ * greys, a dark-only top bar in three apps, semantic text colours that were
+ * never redefined for dark mode. This block is the single source of truth.
+ *
+ * The selectors are deliberately one step more specific than an app's own
+ * (`html:root…` beats `:root…`), so these values win over any leftover app
+ * palette without every template having to be edited in lockstep. Change a
+ * colour HERE, run tools/build_icon_sprite.py, and every app follows.
+ *
+ * Theme is chosen by `data-theme` on <html>, set before first paint by
+ * templates/_theme_boot.html: the saved choice (localStorage `swaxs-theme`,
+ * shared by every app) wins, otherwise the OS preference.
+ */
+html:root:not([data-theme="dark"]) {
+  color-scheme: light;
+  --bg:#f5f7fa; --surface:#ffffff; --surface2:#f0f2f5;
+  --border:#e5e7eb; --border-strong:#c3c9d1;
+  --txt:#1f2937; --txt-strong:#111827; --muted:#4b5563; --faint:#6b7280; --disabled:#9ca3af;
+  --text:var(--txt); --text-strong:var(--txt-strong);
+  --accent:#B1040E; --accent-d:#8C1515; --accent-lt:#fee2e2; --accent-l:#fbe9ea; --accent-text:#B1040E;
+  --teal:#B83A4B; --teal-lt:#fee2e2;
+  --ok:#16a34a;   --ok-lt:#dcfce7;   --ok-text:#15803d;
+  --warn:#d97706; --warn-lt:#fef3c7; --warn-text:#b45309;
+  --err:#dc2626;  --err-lt:#fee2e2;  --err-text:#b91c1c;
+  --info:#1d4ed8; --info-lt:#dbeafe; --info-text:#1d4ed8;
+  --violet:#7c3aed; --violet-lt:#ede9fe; --violet-text:#6d28d9;
+  --blue:#1d4ed8; --green:#16a34a; --red:#dc2626; --yellow:#b45309;
+  --hint-info:#eff6ff; --hint-warn:#fffbeb; --hint-err:#fef2f2;
+  --panel2:var(--surface2);
+  --sidebar:#eef1f5; --sidebar-h:#e3e7ed; --sf:31,41,55;
+  --sidebar-active-bg:rgba(177,4,14,.10); --sidebar-active-fg:#8C1515;
+  --ai-bg:#f9fafb; --ai-border:#e5e7eb; --user-bg:#eff6ff; --user-border:#bfdbfe;
+  --shadow:0 4px 18px rgba(15,23,42,.10);
+}
+html:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg:#15161a; --surface:#1f2126; --surface2:#272a31;
+  --border:#343842; --border-strong:#4c515c;
+  --txt:#e7e9ee; --txt-strong:#f5f7fa; --muted:#a4abb6; --faint:#8a919c; --disabled:#5a606b;
+  --text:var(--txt); --text-strong:var(--txt-strong);
+  /* --accent is a FILL (white text on it 4.66:1); text in the accent colour uses
+     --accent-text, which a dark surface needs lighter (6.5:1). */
+  --accent:#cc4450; --accent-d:#b1040e; --accent-lt:#3a2023; --accent-l:#3a2023; --accent-text:#ff7b8a;
+  --teal:#d44a55; --teal-lt:#3a2023;
+  --ok:#4ade80;   --ok-lt:#16301f;   --ok-text:#6ee7a0;
+  --warn:#d8a657; --warn-lt:#33270f; --warn-text:#f0c46b;
+  --err:#f87171;  --err-lt:#371a1c;  --err-text:#fca5a5;
+  --info:#7da9d8; --info-lt:#13243b; --info-text:#93c5fd;
+  --violet:#a78bfa; --violet-lt:#241c3a; --violet-text:#c4b5fd;
+  --blue:#60a5fa; --green:#3fb950; --red:#f85149; --yellow:#d29922;
+  --hint-info:#13243b; --hint-warn:#33270f; --hint-err:#371a1c;
+  --panel2:var(--surface2);
+  --sidebar:#1f2126; --sidebar-h:#2a2d34; --sf:231,233,238;
+  --sidebar-active-bg:rgba(212,74,85,.22); --sidebar-active-fg:#f0a6ab;
+  --ai-bg:#23252b; --ai-border:#343842; --user-bg:#1c2a3f; --user-border:#2d456b;
+  --shadow:0 4px 22px rgba(0,0,0,.45);
+}
+html body { background:var(--bg); color:var(--txt); }
+
+/* ── page chrome: top bar, theme toggle, tab rows ─────────────────────────── */
+html body .topbar {
+  display:flex; align-items:center; flex-wrap:wrap; gap:12px 14px;
+  min-height:56px; height:auto; padding:8px 20px; flex-shrink:0;
+  background:var(--surface); color:var(--txt); border-bottom:1px solid var(--border);
+}
+html body .topbar h1 { font-size:20px; font-weight:700; margin:0; line-height:1.2;
+  color:var(--txt-strong); white-space:nowrap; }
+html body .topbar h1 span { color:var(--accent-text); font-weight:700; }
+html body .topbar .app-mark { width:26px; height:26px; flex-shrink:0; }
+html body .topbar a { color:var(--accent-text); text-decoration:none; }
+html body .topbar a:hover { text-decoration:underline; }
+html body .topbar .sub, html body .topbar .topbar-sub { font-size:14px; color:var(--muted); white-space:nowrap; }
+html body .topbar .proj { color:var(--muted); }
+html body .theme-toggle {
+  display:inline-flex; align-items:center; justify-content:center; width:34px; height:30px;
+  padding:0; border:1px solid var(--border-strong); border-radius:7px;
+  background:var(--surface); color:var(--txt); cursor:pointer; font-size:15px; line-height:1;
+}
+html body .theme-toggle:hover { background:var(--surface2); }
+html body .toptabbar, html body .cattabbar {
+  display:flex; align-items:center; gap:2px; padding:0 16px; flex-shrink:0;
+  background:var(--surface2); border-bottom:2px solid var(--border);
+}
+html body .toptab, html body .cattabbar .navtab {
+  display:inline-flex; align-items:center; gap:7px; padding:10px 16px; margin-bottom:-2px;
+  border:none; border-bottom:3px solid transparent; border-radius:0; background:transparent;
+  color:var(--muted); font-size:15px; font-weight:600; cursor:pointer; white-space:nowrap;
+}
+html body .toptabbar .toptab:hover, html body .cattabbar .navtab:hover { color:var(--txt); background:transparent; }
+html body .toptabbar .toptab.active, html body .cattabbar .navtab.active {
+  color:var(--accent-text); font-weight:700; border-bottom-color:var(--accent); background:transparent;
+}
+/* a status pill anywhere in the bar: neutral surface, theme text */
+html body .topbar .conn-pill {
+  display:inline-flex; align-items:center; gap:7px; padding:3px 11px; border-radius:999px;
+  background:var(--surface2); border:1px solid var(--border); color:var(--muted); font-size:13px; white-space:nowrap;
+}
+
+/* ── Left-column layout (reduction, calibration, watchdog, average, analysis,
+ *    background) ─────────────────────────────────────────────────────────────
+ * The operator's preferred shell for multi-section apps: a left column with the
+ * app's logo and name on top, its sections as a list, and connection status +
+ * Port · ← Hub at the bottom; a slim bar over the content for the project path
+ * and the theme switch; each section's task tabs inside the page. Scoped to
+ * these ids, so the top-bar apps (analyzer, reactor, quality, assistant) are
+ * untouched. Colours come from the themed --sidebar tokens above. */
+html body #app { display:flex; flex-direction:row; height:100vh; overflow:hidden; }
+html body #sidebar { width:236px; flex-shrink:0; display:flex; flex-direction:column; overflow-y:auto;
+  background:var(--sidebar); border-right:1px solid var(--border); }
+html body #logo { padding:18px 16px 14px; border-bottom:1px solid rgba(var(--sf),.10); }
+html body #logo-badge { font-size:12px; font-weight:700; letter-spacing:.14em; text-transform:uppercase;
+  color:rgba(var(--sf),.6); margin-bottom:6px; }
+html body #logo .app-lockup { display:flex; align-items:center; gap:10px; }
+html body #logo .app-mark { width:28px; height:28px; flex-shrink:0; }
+html body #logo-name { font-size:20px; font-weight:700; line-height:1.15; color:rgba(var(--sf),.95); }
+html body #logo-sub { font-size:14px; margin-top:4px; color:rgba(var(--sf),.6); }
+html body #sidebar .nav-section-label { padding:14px 16px 5px; font-size:13px; font-weight:700;
+  letter-spacing:.12em; text-transform:uppercase; color:rgba(var(--sf),.5); }
+html body #sidebar .nav-btn { display:flex; align-items:center; gap:10px; width:100%; margin:0;
+  padding:11px 16px; border:none; border-left:3px solid transparent; border-radius:0; background:transparent;
+  color:rgba(var(--sf),.80); font-size:16px; font-weight:500; text-align:left; cursor:pointer;
+  transition:background .15s,color .15s; }
+html body #sidebar .nav-btn:hover { background:var(--sidebar-h); color:var(--sidebar-active-fg); }
+html body #sidebar .nav-btn.active { background:var(--sidebar-active-bg); color:var(--sidebar-active-fg);
+  border-left-color:var(--accent); font-weight:700; }
+html body #sidebar .nav-icon { width:22px; display:inline-flex; justify-content:center; flex-shrink:0; }
+html body #sidebar .nav-hint { padding:8px 16px 4px; font-size:13px; line-height:1.5; color:rgba(var(--sf),.7); }
+html body #sidebar-foot { margin-top:auto; padding:12px 16px; font-size:13px; line-height:1.6;
+  color:rgba(var(--sf),.65); border-top:1px solid rgba(var(--sf),.10); }
+html body #sidebar-foot a { color:inherit; text-decoration:underline; }
+html body #sse-row { display:flex; align-items:center; gap:7px; margin-bottom:4px; }
+html body #sse-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; background:rgba(var(--sf),.3);
+  transition:background .3s,box-shadow .3s; }
+html body #sse-dot.live { background:var(--ok); box-shadow:0 0 6px var(--ok); }
+html body #main { flex:1; display:flex; flex-direction:column; overflow:hidden; min-width:0; }
+html body #topbar { display:flex; align-items:center; flex-wrap:wrap; gap:10px 14px; min-height:48px; height:auto;
+  padding:6px 22px; flex-shrink:0; background:var(--surface); border-bottom:1px solid var(--border); }
+html body #topbar-path, html body #topbar .proj { flex:1; min-width:0; font-family:var(--mono); font-size:14px;
+  color:var(--accent-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+html body #topbar .bar-title { font-weight:700; font-size:16px; color:var(--txt-strong); white-space:nowrap; }
+html body #topbar .bar-detail { font-size:14px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+/* ── Left-column apps share the SAME top bar as every other app ─────────────
+ * Operator's choice (October 2026): every app has the identical full-width
+ * header.topbar (logo + name, status, project path, theme switch, Port · ← Hub);
+ * the six multi-section apps add the left column of sections UNDER it. The page
+ * body is marked `swaxs-shell` so it stacks: top bar, then the column + content row. */
+html body.swaxs-shell { display:flex; flex-direction:column; height:100vh; overflow:hidden; margin:0; }
+html body.swaxs-shell > #app { flex:1; min-height:0; height:auto; }
+html body.swaxs-shell #sidebar { padding-top:6px; }
+html body .topbar .spacer { flex:1; }
+/* project folder sits on the RIGHT, just before the theme switch (operator, Oct 2026):
+   margin-left:auto pushes it and everything after it to the right edge. */
+html body .topbar #topbar-path, html body .topbar .proj { flex:0 1 auto; margin-left:auto; max-width:42%;
+  min-width:0; font-family:var(--mono); font-size:14px; color:var(--muted);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+html body .topbar > .project-pill { margin-left:auto; }
+html body .topbar #sse-row { margin:0; }
+html body .topbar #sb-status { margin:0; padding:3px 11px; border-radius:999px; font-size:13px;
+  line-height:1.4; white-space:nowrap; word-break:normal; border:1px solid var(--border); }
+html body .topbar .bar-detail { font-size:14px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:30ch; }
+
+/* ── One text size and one heading size for every app (operator: 18px) ─────
+ * html:root outranks each app's own html{font-size}, and body is reset to 1rem
+ * so apps that pinned body to 16px follow too. All rem-based sizes scale with it. */
+html:root { font-size:18px; }
+html body { font-size:1rem; }
+html body .card-hd, html body .section-title { font-size:15px; }
+/* One card heading style everywhere: uppercase, accent text, a rule underneath.
+ * Covers .card-hd and analysis' bare .card > h3 so no app drifts on its own. */
+html body .card-hd, html body .card > h3 {
+  font-size:15px; font-weight:700; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--accent-text); margin:0 0 14px; padding-bottom:10px;
+  border-bottom:1px solid var(--border); }
+/* project path in the top bar: a folder icon in front makes it read as a location */
+html body .topbar .proj:not(:empty)::before, html body .topbar #topbar-path:not(:empty)::before,
+html body .topbar .pill.path::before {
+  content:''; display:inline-block; width:14px; height:14px; margin-right:6px; vertical-align:-2px;
+  background:currentColor; opacity:.75; -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 width=%2224%22 height=%2224%22 fill=%22none%22 stroke=%22black%22 stroke-width=%222.0%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E %3Cpath d=%22M3.2 18.4V6.2A1.8 1.8 0 0 1 5 4.4h4.3l2.1 2.6h7.6a1.8 1.8 0 0 1 1.8 1.8v9.6a1.8 1.8 0 0 1-1.8 1.8H5a1.8 1.8 0 0 1-1.8-1.8z%22/%3E %3C/svg%3E ") center/contain no-repeat; mask:url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 width=%2224%22 height=%2224%22 fill=%22none%22 stroke=%22black%22 stroke-width=%222.0%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E %3Cpath d=%22M3.2 18.4V6.2A1.8 1.8 0 0 1 5 4.4h4.3l2.1 2.6h7.6a1.8 1.8 0 0 1 1.8 1.8v9.6a1.8 1.8 0 0 1-1.8 1.8H5a1.8 1.8 0 0 1-1.8-1.8z%22/%3E %3C/svg%3E ") center/contain no-repeat; }
+html body .topbar > .topbar-sub { padding-left:12px; border-left:1px solid var(--border); }
+
+/* ── Uniform top row (October 2026) ──────────────────────────────────────────
+ * Same order in every app:  logo + name │ status │ project folder │ app extras │
+ * theme │ Port · ← Hub.  The project folder takes the free width, so the extras
+ * always sit in one fixed place, just left of the theme switch. */
+html body .topbar .bar-status { display:inline-flex; align-items:center; gap:7px; padding:3px 11px;
+  border-radius:999px; border:1px solid var(--border); background:var(--surface2);
+  color:var(--muted); font-size:13px; white-space:nowrap; }
+html body .topbar .bar-status .dot { width:8px; height:8px; border-radius:50%; background:var(--faint); }
+html body .topbar .bar-status.ok .dot { background:var(--ok); box-shadow:0 0 5px var(--ok); }
+html body .topbar .bar-status.down .dot { background:var(--err); }
+html body .topbar .bar-status.down { color:var(--err-text); }
+html body .topbar .bar-extras { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+html body .topbar .bar-operator { display:inline-flex; align-items:center; gap:7px; font-size:14px;
+  color:var(--muted); white-space:nowrap; }
+html body .topbar .bar-operator input { width:150px; padding:5px 9px; font-size:14px; border-radius:6px;
+  border:1px solid var(--border-strong); background:var(--surface); color:var(--txt); }
+
+/* ── Every status chip in the top bar has ONE shape (operator, Oct 2026) ─────
+ * Standard status pill, reduction/calibration connection, watchdog status,
+ * analyzer pills, reactor live/state pills, assistant API badge: same height,
+ * padding, radius, border and type size. Each keeps its own state colours. */
+html body .topbar > .bar-status, html body .topbar > .conn-pill, html body .topbar > #sb-status,
+html body .topbar > .pill, html body .topbar > .live-pill, html body .topbar > .badge,
+html body .topbar .bar-extras > .pill, html body .topbar .bar-extras > .live-pill,
+html body .topbar .bar-extras > .state-pill {
+  display:inline-flex; align-items:center; gap:7px; height:28px; padding:0 12px; margin:0;
+  border-radius:999px; border:1px solid var(--border); font-size:13px; font-weight:600;
+  line-height:1; white-space:nowrap; box-sizing:border-box;
+}
+/* Label beside input forms (.fg in reduction, calibration) stack the label
+ * above the input on a narrow window, so inputs are never squeezed. */
+/* Folder and file pickers put the label on the SAME line as the path and its
+ * Browse… button, as in reduction: label | path | Browse…. Average and
+ * background stack their other labels above the input, so this is scoped to
+ * the rows (background .field) or forms (average .fg) that hold a picker. */
+html body .fg:has(button[onclick*="Browser("]),
+html body .field:has(> .browse-row) {
+  display:grid; grid-template-columns:190px minmax(0,1fr);
+  gap:8px 16px; align-items:start; }
+html body .fg:has(button[onclick*="Browser("]) > label,
+html body .field:has(> .browse-row) > label {
+  text-align:right; padding-top:8px; margin-top:0; line-height:1.3; }
+html body .field:has(> .browse-row) > :not(label) { grid-column:2; }
+@media (max-width: 1100px) {
+  html body .fg, html body .fg:has(button[onclick*="Browser("]),
+  html body .field:has(> .browse-row) { grid-template-columns: 1fr; gap: 4px 0; }
+  html body .fg:has(button[onclick*="Browser("]) > label,
+  html body .field:has(> .browse-row) > label { text-align:left; padding-top:0; }
+  html body .field:has(> .browse-row) > :not(label) { grid-column:1; }
+}
+
+/* ── Shared folder picker (swaxsBrowse in _icon_helpers.html) ─────────────── */
+html body .swx-pick-bd { position:fixed; inset:0; z-index:10000; background:rgba(0,0,0,.45);
+  display:flex; align-items:center; justify-content:center; }
+html body .swx-pick { width:min(640px,92vw); max-height:80vh; display:flex; flex-direction:column;
+  background:var(--surface); color:var(--txt); border:1px solid var(--border);
+  border-radius:10px; box-shadow:0 12px 40px rgba(0,0,0,.35); overflow:hidden; }
+html body .swx-pick-hd { display:flex; align-items:center; justify-content:space-between;
+  padding:12px 16px; border-bottom:1px solid var(--border); }
+html body .swx-pick-x { background:none; border:0; color:var(--muted); cursor:pointer; padding:4px; }
+html body .swx-pick-path { display:flex; gap:8px; padding:10px 16px; border-bottom:1px solid var(--border); }
+html body .swx-pick-path .swx-cur { flex:1; min-width:0; font-family:var(--mono); font-size:14px; }
+html body .swx-pick-list { flex:1; overflow:auto; padding:6px 8px; min-height:160px; }
+html body .swx-dir { display:flex; align-items:center; gap:8px; width:100%; text-align:left;
+  background:none; border:0; border-radius:6px; padding:7px 10px; color:var(--txt);
+  font:inherit; cursor:pointer; }
+html body .swx-dir:hover, html body .swx-dir:focus-visible { background:var(--surface2); outline:none; }
+html body .swx-empty { color:var(--muted); padding:10px; }
+html body .swx-pick-ft { display:flex; justify-content:flex-end; gap:8px; padding:10px 16px;
+  border-top:1px solid var(--border); }
+
+/* ── One path row for apps without a form grid: label | path | Browse… [Set] ── */
+html body .path-row { display:grid; grid-template-columns:minmax(110px,max-content) minmax(0,1fr);
+  gap:6px 14px; align-items:center; }
+html body .path-row > label { font-size:15px; font-weight:600; color:var(--muted);
+  white-space:nowrap; margin:0; line-height:1.3; text-transform:none; letter-spacing:0; }
+html body .path-row input, html body .swx-pick .swx-cur {
+  padding:7px 10px; font-size:.9375rem; color:var(--txt); background:var(--surface2);
+  border:1px solid var(--border-strong); border-radius:6px; }
+html body .path-row input:focus, html body .swx-pick .swx-cur:focus {
+  outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(140,21,21,.15); }
+html body .path-row .browse-row { display:flex; gap:6px; align-items:center; min-width:0; }
+html body .path-row .browse-row input { flex:1; min-width:0; }
+html body .path-row > .path-note { grid-column:2; }
+@media (max-width: 700px) {
+  html body .path-row { grid-template-columns:1fr; }
+  html body .path-row > .path-note { grid-column:1; }
+}
+/* Button fallbacks for apps that never defined these variants (zero
+ * specificity via :where, so an app's own .btn-ghost etc. always wins). */
+:where(.btn.btn-ghost) { background:transparent; border:1px solid var(--border-strong); color:var(--txt); }
+:where(.btn.btn-ghost):hover { background:var(--surface2); }
+:where(.btn.btn-sm) { padding:4px 10px; font-size:14px; }
+:where(.btn.btn-primary) { background:var(--accent); border:1px solid var(--accent); color:#fff; }
+/* the picker's own buttons look the same in every app */
+html body .swx-pick .btn { display:inline-flex; align-items:center; gap:6px; border-radius:6px;
+  padding:6px 12px; font-family:inherit; font-weight:600; font-size:14px; line-height:1.2; cursor:pointer; white-space:nowrap; }
+html body .swx-pick .btn-ghost { background:transparent; border:1px solid var(--border-strong); color:var(--txt); }
+html body .swx-pick .btn-ghost:hover { background:var(--surface2); }
+html body .swx-pick .btn-ghost:disabled { opacity:.45; cursor:default; }
+html body .swx-pick .btn-primary { background:var(--accent); border:1px solid var(--accent); color:#fff; }
+html body .path-row .btn { white-space:nowrap; flex:none; }
+</style>
+<script>
+/* Platform theme boot (generated by tools/build_icon_sprite.py — do not edit). */
+(function(){var d;try{
+/* Each app runs on its own port, and the browser keeps saved settings per port,
+   so a theme chosen in one app does not exist in another. Links between apps
+   carry ?theme=…; adopt it here so moving between apps keeps the theme. */
+var q=new URLSearchParams(location.search).get('theme');
+if(q==='dark'||q==='light'){localStorage.setItem('swaxs-theme',q);}
+var s=localStorage.getItem('swaxs-theme');
+d=s?s==='dark':!!(window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches);}catch(e){d=true;}
+document.documentElement.setAttribute('data-theme',d?'dark':'light');})();
+</script>
+
+<style>
+/* Font scale bumped up across the app; sizes are rem-based off html. */
+html{font-size:18px}
+:root{
+  --fs-xs:.82rem;--fs-sm:.94rem;--fs-md:1.05rem;--fs-lg:1.45rem;--radius:9px;
+  --mono:'JetBrains Mono','Fira Code','Cascadia Code',ui-monospace,Menlo,Consolas,monospace;--font:'Inter','Segoe UI',system-ui,-apple-system,sans-serif;
+  /* light theme (default) */
+  --bg:#f4f5f7;--surface:#ffffff;--surface2:#eef0f3;--border:#d8dce2;--border-strong:#b9c0ca;
+  --text:#1c2128;--muted:#5c6470;--accent:#B83A4B;--accent-d:#8c1515;
+  --ok:#15803d;--warn:#b45309;--err:#b3261e;--info:#1d4ed8;
+}
+:root[data-theme="dark"]{
+  --bg:#15161a;--surface:#1f2126;--surface2:#272a31;--border:#343842;--border-strong:#4c515c;
+  --text:#e7e9ee;--muted:#a4abb6;--accent:#d44a55;--accent-d:#b1040e;
+  --ok:#4ade80;--warn:#d8a657;--err:#f87171;--info:#7da9d8;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:var(--font);background:var(--bg);color:var(--text);font-size:1.02rem}
+.topbar{display:flex;align-items:center;gap:12px;padding:10px 18px;background:var(--surface);border-bottom:1px solid var(--border)}
+.topbar h1{font-size:var(--fs-lg);font-weight:700;margin:0}
+.topbar h1 span{color:var(--accent);font-weight:500}
+.topbar .sub{font-size:var(--fs-xs);color:var(--muted)}
+.topbar a{color:var(--accent);text-decoration:none}
+.proj{font-size:var(--fs-xs);color:var(--muted);font-family:var(--mono);max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.state-pill{padding:4px 14px;border-radius:999px;font-size:var(--fs-sm);font-weight:800;text-transform:uppercase;letter-spacing:.04em;background:var(--surface2);color:var(--muted)}
+.state-idle{background:var(--surface2);color:var(--muted)}
+.state-arming{background:var(--warn-lt);color:var(--warn)}
+.state-running{background:var(--ok-lt);color:var(--ok)}
+.state-flushing{background:var(--info-lt);color:var(--info)}
+.state-ready{background:var(--info-lt);color:var(--info-text)}
+.state-estop{background:var(--err-lt);color:var(--err)}
+.wrap{padding:16px 32px;display:grid;grid-template-columns:500px 1fr;gap:20px;align-items:start}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;margin-bottom:14px}
+.card-hd{font-size:var(--fs-sm);font-weight:700;margin-bottom:10px}
+label{font-size:var(--fs-xs);color:var(--muted);font-weight:600;display:block;margin-bottom:3px}
+input{width:100%;background:var(--surface2);border:1px solid var(--border-strong);border-radius:6px;color:var(--text);padding:6px 9px;font-size:var(--fs-sm)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.btn{padding:7px 12px;border:none;border-radius:var(--radius);font-size:var(--fs-sm);font-weight:600;cursor:pointer;color:#fff;background:var(--surface2)}
+.btn-accent{background:var(--accent)} .btn-ok{background:#1f7a44} .btn-warn{background:#a4691a}
+.btn-err{background:var(--accent-d)} .btn-ghost{background:var(--surface2);border:1px solid var(--border-strong);color:var(--text)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.pump{margin-bottom:10px}
+.pump-top{display:flex;justify-content:space-between;font-size:var(--fs-sm)}
+.pump-name{font-family:var(--mono)}
+.pump-val{color:var(--muted)}
+.bar{height:9px;background:var(--surface2);border-radius:6px;overflow:hidden;margin-top:4px}
+.bar > i{display:block;height:100%;background:var(--accent);width:0;transition:width .3s}
+.bar.flush > i{background:var(--info)}
+.bar.press > i{background:var(--info)}
+.bar.press.hot > i{background:var(--err)}
+.temp-big{font-size:1.8rem;font-weight:800}
+.temp-sub{font-size:var(--fs-xs);color:var(--muted)}
+.kv{display:flex;justify-content:space-between;font-size:var(--fs-sm);padding:3px 0;border-bottom:1px solid var(--border)}
+.kv b{font-weight:700}
+.chips{display:flex;gap:5px;flex-wrap:wrap;margin-top:4px}
+.chip{font-size:var(--fs-xs);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:2px 8px;font-family:var(--mono)}
+.log{max-height:300px;overflow-y:auto;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:8px 11px;font-family:var(--mono);font-size:var(--fs-xs);line-height:1.55}
+.toggle{display:flex;align-items:center;gap:8px;font-size:var(--fs-sm);cursor:pointer}
+.theme-toggle{width:34px;height:30px;border:1px solid var(--border-strong);border-radius:7px;background:transparent;color:var(--txt);cursor:pointer;font-size:1rem}
+.theme-toggle:hover{background:var(--surface2)}
+/* Simulation | Hardware sits on the right of the bar, next to the folder, and is
+   large: it is the most consequential switch in the app. The extras slot grows
+   so the toggle can be pushed right while staying in that one slot. */
+html body .topbar .bar-extras{flex:1 1 auto;display:flex;align-items:center;gap:8px;min-width:0}
+html body .topbar .bar-extras .bk-toggle{margin-left:auto}
+html body .topbar .bar-extras ~ .proj{margin-left:12px;flex:0 1 320px;min-width:60px;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bk-toggle{display:inline-flex;border:2px solid var(--border-strong);border-radius:999px;overflow:hidden;vertical-align:middle;flex:none}
+.bk-toggle button{border:none;background:transparent;color:var(--muted);font:inherit;font-size:16px;font-weight:600;padding:7px 18px;cursor:pointer;line-height:1.2}
+.bk-toggle button:not(.on):not(:disabled):hover{background:var(--surface2);color:var(--txt)}
+.bk-toggle button.on{color:#fff;font-weight:700}
+.bk-toggle button.on.mock{background:#2f6f4f}
+.bk-toggle button.on.real{background:#b1040e}
+.bk-toggle button:disabled{cursor:not-allowed;opacity:.55}
+.lim-row{display:grid;grid-template-columns:1.2fr 1fr 1fr 1fr;gap:6px;align-items:center;margin-bottom:6px}
+.lim-row .pn{font-family:var(--mono);font-size:var(--fs-xs)}
+.lim-row input{padding:5px 7px;font-size:var(--fs-xs)}
+.muted{color:var(--muted);font-size:var(--fs-xs)}
+.estop-btn{width:100%;margin-top:8px;font-size:var(--fs-md);padding:10px}
+/* arming / pump-start panel */
+.arm-panel{background:var(--surface2);border:1px solid var(--border);border-left:4px solid var(--accent);
+  border-radius:10px;padding:10px 12px;margin-bottom:8px}
+.arm-head{display:flex;align-items:center;gap:8px}
+.arm-badge{background:var(--accent);color:#fff;font-weight:700;font-size:var(--fs-xs);
+  padding:2px 9px;border-radius:999px;letter-spacing:.04em;white-space:nowrap}
+.arm-text{font-size:var(--fs-sm);font-weight:600}
+.arm-bar{height:9px;border-radius:999px;background:rgba(127,127,127,.22);overflow:hidden;margin-top:9px}
+.arm-bar>i{display:block;height:100%;width:0;border-radius:999px;
+  background:linear-gradient(90deg,var(--accent),#ffb74d);transition:width .5s ease}
+.arm-bar.indeterminate>i{width:38%;animation:armslide 1.25s ease-in-out infinite}
+@keyframes armslide{0%{transform:translateX(-110%)}100%{transform:translateX(320%)}}
+.arm-sub{display:flex;justify-content:space-between;gap:10px;font-size:var(--fs-xs);
+  color:var(--muted);margin-top:6px}
+.btn-startnow{animation:startpulse 1.5s ease-in-out infinite}
+@keyframes startpulse{0%,100%{box-shadow:0 0 0 0 rgba(230,81,0,.55)}50%{box-shadow:0 0 0 7px rgba(230,81,0,0)}}
+/* arm-mode option rows: keep radios natural size, wrap gracefully in the column */
+.arm-opt{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:5px 0}
+.arm-opt .toggle{display:inline-flex;margin:0}
+.arm-opt input[type=radio]{width:auto;flex:0 0 auto;margin:0;accent-color:var(--accent)}
+.arm-opt input[type=number]{width:72px}
+.arm-unit{font-size:var(--fs-xs);color:var(--muted)}
+.tstep{font-size:var(--fs-xs);font-weight:700;color:var(--accent);letter-spacing:.02em;margin-bottom:6px}
+/* Restart notice — two visually distinct tiers so a genuine loss stays loud */
+.restart-banner{display:none;padding:10px 16px;border-bottom:1px solid var(--border);line-height:1.4}
+.restart-banner.show{display:block}
+.restart-banner.restored{background:rgba(56,132,255,.12);color:var(--accent);border-bottom-color:var(--accent)}
+.restart-banner.lost{background:rgba(220,60,60,.15);color:var(--err);font-weight:700;border-bottom:2px solid var(--err)}
+.restart-banner .rb-x{float:right;cursor:pointer;opacity:.6;font-weight:700;margin-left:12px}
+
+/* ── App mark ─────────────────────────────────────────────────────────────
+   This app's own icon beside its wordmark — the SAME artwork as its hub card
+   and its browser tab, so the three agree. Colour comes from the accent token
+   in swaxs-tokens.css; the art is drawn with stroke="currentColor", so the
+   `color` below is the only thing that paints it. Generated partial: see
+   tools/build_icon_sprite.py. */
+.app-mark { width:26px; height:26px; flex-shrink:0; color:var(--swaxs-synthesis); }
+.app-lockup { display:flex; align-items:center; gap:10px; min-width:0 }
+
+/* ── Live-ness and fault surfacing (audit R5, R6, R17) ───────────────────── */
+.live-pill{padding:3px 10px;border-radius:999px;font-size:var(--fs-xs);font-weight:700;
+  letter-spacing:.03em;background:var(--ok-lt);color:var(--ok);white-space:nowrap}
+.live-pill.stale{background:var(--warn-lt);color:var(--warn)}
+.live-pill.down{background:var(--err-lt);color:var(--err)}
+.live-pill.sup-bad{background:var(--err);color:#fff}
+
+/* Loudest element on the page. A pump that would not idle is not a footnote. */
+.fault-banner{display:none;padding:14px 18px;line-height:1.45;
+  background:var(--err);color:#fff;font-weight:700;font-size:var(--fs-md);
+  border-bottom:3px solid #000}
+.fault-banner.show{display:block}
+.fault-banner .rb-x{float:right;cursor:pointer;opacity:.85;margin-left:12px}
+
+/* A temperature that is NOT a live measurement must not read like one. */
+.t-src{font-size:var(--fs-xs);font-weight:700;padding:1px 8px;border-radius:999px;
+  margin-left:8px;vertical-align:middle;white-space:nowrap}
+.t-src.live{background:var(--ok-lt);color:var(--ok)}
+.t-src.warn{background:var(--warn-lt);color:var(--warn)}
+.t-src.bad{background:var(--err-lt);color:var(--err)}
+
+/* ── Layout (October 2026): left column = synthesis route + pump controls; tabs
+   Hardware test · Autonomous setup · Live plots; Activity log docked below. ── */
+/* One type scale with the other apps (background, reduction, average):
+   the reactor page carried an older, larger scale. Same token names, platform values. */
+:root{--fs-xs:.75rem;--fs-sm:.8125rem;--fs-md:.875rem;--fs-lg:1.125rem;--fs-form:.9375rem}
+body{font-size:1rem}
+input,select{font-size:var(--fs-form)}
+.btn{font-size:var(--fs-md)}
+.muted,.hint,.temp-sub,.arm-sub,.arm-unit{font-size:var(--fs-sm)}
+.kv,.arm-text,.toggle,.pump-top{font-size:var(--fs-md)}
+.tstep{font-size:var(--fs-sm)}
+.lim-row .pn,#tareRows span{font-size:var(--fs-sm)!important;font-family:var(--mono)}
+.lim-row input{font-size:var(--fs-form)}
+#flowLegend>span,#pressLegend>span,#blLegend>span{font-size:var(--fs-xs)!important}
+.log{font-size:var(--fs-xs)}
+.btn.btn-sm,#tareRows .btn,.btn[style*="font-size"]{font-size:var(--fs-sm)!important}
+.muted[style*="font-size"]{font-size:var(--fs-sm)!important}
+html body.swaxs-shell{display:flex;flex-direction:column;height:100vh;overflow:hidden;margin:0}
+#sidebar .nav-btn.soon{opacity:.7}
+#sidebar .nav-btn.soon::after{content:"later";margin-left:auto;font-size:11px;padding:1px 7px;border-radius:999px;border:1px solid currentColor;opacity:.8}
+#sidebar-controls{margin-top:auto;padding:12px 16px;border-top:1px solid rgba(var(--sf),.12)}
+#sidebar-controls .estop-btn{width:100%;margin:0;font-size:var(--fs-md);padding:11px}
+#sidebar .side-ctl{display:flex;flex-direction:column;gap:6px;padding:4px 14px 10px}
+#sidebar .side-ctl .btn{width:100%;justify-content:center;text-align:center;padding:8px 10px;font-size:var(--fs-md);display:inline-flex;align-items:center;gap:6px}
+#sidebar .side-ctl .arm-panel{margin:0 0 4px;padding:8px 9px}
+#sidebar .side-ctl .arm-head{flex-wrap:wrap}
+#sidebar .side-ctl .arm-sub{flex-direction:column;gap:2px}
+#sidebar .nav-hint{margin-bottom:4px}
+#sidebar-controls .nav-section-label{padding:0 0 6px}
+#sidebar-controls .side-ctl{padding:0 0 10px}
+.route{display:flex;flex-direction:column;min-height:0;flex:1}
+.pages{flex:1;overflow:auto;padding:18px 22px}
+.page{display:none}.page.active{display:block}
+.placeholder-card{border-style:dashed}
+/* status chips: same geometry as every other app's .bar-status (dot + text) */
+html body .topbar .live-pill:not(.sup-bad), html body .topbar .state-pill{display:inline-flex;align-items:center;gap:7px;
+  padding:3px 11px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);
+  color:var(--muted);font-size:13px;font-weight:600;letter-spacing:0;white-space:nowrap}
+html body .topbar .live-pill:not(.sup-bad)::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 5px var(--ok)}
+html body .topbar .live-pill.stale::before{background:var(--warn);box-shadow:none}
+html body .topbar .live-pill.down::before{background:var(--err);box-shadow:none}
+html body .topbar .live-pill:not(.stale):not(.down):not(.sup-bad){color:var(--txt)}
+html body .topbar .state-pill{text-transform:none;font-size:13px}
+html body .topbar .state-pill.state-running,html body .topbar .state-pill.state-arming,
+html body .topbar .state-pill.state-flushing,html body .topbar .state-pill.state-estop{border-color:currentColor}
+/* form labels and card spacing as in the other left column apps */
+#main label{font-size:var(--fs-form,.9375rem);font-weight:600;color:var(--muted)}
+#main label.toggle{color:var(--txt)}
+#main .card{padding:16px 18px;margin-bottom:12px}
+.steps-hint{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;color:var(--muted);font-size:var(--fs-sm);margin-bottom:12px}
+#page-auto .grid2,#page-auto .grid3{gap:10px 16px}
+#page-auto .tstep{color:var(--txt);font-size:var(--fs-md)}
+#condResolved,#runningNow{overflow-wrap:anywhere}
+.chk-table{width:100%;border-collapse:collapse;font-size:var(--fs-md)}
+.chk-table td{padding:6px 6px;border-bottom:1px solid var(--border);vertical-align:top}
+.chk-table td.mk{width:26px;font-weight:700}
+.chk-table td.mk.ok{color:var(--ok)} .chk-table td.mk.bad{color:var(--err)}
+.chk-table td.val{color:var(--muted);font-family:var(--mono);font-size:var(--fs-sm)}
+.chk-table td.hint{color:var(--err);font-size:var(--fs-sm)}
+/* pump tables: keep each pump's name next to its own controls on wide screens */
+#tareRows>div{justify-content:flex-start;max-width:760px}
+#tareRows>div>span{flex:0 0 240px!important}
+.lim-row{max-width:760px;grid-template-columns:240px 1fr 1fr 1fr}
+/* Autonomous setup forms: label and box on one line, as in the other apps */
+#page-auto .grid2,#page-auto .grid3{display:block}
+#page-auto .grid2>div,#page-auto .grid3>div,#page-auto .field-row{display:grid;
+  grid-template-columns:190px minmax(0,1fr);gap:0 14px;align-items:center;margin:0 0 8px}
+#page-auto .form2{display:grid;grid-template-columns:1fr 1fr;gap:0 28px;align-items:start}
+#page-auto .form2>.grid2,#page-auto .form2>.grid3{display:contents}
+#page-auto .form2>.span2{grid-column:1/-1}
+/* Timing pairs: Run duration | Flush pump, then Flush rate | Flush duration */
+#page-auto .form2 div:has(>#run_duration){order:1}
+#page-auto .form2 div:has(>#flush_pump){order:2}
+#page-auto .form2 div:has(>#flush_rate){order:3}
+#page-auto .form2 div:has(>#flush_duration){order:4}
+@media (max-width:1100px){ #page-auto .form2{grid-template-columns:1fr}}
+#page-auto .grid2>div>label,#page-auto .grid3>div>label,#page-auto .field-row>label{text-align:right;margin:0;line-height:1.3}
+#page-auto .field-row select,#page-auto .field-row input{width:100%!important}
+select{background:var(--surface2);border:1px solid var(--border-strong);border-radius:6px;color:var(--text);padding:6px 9px}
+@media (max-width:760px){ #page-auto .grid2>div,#page-auto .grid3>div,#page-auto .field-row{grid-template-columns:1fr}
+  #page-auto .grid2>div>label,#page-auto .grid3>div>label,#page-auto .field-row>label{text-align:left}}
+.pages{overflow-x:hidden}
+/* Activity log: docked under the tabs, visible on every tab */
+.log-dock{flex:none;border-top:1px solid var(--border);background:var(--surface);padding:0 22px 10px}
+.log-dock .card{border:0;margin:0;padding:8px 0 0;background:transparent}
+.log-dock .card-hd{margin-bottom:6px;padding-bottom:6px}
+.log-dock .log{height:150px;max-height:150px}</style>
+</head>
+<body class="swaxs-shell">
+<div style="background:#1d4ed8;color:#fff;font-size:13px;text-align:center;padding:3px 8px;flex:none">Mockup · simulated data, no hardware · real page and reactor/config.yml settings · clock ×20</div>
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+  <!-- Generated by tools/build_icon_sprite.py from
+       assets/icons/swaxs-icons-svg/. Do not edit by hand: edit the
+       source icon and re-run the script. -->
+  <symbol id="swaxs-analysis" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4.8 3.4v16.4h16.4" stroke-width="1.5" opacity="0.55" />
+  <path d="M6.4 6 20.4 15.6" />
+  <circle cx="8.2" cy="7.3" r="1.35" fill="currentColor" stroke="none" />
+  <circle cx="12" cy="9.9" r="1.35" fill="currentColor" stroke="none" />
+  <circle cx="15.8" cy="12.5" r="1.35" fill="currentColor" stroke="none" />
+  <circle cx="19.6" cy="15.1" r="1.35" fill="currentColor" stroke="none" />
+  </symbol>
+  <symbol id="swaxs-autofit" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2.8 4.4L4.4 4.6L5.9 5.3L7.4 6.4L8.7 7.9L9.9 9.6L10.9 11.4L13.3 17.8L14.0 18.9L14.5 18.9L16.3 17.4L17.5 17.0L18.8 17.3L21.2 18.7" />
+  <circle cx="3.9" cy="3.5" r="1.25" fill="currentColor" stroke="none" />
+  <circle cx="6.5" cy="4.1" r="1.25" fill="currentColor" stroke="none" />
+  <circle cx="9.0" cy="8.0" r="1.25" fill="currentColor" stroke="none" />
+  <circle cx="11.6" cy="13.7" r="1.25" fill="currentColor" stroke="none" />
+  <circle cx="14.4" cy="20.4" r="1.25" fill="currentColor" stroke="none" />
+  <circle cx="17.3" cy="17.2" r="1.25" fill="currentColor" stroke="none" />
+  <circle cx="20.1" cy="17.4" r="1.25" fill="currentColor" stroke="none" />
+  </symbol>
+  <symbol id="swaxs-calibration" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="5.2" />
+  <circle cx="12" cy="12" r="9.0" stroke-width="1.5" opacity="0.55" stroke-dasharray="10 3.6" stroke-dashoffset="5" />
+  <circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none" />
+  </symbol>
+  <symbol id="swaxs-guinier-ai" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3.4" y="4.2" width="17.2" height="11.6" rx="2.8" />
+  <path d="M8.8 15.8 8 20.6l4.6-4.8" />
+  <path d="M6.4 7.2L7.8 7.3L9.2 7.6L10.5 8.1L11.7 8.7L12.6 9.4L13.4 10.3L14.0 11.2L14.8 12.8" stroke-width="1.5" />
+  <path d="M17.4 6.3c.28 1.5.83 2.05 2.29 2.33-1.46.28-2.01.83-2.29 2.33-.28-1.5-.83-2.05-2.29-2.33 1.46-.28 2.01-.83 2.29-2.33z" fill="currentColor" stroke-width=".9" />
+  </symbol>
+  <symbol id="swaxs-quality" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2.6 4.2L3.3 4.3L3.9 4.5L4.5 5.0L5.1 5.5L6.0 6.9L7.0 9.4L7.3 9.8L7.6 9.8L8.3 9.1L8.8 9.0L9.3 9.2L10.5 9.7L11.2 9.8" stroke-width="1.5" />
+  <path d="M14.6 6.4 16.4 8.2l3.6-4" />
+  <path d="m2.6 17.6 1.9-2.8 1.7 3.4 1.9-3.2 1.9 2.6" stroke-width="1.5" />
+  <path d="m15.2 14.8 4.6 4.6M19.8 14.8l-4.6 4.6" />
+  </symbol>
+  <symbol id="swaxs-reduction" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M5.70 7.58A5.4 5.4 0 0 1 5.70 16.42" stroke-width="2.0" />
+  <path d="M8.89 5.01A9.4 9.4 0 0 1 8.89 18.99" stroke-width="1.5" opacity="0.55" />
+  <circle cx="2.6" cy="12" r="1" fill="currentColor" stroke="none" />
+  <path d="M13.0 4.6L13.7 4.8L14.4 5.5L15.1 6.6L15.8 8.1L16.7 11.7L17.9 18.1L18.2 19.3L18.4 19.4L18.5 19.3L19.3 17.9L19.6 17.6L19.8 17.5L20.1 17.6L20.5 17.8L21.4 18.9" />
+  </symbol>
+  <symbol id="swaxs-subtraction" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2.8 3.4L4.3 3.6L5.8 4.2L7.2 5.1L8.5 6.5L9.5 7.9L10.4 9.5L12.5 14.8L13.0 15.5L13.4 15.5L15.0 13.9L16.0 13.5L17.3 13.8L19.8 15.4L20.4 15.6L21.2 15.5" />
+  <path d="M3 15.8c5.2.5 9.4 2.2 18 3.8" stroke-width="1.5" opacity="0.55" stroke-dasharray="2.6 2.4" />
+  <path d="M16.4 4.6h4.6" />
+  </symbol>
+  <symbol id="swaxs-synthesis" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3.2 5.4h2.8M3.2 9.6h2.8M3.2 13.8h2.8M3.2 18h2.8" stroke-width="1.5" opacity="0.55" />
+  <path d="M6 5.4v12.6" />
+  <path d="M6 11.7h13.4" stroke-width="1.5" opacity="0.55" />
+  <path d="m18.4 9.1 2.6 2.6-2.6 2.6" />
+  <circle cx="10.6" cy="11.7" r="1.5" fill="currentColor" stroke="none" />
+  <circle cx="15.4" cy="11.7" r="1.5" fill="currentColor" stroke="none" />
+  </symbol>
+  <symbol id="swaxs-ui-ai" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M11 3.4l1.9 5.2 5.2 1.9-5.2 1.9L11 17.6l-1.9-5.2-5.2-1.9 5.2-1.9z" />
+  <path d="M18.6 15.4v4.6M16.3 17.7h4.6" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-bars" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3.6 20.4h16.8" />
+  <path d="M6.2 20.4v-6M10.4 20.4V7.6M14.6 20.4v-9M18.8 20.4V4.6" />
+  </symbol>
+  <symbol id="swaxs-ui-beam" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2.8 12h8" />
+  <path d="M12 12l8.4-5.6M12 12h8.4M12 12l8.4 5.6" stroke-width="1.5" />
+  <circle cx="12" cy="12" r="1.7" fill="currentColor" stroke="none" />
+  </symbol>
+  <symbol id="swaxs-ui-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M6 16.4V10.6a6 6 0 0 1 12 0v5.8l1.6 1.8H4.4z" />
+  <path d="M10 20.6a2.2 2.2 0 0 0 4 0" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-bus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3 16.4h18" />
+  <path d="M6.2 16.4v-3.8M12 16.4v-3.8M17.8 16.4v-3.8" stroke-width="1.5" />
+  <circle cx="6.2" cy="10.8" r="1.7" fill="currentColor" stroke="none" />
+  <circle cx="12" cy="10.8" r="1.7" fill="currentColor" stroke="none" />
+  <circle cx="17.8" cy="10.8" r="1.7" fill="currentColor" stroke="none" />
+  </symbol>
+  <symbol id="swaxs-ui-chart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3.6 3.6v16.8h16.8" />
+  <path d="m7.4 15 3.8-4.4 3 2.8 5-6" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-clear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="8.8" />
+  <path d="M9.2 9.2 14.8 14.8M14.8 9.2 9.2 14.8" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M6.2 6.2 17.8 17.8M17.8 6.2 6.2 17.8" />
+  </symbol>
+  <symbol id="swaxs-ui-collect" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4.6 7.6h3l1.6-2.4h5.6l1.6 2.4h3a1.8 1.8 0 0 1 1.8 1.8v8.8a1.8 1.8 0 0 1-1.8 1.8H4.6a1.8 1.8 0 0 1-1.8-1.8V9.4a1.8 1.8 0 0 1 1.8-1.8z" />
+  <circle cx="12" cy="13.4" r="3.4" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-document" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M14 3.4H7a1.8 1.8 0 0 0-1.8 1.8v13.6A1.8 1.8 0 0 0 7 20.6h10a1.8 1.8 0 0 0 1.8-1.8V8.2z" />
+  <path d="M14 3.4v4.8h4.8" />
+  <path d="M8.8 12.6h6.4M8.8 16.2h4.4" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 3.6v11.2" />
+  <path d="m7.4 10.4 4.6 4.6 4.6-4.6" />
+  <path d="M4 18.2v.8a1.6 1.6 0 0 0 1.6 1.6h12.8A1.6 1.6 0 0 0 20 19v-.8" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-drive" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="2.8" y="5.2" width="18.4" height="13.6" rx="2.4" />
+  <path d="M2.8 12.6h18.4" stroke-width="1.5" />
+  <circle cx="6.6" cy="15.8" r="1.15" fill="currentColor" stroke="none" />
+  <circle cx="10.4" cy="15.8" r="1.15" fill="currentColor" stroke="none" />
+  </symbol>
+  <symbol id="swaxs-ui-edit" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M15.6 4.4l4 4L8.4 19.6l-4.8.8.8-4.8z" />
+  <path d="M13.4 6.6l4 4" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-estop" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M8.4 2.8h7.2l5.6 5.6v7.2l-5.6 5.6H8.4l-5.6-5.6V8.4z" />
+  <path d="M8.2 12h7.6" />
+  </symbol>
+  <symbol id="swaxs-ui-eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2.6 12S6 5.6 12 5.6 21.4 12 21.4 12 18 18.4 12 18.4 2.6 12 2.6 12z" stroke-width="1.5" />
+  <path d="M4.2 4.2l15.6 15.6" />
+  </symbol>
+  <symbol id="swaxs-ui-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2.6 12S6 5.6 12 5.6 21.4 12 21.4 12 18 18.4 12 18.4 2.6 12 2.6 12z" />
+  <circle cx="12" cy="12" r="2.8" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-filter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3.4 4.6h17.2l-6.6 7.8v6.2l-4 2v-8.2z" />
+  </symbol>
+  <symbol id="swaxs-ui-flag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M5.4 21V3.6" />
+  <path d="M5.4 4.6h11.4l-2.2 4 2.2 4H5.4z" />
+  </symbol>
+  <symbol id="swaxs-ui-flask" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M9.4 3.4h5.2" />
+  <path d="M10.2 3.4v6L4.8 18.6a1.4 1.4 0 0 0 1.2 2h12a1.4 1.4 0 0 0 1.2-2L13.8 9.4v-6" />
+  <path d="M7.4 14.6h9.2" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-flow-next" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 12h14.4" />
+  <path d="m14.4 8 4.4 4-4.4 4" />
+  </symbol>
+  <symbol id="swaxs-ui-flow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 3.4s-6.2 6.8-6.2 11a6.2 6.2 0 0 0 12.4 0c0-4.2-6.2-11-6.2-11z" />
+  <path d="M9.4 15a2.6 2.6 0 0 0 2.6 2.6" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-folder-change" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3.4 9.2h13.2l-3-3" />
+  <path d="M20.6 14.8H7.4l3 3" />
+  </symbol>
+  <symbol id="swaxs-ui-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3.2 18.4V6.2A1.8 1.8 0 0 1 5 4.4h4.3l2.1 2.6h7.6a1.8 1.8 0 0 1 1.8 1.8v9.6a1.8 1.8 0 0 1-1.8 1.8H5a1.8 1.8 0 0 1-1.8-1.8z" />
+  </symbol>
+  <symbol id="swaxs-ui-gauge" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3.6 16.8a8.6 8.6 0 1 1 16.8 0" />
+  <path d="m12 15.4 4-5" stroke-width="1.5" />
+  <circle cx="12" cy="15.6" r="1.4" fill="currentColor" stroke="none" />
+  </symbol>
+  <symbol id="swaxs-ui-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3.6" y="3.6" width="16.8" height="16.8" rx="1.8" />
+  <path d="M3.6 9.2h16.8M3.6 14.8h16.8M9.2 3.6v16.8M14.8 3.6v16.8" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="8.8" />
+  <path d="M12 11v5.6" stroke-width="1.5" />
+  <circle cx="12" cy="7.8" r="1.15" fill="currentColor" stroke="none" />
+  </symbol>
+  <symbol id="swaxs-ui-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="4.6" y="10.4" width="14.8" height="10.2" rx="1.8" />
+  <path d="M8 10.4V7.6a4 4 0 0 1 8 0v2.8" />
+  <circle cx="12" cy="15.5" r="1.2" fill="currentColor" stroke="none" />
+  </symbol>
+  <symbol id="swaxs-ui-log" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3.6 7.2h16.8" />
+  <path d="M3.6 12h12.4" stroke-width="1.5" />
+  <path d="M3.6 16.8h7.6" stroke-width="1.5" />
+  <circle cx="15.6" cy="16.8" r="1.5" fill="currentColor" stroke="none" />
+  </symbol>
+  <symbol id="swaxs-ui-mark-bare" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4.2 4.8L5.5 5.0L6.8 5.7L8.0 6.8L9.2 8.3L10.1 9.9L10.9 11.7L11.7 13.9L12.9 17.9L13.4 18.9L13.7 19.0L13.9 18.9L14.9 17.7L15.4 17.2L15.9 17.0L16.4 16.9L17.3 17.2L19.3 18.6L20.2 19.0" />
+  <circle cx="4.2" cy="4.8" r="1.6" fill="currentColor" stroke="none" />
+  </symbol>
+  <symbol id="swaxs-ui-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="2.8" y="2.8" width="18.4" height="18.4" rx="4.4" />
+  <path d="M6.8 7.6L7.7 7.7L8.6 8.1L9.5 8.7L10.3 9.5L11.0 10.4L11.6 11.4L13.2 15.1L13.6 15.7L13.8 15.8L14.1 15.8L15.0 15.1L15.7 14.9L16.4 14.9L17.2 15.3" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="9" y="3.2" width="6" height="11" rx="3" />
+  <path d="M5.6 11.4a6.4 6.4 0 0 0 12.8 0" />
+  <path d="M12 17.8v3" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-mode-autonomous" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M20.6 12a8.6 8.6 0 0 0-8.6-8.6 8.6 8.6 0 0 0-6.4 2.8L3.4 8.4" />
+  <path d="M3.4 3.8v4.6H8" />
+  <path d="M3.4 12a8.6 8.6 0 0 0 8.6 8.6 8.6 8.6 0 0 0 6.4-2.8l2.2-2.2" />
+  <path d="M20.6 20.2v-4.6H16" />
+  </symbol>
+  <symbol id="swaxs-ui-mode-standard" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M6.8 12h3.6M13.6 12h3.6" />
+  <circle cx="4.2" cy="12" r="2.2" fill="currentColor" stroke="none" />
+  <circle cx="12" cy="12" r="2.2" fill="currentColor" stroke="none" />
+  <circle cx="19.8" cy="12" r="2.2" fill="currentColor" stroke="none" />
+  </symbol>
+  <symbol id="swaxs-ui-model" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="8.4" />
+  <ellipse cx="12" cy="12" rx="8.4" ry="3.2" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M20 14.4A8.4 8.4 0 1 1 9.6 4a6.6 6.6 0 0 0 10.4 10.4z" />
+  </symbol>
+  <symbol id="swaxs-ui-next" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="m9.4 5.6 6.4 6.4-6.4 6.4" />
+  </symbol>
+  <symbol id="swaxs-ui-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M14.2 3.8h6v6" />
+  <path d="M20.2 3.8 11.4 12.6" />
+  <path d="M18 14v5a1.8 1.8 0 0 1-1.8 1.8H5.6A1.8 1.8 0 0 1 3.8 19V8.4a1.8 1.8 0 0 1 1.8-1.8h5" />
+  </symbol>
+  <symbol id="swaxs-ui-parent-dir" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M5.6 3.8h12.8" stroke-width="1.5" />
+  <path d="M12 20.6V8.2" />
+  <path d="m6.8 13.4 5.2-5.2 5.2 5.2" />
+  </symbol>
+  <symbol id="swaxs-ui-pass" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2.8 7.2L3.8 7.3L4.7 7.7L5.7 8.3L6.6 9.1L7.2 10.0L7.9 11.0L8.5 12.3L9.6 14.6L10.1 15.3L10.3 15.4L10.5 15.4L11.5 14.7L12.1 14.5L12.6 14.5L13.2 14.6" stroke-width="1.5" />
+  <path d="m14.6 12.6 2.6 2.6 4.2-6.6" />
+  </symbol>
+  <symbol id="swaxs-ui-pause" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M8.4 5.4v13.2M15.6 5.4v13.2" />
+  </symbol>
+  <symbol id="swaxs-ui-peak" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3.4 19.4h17.2" />
+  <path d="M3.4 17.4c3 0 3.6-1.4 5-1.4 1.6 0 2-11.2 3.6-11.2S13.6 16 15.2 16s2.4 1.4 5.4 1.4" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-ports" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M9 3.4v4.2M15 3.4v4.2" stroke-width="1.5" />
+  <path d="M6.2 7.6h11.6v3.2a5.8 5.8 0 0 1-11.6 0z" />
+  <path d="M12 16.6v4" />
+  </symbol>
+  <symbol id="swaxs-ui-pr" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3.4 19.4h17.2" />
+  <path d="M4.6 19.4c2.6 0 3.2-12.6 7.4-12.6s4.8 12.6 7.4 12.6" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-prev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="m14.6 5.6-6.4 6.4 6.4 6.4" />
+  </symbol>
+  <symbol id="swaxs-ui-ruler" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="2.8" y="7.6" width="18.4" height="8.8" rx="1.8" />
+  <path d="M6.6 7.6v3.2M10.4 7.6v4.4M14.2 7.6v3.2M18 7.6v4.4" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="10.6" cy="10.6" r="6.4" />
+  <path d="m15.4 15.4 5 5" />
+  </symbol>
+  <symbol id="swaxs-ui-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M10.4 2.8h3.2l.5 2.4 1.9.8 2.1-1.3 2.2 2.2-1.3 2.1.8 1.9 2.4.5v3.2l-2.4.5-.8 1.9 1.3 2.1-2.2 2.2-2.1-1.3-1.9.8-.5 2.4h-3.2l-.5-2.4-1.9-.8-2.1 1.3-2.2-2.2 1.3-2.1-.8-1.9-2.4-.5v-3.2l2.4-.5.8-1.9-1.3-2.1 2.2-2.2 2.1 1.3 1.9-.8z" />
+  <circle cx="12" cy="12" r="3" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-sliders" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 6.6h16M4 12h16M4 17.4h16" stroke-width="1.5" />
+  <circle cx="8.6" cy="6.6" r="2.1" fill="currentColor" stroke="none" />
+  <circle cx="15.4" cy="12" r="2.1" fill="currentColor" stroke="none" />
+  <circle cx="10.4" cy="17.4" r="2.1" fill="currentColor" stroke="none" />
+  </symbol>
+  <symbol id="swaxs-ui-start" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M8.6 5.4 19 12 8.6 18.6z" />
+  </symbol>
+  <symbol id="swaxs-ui-status-running" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none" />
+  <path d="M17.4 7.1a6.9 6.9 0 0 1 0 9.8M6.6 16.9a6.9 6.9 0 0 1 0-9.8" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-status-stopped" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="2.4" stroke-width="1.5" />
+  <circle cx="12" cy="12" r="7.4" stroke-width="1.5" opacity="0.55" />
+  </symbol>
+  <symbol id="swaxs-ui-stop-all" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="8.8" />
+  <rect x="8.5" y="8.5" width="7" height="7" rx="1.8" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-stop" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="6" y="6" width="12" height="12" rx="2.4" />
+  </symbol>
+  <symbol id="swaxs-ui-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="4" />
+  <path d="M12 2.6v2.2M12 19.2v2.2M2.6 12h2.2M19.2 12h2.2M5.4 5.4l1.5 1.5M17.1 17.1l1.5 1.5M5.4 18.6l1.5-1.5M17.1 6.9l1.5-1.5" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-tag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3.4 12.6V4.8a1.4 1.4 0 0 1 1.4-1.4h7.8l8 8a1.6 1.6 0 0 1 0 2.2l-6.6 6.6a1.6 1.6 0 0 1-2.2 0z" />
+  <circle cx="8" cy="8" r="1.4" fill="currentColor" stroke="none" />
+  </symbol>
+  <symbol id="swaxs-ui-target" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="8.6" />
+  <circle cx="12" cy="12" r="4.6" stroke-width="1.5" />
+  <circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none" />
+  </symbol>
+  <symbol id="swaxs-ui-thermometer" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M14.4 13.8V5a2.4 2.4 0 0 0-4.8 0v8.8a4.4 4.4 0 1 0 4.8 0z" />
+  <path d="M12 16.6V9" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-timer" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="13.4" r="7.4" />
+  <path d="M12 13.4V9.6" stroke-width="1.5" />
+  <path d="M9.6 2.8h4.8M12 2.8v3.2" />
+  </symbol>
+  <symbol id="swaxs-ui-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 6.6h16" />
+  <path d="M9.2 6.6V4.4h5.6v2.2" />
+  <path d="M6.2 6.6l.9 12.4a1.8 1.8 0 0 0 1.8 1.6h6.2a1.8 1.8 0 0 0 1.8-1.6l.9-12.4" />
+  <path d="M10.2 10.6v6M13.8 10.6v6" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-truncate" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="6.4" cy="6.6" r="2.6" />
+  <circle cx="6.4" cy="17.4" r="2.6" />
+  <path d="M8.6 8.2 20 18M8.6 15.8 20 6" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-vent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 3.6v9.6" />
+  <path d="m8 9.4 4 4 4-4" />
+  <path d="M4.6 17.4h14.8M7.4 20.6h9.2" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-warning" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M13.5 4.2a1.7 1.7 0 0 0-3 0L2.9 18.4A1.7 1.7 0 0 0 4.4 21h15.2a1.7 1.7 0 0 0 1.5-2.6z" />
+  <path d="M12 9.6v4.2" stroke-width="1.5" />
+  <circle cx="12" cy="17.4" r="1.15" fill="currentColor" stroke="none" />
+  </symbol>
+  <symbol id="swaxs-ui-wrench" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M14.8 3.6a4.8 4.8 0 0 0-4.4 6.6l-6.2 6.2a1.9 1.9 0 0 0 2.7 2.7l6.2-6.2a4.8 4.8 0 0 0 6.6-4.4l-2.8 2.8-2.9-.6-.6-2.9z" />
+  </symbol>
+  <symbol id="swaxs-visualisation" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2.8 3.6L4.3 3.8L5.8 4.2L7.2 5.0L8.5 6.0L9.6 7.2L10.5 8.5L11.4 10.0L12.9 12.8L13.4 13.5L13.7 13.6L14.0 13.5L15.1 12.7L15.7 12.3L16.8 12.1L17.9 12.3L20.1 13.3L21.2 13.6" stroke-width="1.5" opacity="0.55" />
+  <path d="M2.8 10.0L4.3 10.2L5.8 10.6L7.2 11.4L8.5 12.4L9.6 13.6L10.5 14.9L11.4 16.4L12.9 19.2L13.4 19.9L13.7 20.0L14.0 19.9L15.1 19.1L15.7 18.7L16.8 18.5L17.9 18.7L20.1 19.7L21.2 20.0" stroke-width="1.5" opacity="0.55" />
+  <path d="M2.8 6.8L4.3 7.0L5.8 7.4L7.2 8.2L8.5 9.2L10.5 11.7L12.9 16.0L13.4 16.7L14.0 16.7L15.7 15.5L16.8 15.3L17.9 15.5L20.1 16.5L21.2 16.8" />
+  </symbol>
+  <symbol id="swaxs-watch" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 4a8 8 0 1 1-5.66 2.34" />
+  <path d="M9.8 2.3 12 4l-1.7 2.3" />
+  <path d="M6.8 12.2h2.6l1.8-3.6 2.3 6 1.6-2.4h2.1" stroke-width="1.5" />
+  </symbol>
+</svg>
+
+<script>window.__REACTOR_CFG={"project": "/Users/akmaurya/Desktop/Data_local/Auto_Run", "speed": 20, "backend": "mock", "pumps": {"pd_top_precursor": {"sensor_min": 0.0, "max_flow": 1000.0, "max_pressure": 10000.0, "calibration_factor": 1.0, "sensor": "LG16-1000"}, "ode_flush": {"sensor_min": 0.0, "max_flow": 1000.0, "max_pressure": 10000.0, "calibration_factor": 1.0, "sensor": "LG16-1000"}, "oleylamine": {"sensor_min": 0.0, "max_flow": 50.0, "max_pressure": 10000.0, "calibration_factor": 1.0, "sensor": "LG16-0480"}, "top": {"sensor_min": 0.0, "max_flow": 50.0, "max_pressure": 10000.0, "calibration_factor": 1.0, "sensor": "LG16-0480"}, "ode_dilution": {"sensor_min": 0.0, "max_flow": 50.0, "max_pressure": 10000.0, "calibration_factor": 1.0, "sensor": "LG16-0480"}}, "bounds": {"T_reac": [180.0, 300.0], "F_tot": [40.0, 120.0], "x_each": [0.0, 0.3], "x_sum_max": 0.9}, "safety": {"T_max": 320.0, "F_tot_max": 150.0, "per_pump_max": 1000.0, "max_pressure": 10000.0, "flow_sensitivity": 1.0, "flow_tol": 0.2, "bad_flow_s": 12.0, "bad_flow_tol": 3, "flow_settle_s": 10.0, "flow_fault_estop": false, "temp_stale_estop": false}, "temperature": {"tolerance": 2.0, "stable_hold": 5.0, "timeout": 900.0, "mock_ramp": 5.0, "cooldown_c": 25.0}, "spec": {"exposure_s": 10.0, "frames": 10, "sample_tag": "sample", "bkg_tag": "bkg", "spec_lead_s": 180.0, "data_dir": "/msd_data/checkout/bl1-5/staff_data/Partha/AutoSynth/Auto_Test"}, "arming": {"default_mode": "temperature", "default_wait_s": 120.0}, "run": {"default_duration": 600.0, "min_dwell_s": 60.0}, "flush": {"rate": 50.0, "duration": 1200.0, "blank_rinse_s": 30.0, "pump": "ode_dilution"}, "folders": {"recipes": "1D/SAXS/Conditions", "processed": "1D/SAXS/Conditions/done", "feedback": "reactor/feedback", "averaged_watch": "1D/SAXS/Averaged"}};</script>
+<script>/* Fake reactor backend for the layout mockup ONLY.
+   Answers the same /api/* calls as reactor/app.py and streams status frames
+   through a stand-in EventSource, so the real page script and its canvas plots
+   run unchanged. Flush, background shot, arm, run, sample shot, flush, like the
+   real sequence. Every setting and default comes from reactor/config.yml
+   (window.__REACTOR_CFG, injected by build_flow_mockup.py). Durations are the
+   real ones; only the clock runs faster (SPEED) so a run can be watched.
+   Never used by the platform itself. */
+(function(){
+  var C=window.__REACTOR_CFG, PROJECT=C.project, SPEED=C.speed;
+  var PUMPS=Object.keys(C.pumps), FLUSH_PUMP='ode_flush';
+  var S={state:'idle',backend:C.backend,auto:false,pausing:false,runs:0,cur:null,phaseT:0,phaseLen:0,
+    queue:[],recipes:{},n:0,estop:false,
+    T:{current:C.temperature.cooldown_c,target:0,inBand:0},
+    pumps:{}, limits:{},
+    spec:{exposure_s:C.spec.exposure_s,frames:C.spec.frames,sample_tag:C.spec.sample_tag,bkg_tag:C.spec.bkg_tag,
+          spec_lead_s:C.spec.spec_lead_s,data_dir:C.spec.data_dir},
+    rs:{arm_mode:C.arming.default_mode,arm_wait_s:C.arming.default_wait_s,run_duration:C.run.default_duration,
+        flush_rate:C.flush.rate,flush_duration:C.flush.duration,flush_pump:C.flush.pump},
+    folder:C.folders.recipes,
+    last_collect:null, logs:[], sampleShot:false, bstop:4.2e4, i0:1.25e5};
+  PUMPS.forEach(function(p){var q=C.pumps[p];
+    S.pumps[p]={actual:0,target:0,pressure:30,state_code:0,fault:false,idle:true,flow_ok:true,v_delivered:0,tareUntil:0};
+    S.limits[p]={sensor_min:q.sensor_min,max_flow:q.max_flow,calibration_factor:q.calibration_factor};});
+  var T0=Date.now()/1000, W0=T0;
+  function now(){return W0+(Date.now()/1000-T0)*SPEED;}   /* simulated clock */
+  function ts(){var d=new Date();return d.toTimeString().slice(0,8);}
+  function log(msg,tag){S.logs.push({ts:ts(),msg:msg,tag:tag||'info'});}
+  function addRecipe(r,src){S.n++;var id='M'+String(S.n).padStart(3,'0');r.recipe_id=id;S.recipes[id]=r;S.queue.push(id);
+    log('＋ queued '+id+' ('+src+'): T '+r.T_reac+'°C, F '+r.F_tot+' µL/min','ok');return id;}
+  addRecipe({T_reac:240,F_tot:80,x_ODE:0.2,x_TOP:0.1,x_oley:0.1},'conditions folder');
+  addRecipe({T_reac:260,F_tot:100,x_ODE:0.25,x_TOP:0.15,x_oley:0.1},'conditions folder');
+  log('Simulation mode: in-memory pumps and a simulated temperature ramp ('+C.temperature.mock_ramp+' °C/s).','info');
+  log('Mockup clock runs ×'+SPEED+' so a '+(C.run.default_duration/60)+' min run can be watched; durations shown are the real ones.','warn');
+
+  function check(r){var B=C.bounds,Sf=C.safety,xs=+r.x_ODE+(+r.x_TOP)+(+r.x_oley);
+    if(r.T_reac<B.T_reac[0]||r.T_reac>B.T_reac[1])return 'T_reac '+r.T_reac+' outside ['+B.T_reac+'] °C';
+    if(r.F_tot<B.F_tot[0]||r.F_tot>B.F_tot[1])return 'F_tot '+r.F_tot+' outside ['+B.F_tot+'] µL/min';
+    var xn={x_ODE:r.x_ODE,x_TOP:r.x_TOP,x_oley:r.x_oley};for(var k in xn){if(xn[k]<B.x_each[0]||xn[k]>B.x_each[1])return k+' '+xn[k]+' outside ['+B.x_each+']';}
+    if(xs>B.x_sum_max)return 'x_ODE+x_TOP+x_oley = '+xs.toFixed(3)+' exceeds '+B.x_sum_max;
+    if(r.T_reac>Sf.T_max)return 'SAFETY: T_reac exceeds T_max '+Sf.T_max;
+    var sp=recipeTargets(r);for(var p in sp){var l=S.limits[p]||{},v=sp[p];
+      if(v>0&&v<l.sensor_min)return p+' setpoint '+v.toFixed(3)+' µL/min is below its minimum '+l.sensor_min+' µL/min (recipe rejected)';
+      if(v>l.max_flow)return p+' setpoint '+v.toFixed(3)+' µL/min exceeds its maximum '+l.max_flow+' µL/min (recipe rejected)';}
+    return '';}
+  function setTargets(map){PUMPS.forEach(function(p){S.pumps[p].target=map[p]||0;});}
+  function recipeTargets(r){var F=+r.F_tot,a=+r.x_ODE,b=+r.x_TOP,c=+r.x_oley;
+    return {pd_top_precursor:F*(1-a-b-c),ode_dilution:F*a,top:F*b,oleylamine:F*c};}
+  function flushTargets(){var m={},p=S.rs.flush_pump;m[p]=Math.min(+S.rs.flush_rate,S.limits[p]?S.limits[p].max_flow:+S.rs.flush_rate);return m;}
+  function enter(state,len){S.state=state;S.phaseT=now();S.phaseLen=len||0;}
+  function collect(role){S.last_collect={t:now(),role:role,recipe_id:S.cur?S.cur.recipe_id:'test'};
+    log('📷 2D '+role+' collect: '+S.spec.frames+' × '+S.spec.exposure_s+' s → '+(S.cur?S.cur.recipe_id:'test')+'_'+(role==='background'?S.spec.bkg_tag:S.spec.sample_tag),'ok');}
+  function begin(){if(!S.queue.length)return false;var id=S.queue.shift();S.cur=S.recipes[id];S.sampleShot=false;
+    PUMPS.forEach(function(p){S.pumps[p].v_delivered=0;});
+    log('▶ '+id+': blank rinse '+C.flush.blank_rinse_s+' s, then background shot','info');S.pre=true;setTargets(flushTargets());enter('flushing',C.flush.blank_rinse_s);return true;}
+  function startArming(){S.T.target=+S.cur.T_reac;setTargets({});
+    if(S.rs.arm_mode==='timed'){enter('arming',+S.rs.arm_wait_s||C.arming.default_wait_s);log('… arming: timed start in '+S.phaseLen+' s','info');}
+    else{enter('arming',0);log('… arming: heating to '+S.T.target+' °C','info');}}
+  function startRun(){setTargets(recipeTargets(S.cur));enter('running',+S.rs.run_duration||C.run.default_duration);log('● running '+S.cur.recipe_id+' for '+S.phaseLen+' s','ok');}
+  function finishRun(){setTargets(flushTargets());S.T.target=0;S.pre=false;enter('flushing',+S.rs.flush_duration||C.flush.duration);log('↻ flushing line','info');}
+  function done(){setTargets({});S.runs+=S.cur?1:0;if(S.cur)log('✓ '+S.cur.recipe_id+' complete','ok');S.cur=null;enter('ready');
+    if(S.pausing){S.pausing=false;S.auto=false;log('Paused after this condition.','warn');}
+    else if(S.auto&&S.queue.length)begin();}
+
+  setInterval(function(){var t=now(),el=t-S.phaseT,dt=0.5*SPEED;
+    if(S.state==='flushing'&&el>=S.phaseLen){ if(S.pre&&S.cur){collect('background');startArming();} else done(); }
+    else if(S.state==='arming'){ var ib=Math.abs(S.T.current-S.T.target)<=C.temperature.tolerance;
+      S.T.inBand=ib?S.T.inBand+dt:0;
+      if(S.rs.arm_mode==='timed'?el>=S.phaseLen:S.T.inBand>=C.temperature.stable_hold) startRun(); }
+    else if(S.state==='running'){ if(!S.sampleShot&&el>=S.phaseLen-(+S.spec.spec_lead_s||C.spec.spec_lead_s)){S.sampleShot=true;collect('sample');}
+      if(el>=S.phaseLen) finishRun(); }
+    // physics
+    var tgt=S.T.target>0?S.T.target:C.temperature.cooldown_c, rate=C.temperature.mock_ramp;
+    S.T.current+=Math.max(-rate*dt,Math.min(rate*dt,tgt-S.T.current))+(Math.random()-.5)*0.15;
+    PUMPS.forEach(function(p){var q=S.pumps[p];q.actual+= (q.target-q.actual)*0.35+(q.target>0?(Math.random()-.5)*q.target*0.02:0);
+      if(q.actual<0.05&&q.target===0)q.actual=0;
+      q.pressure=30+q.actual*(p==='ode_flush'?0.9:8)+(Math.random()-.5)*4;q.idle=q.target===0;
+      q.flow_ok=q.idle||Math.abs(q.actual-q.target)<Math.max(1,q.target*0.1);
+      if(S.state==='running')q.v_delivered+=q.actual*dt/60;q.state_code=t<q.tareUntil?2:0;});
+    S.i0=1.25e5*(1+(Math.random()-.5)*0.01);
+    S.bstop=S.i0*(S.state==='running'?0.28:0.34)*(1+(Math.random()-.5)*0.01);
+  },500);
+
+  function status(){var t=now(),el=t-S.phaseT,busy=['arming','running','flushing'].indexOf(S.state)>=0;
+    return {state:S.state,backend:S.backend,auto_run:S.auto,pausing:S.pausing,supervising:true,loop_faults:0,last_fault:null,
+      run_settings:S.rs,spec:Object.assign({},S.spec,{locked:busy&&!!S.cur,lock_reason:busy?'Locked while a condition runs; unlocks when it has flushed.':''}),
+      current_recipe:S.cur,pumps:JSON.parse(JSON.stringify(S.pumps)),
+      temperature:{current:S.T.current,target:S.T.target,stable:S.T.target>0&&S.T.inBand>=C.temperature.stable_hold,source:'mock',stale:false,age_s:0.5,bstop:S.bstop,i0:S.i0},
+      last_collect:S.last_collect,elapsed_s:S.state==='running'?el:null,duration_s:S.state==='running'?S.phaseLen:null,
+      flush_remaining_s:S.state==='flushing'?Math.max(0,S.phaseLen-el):null,runs_completed:S.runs,queue:S.queue.slice(),
+      paused_with_queue:!S.auto&&S.state==='ready'&&S.queue.length>0&&S.runs>0,arm_mode:S.rs.arm_mode,
+      arm_total_s:S.state==='arming'&&S.rs.arm_mode==='timed'?S.phaseLen:null,
+      arm_remaining_s:S.state==='arming'&&S.rs.arm_mode==='timed'?Math.max(0,S.phaseLen-el):null};}
+
+  var quiet=function(){return ['idle','ready','estop'].indexOf(S.state)>=0;};
+  var R={
+    'GET /api/config':function(){return {backend:C.backend,flush:{rate:C.flush.rate,duration:C.flush.duration}};},
+    'GET /api/project':function(){return {project_root:PROJECT};},
+    'GET /api/health':function(){return {ok:true};},
+    'GET /api/restart_notice':function(){return {level:'none'};},
+    'GET /api/pumps':function(){return {limits:S.limits};},
+    'POST /api/pumps':function(b){S.limits=b.limits;log('Pump limits saved','ok');return {ok:true,limits:S.limits};},
+    'GET /api/recipes_folder':function(){return {folder:S.folder,resolved:S.folder.charAt(0)==='/'?S.folder:PROJECT+'/'+S.folder};},
+    'POST /api/recipes_folder':function(b){S.folder=b.folder||C.folders.recipes;return {ok:true,resolved:(b.folder||'').charAt(0)==='/'?b.folder:PROJECT+'/'+b.folder};},
+    'POST /api/recipe':function(b){var e=check(b);if(e)return {ok:false,error:e};addRecipe(b,'manual');return {ok:true};},
+    'POST /api/auto_run':function(b){if(b.on){S.auto=true;S.pausing=false;log('Run autonomously: ON','ok');if(quiet()&&S.state!=='estop')begin();}
+      else if(S.cur){S.pausing=true;log('Run autonomously: OFF after this condition','warn');}else{S.auto=false;}return {ok:true};},
+    'POST /api/start':function(){if(!quiet()||S.state==='estop')return {error:'busy ('+S.state+')'};return begin()?{ok:true}:{error:'queue is empty'};},
+    'POST /api/start_now':function(){if(S.state==='arming')startRun();return {ok:true};},
+    'POST /api/abort':function(){if(S.state==='flushing'){setTargets({});S.cur=null;enter('idle');log('■ flush stopped','warn');}
+      else if(S.state==='arming'||S.state==='running'){log('■ stopped by operator','warn');finishRun();}return {ok:true};},
+    'POST /api/flush':function(b){if(['idle','ready'].indexOf(S.state)<0)return {error:'flush only from idle or ready'};
+      if(b&&b.rate)S.rs.flush_rate=b.rate;if(b&&b.duration)S.rs.flush_duration=b.duration;S.cur=null;S.pre=false;setTargets(flushTargets());enter('flushing',+S.rs.flush_duration);log('↻ manual flush','info');return {ok:true};},
+    'POST /api/reset':function(){setTargets({});S.cur=null;S.T.target=0;enter('idle');log('↺ reset','info');return {ok:true};},
+    'POST /api/vent':function(){setTargets({});log('Vent: all pumps to 0 pressure','warn');return {ok:true};},
+    'POST /api/estop':function(){setTargets({});S.auto=false;S.cur=null;S.T.target=0;enter('estop');log('■ EMERGENCY STOP: all pumps idled','error');return {ok:true};},
+    'POST /api/run_settings':function(b){Object.keys(b).forEach(function(k){if(b[k]!==''&&b[k]!=null)S.rs[k]=isNaN(+b[k])?b[k]:+b[k];});return {ok:true};},
+    'POST /api/spec_settings':function(b){if(status().spec.locked)return {ok:false,error:'Locked while a condition runs'};
+      if(b.exposure_s!==''&&+b.exposure_s<0.1)return {ok:false,error:'exposure must be at least 0.1 s'};
+      S.spec={exposure_s:+b.exposure_s||S.spec.exposure_s,frames:+b.frames||S.spec.frames,sample_tag:b.sample_tag||S.spec.sample_tag,
+        bkg_tag:b.bkg_tag||S.spec.bkg_tag,spec_lead_s:+b.spec_lead_s||S.spec.spec_lead_s,data_dir:b.data_dir||''};return {ok:true};},
+    'POST /api/collect_now':function(b){if(!quiet())return {ok:false,error:'idle only'};collect(b.role||'sample');return {ok:true};},
+    'POST /api/tare':function(b){if(!quiet())return {ok:false,error:"can't tare while "+S.state};S.pumps[b.pump].tareUntil=now()+2*SPEED;log('Tare '+b.pump+' ('+b.kind+')','info');return {ok:true};},
+    'POST /api/queue/clear':function(){var n=S.queue.length;S.queue=[];log('Queue cleared ('+n+')','warn');return {ok:true};},
+    'POST /api/backend':function(b){return b.backend==='real'?{ok:false,error:'Hardware is not available in this mockup.'}:{ok:true};},
+    'GET /api/checks':function(){return {checks:[{id:'pumps_present'},{id:'pumps_healthy'},{id:'pressure'},{id:'temperature'},{id:'beamline'}]};},
+    'POST /api/checks/run':function(){var st=status(),P=st.pumps,n=Object.keys(P).length,mx=0,mn='';
+      Object.keys(P).forEach(function(k){if(P[k].pressure>mx){mx=P[k].pressure;mn=k;}});
+      return {ok:true,backend:'mock',results:[
+        {id:'pumps_present',title:'All configured pumps connected',ok:true,value:n+'/'+n+' (simulated)'},
+        {id:'pumps_healthy',title:'Every pump answers, no fault',ok:true,value:'all answering (simulated)'},
+        {id:'pressure',title:"Chamber pressure within each pump's ceiling",ok:true,value:'max '+mx.toFixed(0)+' mbar ('+mn+')'},
+        {id:'temperature',title:'Reactor temperature is a live reading',ok:true,value:st.temperature.current.toFixed(2)+' °C (simulated)'},
+        {id:'beamline',title:'Beamline readings arriving (I₀, bstop)',ok:true,value:'I₀ '+st.temperature.i0.toFixed(0)+', bstop '+st.temperature.bstop.toFixed(0)+' (simulated)'}]};},
+    'GET /api/browse':function(){return {current:PROJECT+'/1D/SAXS',parent:PROJECT+'/1D',dirs:['Averaged','Conditions','Reduction','Subtracted']};}
+  };
+  window.fetch=function(url,o){var u=String(url).split('?')[0],m=(o&&o.method)||'GET',b={};
+    try{if(o&&o.body)b=JSON.parse(o.body);}catch(e){}
+    var h=R[m+' '+u]||R['GET '+u],d=h?h(b):{error:'not in mockup: '+u};
+    return Promise.resolve({ok:!d.error,status:d.error?400:200,json:function(){return Promise.resolve(d);}});};
+  window.EventSource=function(){var self=this;setTimeout(function(){self.onopen&&self.onopen();},50);
+    setInterval(function(){if(!self.onmessage)return;var logs=S.logs;S.logs=[];self.onmessage({data:JSON.stringify({status:status(),logs:logs})});},500);};
+})();
+</script>
+<script>
+/* Platform icon helpers (generated by tools/build_icon_sprite.py — do not edit). */
+function icoSvg(n){return '<svg class="ico" aria-hidden="true"><use href="#swaxs-ui-'+n+'"/></svg>';}
+function setIco(el,n,text){if(!el)return;el.innerHTML=icoSvg(n)+' ';el.appendChild(document.createTextNode(text==null?'':String(text)));}
+/* Keep every open SWAXS tab on one theme: a toggle in any app is saved under the
+   shared key, and the others follow through the storage event. */
+window.addEventListener('storage',function(e){if(e.key!=='swaxs-theme'||!e.newValue)return;
+  if(document.documentElement.getAttribute('data-theme')!==e.newValue&&typeof window.toggleTheme==='function')window.toggleTheme();});
+/* Charts follow the theme too. swaxsPlotTheme() = current palette for a chart;
+   swaxsRethemePlots() re-colours every Plotly chart on the page, and runs on its
+   own whenever data-theme changes, so no app has to remember to redraw. */
+function swaxsPlotTheme(){var c=getComputedStyle(document.documentElement),
+  g=function(n,d){return (c.getPropertyValue(n)||'').trim()||d;};
+  return {bg:g('--surface','#fff'),fg:g('--txt','#1f2937'),muted:g('--muted','#4b5563'),
+    grid:g('--border','#e5e7eb'),line:g('--border-strong','#c3c9d1'),legend:g('--surface','#fff'),
+    err:g('--err-text','#b91c1c'),accent:g('--accent','#B1040E')};}
+function swaxsRethemePlots(){if(!window.Plotly)return;var T=swaxsPlotTheme();
+  var clear=function(v){return !v||v==='transparent'||/rgba\([^)]*,\s*0\)/.test(String(v));};
+  document.querySelectorAll('.js-plotly-plot').forEach(function(el){try{
+    var L=el.layout||{},u={'font.color':T.fg,'title.font.color':T.fg,'legend.bgcolor':T.legend,'legend.bordercolor':T.grid};
+    if(!clear(L.plot_bgcolor))u.plot_bgcolor=T.bg; if(!clear(L.paper_bgcolor))u.paper_bgcolor=T.bg;
+    Object.keys(L).forEach(function(k){if(/^[xy]axis\d*$/.test(k)){u[k+'.gridcolor']=T.grid;u[k+'.linecolor']=T.line;u[k+'.color']=T.muted;}});
+    window.Plotly.relayout(el,u);}catch(e){}});}
+/* Carry the theme along on every link to another SWAXS app (hub Open buttons,
+   ← Hub links): add ?theme=<current> just before the browser follows it. */
+document.addEventListener('click',function(e){var a=e.target&&e.target.closest&&e.target.closest('a[href]');if(!a)return;
+  try{var u=new URL(a.href,location.href);if(!/^(localhost|127\.0\.0\.1)$/.test(u.hostname)||u.port===location.port)return;
+    u.searchParams.set('theme',document.documentElement.getAttribute('data-theme')||'light');a.href=u.toString();}catch(_){}},true);
+/* Uniform top bar: apps without their own live status / project display carry
+   the standard placeholders (#barStatus, #barProject); fill them from the app's
+   own /api/health and /api/project so every bar shows the same information. */
+(function(){
+  function stat(){var el=document.getElementById('barStatus');if(!el)return;var t=el.querySelector('.bar-status-txt');
+    fetch('/api/health',{cache:'no-store'}).then(function(r){el.classList.toggle('ok',r.ok);el.classList.toggle('down',!r.ok);
+      if(t)t.textContent=r.ok?'Connected':'Offline';}).catch(function(){el.classList.remove('ok');el.classList.add('down');if(t)t.textContent='Offline';});}
+  function proj(){var el=document.getElementById('barProject');if(!el)return;
+    fetch('/api/project',{cache:'no-store'}).then(function(r){return r.ok?r.json():{};}).then(function(d){
+      var p=(d&&(d.project_root||d.root||d.project))||'';el.textContent=p||'no project selected';
+      el.title=p?('Project folder: '+p):'No project selected in the hub';}).catch(function(){});}
+  function go(){stat();proj();setInterval(stat,5000);setInterval(proj,30000);}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',go);else go();
+})();
+/* Shared folder picker for every Browse… button: swaxsBrowse('inputId', after).
+   Lists folders through the app's own GET /api/browse ({current,parent,dirs}),
+   starts at the folder already typed (relative paths open inside the project),
+   writes the chosen path into the input, fires its change event, then calls
+   after() if given (e.g. the app's Set). Names go in as TEXT, never as HTML. */
+function swaxsBrowse(id,after){var inp=document.getElementById(id);if(!inp)return;
+  var bd=document.createElement('div');bd.className='swx-pick-bd';
+  var m=document.createElement('div');m.className='swx-pick';m.setAttribute('role','dialog');m.setAttribute('aria-label','Choose a folder');
+  m.innerHTML='<div class="swx-pick-hd"><b>Choose a folder</b><button type="button" class="swx-pick-x" aria-label="Close">'+icoSvg('close')+'</button></div>'
+   +'<div class="swx-pick-path"><button type="button" class="btn btn-ghost btn-sm swx-up">↑ Up</button><input type="text" class="swx-cur" spellcheck="false"></div>'
+   +'<div class="swx-pick-list"></div>'
+   +'<div class="swx-pick-ft"><button type="button" class="btn btn-ghost btn-sm swx-can">Cancel</button><button type="button" class="btn btn-primary btn-sm swx-ok">Select this folder</button></div>';
+  bd.appendChild(m);document.body.appendChild(bd);
+  var cur=m.querySelector('.swx-cur'),list=m.querySelector('.swx-pick-list'),up=m.querySelector('.swx-up'),par=null;
+  function close(){document.removeEventListener('keydown',key,true);bd.remove();}
+  function key(e){if(e.key==='Escape'){e.stopPropagation();close();}}
+  function load(path){list.textContent='Loading…';
+    fetch('/api/browse?path='+encodeURIComponent(path||''),{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+      cur.value=d.current||'';par=d.parent;up.disabled=!par;list.textContent='';
+      (d.dirs||[]).forEach(function(n){var b=document.createElement('button');b.type='button';b.className='swx-dir';
+        b.innerHTML=icoSvg('folder')+' ';b.appendChild(document.createTextNode(n));
+        b.onclick=function(){load((d.current||'').replace(/[\\/]+$/,'')+'/'+n);};
+        list.appendChild(b);});
+      if(!(d.dirs||[]).length){var e=document.createElement('div');e.className='swx-empty';e.textContent='No sub-folders here.';list.appendChild(e);}
+    }).catch(function(){list.textContent='Could not list this folder.';});}
+  m.querySelector('.swx-pick-x').onclick=close;m.querySelector('.swx-can').onclick=close;
+  bd.addEventListener('mousedown',function(e){if(e.target===bd)close();});
+  up.onclick=function(){if(par)load(par);};
+  cur.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();load(cur.value);}});
+  m.querySelector('.swx-ok').onclick=function(){inp.value=cur.value;close();
+    inp.dispatchEvent(new Event('input',{bubbles:true}));inp.dispatchEvent(new Event('change',{bubbles:true}));
+    if(typeof after==='function')after();};
+  document.addEventListener('keydown',key,true);load(inp.value);}
+if(window.MutationObserver)new MutationObserver(function(){swaxsRethemePlots();})
+  .observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+</script>
+
+
+<div class="topbar">
+  <div class="app-lockup">
+    <!-- reactor: its own mark, the same artwork as its hub card and
+     tab icon. Generated by tools/build_icon_sprite.py from
+     assets/icons/swaxs-icons-svg/swaxs-synthesis.svg — do not edit. -->
+<svg class="app-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.2 5.4h2.8M3.2 9.6h2.8M3.2 13.8h2.8M3.2 18h2.8" stroke-width="1.5" opacity="0.55"/>
+  <path d="M6 5.4v12.6"/>
+  <path d="M6 11.7h13.4" stroke-width="1.5" opacity="0.55"/>
+  <path d="m18.4 9.1 2.6 2.6-2.6 2.6"/>
+  <circle cx="10.6" cy="11.7" r="1.5" fill="currentColor" stroke="none"/>
+  <circle cx="15.4" cy="11.7" r="1.5" fill="currentColor" stroke="none"/></svg>
+
+    <h1>Autonomous <span>Synthesis</span></h1>
+  </div>
+  <span class="live-pill" id="livePill" title="Connection to the reactor app">live</span>
+  <div class="bar-extras">
+    <span class="state-pill" id="state">idle</span>
+    <span class="live-pill sup-bad" id="supPill" style="display:none"
+        title="The control loop supervises temperature, pressure, delivered volume and flow. If it is not running, nothing is watching the rig."><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-warning"/></svg> NOT SUPERVISING</span>
+    <span class="bk-toggle" id="bkToggle" title="Simulation runs a simulated rig (pumps, temperature, synthetic 2D data). Hardware drives the real pumps and connects to SPEC.">
+      <button type="button" id="bk-mock" onclick="setBackend('mock')">Simulation</button>
+      <button type="button" id="bk-real" onclick="setBackend('real')">Hardware</button>
+    </span>
+  </div>
+  <span class="proj" id="proj"></span>
+  <button class="theme-toggle" id="themeBtn" onclick="toggleTheme()" title="Light or dark theme"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-moon"/></svg></button>
+  <span class="topbar-sub">Port 5108 · <a href="http://localhost:5100">← Hub</a></span>
+</div>
+<div class="restart-banner" id="restartBanner">
+  <span class="rb-x" onclick="this.parentElement.classList.remove('show')"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-close"/></svg></span>
+  <span id="restartBannerMsg"></span>
+</div>
+<div class="fault-banner" id="faultBanner">
+  <span class="rb-x" onclick="dismissFault()"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-close"/></svg></span>
+  <span id="faultBannerMsg"></span>
+</div>
+<div id="app">
+  <nav id="sidebar">
+    <div class="nav-section-label">Synthesis route</div>
+    <button class="nav-btn active" data-route="flow"><span class="nav-icon"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-flow"/></svg></span> Flow reactor</button>
+    <button class="nav-btn soon" data-route="robot"><span class="nav-icon"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-flask"/></svg></span> Liquid handling robot</button>
+    <button class="nav-btn soon" data-route="plate"><span class="nav-icon"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-grid"/></svg></span> Syringe well plate</button>
+    <div class="nav-hint" id="routeHint">Continuous flow, five pumps, SAXS/WAXS at the beamline.</div>
+    <div id="sidebar-controls"><div class="nav-section-label">Pump controls</div><div class="side-ctl"><div id="armPanel" class="arm-panel" style="display:none">
+        <div class="arm-head">
+          <span class="arm-badge" id="armBadge">ARMING</span>
+          <span class="arm-text" id="armMsg"></span>
+        </div>
+        <div class="arm-bar" id="armBar"><i id="armBarFill"></i></div>
+        <div class="arm-sub">
+          <span id="armCountdown"></span>
+          <span id="armTarget"></span>
+        </div>
+      </div><button class="btn btn-ok"   id="b-start" onclick="startClicked()"
+                title="Begin the next queued recipe. During arming, skips the wait and starts the pumps now.">Start</button><button class="btn btn-warn"  id="b-stop"  onclick="post('/api/abort')"
+                title="End the current run and flush the line. During a flush, stops the flush and idles."><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-stop"/></svg> Stop → flush</button><button class="btn btn-ghost" id="b-flush" onclick="doFlush('/api/flush')"
+                title="Run the solvent/flush pump to clear the line between runs (idle or ready only).">Flush now</button><button class="btn btn-warn"  onclick="post('/api/vent')"
+              title="Release chamber pressure to 0 between runs. Keeps your queue and auto-run; press Start to continue."><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-vent"/></svg> Vent all pumps</button><button class="btn btn-ghost" id="b-reset" onclick="post('/api/reset')"
+                title="Clear an EMERGENCY STOP, or a finished run, and return to idle.">Reset</button></div><button class="btn btn-err estop-btn" onclick="post('/api/estop')"
+              title="Fault or danger: idle ALL pumps immediately and lock the panel until you press Reset."><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-estop"/></svg> EMERGENCY STOP</button></div>
+  </nav>
+  <div id="main">
+    <div id="route-flow" class="route">
+      <div class="toptabbar">
+        <button class="toptab active" data-tab="test">Hardware test</button>
+        <button class="toptab" data-tab="auto">Autonomous setup</button>
+        <button class="toptab" data-tab="live">Live plots</button>
+      </div>
+      <div class="pages">
+        <section class="page active" id="page-test">
+          <div class="steps-hint">Run all checks first, then: <b>1.</b> Tare pumps &nbsp;·&nbsp; <b>2.</b> Pump limits &nbsp;·&nbsp; <b>3.</b> Beamline test shot &nbsp;·&nbsp; <b>4.</b> Temperature reading</div>
+          <div class="card" id="hwCheckCard">
+            <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-pass"/></svg> Hardware checks</div>
+            <table class="chk-table" id="hwChecks"><tbody><tr><td class="muted">Not run yet.</td></tr></tbody></table>
+            <div class="btn-row" style="align-items:center">
+              <button class="btn btn-accent" id="runChecksBtn" onclick="runChecks()">Run all checks</button>
+              <span class="muted" id="hwChecksAt"></span>
+            </div>
+            <div class="muted" style="margin-top:6px">Read only: looks at the latest pump, pressure, temperature and beamline readings. Sends nothing to the pumps or SPEC.</div>
+          </div>
+          <div class="card">
+      <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-wrench"/></svg> 1 · Tare pumps</div>
+      <div id="tareRows"></div>
+      <div id="tareMsg" style="font-size:var(--fs-xs);margin-top:5px"></div>
+      <div class="muted" style="margin-top:4px">Pressure: zero the pressure reading (disconnect air first). Flow: zero the flow sensor (no flow through it). Idle only.</div>
+    </div>
+          <div class="card">
+      <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-sliders"/></svg> 2 · Pump limits (µL/min) and calibration</div>
+      <div class="lim-row muted"><span>Pump</span><span>Min</span><span>Max</span><span>Cal ×</span></div>
+      <div id="limits"></div>
+      <div class="btn-row">
+        <button class="btn btn-accent" onclick="applyLimits()">Apply limits</button>
+      </div>
+      <div class="muted" style="margin-top:5px">Hard limits: a recipe with any pump flow above max, or nonzero but below min, is rejected. <b>Cal ×</b> is the water→fluid factor (1.0 = none; for ODE, true flow ÷ water reading). Saved to the project.</div>
+      <div id="lim-msg" style="font-size:var(--fs-xs);margin-top:5px"></div>
+    </div>
+          <div class="card">
+            <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-beam"/></svg> 3 · Probe: SAXS/WAXS beamline (SPEC)</div>
+            <div class="temp-sub" id="t-bstop" style="margin-bottom:8px"></div>
+            <div class="btn-row" style="align-items:center">
+        <button class="btn btn-ghost" id="collectNowBtn" onclick="collectNow()"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-collect"/></svg> Collect now</button>
+        <label class="toggle" style="margin:0">as
+          <select id="collect_role" style="width:auto;padding:5px 8px">
+            <option value="sample">sample</option><option value="background">background</option>
+          </select></label>
+        <span class="sub" id="collectNowMsg"></span>
+      </div>
+            <div class="muted" style="margin-top:5px">“Collect now” takes one test acquisition (idle only). Files are named <code>&lt;recipe_id&gt;_&lt;sample&gt;</code> in the run and <code>&lt;recipe_id&gt;_&lt;background&gt;</code> in the flush. Use a background keyword subtraction recognizes (e.g. <code>bkg</code>, <code>buffer</code>).</div>
+          </div>
+          <div class="card">
+      <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-thermometer"/></svg> 4 · Reactor temperature</div>
+      <!-- The badge is not decoration. `current` can be a live counter reading,
+           a simulated ramp, or an ambient placeholder that never changes — and
+           they used to render identically, to two decimal places (audit R6).
+           The over-temperature interlock is only as good as this number. -->
+      <div class="temp-big"><span id="t-cur">—</span> <span class="temp-sub">/ target <span id="t-tgt">—</span> °C</span><span class="t-src" id="t-src"></span></div>
+      <div class="temp-sub" id="t-stable"></div>
+      
+      <div class="muted" style="margin-top:4px">Ramps to the recipe temperature (via SPEC) and holds the pumps until it is reached.</div>
+    </div>
+          <div class="card placeholder-card">
+            <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-chart"/></svg> Probe: UV Vis flow cell (later)</div>
+            <div class="muted">Placeholder: a future probe. It will show its own checks and a "Take spectrum" test here.</div>
+          </div>
+        </section>
+        <section class="page" id="page-auto">
+          <div class="steps-hint"><b>1.</b> Recipe source &nbsp;·&nbsp; <b>2.</b> Timing &nbsp;·&nbsp; <b>3.</b> Data collection &nbsp;·&nbsp; <b>4.</b> Run</div>
+          <div class="card">
+      <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg> 1 · Recipe source: conditions folder</div>
+      <div class="path-row">
+        <label for="condFolder">Folder</label>
+        <div class="browse-row">
+          <input type="text" id="condFolder" placeholder="1D/SAXS/Conditions" title="Relative to the project, or absolute. Default: next to Subtracted. The optimizer writes .dat/.txt condition files here.">
+          <button type="button" class="btn btn-ghost btn-sm" onclick="swaxsBrowse('condFolder')">Browse…</button>
+          <button class="btn btn-accent" onclick="setCondFolder()">Set</button>
+        </div>
+      </div>
+      <div class="muted" id="condResolved" style="margin-top:4px"></div>
+      <div class="muted" style="margin-top:4px">New <b>.dat/.txt</b> condition files here run oldest first when <b><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-start"/></svg> Run autonomously</b> is on.</div>
+    </div>
+          <div class="card">
+      <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-timer"/></svg> 2 · Timing</div>
+
+      <div class="tstep">Start the pumps</div>
+      
+      <div class="arm-opt">
+        <label class="toggle"><input type="radio" name="arm_mode" value="timed" onchange="armModeChange()"> after a fixed wait of</label>
+        <input type="number" id="arm_wait_s" value="120" step="1" min="0" onchange="pushRunSettings()">
+        <span class="arm-unit">s</span>
+      </div>
+      <div class="arm-opt">
+        <label class="toggle"><input type="radio" name="arm_mode" value="temperature" checked onchange="armModeChange()"> reactor reaches temperature</label>
+      </div>
+      <div class="muted" id="arm-hint" style="font-size:var(--fs-xs);margin-top:4px"></div>
+
+      <div class="tstep" style="border-top:1px solid var(--border);padding-top:10px;margin-top:12px">Synthesis, then flush</div>
+      <div class="form2"><div class="field-row"><label>Synthesis duration (s)</label>
+      <input type="number" id="run_duration" placeholder="default (s)" step="1" min="1" onchange="pushRunSettings()"></div>
+      <div class="grid2" style="margin-top:8px">
+        <div><label>Flush rate (µL/min)</label><input type="number" id="flush_rate" step="1" min="0" onchange="pushRunSettings()"></div>
+        <div><label>Flush duration (s)</label><input type="number" id="flush_duration" step="1" min="1" onchange="pushRunSettings()"></div>
+      </div>
+      <div class="field-row">
+        <label>Flush pump</label>
+        <select id="flush_pump" onchange="pushRunSettings()" style="width:100%">
+          <option value="ode_dilution" selected>ode_dilution (same ODE; ≤50 µL/min, rate capped)</option>
+          <option value="ode_flush">ode_flush (dedicated, ≤1000 µL/min)</option>
+        </select>
+      </div></div>
+      <div class="muted" style="margin-top:5px">Durations are in <b>seconds</b>, flush rate in <b>µL/min</b>. These apply to queued recipes and to the Flush&nbsp;now button.</div>
+    </div>
+          <div class="card">
+            <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-beam"/></svg> 3 · Data collection (probe: SAXS/WAXS, SPEC)</div>
+            <div class="form2"><div class="grid2">
+        <!-- min is 0.1, not 0: an exposure of zero multiplies the detector
+             frame to nothing and collects blank .raw files that look perfectly
+             valid until the average app drops them two stages later. -->
+        <div><label>Exposure (s per frame)</label><input type="number" id="spec_exposure" step="0.1" min="0.1" onchange="pushSpec()"></div>
+        <div><label>Number of frames</label><input type="number" id="spec_frames" step="1" min="1" onchange="pushSpec()"></div>
+        <div><label>Sample keyword</label><input type="text" id="spec_sample_tag" onchange="pushSpec()"></div>
+        <div><label>Background keyword</label><input type="text" id="spec_bkg_tag" onchange="pushSpec()"></div>
+        <div><label>Trigger before end (s)</label><input type="number" id="spec_lead" step="1" min="0" onchange="pushSpec()"></div>
+      </div>
+      <div class="field-row span2">
+        <label title="SPEC data_dir: the parent of 2D/SAXS, where SPEC writes the detector images">Save folder (SPEC)</label>
+        <input type="text" id="spec_data_dir" style="width:100%" onchange="pushSpec()"
+               placeholder="Default: hub project folder. Set to where SPEC writes (e.g. /msd_data/...)">
+      </div>
+      </div><div id="specLockNote" class="hint"
+           style="display:none; margin-top:8px; color:var(--warn);"></div>
+      
+          </div>
+          <div class="card">
+      <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-flask"/></svg> 4 · Run</div>
+      <div class="muted" id="runningNow" style="margin-bottom:8px">Idle</div><div class="muted" style="margin:-4px 0 10px">Autonomous: recipes come from the conditions folder (step 1). To run one by hand, enter it below and press Add to queue, then Start in the left column.</div>
+      <div class="form2"><div class="grid2">
+        <div><label>T_reac (°C)</label><input type="number" id="T_reac" value="240" step="1" oninput="updateArmHint()"></div>
+        <div><label>F_tot (µL/min)</label><input type="number" id="F_tot" value="80" step="1"></div>
+      </div>
+      <div class="grid3" style="margin-top:8px">
+        <div><label>x_ODE</label><input type="number" id="x_ODE" value="0.2" step="0.01"></div>
+        <div><label>x_TOP</label><input type="number" id="x_TOP" value="0.1" step="0.01"></div>
+        <div><label>x_oley</label><input type="number" id="x_oley" value="0.1" step="0.01"></div>
+      </div></div>
+      <div class="btn-row">
+        <button class="btn btn-accent" id="queueBtn" onclick="submitRecipe()" style="flex:1">＋ Add to queue</button>
+        <button class="btn btn-ok" id="autoBtn" onclick="toggleAuto()" style="flex:1"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-start"/></svg> Run autonomously</button>
+      </div>
+      <div class="muted" id="manualNote" style="font-size:var(--fs-xs);margin-top:4px"></div>
+      <div id="form-err" style="color:var(--err);font-size:var(--fs-xs);margin-top:6px"></div>
+    </div>
+        </section>
+        <section class="page" id="page-live">
+          <div class="card">
+      <div class="card-hd" style="display:flex;align-items:center"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-flow"/></svg> Live flow rate (µL/min)
+        <button class="btn btn-ghost" style="margin-left:auto;padding:2px 9px;font-size:var(--fs-xs)" onclick="clearCharts()">Clear</button></div>
+      <canvas id="flowChart" style="width:100%;height:190px;display:block"></canvas>
+      <div id="flowLegend" style="margin-top:8px;line-height:2"></div>
+    </div>
+          <div class="card">
+      <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-gauge"/></svg> Live chamber pressure (mbar)</div>
+      <canvas id="pressChart" style="width:100%;height:190px;display:block"></canvas>
+      <div id="pressLegend" style="margin-top:8px;line-height:2"></div>
+      <div class="muted" style="margin-top:4px">Rolling 10-min window. Exceeding a pump's ceiling trips the emergency stop.</div>
+    </div>
+          <div class="card">
+      <div class="card-hd" style="display:flex;align-items:center"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-beam"/></svg> Live beamline: temperature, bstop, I₀
+        <span id="collectBadge" style="display:none;margin-left:auto;font-size:var(--fs-xs);font-weight:700;padding:2px 10px;border-radius:999px;background:var(--err-lt);color:var(--err-text)"></span></div>
+      <canvas id="blChart" style="width:100%;height:190px;display:block"></canvas>
+      <div id="blLegend" style="margin-top:8px;line-height:2"></div>
+      <div class="muted" style="margin-top:4px">Temperature (left axis) with bstop &amp; I₀ counts (right axis). Dashed <svg class="ico" aria-hidden="true"><use href="#swaxs-ui-collect"/></svg> markers show when a SPEC 2D collection was triggered.</div>
+    </div>
+          <div class="card">
+      <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-bars"/></svg> Run status</div>
+      <div class="kv"><span>State</span><b id="s-state">idle</b></div>
+      <div class="kv"><span>Current recipe</span><b id="s-recipe">—</b></div>
+      <div class="kv"><span>Elapsed / duration</span><b id="s-elapsed">—</b></div>
+      <div class="kv"><span>Flush remaining</span><b id="s-flush">—</b></div>
+      <div class="kv"><span>Runs completed</span><b id="s-runs">0</b></div>
+      <!-- Delivered volume is what a volume-limit trip acts on, and it was
+           computed per pump and never displayed (audit R6). -->
+      <div class="kv"><span>Delivered this run</span><b id="s-volume">—</b></div>
+      <div class="kv" id="s-suprow" style="display:none"><span>Supervisor</span><b id="s-sup" style="color:var(--err)">—</b></div>
+      <div style="margin-top:6px;display:flex;align-items:center;gap:8px">
+        <span class="muted">Queue:</span>
+        <div class="chips" id="s-queue" style="flex:1"></div>
+        <button class="btn btn-ghost" id="b-clearq" style="padding:4px 10px;font-size:var(--fs-xs)" onclick="post('/api/queue/clear')" title="Drop every waiting condition and move its file to the done/ folder, so it is not picked up again."><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-clear"/></svg> Clear queue</button>
+      </div>
+      <div class="muted" id="queueNote" style="display:none;margin-top:6px;color:var(--warn)"></div>
+    </div>
+        </section>
+      </div>
+      <div class="log-dock"><div class="card">
+      <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-log"/></svg> Activity log</div>
+      <div class="log" id="log"></div>
+    </div></div>
+    </div>
+    <div id="route-soon" class="route" style="display:none">
+      <div class="pages"><div class="card placeholder-card" style="max-width:720px">
+        <div class="card-hd" id="soonTitle">Coming later</div>
+        <p class="muted" style="font-size:var(--fs-sm)">Placeholder. This route will use the same three tabs:
+        <b>Hardware test</b> (its own hardware plus the shared probes), <b>Autonomous setup</b> and
+        <b>Live plots</b>, with its own pump and run controls in the left column.</p>
+      </div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+let CFG=null;
+function $(id){return document.getElementById(id);}
+async function api(u,b){const o={method:b?'POST':'GET',headers:{}};if(b){o.headers['Content-Type']='application/json';o.body=JSON.stringify(b);}return (await fetch(u,o)).json();}
+
+/* ── Fault surfacing (audit R5) ──────────────────────────────────────────────
+   post() used to drop every error into #form-err — extra-small type at the
+   bottom of the Synthesis recipe card, which is not where you are looking
+   during an emergency, and which submitRecipe() clears. The E-stop's "could
+   NOT idle: top — CHECK THESE PUMPS IMMEDIATELY" was going there.
+   Anything that idles or vents pumps now raises the banner instead, and the
+   banner stays until it is dismissed by hand. */
+const LOUD = ['/api/estop','/api/vent','/api/abort'];
+function showFault(msg){
+  const b=$('faultBanner'); if(!b) return;
+  setIco($('faultBannerMsg'),'estop',msg);
+  b.classList.add('show');
+  window._faultPinned = true;      // survives every later status frame
+}
+function dismissFault(){
+  $('faultBanner').classList.remove('show'); window._faultPinned=false;
+}
+async function post(u,b){
+  try{
+    const r=await api(u,b||{});
+    if(r && r.error){
+      if(LOUD.includes(u)) showFault(r.error);
+      else $('form-err').textContent=r.error;
+    }
+    return r;
+  }catch(e){
+    showFault('The reactor app did not answer '+u+'. It may have stopped.');
+    return null;
+  }
+}
+
+/* theme (default dark, remembered) */
+(function(){const K='swaxs-theme';let d=document.documentElement.getAttribute('data-theme')==='dark';
+ function ap(x){document.documentElement.setAttribute('data-theme',x?'dark':'light');const b=$('themeBtn');if(b)b.innerHTML='<svg class="ico" aria-hidden="true"><use href="#swaxs-ui-'+(x?'sun':'moon')+'"/></svg>';}
+ ap(d);window.toggleTheme=function(){d=!d;localStorage.setItem(K,d?'dark':'light');ap(d);};})();
+
+(async()=>{CFG=await api('/api/config');updateBackendPill(CFG.backend||'mock','idle');
+  // prefill flush defaults (units shown in labels)
+  if(CFG.flush){if(CFG.flush.rate!=null)$('flush_rate').placeholder=CFG.flush.rate+' (default)';
+    if(CFG.flush.duration!=null)$('flush_duration').placeholder=CFG.flush.duration+' (default)';}
+})();
+
+function flushBody(){const b={};const r=$('flush_rate').value.trim(),d=$('flush_duration').value.trim();
+  if(r)b.rate=+r; if(d)b.duration=+d; return b;}
+async function doFlush(url){await post(url,flushBody());}
+
+/* pump flow-limit editor */
+let LIMITS=null;
+async function loadLimits(){const d=await api('/api/pumps');LIMITS=d.limits;renderLimits();}
+function renderLimits(){if(!LIMITS)return;
+  $('limits').innerHTML=Object.entries(LIMITS).map(([n,l])=>
+    `<div class="lim-row"><span class="pn">${n}</span>
+      <input type="number" step="0.1" id="lim-min-${n}" value="${l.sensor_min}">
+      <input type="number" step="0.1" id="lim-max-${n}" value="${l.max_flow}">
+      <input type="number" step="0.01" min="0.01" id="lim-cf-${n}" value="${l.calibration_factor??1}" title="Water→fluid calibration factor"></div>`).join('');}
+async function applyLimits(){
+  const limits={};Object.keys(LIMITS).forEach(n=>{limits[n]={
+    sensor_min:+$('lim-min-'+n).value, max_flow:+$('lim-max-'+n).value,
+    calibration_factor:+$('lim-cf-'+n).value};});
+  const r=await api('/api/pumps',{limits});
+  const m=$('lim-msg');
+  if(r.ok){LIMITS=r.limits;renderLimits();m.style.color='var(--ok)';m.textContent='✓ Limits saved';}
+  else{m.style.color='var(--err)';m.textContent='⚠ '+(r.error||'Failed');}
+}
+loadLimits();
+(async function poll(){try{const d=await api('/api/project');if(d.project_root)$('proj').textContent=d.project_root;}catch(e){}setTimeout(poll,4000);})();
+
+
+async function submitRecipe(){
+  $('form-err').textContent='';
+  const body={T_reac:+$('T_reac').value,F_tot:+$('F_tot').value,
+    x_ODE:+$('x_ODE').value,x_TOP:+$('x_TOP').value,x_oley:+$('x_oley').value};
+  const rd=$('run_duration').value.trim(); if(rd)body.run_duration=+rd;
+  const fr=$('flush_rate').value.trim();    if(fr)body.flush_rate=+fr;
+  const fd=$('flush_duration').value.trim();if(fd)body.flush_duration=+fd;
+  const mode=document.querySelector('input[name="arm_mode"]:checked');
+  body.arm_mode = mode ? mode.value : 'timed';
+  if(body.arm_mode==='timed'){
+    const w=$('arm_wait_s').value.trim(); if(w!=='')body.arm_wait_s=+w;
+  }
+  const r=await api('/api/recipe',body);
+  if(!r.ok){$('form-err').textContent=r.error||'Rejected';}
+}
+function armModeChange(){
+  const mode=(document.querySelector('input[name="arm_mode"]:checked')||{}).value;
+  $('arm_wait_s').disabled = mode!=='timed';
+  updateArmHint();
+  pushRunSettings();
+}
+function updateArmHint(){
+  const mode=(document.querySelector('input[name="arm_mode"]:checked')||{}).value;
+  const h=$('arm-hint');
+  if(mode==='timed'){
+    h.textContent='Pumps start after this fixed wait, whatever the temperature.';
+  } else {
+    h.textContent='Pumps start only once the reactor reaches T_reac (needs a wired temperature reading).';
+  }
+}
+let _autoOn=false, _uiState='';
+async function toggleAuto(){await api('/api/auto_run',{on:!_autoOn});}
+/* Hardware checks (read only, src/reactor/checks.py). Text goes in as TEXT. */
+async function runChecks(){
+  const b=$('runChecksBtn'); if(b){b.disabled=true;}
+  let r=null; try{ r=await api('/api/checks/run',{id:'all'}); }catch(e){}
+  if(b){b.disabled=false;}
+  const tb=$('hwChecks').tBodies[0]; tb.textContent='';
+  if(!r||!r.ok){ const tr=tb.insertRow(); tr.insertCell().textContent='Could not run the checks: '+((r&&r.error)||'no reply from the reactor app'); return; }
+  let fails=0;
+  r.results.forEach(c=>{ const tr=tb.insertRow();
+    const mk=tr.insertCell(); mk.className='mk '+(c.ok?'ok':'bad'); mk.textContent=c.ok?'✓':'✗';
+    tr.insertCell().textContent=c.title;
+    const v=tr.insertCell(); v.className='val'; v.textContent=(c.value==null?'':String(c.value));
+    const h=tr.insertCell(); h.className='hint'; h.textContent=c.ok?'':(c.hint||''); if(!c.ok)fails++; });
+  $('hwChecksAt').textContent=(fails?fails+' to fix · ':'All passed · ')+new Date().toLocaleTimeString()
+    +(r.backend!=='real'?' · Simulation':'');
+}
+function startClicked(){
+  if(_uiState!=='arming'){ post('/api/start'); return; }
+  /* R5: "Start pumps now" skips the temperature wait, so reagent can flow into a
+     reactor that is not yet at T_reac. Ask first, and say how far off it is. */
+  const cur=($('t-cur')||{}).textContent||'?', tgt=($('t-tgt')||{}).textContent||'?';
+  if(!confirm('Start the pumps now, before the reactor reaches temperature?\n\n'
+      +'Now: '+cur+' °C   Target: '+tgt+' °C\n\n'
+      +'Reagent will flow into the reactor at its current temperature.')) return;
+  post('/api/start_now');
+}
+async function pushRunSettings(){
+  // Don't push until the fields have been reflected from server truth on load,
+  // otherwise the initial armModeChange() would overwrite RESTORED values with
+  // the HTML defaults before the operator has seen them.
+  if(!window._rsInit) return;
+  const mode=document.querySelector('input[name="arm_mode"]:checked');
+  await api('/api/run_settings',{
+    arm_mode: mode?mode.value:'',
+    arm_wait_s: $('arm_wait_s').value.trim(),
+    run_duration: $('run_duration').value.trim(),
+    flush_rate: $('flush_rate').value.trim(),
+    flush_duration: $('flush_duration').value.trim(),
+    flush_pump: $('flush_pump').value
+  });
+}
+async function collectNow(){
+  const r=await api('/api/collect_now',{role:$('collect_role').value});
+  const m=$('collectNowMsg');
+  if(r&&r.ok){ m.style.color='var(--ok)'; m.textContent='✓ Collecting…'; }
+  else{ m.style.color='var(--err)'; m.textContent='✗ '+((r&&r.error)||'Failed'); }
+}
+const SPEC_FIELDS = ['spec_exposure','spec_frames','spec_sample_tag',
+                     'spec_bkg_tag','spec_lead','spec_data_dir'];
+
+function setSpecEnabled(on, why){
+  SPEC_FIELDS.forEach(id=>{ const e=$(id); if(e) e.disabled = !on; });
+  const n = $('specLockNote');
+  if(n){ n.style.display = on ? 'none' : ''; if(on) n.textContent=''; else setIco(n,'lock',why); }
+}
+
+async function pushSpec(){
+  const r = await api('/api/spec_settings',{
+    exposure_s:  $('spec_exposure').value.trim(),
+    frames:      $('spec_frames').value.trim(),
+    sample_tag:  $('spec_sample_tag').value.trim(),
+    bkg_tag:     $('spec_bkg_tag').value.trim(),
+    spec_lead_s: $('spec_lead').value.trim(),
+    data_dir:    $('spec_data_dir').value.trim()
+  });
+  // A refusal must not leave the box showing a value the controller rejected —
+  // that reads as accepted and is exactly how a 0 exposure went unnoticed.
+  if(r && r.ok === false){
+    const n = $('specLockNote');
+    if(n){ n.style.display=''; setIco(n,'lock',r.error||'Refused'); }
+    window._specInit = false;          // let the next refresh restore the real values
+  }
+}
+function setManualEnabled(on){
+  ['T_reac','F_tot','x_ODE','x_TOP','x_oley','queueBtn'].forEach(id=>{const e=$(id);if(e)e.disabled=!on;});
+  const note=$('manualNote'); if(note) note.textContent = on
+    ? ''
+    : '⚠ Autonomous mode: flow and temperature come from the condition file (locked). Timing and flush settings stay editable and apply live.';
+}
+/* The reply used to be discarded outright, so "can't tare while running" —
+   which the backend does return — never reached anyone (audit R16). */
+async function tare(pump,kind){
+  const m=$('tareMsg'); if(m){m.style.color='var(--muted)';m.textContent='Taring '+pump+'…';}
+  const r=await api('/api/tare',{pump:pump,kind:kind});
+  if(!m) return;
+  if(r&&r.ok){ m.style.color='var(--ok)'; m.textContent='✓ '+pump+' tared ('+kind+')'; }
+  else       { m.style.color='var(--err)'; m.textContent='✗ '+((r&&(r.error||r.msg))||'Tare failed'); }
+}
+async function loadCondFolder(){try{const r=await(await fetch('/api/recipes_folder')).json();$('condFolder').value=r.folder||'';$('condResolved').textContent='Watching: '+(r.resolved||'');}catch(e){}}
+async function setCondFolder(){
+  const f=$('condFolder').value.trim(), out=$('condResolved');
+  const r=await api('/api/recipes_folder',{folder:f});
+  // The route now refuses a folder that does not exist. It used to accept
+  // anything and the watcher CREATED the directory, so a typo silently pointed
+  // the campaign at an empty folder — and this line then printed the OLD
+  // resolved path, which read as though the change had worked (audit R20).
+  if(r && r.ok===false){
+    out.style.color='var(--err)';
+    out.textContent='✗ '+(r.error||'Could not set that folder')+'. Still watching: '+(r.resolved||'');
+    return;
+  }
+  out.style.color='';
+  out.textContent='Watching: '+((r&&r.resolved)||'');
+}
+function buildTareRows(st){
+  if(window._tareBuilt) return; window._tareBuilt=true;
+  $('tareRows').innerHTML=Object.keys(st.pumps).map(n=>
+    `<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px">
+       <span style="flex:1;font-size:13px">${n}</span>
+       <button class="btn btn-ghost" style="padding:3px 9px;font-size:var(--fs-xs)" onclick="tare('${n}','pressure')">Pressure</button>
+       <button class="btn btn-ghost" style="padding:3px 9px;font-size:var(--fs-xs)" onclick="tare('${n}','flow')">Flow</button>
+       <button class="btn btn-ghost" style="padding:3px 9px;font-size:var(--fs-xs)" onclick="tare('${n}','both')">Both</button>
+     </div>`).join('');
+}
+
+// ── Live strip charts (flow + pressure) ─────────────────────────────────────
+const PUMP_COLORS={pd_top_precursor:'#1565C0',ode_flush:'#00838F',
+  oleylamine:'#2E7D32',top:'#E65100',ode_dilution:'#6A1B9A'};
+const WINDOW_S=600;            // 10-minute rolling window
+const HIST={};                 // name -> {flow:[[t,v]], press:[[t,v]], tflow:[[t,v]]}
+const STATE=[];                // [[t, state], ...] — reactor phase over time
+const PHASE={running:{c:'#2E7D32',label:'synthesis'},flushing:{c:'#6A1B9A',label:'flush'},
+             arming:{c:'#E65100',label:'arming'},estop:{c:'#e5534b',label:'E-STOP'}};
+const BL={temp:[],bstop:[],i0:[]};   // beamline traces over time: [[t,v],...]
+const MARKS=[];                       // [[t, role]] — SPEC collection triggers
+function fmtCounts(v){const a=Math.abs(v);return a>=1e6?(v/1e6).toFixed(1)+'M':a>=1e3?(v/1e3).toFixed(0)+'k':(+v).toFixed(0);}
+
+function pushHist(st){
+  const t=Date.now()/1000, cutoff=t-WINDOW_S;
+  for(const [n,p] of Object.entries(st.pumps)){
+    if(!HIST[n]) HIST[n]={flow:[],press:[],tflow:[]};
+    HIST[n].flow.push([t,p.actual]);
+    HIST[n].tflow.push([t,p.target]);
+    HIST[n].press.push([t,p.pressure]);
+    for(const k of ['flow','press','tflow']){
+      const a=HIST[n][k]; while(a.length&&a[0][0]<cutoff) a.shift();
+    }
+  }
+  STATE.push([t,st.state]); while(STATE.length&&STATE[0][0]<cutoff) STATE.shift();
+  const T=st.temperature||{};
+  if(T.current!=null) BL.temp.push([t,+T.current]);
+  if(T.bstop!=null)   BL.bstop.push([t,+T.bstop]);
+  if(T.i0!=null)      BL.i0.push([t,+T.i0]);
+  for(const k of ['temp','bstop','i0']){ const a=BL[k]; while(a.length&&a[0][0]<cutoff) a.shift(); }
+  const lc=st.last_collect;
+  if(lc && lc.t && lc.t!==window._lastCollectT){
+    window._lastCollectT=lc.t; window._collectInfo={role:lc.role,recipe:lc.recipe_id,clientT:t};
+    MARKS.push([t, lc.role||'collect']);
+  }
+  while(MARKS.length&&MARKS[0][0]<cutoff) MARKS.shift();
+}
+function clearCharts(){ for(const k in HIST) delete HIST[k]; STATE.length=0;
+  BL.temp.length=BL.bstop.length=BL.i0.length=0; MARKS.length=0; }
+function drawMarks(ctx,X,mT,h,t0){
+  if(!MARKS.length) return;
+  ctx.save(); ctx.font='10px system-ui'; ctx.textAlign='center'; ctx.textBaseline='top';
+  for(const [t,role] of MARKS){ if(t<t0) continue; const x=X(t);
+    ctx.strokeStyle=(getComputedStyle(document.body).getPropertyValue('--accent').trim()||'#d44a55'); ctx.globalAlpha=.9; ctx.setLineDash([3,3]); ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(x,mT); ctx.lineTo(x,mT+h); ctx.stroke(); ctx.setLineDash([]);
+    ctx.globalAlpha=1; ctx.fillStyle=(getComputedStyle(document.body).getPropertyValue('--accent').trim()||'#d44a55');
+    ctx.fillText('◆ '+(role==='background'?'bkg':role==='sample'?'smp':''), x, mT+1); }
+  ctx.restore();
+}
+function drawPhases(ctx,X,mT,h,t0){
+  if(!STATE.length) return;
+  ctx.font='10px system-ui'; ctx.textAlign='left'; ctx.textBaseline='top';
+  let i=0;
+  while(i<STATE.length){
+    const s=STATE[i][1]; let j=i;
+    while(j+1<STATE.length && STATE[j+1][1]===s) j++;
+    const segEnd=(j+1<STATE.length)?STATE[j+1][0]:STATE[j][0];
+    const ph=PHASE[s];
+    if(ph){
+      const x0=Math.max(X(STATE[i][0]),X(t0)), x1=X(segEnd);
+      if(x1>x0){
+        ctx.globalAlpha=0.10; ctx.fillStyle=ph.c; ctx.fillRect(x0,mT,x1-x0,h);
+        if(x1-x0>34){ ctx.globalAlpha=0.85; ctx.fillText(ph.label,x0+3,mT+2); }
+        ctx.globalAlpha=1;
+      }
+    }
+    i=j+1;
+  }
+}
+function drawChart(canvas,key,showTarget){
+  if(!canvas) return;
+  const dpr=window.devicePixelRatio||1;
+  const cssW=canvas.clientWidth||600, cssH=canvas.clientHeight||190;
+  canvas.width=cssW*dpr; canvas.height=cssH*dpr;
+  const ctx=canvas.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,cssW,cssH);
+  const mL=48,mR=10,mT=8,mB=20, w=cssW-mL-mR, h=cssH-mT-mB;
+  const t1=Date.now()/1000, t0=t1-WINDOW_S;
+  let ymax=-Infinity, ymin=Infinity;
+  for(const n in HIST){
+    for(const [,v] of HIST[n][key]){ if(v>ymax)ymax=v; if(v<ymin)ymin=v; }
+    if(showTarget) for(const [,v] of HIST[n].tflow){ if(v>ymax)ymax=v; if(v<ymin)ymin=v; }
+  }
+  if(!isFinite(ymax)){ ymax=1; ymin=0; }            // no data yet
+  if(ymax===ymin){ ymax+=0.5; ymin-=0.5; }           // flat line -> small band
+  const _pad=(ymax-ymin)*0.08; ymax+=_pad; ymin-=_pad;   // autoscale to data range
+  const muted=getComputedStyle(document.body).getPropertyValue('--muted')||'#888';
+  const X=t=>mL+(t-t0)/(t1-t0)*w, Y=v=>mT+(1-(v-ymin)/(ymax-ymin||1))*h;
+  ctx.font='11px system-ui'; ctx.fillStyle=muted;
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  for(let i=0;i<=4;i++){ const v=ymin+(ymax-ymin)*i/4, y=Y(v);
+    ctx.strokeStyle=muted; ctx.globalAlpha=.25; ctx.beginPath(); ctx.moveTo(mL,y); ctx.lineTo(mL+w,y); ctx.stroke();
+    ctx.globalAlpha=1; ctx.fillText(v>=100?v.toFixed(0):v.toFixed(1), mL-6, y); }
+  ctx.textAlign='center'; ctx.textBaseline='top';
+  for(let m=0;m<=10;m+=2){ const x=X(t1-m*60); ctx.fillText(m===0?'now':('-'+m+'m'), x, mT+h+4); }
+  drawPhases(ctx,X,mT,h,t0);
+  drawMarks(ctx,X,mT,h,t0);
+  for(const n in HIST){ const col=PUMP_COLORS[n]||'#888';
+    if(showTarget){ const a=HIST[n].tflow; if(a.length){ ctx.strokeStyle=col; ctx.globalAlpha=.35; ctx.setLineDash([4,4]); ctx.lineWidth=1.5;
+      ctx.beginPath(); a.forEach(([t,v],i)=>{const x=X(t),y=Y(v); i?ctx.lineTo(x,y):ctx.moveTo(x,y);}); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha=1; } }
+    const a=HIST[n][key]; if(a.length){ ctx.strokeStyle=col; ctx.lineWidth=1.8;
+      ctx.beginPath(); a.forEach(([t,v],i)=>{const x=X(t),y=Y(v); i?ctx.lineTo(x,y):ctx.moveTo(x,y);}); ctx.stroke(); } }
+  // current-status tag pinned at the live ("now") edge
+  if(STATE.length){
+    const cur=STATE[STATE.length-1][1], ph=PHASE[cur];
+    const label=(ph?ph.label:cur), col=(ph?ph.c:muted);
+    ctx.font='11px system-ui'; ctx.textAlign='right'; ctx.textBaseline='top';
+    const tx=mL+w-2, ty=mT+2, tw=ctx.measureText('● '+label).width;
+    ctx.globalAlpha=0.9; ctx.fillStyle=getComputedStyle(document.body).getPropertyValue('--surface')||'#fff';
+    ctx.fillRect(tx-tw-4,ty-1,tw+6,15); ctx.globalAlpha=1;
+    ctx.fillStyle=col; ctx.fillText('● '+label, tx, ty);
+  }
+}
+function legendHTML(st,key,unit){
+  return Object.entries(st.pumps).map(([n,p])=>{
+    const col=PUMP_COLORS[n]||'#888';
+    const val=key==='press'?p.pressure.toFixed(0):p.actual.toFixed(1);
+    const tgt=key==='press'?'':` <span style="opacity:.55">→ ${p.target.toFixed(1)}</span>`;
+    const taring=p.state_code===2?' <b style="color:var(--warn)">'+icoSvg('wrench')+' taring…</b>':'';
+    const fault=p.fault?' <b style="color:var(--err)">'+icoSvg('warning')+' ERROR</b>':'';
+    // flow-off-setpoint warning (only when the pump is actively running)
+    const flowbad=(key!=='press'&&!p.idle&&p.flow_ok===false)?' <b style="color:var(--warn)">'+icoSvg('warning')+' flow≠set</b>':'';
+    return `<span style="display:inline-flex;align-items:center;gap:5px;margin-right:14px;font-size:12px">
+      <i style="width:10px;height:10px;border-radius:2px;background:${col}"></i>
+      ${n}: <b>${val}</b>${tgt} <span style="opacity:.6">${unit}</span>${taring}${fault}${flowbad}</span>`;
+  }).join('');
+}
+function fmtDur(s){if(s==null)return '—';const m=Math.floor(s/60),ss=Math.round(s%60);return m+'m '+ss+'s';}
+
+function drawBeamline(canvas){
+  if(!canvas) return;
+  const dpr=window.devicePixelRatio||1, cssW=canvas.clientWidth||600, cssH=canvas.clientHeight||190;
+  canvas.width=cssW*dpr; canvas.height=cssH*dpr;
+  const ctx=canvas.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,cssW,cssH);
+  const mL=48,mR=54,mT=8,mB=20, w=cssW-mL-mR, h=cssH-mT-mB;
+  const t1=Date.now()/1000, t0=t1-WINDOW_S;
+  const muted=getComputedStyle(document.body).getPropertyValue('--muted')||'#888';
+  const X=t=>mL+(t-t0)/(t1-t0)*w;
+  const rng=(arrs)=>{let lo=Infinity,hi=-Infinity;for(const a of arrs)for(const [,v] of a){if(v<lo)lo=v;if(v>hi)hi=v;}
+    if(!isFinite(hi)){lo=0;hi=1;} if(hi===lo){hi+=1;lo-=1;} const p=(hi-lo)*0.08; return [lo-p,hi+p];};
+  const [tmin,tmax]=rng([BL.temp]);           const YT=v=>mT+(1-(v-tmin)/(tmax-tmin||1))*h;
+  const [cmin,cmax]=rng([BL.bstop,BL.i0]);    const YC=v=>mT+(1-(v-cmin)/(cmax-cmin||1))*h;
+  ctx.font='11px system-ui'; ctx.textBaseline='middle';
+  for(let i=0;i<=4;i++){ const y=mT+h*i/4;
+    ctx.strokeStyle=muted; ctx.globalAlpha=.22; ctx.beginPath(); ctx.moveTo(mL,y); ctx.lineTo(mL+w,y); ctx.stroke(); ctx.globalAlpha=1;
+    ctx.textAlign='right'; ctx.fillStyle='#d44a55'; ctx.fillText((tmax-(tmax-tmin)*i/4).toFixed(0), mL-6, y);
+    ctx.textAlign='left';  ctx.fillStyle='#3a7bd5'; ctx.fillText(fmtCounts(cmax-(cmax-cmin)*i/4), mL+w+6, y); }
+  ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle=muted;
+  for(let m=0;m<=10;m+=2){ const x=X(t1-m*60); ctx.fillText(m===0?'now':('-'+m+'m'), x, mT+h+4); }
+  drawPhases(ctx,X,mT,h,t0);
+  const line=(arr,Yf,col,lw)=>{ if(!arr.length) return; ctx.strokeStyle=col; ctx.lineWidth=lw;
+    ctx.beginPath(); arr.forEach(([t,v],i)=>{const x=X(t),y=Yf(v); i?ctx.lineTo(x,y):ctx.moveTo(x,y);}); ctx.stroke(); };
+  line(BL.i0, YC, '#00838F', 1.4);
+  line(BL.bstop, YC, '#3a7bd5', 1.6);
+  line(BL.temp, YT, '#d44a55', 2.0);
+  drawMarks(ctx,X,mT,h,t0);
+}
+function blLegendHTML(st){
+  const T=st.temperature||{};
+  const item=(c,l,v)=>`<span style="display:inline-flex;align-items:center;gap:5px;margin-right:14px;font-size:12px">
+    <i style="width:10px;height:10px;border-radius:2px;background:${c}"></i>${l}: <b>${v}</b></span>`;
+  return item('#d44a55','temperature', T.current!=null?T.current.toFixed(2)+' °C':'—')
+       + item('#3a7bd5','bstop', T.bstop!=null?Number(T.bstop).toFixed(4):'—')
+       + item('#00838F','I₀', T.i0!=null?Number(T.i0).toFixed(4):'—');
+}
+function updateCollectBadge(){
+  const b=$('collectBadge'), ci=window._collectInfo;
+  if(!ci){ b.style.display='none'; return; }
+  const ago=Math.max(0, Date.now()/1000 - ci.clientT);
+  b.style.display='';
+  setIco(b,'collect',(ago<8?'Collecting':'Last')+' '+(ci.role||'')+', '+fmtDur(ago)+' ago');
+}
+
+async function setBackend(mode){
+  if(mode===(window._backend||'mock')) return;
+  if(mode==='real' && !confirm('Switch to Hardware mode?\n\nThis switches BOTH the pumps and the beamline (SPEC) to live: it opens the pump serial ports and connects to the SPEC bServer. Make sure the rig is connected and the Dolomite GUI is closed.')) return;
+  const r=await api('/api/backend',{backend:mode});
+  if(r && !r.ok){ alert('Could not switch to '+(mode==='real'?'Hardware':'Simulation')+':\n\n'+(r.error||'unknown error')); }
+  // the pill updates from the next status frame
+}
+function updateBackendPill(backend, state){
+  window._backend=backend;
+  const busy=!['idle','ready','estop'].includes(state);
+  const m=$('bk-mock'), r=$('bk-real');
+  if(!m||!r) return;
+  m.className=(backend==='mock'?'on mock':''); r.className=(backend==='real'?'on real':'');
+  m.disabled=busy; r.disabled=busy;
+  $('bkToggle').title=busy?'Stop the run to switch between Simulation and Hardware'
+    :'Simulation runs a simulated rig (pumps, temperature, synthetic 2D data). Hardware drives the real pumps and connects to SPEC.';
+}
+function render(st){
+  $('state').textContent=st.state; $('state').className='state-pill state-'+st.state;
+  if(st.backend) updateBackendPill(st.backend, st.state);
+  $('s-state').textContent=st.state;
+  _autoOn=st.auto_run;
+  const _ab=$('autoBtn');
+  // Three states, not two. "Pausing" is the one that was missing: auto-run is
+  // off but the current condition is still running, so the button said
+  // "Run autonomously" while the rig carried on for another ten minutes.
+  if(_ab){
+    if(st.pausing){
+      setIco(_ab,'timer','Pausing after this condition');
+      _ab.className='btn btn-warn';
+      _ab.title='Auto-run is off. The current condition will finish and its line will flush, then the loop stops. Click to resume without pausing.';
+    } else {
+      setIco(_ab,st.auto_run?'pause':'start',st.auto_run?'Stop autonomous':'Run autonomously');
+      _ab.className='btn '+(st.auto_run?'btn-warn':'btn-ok');
+      _ab.title=st.auto_run
+        ? 'Stop after the current condition finishes and flushes. Nothing is interrupted; the queue is kept.'
+        : 'Start working through the queue automatically, using the data-collection settings as they are now.';
+    }
+  }
+  // Reflect the EFFECTIVE run settings from the server ONCE on load, so every
+  // field shows what a run would actually use (restored value or config default)
+  // — never a stale value or an HTML default that silently diverges. After this
+  // the operator's edits push normally and reflection won't re-clobber them.
+  if(!window._rsInit && st.run_settings){
+    const rs=st.run_settings;
+    const r=document.querySelector('input[name="arm_mode"][value="'+rs.arm_mode+'"]');
+    if(r) r.checked=true;
+    if(rs.arm_wait_s!=null)     $('arm_wait_s').value=Math.round(rs.arm_wait_s);
+    if(rs.run_duration!=null)   $('run_duration').value=Math.round(rs.run_duration);
+    if(rs.flush_rate!=null)     $('flush_rate').value=rs.flush_rate;
+    if(rs.flush_duration!=null) $('flush_duration').value=Math.round(rs.flush_duration);
+    if(rs.flush_pump)           $('flush_pump').value=rs.flush_pump;
+    armModeChange();            // sync disabled+hint (push suppressed: _rsInit still false)
+    window._rsInit=true;        // reflection done — edits now push; reflect won't run again
+  }
+  // populate the data-collection fields once from config
+  if(!window._specInit && st.spec){ window._specInit=true; const sp=st.spec;
+    $('spec_exposure').value=sp.exposure_s; $('spec_frames').value=sp.frames;
+    $('spec_sample_tag').value=sp.sample_tag; $('spec_bkg_tag').value=sp.bkg_tag;
+    $('spec_lead').value=sp.spec_lead_s; $('spec_data_dir').value=sp.data_dir||''; }
+  // Freeze the acquisition settings while a run or campaign is in flight.
+  // These define what an acquisition IS, so changing one mid-campaign makes
+  // the conditions on either side of the change incomparable — and a bad
+  // value (exposure 0) silently collects nothing. The server refuses them
+  // too; this is so the operator sees it before typing, not after.
+  if(st.spec) setSpecEnabled(!st.spec.locked, st.spec.lock_reason||'');
+  // currently-running readout + lock the manual form while autonomous
+  const cr=st.current_recipe;
+  $('runningNow').textContent = cr
+    ? `Running ${cr.recipe_id||''}: T ${(+cr.T_reac).toFixed(0)}°C · F ${(+cr.F_tot).toFixed(0)} · xODE ${(+cr.x_ODE).toFixed(2)} · xTOP ${(+cr.x_TOP).toFixed(2)} · xoley ${(+cr.x_oley).toFixed(2)}`
+    : 'Idle';
+  setManualEnabled(!st.auto_run);
+  if(st.auto_run && cr){   // autonomous: mirror the running condition into the (locked) fields
+    $('T_reac').value=cr.T_reac; $('F_tot').value=cr.F_tot;
+    $('x_ODE').value=cr.x_ODE; $('x_TOP').value=cr.x_TOP; $('x_oley').value=cr.x_oley;
+  }
+  // live strip charts
+  pushHist(st);
+  drawChart($('flowChart'),'flow',true);
+  drawChart($('pressChart'),'press',false);
+  // Controls that CANNOT work in this state are disabled, on the same rule
+  // that already governed Collect now. Flush now and the tare buttons used to
+  // stay clickable in every state and then no-op in silence (audit R16).
+  const _quiet = ['idle','ready','estop'].includes(st.state);
+  { const cb=$('collectNowBtn'); if(cb) cb.disabled=!_quiet; }
+  { const fb=$('b-flush'); if(fb){ fb.disabled=!['idle','ready'].includes(st.state);
+      fb.title = fb.disabled ? ('Flush runs only from idle or ready (now '+st.state+')')
+                             : 'Run the solvent/flush pump to clear the line between runs.'; } }
+  document.querySelectorAll('#tareRows button').forEach(b=>{
+    b.disabled=!_quiet;
+    b.title = b.disabled ? ('Taring is refused while '+st.state+'. Stop the run first.') : '';
+  });
+  drawBeamline($('blChart'));
+  $('flowLegend').innerHTML=legendHTML(st,'flow','µL/min');
+  $('pressLegend').innerHTML=legendHTML(st,'press','mbar');
+  $('blLegend').innerHTML=blLegendHTML(st);
+  updateCollectBadge();
+  buildTareRows(st);
+  // ── supervision, in the header and in Run status (audit R6) ──────────────
+  // `supervising` is the controller's own ground truth: the loop thread is
+  // alive AND has not been told to stop. If it dies, status() keeps answering
+  // and every number on this page keeps rendering — so without this the
+  // operator has no way to know that nothing is watching the rig.
+  {
+    const sup=$('supPill'), row=$('s-suprow');
+    const bad = (st.supervising === false);
+    if(sup) sup.style.display = bad ? '' : 'none';
+    if(row) row.style.display = (bad || st.loop_faults) ? '' : 'none';
+    if(bad || st.loop_faults){
+      $('s-sup').textContent = (bad ? 'NOT RUNNING' : 'running')
+        + (st.loop_faults ? ` · ${st.loop_faults} fault(s)` : '')
+        + (st.last_fault ? ` · ${st.last_fault}` : '');
+      $('s-sup').style.color = bad ? 'var(--err)' : 'var(--warn)';
+    }
+    if(bad && !window._supShouted){
+      window._supShouted = true;
+      showFault('THE CONTROL LOOP HAS STOPPED SUPERVISING THE RIG'
+        + (st.last_fault ? ' ('+st.last_fault+')' : '')
+        + '. Temperature, pressure, delivered-volume and flow checks are not '
+        + 'running. Check the pumps in the hutch.');
+    }
+  }
+  // delivered volume this run, summed across pumps
+  {
+    const v=Object.values(st.pumps).reduce((a,p)=>a+(p.v_delivered||0),0);
+    $('s-volume').textContent = (st.state==='running'||v>0) ? v.toFixed(1)+' µL' : '—';
+  }
+  // temp
+  $('t-cur').textContent=st.temperature.current.toFixed(2);
+  $('t-tgt').textContent=st.temperature.target.toFixed(2);
+  // Say what that number IS (audit R6). The controller ships source / stale /
+  // age_s / trustworthy precisely so a placeholder cannot be displayed as a
+  // measurement, and none of them were being read.
+  {
+    const T=st.temperature, e=$('t-src');
+    if(e){
+      if(T.source==='beamline' && T.stale){
+        e.className='t-src bad';
+        e.textContent='STALE'+(T.age_s!=null?' '+Math.round(T.age_s)+'s':'')+': interlock blind';
+        e.title='No successful read for this long. The over-temperature cut-out has nothing to compare against.';
+      } else if(T.source==='beamline'){
+        e.className='t-src live';
+        e.textContent='live'+(T.age_s!=null?' · '+T.age_s.toFixed(1)+'s':'');
+        e.title='A real reading from the SPEC/EPICS temperature source.';
+      } else if(T.source==='mock'){
+        e.className='t-src warn'; e.textContent='simulated';
+        e.title='A simulated ramp (Simulation mode), not a measurement.';
+      } else {
+        e.className='t-src bad'; e.textContent='NOT A MEASUREMENT';
+        e.title='No temperature source is wired. This is the ambient default and never changes, so the over-temperature interlock cannot fire. Do not use temperature arming.';
+      }
+    }
+  }
+  { const T=st.temperature, f=v=>v!=null?Number(v).toFixed(4):'—'; $('t-bstop').textContent = (T.bstop!=null||T.i0!=null) ? ('bstop '+f(T.bstop)+'  ·  I₀ '+f(T.i0)) : ''; }
+  if(st.state==='arming'&&st.arm_mode==='timed'){
+    setIco($('t-stable'),'timer','Timed start: pumps in '+fmtDur(st.arm_remaining_s)+' (temperature not checked)');
+  }else{
+    $('t-stable').textContent=st.temperature.target>0?
+      (st.temperature.stable?'✓ At temperature':'… Ramping or stabilizing'):'';
+  }
+  // run status
+  $('s-recipe').textContent=st.current_recipe?st.current_recipe.recipe_id:'—';
+  $('s-elapsed').textContent=st.elapsed_s!=null?(fmtDur(st.elapsed_s)+' / '+fmtDur(st.duration_s)):'—';
+  $('s-flush').textContent=st.flush_remaining_s!=null?fmtDur(st.flush_remaining_s):'—';
+  $('s-runs').textContent=st.runs_completed;
+  $('s-queue').innerHTML=st.queue.length?st.queue.map(q=>`<span class="chip">${q}</span>`).join(''):'<span class="muted">Empty</span>';
+  // Conditions keep ARRIVING with autonomous mode off — the toggle decides
+  // whether a recipe starts, not whether the folder is read. Say so, or the
+  // queue silently grows and it looks like the reactor stopped taking work.
+  {
+    const qn = $('queueNote');
+    if(qn){
+      const waiting = st.queue.length;
+      if(st.pausing){
+        qn.style.display='';
+        setIco(qn,'timer',`Pausing: ${st.current_recipe ? st.current_recipe.recipe_id : 'the current condition'} `
+          + `will finish and flush, then the loop stops. Nothing is interrupted.`
+          + (waiting ? ` ${waiting} more waiting.` : ''));
+      } else if(st.paused_with_queue){
+        qn.style.display='';
+        setIco(qn,'pause',`Paused: ${waiting} condition${waiting>1?'s':''} waiting, line flushed, pumps idle. `
+          + `Exposure, frames and trigger timing are unlocked now and apply when you resume. `
+          + `Press Start for one, or Run autonomously for all.`);
+      } else if(waiting && !st.auto_run){
+        qn.style.display='';
+        setIco(qn,'pause',`${waiting} condition${waiting>1?'s':''} waiting: autonomous mode is OFF, `
+          + `so nothing starts on its own. Their files stay in the conditions folder. `
+          + `Press Start for the next one, or turn on Run autonomously.`);
+      } else { qn.style.display='none'; }
+    }
+  }
+  // disable start when busy
+  _uiState=st.state;
+  const _ba=$('b-start');
+  if(st.state==='arming'){
+    setIco(_ba,'start','Start pumps now'); _ba.disabled=false; _ba.classList.add('btn-startnow');
+    $('armPanel').style.display='';
+    const total=st.arm_total_s, left=st.arm_remaining_s, bar=$('armBar');
+    if(left!=null && total){
+      bar.classList.remove('indeterminate');
+      const frac=Math.max(0,Math.min(1,1-(left/total)));
+      $('armBarFill').style.width=(frac*100).toFixed(1)+'%';
+      $('armMsg').textContent = 'Timed start';
+      $('armCountdown').textContent='Pumps start in '+fmtDur(left)+', or click “Start pumps now”.';
+    } else {
+      bar.classList.add('indeterminate'); $('armBarFill').style.width='';
+      $('armMsg').textContent='Heating to temperature';
+      $('armCountdown').textContent='Waiting to reach T_reac, or click “Start pumps now”.';
+    }
+    $('armTarget').textContent = st.temperature.target>0
+      ? `target ${st.temperature.target.toFixed(0)}°C · now ${st.temperature.current.toFixed(0)}°C` : '';
+  } else {
+    _ba.textContent='Start'; _ba.disabled=!(st.state==='idle'||st.state==='ready')||!st.queue.length;
+    _ba.classList.remove('btn-startnow');
+    $('armPanel').style.display='none';
+  }
+  $('b-stop').disabled=!['arming','running','flushing'].includes(st.state);
+  // state-aware labels: "Stop → flush" idles the flush while flushing; make the
+  // E-stop recovery (Reset) obvious once we're in E-STOP.
+  setIco($('b-stop'),'stop',(st.state==='flushing') ? 'Stop flush' : 'Stop → flush');
+  const _rb=$('b-reset');
+  if(_rb) _rb.textContent = (st.state==='estop') ? '↺ Reset (clear E-stop)' : 'Reset';
+}
+function logLines(lines){const box=$('log');const c={ok:'var(--ok)',error:'var(--err)',warn:'var(--warn)',info:'var(--muted)'};
+  lines.forEach(l=>{const d=document.createElement('div');d.style.color=c[l.tag]||'var(--text)';
+    d.textContent=`[${l.ts}]  ${l.msg}`;box.appendChild(d);});
+  while(box.childNodes.length>500)box.removeChild(box.firstChild);box.scrollTop=box.scrollHeight;}
+
+/* ── Is this page still connected? (audit R17) ───────────────────────────────
+   render() only runs when a frame arrives, so a crash, a hub Stop or a
+   sleeping laptop used to leave the last frame — "running · 240 °C · pumps at
+   setpoint" — frozen on screen indefinitely, with nothing to say it was no
+   longer true. For an unattended overnight run that is the likeliest way to
+   form a false belief about the rig. EventSource retries quietly in the
+   background; the point here is that the SCREEN says so.
+   Frames arrive ~2×/s, so 5 s of silence is already wrong. */
+const STALE_AFTER_MS = 5000, DEAD_AFTER_MS = 20000;
+window._lastFrame = Date.now();
+
+function setLive(){
+  const p=$('livePill'); if(!p) return;
+  const age = Date.now() - window._lastFrame;
+  if(age < STALE_AFTER_MS){
+    p.className='live-pill'; p.textContent='live';
+    p.title='Receiving updates from the reactor app.';
+    document.body.style.opacity='';
+  } else if(age < DEAD_AFTER_MS){
+    p.className='live-pill stale'; p.textContent='No data '+Math.round(age/1000)+'s';
+    p.title='No update has arrived recently. Everything below may be out of date.';
+    document.body.style.opacity='';
+  } else {
+    p.className='live-pill down'; p.textContent='DISCONNECTED '+Math.round(age/1000)+'s';
+    p.title='The reactor app is not answering. This page shows the last update received, '
+          + 'not live values. Check that the app is running.';
+    // Dim the whole page so a stale reading cannot be mistaken for a live one.
+    document.body.style.opacity='.55';
+  }
+}
+setInterval(setLive, 1000);
+
+const es=new EventSource('/api/stream');
+es.onmessage=e=>{window._lastFrame=Date.now();setLive();try{const d=JSON.parse(e.data);if(d.status)render(d.status);if(d.logs&&d.logs.length)logLines(d.logs);}catch(_){}};
+es.onerror=()=>setLive();
+es.onopen=()=>{window._lastFrame=Date.now();setLive();};
+armModeChange();
+loadCondFolder();
+async function showRestartNotice(){
+  try{
+    const n=await (await fetch('/api/restart_notice')).json();
+    if(!n||!n.level||n.level==='none') return;   // fresh start → stay quiet
+    const b=$('restartBanner');
+    b.className='restart-banner show '+n.level;   // .restored (calm) | .lost (loud)
+    let msg=n.message||'';
+    if(n.params&&n.params.length) msg+=' ('+n.params.join(', ')+')';
+    setIco($('restartBannerMsg'),n.level==='lost'?'warning':'mode-autonomous',msg);
+  }catch(_){}
+}
+showRestartNotice();
+
+// Number fields must change ONLY by typing — never by the mouse wheel (too easy to
+// nudge a temperature/flow setpoint by accident). Blur alone let the value change
+// once before losing focus, so PREVENT the wheel's default value-change on a
+// focused number input, then blur so the very next scroll moves the page normally.
+document.addEventListener('wheel', function(e){
+  const t = e.target;
+  if (t && t.tagName === 'INPUT' && t.type === 'number' && t === document.activeElement){
+    e.preventDefault();   // stop the increment/decrement
+    t.blur();             // release focus so further scrolling pans the page
+  }
+}, { passive: false });
+</script>
+
+<script>
+/* route + tab switching */
+document.querySelectorAll('#sidebar .nav-btn').forEach(function(b){b.onclick=function(){
+  document.querySelectorAll('#sidebar .nav-btn').forEach(function(x){x.classList.toggle('active',x===b);});
+  var flow=b.dataset.route==='flow';
+  document.getElementById('route-flow').style.display=flow?'':'none';
+  document.getElementById('route-soon').style.display=flow?'none':'';
+  document.getElementById('soonTitle').textContent=b.textContent.trim()+': coming later';
+  document.getElementById('routeHint').textContent=flow?'Continuous flow, five pumps, SAXS/WAXS at the beamline.':'Placeholder route.';};});
+document.querySelectorAll('.toptab').forEach(function(t){t.onclick=function(){
+  document.querySelectorAll('.toptab').forEach(function(x){x.classList.toggle('active',x===t);});
+  document.querySelectorAll('.page').forEach(function(p){p.classList.toggle('active',p.id==='page-'+t.dataset.tab);});};});
+</script>
+</body>
+</html>

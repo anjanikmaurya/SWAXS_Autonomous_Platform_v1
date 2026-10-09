@@ -228,11 +228,16 @@ def test_scale_and_schedule_share_a_row_in_background():
     """Two small panels stacked full-width wasted a screen's worth of height
     between them."""
     seg = _BKG[_BKG.index('id="auto-setup"'):]
-    row = seg.index('<div class="row">\n            <div class="section">\n'
-                    '              <div class="section-title">⚙ Scale</div>')
+    # Find the panel by its title TEXT (the heading icon is a sprite <svg>, and
+    # a glyph change must not read as a layout regression).
+    import re as _re
+    m = _re.search(r'<div class="row">\s*<div class="section">\s*'
+                   r'<div class="section-title">(?:<svg[^>]*>.*?</svg>\s*)?Scale</div>', seg, _re.S)
+    assert m, "the Scale panel is not the first panel of a .row"
+    row = m.start()
     close = seg.index('</div><!-- /.row -->', row)
     block = seg[row:close]
-    assert "⚙ Scale" in block and "⏱ Schedule" in block, \
-        "Scale and Schedule are not inside the same .row"
+    assert ">Scale</div>" in block.replace("</svg> ", "</svg>").replace("</svg>", ">") \
+        and "Schedule</div>" in block, "Scale and Schedule are not inside the same .row"
     n_panels = block.count('<div class="section">')
     assert n_panels == 2, f"{n_panels} panels in the row, expected 2"

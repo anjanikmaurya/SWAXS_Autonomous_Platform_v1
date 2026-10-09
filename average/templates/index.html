@@ -3,10 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Visualisation & Average — SWAXS</title>
+<title>Visualisation & Average · SWAXS</title>
     <link rel="icon" href="/app-icon">   <!-- per-app tab icon, from apps.yml (src/favicon.py) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.26.0/plotly.min.js"></script>
 <link rel="stylesheet" href="/static/swaxs-tokens.css">
+{% include "_theme_boot.html" %}
 <style>
 /* ── Design tokens (identical to pipeline app) ───────── */
 :root {
@@ -41,7 +42,7 @@
   --border-strong:#c3c9d1;
   /* Typography scale (shared across all SWAXS apps) */
   --font:      'Inter','Segoe UI',system-ui,-apple-system,sans-serif;
-  --mono:      "JetBrains Mono","Fira Code","Courier New",monospace;
+  --mono:      'JetBrains Mono','Fira Code','Cascadia Code',ui-monospace,Menlo,Consolas,monospace;
   --fs-2xs:.6875rem; --fs-xs:.75rem; --fs-sm:.8125rem; --fs-md:.875rem;
   --fs-base:1rem;    --fs-lg:1.125rem; --fs-xl:1.375rem; --fs-2xl:1.75rem;
   --fw-regular:400; --fw-medium:500; --fw-semibold:600; --fw-bold:700;
@@ -97,10 +98,10 @@ html,body {
   background:rgba(var(--sf),.08); font-size:14px;
   color:rgba(var(--sf),.55); word-break:break-word; line-height:1.4;
 }
-#sb-status.ok   { color:#86efac }
-#sb-status.err  { color:#fca5a5 }
-#sb-status.warn { color:#fde68a }
-#sb-status.info { color:#93c5fd }
+#sb-status.ok   { color:var(--ok-text) }
+#sb-status.err  { color:var(--err-text) }
+#sb-status.warn { color:var(--warn-text) }
+#sb-status.info { color:var(--info-text) }
 
 /* ════════════════════════════════════════════════════
    MAIN AREA
@@ -197,7 +198,7 @@ select {
 }
 input:focus, select:focus {
   outline:none; border-color:var(--accent);
-  box-shadow:0 0 0 3px rgba(140,21,21,.12); background:#fff;
+  box-shadow:0 0 0 3px rgba(140,21,21,.12); background:var(--surface);
 }
 
 /* Buttons */
@@ -263,16 +264,16 @@ input:focus, select:focus {
   background:var(--surface2); border:1px solid var(--border);
   border-radius:5px; color:var(--txt);
 }
-.img-filter::placeholder { color:#b0b7c3 }
+.img-filter::placeholder { color:var(--faint) }
 .img-filter:focus { outline:none; border-color:var(--accent);
-                    box-shadow:0 0 0 3px rgba(140,21,21,.1); background:#fff }
+                    box-shadow:0 0 0 3px rgba(140,21,21,.1); background:var(--surface) }
 /* File dropdown — grows to fill remaining space */
 .img-select {
   flex:1; min-width:160px; padding:6px 9px; font-size:16px; font-family:var(--mono);
   background:var(--surface2); border:1px solid var(--border);
   border-radius:5px; color:var(--txt); cursor:pointer;
 }
-.img-select:focus { outline:none; border-color:var(--accent); background:#fff }
+.img-select:focus { outline:none; border-color:var(--accent); background:var(--surface) }
 
 /* image display — white background, aspect-ratio preserved */
 .img-display {
@@ -292,7 +293,7 @@ input:focus, select:focus {
 }
 .img-placeholder .ico { font-size:44px; opacity:.25 }
 .img-spinner {
-  position:absolute; inset:0; background:rgba(255,255,255,.82);
+  position:absolute; inset:0; background:color-mix(in srgb,var(--surface) 82%,transparent);
   display:flex; align-items:center; justify-content:center;
   color:var(--muted); font-size:13px;
 }
@@ -351,12 +352,12 @@ input:focus, select:focus {
 
 .hidden-bar {
   display:none; flex-shrink:0;
-  background:#fffbeb; border-bottom:1px solid #fde68a;
-  padding:6px 20px; font-size:15px; color:#92400e;
+  background:var(--hint-warn); border-bottom:1px solid var(--warn);
+  padding:6px 20px; font-size:15px; color:var(--warn-text);
   align-items:center; gap:10px;
 }
 .hidden-bar.show { display:flex }
-.restore-lnk { background:none; border:none; color:#b45309;
+.restore-lnk { background:none; border:none; color:var(--warn-text);
                cursor:pointer; font-size:15px; text-decoration:underline; padding:0 }
 
 /* averaged controls bar */
@@ -377,7 +378,7 @@ input:focus, select:focus {
 }
 .chip-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0 }
 .chip-txt { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:120px }
-.chip-cnt { background:#e5e7eb; border-radius:8px; padding:0 5px;
+.chip-cnt { background:var(--surface2); border-radius:8px; padding:0 5px;
             font-size:13px; color:var(--muted); white-space:nowrap }
 .chip-cnt.zero { background:var(--err-lt); color:var(--err) }
 .chip-x { background:none; border:none; color:var(--muted); cursor:pointer; font-size:15px; line-height:1; padding:0 }
@@ -395,7 +396,7 @@ input:focus, select:focus {
 }
 .disc-row {
   display:flex; align-items:center; gap:7px; padding:5px 10px;
-  border-bottom:1px solid #f3f3f3; font-size:16px;
+  border-bottom:1px solid var(--border); font-size:16px;
 }
 .disc-row:last-child { border-bottom:none }
 .disc-row:hover { background:var(--surface2) }
@@ -409,9 +410,9 @@ input:focus, select:focus {
   border-radius:8px; padding:2px 8px; font-size:14px;
   white-space:nowrap; flex-shrink:0; font-weight:600;
 }
-.disc-badge.s { background:#dbeafe; color:#1d4ed8 }
-.disc-badge.w { background:#dcfce7; color:#15803d }
-.disc-badge.zero { background:#f3f4f6; color:var(--muted) }
+.disc-badge.s { background:var(--info-lt); color:var(--info-text) }
+.disc-badge.w { background:var(--ok-lt); color:var(--ok-text) }
+.disc-badge.zero { background:var(--surface2); color:var(--muted) }
 .disc-edit {
   background:none; border:none; cursor:pointer; color:var(--muted);
   font-size:15px; padding:0 2px; line-height:1; flex-shrink:0;
@@ -446,7 +447,7 @@ input:focus, select:focus {
 }
 .mc-tbl td{padding:5px 8px;vertical-align:middle;max-width:150px;
            overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.mc-tbl tbody tr:not(:last-child) td{border-bottom:1px solid #f0f0f0}
+.mc-tbl tbody tr:not(:last-child) td{border-bottom:1px solid var(--border)}
 .mc-kw-dot{
   display:inline-block;width:10px;height:10px;border-radius:50%;
   margin-right:6px;vertical-align:middle;flex-shrink:0;
@@ -460,7 +461,7 @@ input:focus, select:focus {
 .i0-filter-params { margin-top:8px; display:flex; align-items:center; gap:7px; flex-wrap:wrap }
 .i0-reject-note {
   display:none; margin-top:7px; padding:5px 10px; border-radius:5px;
-  background:#fef2f2; border:1px solid #fecaca; font-size:15px; color:#991b1b;
+  background:var(--hint-err); border:1px solid var(--err); font-size:15px; color:var(--err-text);
 }
 .i0-reject-note.show { display:block }
 
@@ -501,7 +502,7 @@ input:focus, select:focus {
 }
 #modal-bg.open { display:flex }
 #modal-box {
-  background:#fff; border-radius:10px; width:560px; max-height:72vh;
+  background:var(--surface); border-radius:10px; width:560px; max-height:72vh;
   display:flex; flex-direction:column; box-shadow:0 4px 24px rgba(0,0,0,.2); overflow:hidden;
 }
 #modal-head {
@@ -512,37 +513,40 @@ input:focus, select:focus {
 #modal-head button { background:none; border:none; color:rgba(255,255,255,.75); font-size:20px; cursor:pointer }
 #modal-nav {
   display:flex; align-items:center; gap:8px; padding:8px 14px;
-  background:#f8f8f8; border-bottom:1px solid var(--border);
+  background:var(--surface2); border-bottom:1px solid var(--border);
 }
 #modal-up {
   padding:4px 11px; background:transparent; border:1px solid var(--border);
   border-radius:var(--radius); font-size:14px; cursor:pointer; color:var(--muted);
 }
-#modal-up:hover { background:#eee }
+#modal-up:hover { background:var(--surface2) }
 #modal-path { font-size:14px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1 }
 #modal-list { overflow-y:auto; flex:1 }
 .dir-item, .file-item {
   display:flex; align-items:center; gap:8px; padding:8px 14px;
-  cursor:pointer; font-size:15px; border-bottom:1px solid #f3f3f3;
+  cursor:pointer; font-size:15px; border-bottom:1px solid var(--border);
 }
 .dir-item:hover, .file-item:hover { background:var(--surface2) }
 .dir-item.sel, .file-item.sel { background:var(--accent-lt); color:var(--accent); font-weight:600 }
-.dir-item::before  { content:'📁'; font-size:15px }
-.file-item::before { content:'📄'; font-size:15px }
+.dir-item::before, .file-item::before { content:''; width:15px; height:15px; flex:none;
+  display:inline-block; background:currentColor; opacity:.8;
+  -webkit-mask:var(--ico) center/contain no-repeat; mask:var(--ico) center/contain no-repeat }
+.dir-item::before  { --ico:url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 width=%2224%22 height=%2224%22 fill=%22none%22 stroke=%22black%22 stroke-width=%222.0%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E %3Cpath d=%22M3.2 18.4V6.2A1.8 1.8 0 0 1 5 4.4h4.3l2.1 2.6h7.6a1.8 1.8 0 0 1 1.8 1.8v9.6a1.8 1.8 0 0 1-1.8 1.8H5a1.8 1.8 0 0 1-1.8-1.8z%22/%3E %3C/svg%3E ") }
+.file-item::before { --ico:url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 width=%2224%22 height=%2224%22 fill=%22none%22 stroke=%22black%22 stroke-width=%222.0%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E %3Cpath d=%22M14 3.4H7a1.8 1.8 0 0 0-1.8 1.8v13.6A1.8 1.8 0 0 0 7 20.6h10a1.8 1.8 0 0 0 1.8-1.8V8.2z%22/%3E %3Cpath d=%22M14 3.4v4.8h4.8%22/%3E %3Cpath d=%22M8.8 12.6h6.4M8.8 16.2h4.4%22 stroke-width=%221.5%22/%3E %3C/svg%3E ") }
 .file-item { font-family:var(--mono); color:var(--txt) }
 #modal-foot {
   display:flex; align-items:center; gap:8px; padding:10px 14px;
-  background:#f8f8f8; border-top:1px solid var(--border);
+  background:var(--surface2); border-top:1px solid var(--border);
 }
-#modal-cur { font-size:14px; color:#666; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+#modal-cur { font-size:14px; color:var(--muted); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
 .m-btn { padding:7px 16px; border-radius:var(--radius); font-size:15px; font-weight:600; cursor:pointer; border:none }
 .m-sel { background:var(--accent); color:#fff } .m-sel:hover { opacity:.88 }
-.m-can { background:transparent; color:var(--muted); border:1px solid var(--border) } .m-can:hover { background:#eee }
+.m-can { background:transparent; color:var(--muted); border:1px solid var(--border) } .m-can:hover { background:var(--surface2) }
 
 /* curve popup */
 #curve-pop {
   display:none; position:fixed; z-index:800;
-  background:#fff; border:1px solid var(--border); border-radius:var(--radius);
+  background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
   padding:10px 14px; box-shadow:0 4px 18px rgba(0,0,0,.18); min-width:200px; max-width:300px;
 }
 #pop-fname { font-size:14px; color:var(--muted); margin-bottom:8px; word-break:break-all; line-height:1.4 }
@@ -654,7 +658,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
    them moving to a size it was not designed at.
 
    The focus rule restates the background colour on purpose. average had
-   `input:focus{background:#fff}` with NO dark-mode override, so focusing any
+   `input:focus{background:var(--surface)}` with NO dark-mode override, so focusing any
    input in dark mode turned it white under near-white text — invisible while
    typing. Omitting the property here would not have undone it.
 
@@ -734,61 +738,45 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
    tools/build_icon_sprite.py. */
 .app-mark { width:26px; height:26px; flex-shrink:0; color:var(--swaxs-visualisation); }
 .app-lockup { display:flex; align-items:center; gap:10px; min-width:0 }
+
 </style>
 </head>
 
-<body>
+<body class="swaxs-shell">
 {% include "_icon_sprite.svg" %}
-<!-- Full-width header, matching background/templates/index.html: app name on
-     the left, project path / theme / port+hub on the right. average used to
-     carry its branding in the sidebar (a SLAC·SSRL badge over a two-line
-     "SWAXS Average") and show only the current mode up here, so the two apps
-     did not look like the same product at a glance. -->
+{% include "_icon_helpers.html" %}
 <header class="topbar">
   <div class="app-lockup">
     {% include "_app_mark.svg" %}
-    <h1>SWAXS <span>Average</span></h1>
+    <h1>Visualisation <span>&amp; Average</span></h1>
   </div>
-  <div style="flex:1"></div>
+  <span class="bar-status" id="barStatus" title="Connection to this app"><span class="dot"></span><span class="bar-status-txt">Connecting…</span></span>
+  <div class="bar-extras">
+    <span id="tb-detail" class="bar-detail"></span>
+    <span id="tb-mode" hidden>2D raw image viewer</span>
+  </div>
   <span class="proj" id="projPath"></span>
-  <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" title="Toggle light / dark">☾</button>
-  <span class="topbar-sub">Port 5103 · <a href="http://localhost:5100" style="color:var(--accent);text-decoration:none">← Hub</a></span>
+  <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" title="Toggle light / dark"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-moon"/></svg></button>
+  <span class="topbar-sub">Port 5103 · <a href="http://localhost:5100">← Hub</a></span>
 </header>
 <div id="app">
-
-<!-- ══════════════════════════════════════════════════
-     SIDEBAR — only two options
-══════════════════════════════════════════════════ -->
 <nav id="sidebar">
-
-  <div class="nav-section-label">Select Viewer</div>
-
-  <button class="nav-btn active" data-mode="2d" onclick="switchMode('2d')">
-    <span class="nav-icon">▦</span> 2D Viewer
-  </button>
-  <button class="nav-btn" data-mode="1d" onclick="switchMode('1d')">
-    <span class="nav-icon">〜</span> 1D Viewer
-  </button>
-  <button class="nav-btn" data-mode="auto" onclick="switchMode('auto')">
-    <span class="nav-icon">🤖</span> Auto-Average
-  </button>
-
-  <div id="sidebar-foot">
-    <div id="sb-status">Select a viewer →</div>
-    SWAXS Visualisation &amp; Average
-  </div>
+  
+  <div class="nav-section-label">Viewer</div>
+  <button class="nav-btn active" data-mode="2d" onclick="switchMode('2d')"><span class="nav-icon"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-grid"/></svg></span> 2D Viewer</button>
+  <button class="nav-btn" data-mode="1d" onclick="switchMode('1d')"><span class="nav-icon"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-chart"/></svg></span> 1D Viewer</button>
+  <button class="nav-btn" data-mode="auto" onclick="switchMode('auto')"><span class="nav-icon"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-mode-autonomous"/></svg></span> Auto-Average</button>
+  
 </nav>
+
 
 
 <!-- ══════════════════════════════════════════════════
      MAIN  — two independent mode panels
 ══════════════════════════════════════════════════ -->
 <div id="main">
+  
 
-  <div id="topbar">
-    <span id="tb-mode">2D Raw Image Viewer</span>
-    <span id="tb-detail"></span>
-  </div>
 
   <!-- ╔══════════════════════════════════════════════╗
        ║   MODE: 2D VIEWER                           ║
@@ -797,7 +785,7 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
 
     <!-- Inner tab bar -->
     <div class="itab-bar">
-      <button class="itab active" data-t="2d-setup" onclick="switch2D('2d-setup')">⚙ Setup</button>
+      <button class="itab active" data-t="2d-setup" onclick="switch2D('2d-setup')"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-settings"/></svg> Setup</button>
       <button class="itab"        data-t="saxs-img"  onclick="switch2D('saxs-img')">SAXS Image</button>
       <button class="itab"        data-t="waxs-img"  onclick="switch2D('waxs-img')">WAXS Image</button>
     </div>
@@ -809,24 +797,24 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
         <div class="two-col">
           <!-- Raw folders -->
           <div class="card span-2">
-            <div class="card-hd"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg> Raw Data Folders</div>
+            <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg> Raw data folders</div>
             <div class="fg">
               <label>SAXS raw folder</label>
               <div class="cell">
                 <div class="ir">
                   <input type="text" id="raw-saxs-dir" placeholder="/…/2D/SAXS">
-                  <button class="btn btn-ghost btn-sm" title="Browse…" onclick="openBrowser('raw-saxs-dir')"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg></button>
+                  <button class="btn btn-ghost btn-sm" onclick="openBrowser('raw-saxs-dir')">Browse…</button>
                 </div>
-                <span class="fnote">Folder containing SAXS .raw detector files</span>
+                <span class="fnote">Folder with SAXS .raw files</span>
               </div>
 
               <label>WAXS raw folder</label>
               <div class="cell">
                 <div class="ir">
                   <input type="text" id="raw-waxs-dir" placeholder="/…/2D/WAXS">
-                  <button class="btn btn-ghost btn-sm" title="Browse…" onclick="openBrowser('raw-waxs-dir')"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg></button>
+                  <button class="btn btn-ghost btn-sm" onclick="openBrowser('raw-waxs-dir')">Browse…</button>
                 </div>
-                <span class="fnote">Folder containing WAXS .raw detector files</span>
+                <span class="fnote">Folder with WAXS .raw files</span>
               </div>
             </div>
 
@@ -843,18 +831,18 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
 
           <!-- Detector shapes -->
           <div class="card span-2">
-            <div class="card-hd">📐 Detector Pixel Dimensions</div>
+            <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-ruler"/></svg> Detector size (pixels)</div>
             <div class="fg">
               <label>SAXS rows</label>
               <div class="cell"><input type="number" id="raw-saxs-rows" value="1043" min="1"></div>
 
-              <label>SAXS cols</label>
+              <label>SAXS columns</label>
               <div class="cell"><input type="number" id="raw-saxs-cols" value="981" min="1"></div>
 
               <label>WAXS rows</label>
               <div class="cell"><input type="number" id="raw-waxs-rows" value="195" min="1"></div>
 
-              <label>WAXS cols</label>
+              <label>WAXS columns</label>
               <div class="cell"><input type="number" id="raw-waxs-cols" value="487" min="1"></div>
             </div>
           </div>
@@ -862,11 +850,11 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
 
         <!-- PONI calibration (optional, q-space axes) -->
         <div class="card">
-          <div class="card-hd">📡 q-Space Calibration <span style="font-weight:400;font-size:0.82em;color:var(--muted)">(optional)</span></div>
+          <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-beam"/></svg> q-space calibration <span style="font-weight:400;font-size:0.82em;color:var(--muted)">(optional)</span></div>
           <p class="fnote" style="margin:0 0 12px">
-            Provide PONI calibration files to display 2D images with
-            <em>q</em><sub>x</sub> / <em>q</em><sub>y</sub> axes (nm⁻¹)
-            instead of pixel indices.  Leave blank to keep pixel axes.
+            Add PONI files to show 2D images on
+            <em>q</em><sub>x</sub> / <em>q</em><sub>y</sub> axes (nm⁻¹).
+            Leave blank for pixel axes.
           </p>
           <div class="two-col">
             <div class="fg">
@@ -877,7 +865,7 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
                          oninput="scheduleRender()" style="font-family:var(--mono);font-size:.82em">
                   <button class="btn btn-ghost btn-sm" onclick="openFileBrowser('poni-saxs','.poni')">Browse…</button>
                 </div>
-                <span class="fnote">Full path to the SAXS .poni calibration file</span>
+                <span class="fnote">SAXS .poni calibration file</span>
               </div>
             </div>
             <div class="fg">
@@ -888,7 +876,7 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
                          oninput="scheduleRender()" style="font-family:var(--mono);font-size:.82em">
                   <button class="btn btn-ghost btn-sm" onclick="openFileBrowser('poni-waxs','.poni')">Browse…</button>
                 </div>
-                <span class="fnote">Full path to the WAXS .poni calibration file</span>
+                <span class="fnote">WAXS .poni calibration file</span>
               </div>
             </div>
           </div>
@@ -896,7 +884,7 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
 
         <!-- Display options (full width) -->
         <div class="card">
-          <div class="card-hd">🎨 Display Options</div>
+          <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-eye"/></svg> Display options</div>
           <div class="two-col">
             <div class="fg">
               <label>Colormap</label>
@@ -930,7 +918,7 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
                   <span id="clip-disp"
                         style="min-width:32px;text-align:right;font-weight:700;color:var(--accent)">2%</span>
                 </div>
-                <span class="fnote">Clips top/bottom % of pixels for contrast</span>
+                <span class="fnote">Clips this % of the darkest and brightest pixels</span>
               </div>
             </div>
           </div>
@@ -946,26 +934,26 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
         <!-- Single merged control bar -->
         <div class="img-ctrl">
           <input  class="img-filter" type="text" id="ov-saxs-search"
-                  placeholder="🔍 filter filenames…" oninput="filterOvList('saxs')">
+                  placeholder="Filter filenames…" oninput="filterOvList('saxs')">
           <select class="img-select" id="ov-saxs-select" onchange="ovSelect('saxs')">
-            <option disabled selected>— load a folder first (Setup tab) —</option>
+            <option disabled selected>Load a folder first (Setup tab)</option>
           </select>
           <div class="img-sep" style="margin-left:auto"></div>
-          <button class="img-nav-btn" onclick="ovNav('saxs',-1)">◀ Prev</button>
+          <button class="img-nav-btn" onclick="ovNav('saxs',-1)"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-prev"/></svg> Prev</button>
           <span class="img-count" id="ov-saxs-count">—</span>
-          <button class="img-nav-btn" onclick="ovNav('saxs',+1)">Next <svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-start"/></svg></button>
+          <button class="img-nav-btn" onclick="ovNav('saxs',+1)">Next <svg class="ico" aria-hidden="true"><use href="#swaxs-ui-start"/></svg></button>
           <div class="img-sep"></div>
-          <button class="img-load-btn" id="ov-saxs-load-btn" onclick="loadOvFiles('saxs')"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg> Load all</button>
+          <button class="img-load-btn" id="ov-saxs-load-btn" onclick="loadOvFiles('saxs')"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg> Load all</button>
         </div>
         <div class="img-display" id="ov-saxs-body">
           <div class="img-placeholder">
-            <span class="ico">▦</span>
-            <span>Go to Setup, set the SAXS raw folder, click Load SAXS files</span>
+            <span class="ico"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-grid"/></svg> </span>
+            <span>In Setup, set the SAXS raw folder and click Load SAXS files</span>
           </div>
         </div>
         <!-- Save actions -->
         <div class="img-save-bar">
-          <span class="save-lbl"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-drive"/></svg> Save:</span>
+          <span class="save-lbl"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-drive"/></svg> Save:</span>
           <button class="btn-save-cur" id="saxs-save-cur"
                   onclick="saveCurrentImage('saxs')" disabled>
             Current image
@@ -982,7 +970,7 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
           <div class="stat"><div class="s-l">Mean</div><div class="s-v" id="ss-mean">—</div></div>
           <div class="stat"><div class="s-l">Shape</div><div class="s-v" id="ss-shape">—</div></div>
           <span style="margin-left:auto;font-size:14px;color:var(--muted)">
-            Colormap / scale / clip — Setup tab
+            Colormap, scale and clip: Setup tab
           </span>
         </div>
       </div>
@@ -995,26 +983,26 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
         <!-- Single merged control bar -->
         <div class="img-ctrl">
           <input  class="img-filter" type="text" id="ov-waxs-search"
-                  placeholder="🔍 filter filenames…" oninput="filterOvList('waxs')">
+                  placeholder="Filter filenames…" oninput="filterOvList('waxs')">
           <select class="img-select" id="ov-waxs-select" onchange="ovSelect('waxs')">
-            <option disabled selected>— load a folder first (Setup tab) —</option>
+            <option disabled selected>Load a folder first (Setup tab)</option>
           </select>
           <div class="img-sep" style="margin-left:auto"></div>
-          <button class="img-nav-btn" onclick="ovNav('waxs',-1)">◀ Prev</button>
+          <button class="img-nav-btn" onclick="ovNav('waxs',-1)"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-prev"/></svg> Prev</button>
           <span class="img-count" id="ov-waxs-count">—</span>
-          <button class="img-nav-btn" onclick="ovNav('waxs',+1)">Next <svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-start"/></svg></button>
+          <button class="img-nav-btn" onclick="ovNav('waxs',+1)">Next <svg class="ico" aria-hidden="true"><use href="#swaxs-ui-start"/></svg></button>
           <div class="img-sep"></div>
-          <button class="img-load-btn" id="ov-waxs-load-btn" onclick="loadOvFiles('waxs')"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg> Load all</button>
+          <button class="img-load-btn" id="ov-waxs-load-btn" onclick="loadOvFiles('waxs')"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg> Load all</button>
         </div>
         <div class="img-display" id="ov-waxs-body">
           <div class="img-placeholder">
-            <span class="ico">▦</span>
-            <span>Go to Setup, set the WAXS raw folder, click Load WAXS files</span>
+            <span class="ico"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-grid"/></svg> </span>
+            <span>In Setup, set the WAXS raw folder and click Load WAXS files</span>
           </div>
         </div>
         <!-- Save actions -->
         <div class="img-save-bar">
-          <span class="save-lbl"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-drive"/></svg> Save:</span>
+          <span class="save-lbl"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-drive"/></svg> Save:</span>
           <button class="btn-save-cur" id="waxs-save-cur"
                   onclick="saveCurrentImage('waxs')" disabled>
             Current image
@@ -1031,7 +1019,7 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
           <div class="stat"><div class="s-l">Mean</div><div class="s-v" id="ws-mean">—</div></div>
           <div class="stat"><div class="s-l">Shape</div><div class="s-v" id="ws-shape">—</div></div>
           <span style="margin-left:auto;font-size:14px;color:var(--muted)">
-            Colormap / scale / clip — Setup tab
+            Colormap, scale and clip: Setup tab
           </span>
         </div>
       </div>
@@ -1047,7 +1035,7 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
 
     <!-- Inner tab bar -->
     <div class="itab-bar">
-      <button class="itab active" data-t="1d-setup"   onclick="switch1D('1d-setup')">⚙ Setup</button>
+      <button class="itab active" data-t="1d-setup"   onclick="switch1D('1d-setup')"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-settings"/></svg> Setup</button>
       <button class="itab"        data-t="1d-saxs"    onclick="switch1D('1d-saxs')">SAXS 1D</button>
       <button class="itab"        data-t="1d-waxs"    onclick="switch1D('1d-waxs')">WAXS 1D</button>
       <button class="itab"        data-t="1d-meta"    onclick="switch1D('1d-meta')">Metadata</button>
@@ -1061,31 +1049,31 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
         <div class="two-col">
           <!-- Folders -->
           <div class="card span-2">
-            <div class="card-hd"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg> Processed Data Folders</div>
+            <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg> Reduced data folders</div>
             <div class="fg">
               <label>SAXS Reduction folder</label>
               <div class="cell">
                 <div class="ir">
                   <input type="text" id="saxs-dir" placeholder="/…/1D/SAXS/Reduction">
-                  <button class="btn btn-ghost btn-sm" title="Browse…" onclick="openBrowser('saxs-dir')"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg></button>
+                  <button class="btn btn-ghost btn-sm" onclick="openBrowser('saxs-dir')">Browse…</button>
                 </div>
-                <span class="fnote">.dat files from SAXS detector</span>
+                <span class="fnote">Reduced SAXS .dat files</span>
               </div>
 
               <label>WAXS Reduction folder</label>
               <div class="cell">
                 <div class="ir">
                   <input type="text" id="waxs-dir" placeholder="/…/1D/WAXS/Reduction">
-                  <button class="btn btn-ghost btn-sm" title="Browse…" onclick="openBrowser('waxs-dir')"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg></button>
+                  <button class="btn btn-ghost btn-sm" onclick="openBrowser('waxs-dir')">Browse…</button>
                 </div>
-                <span class="fnote">.dat files from WAXS detector</span>
+                <span class="fnote">Reduced WAXS .dat files</span>
               </div>
 
               <label>Output folder</label>
               <div class="cell">
                 <div class="ir">
                   <input type="text" id="out-dir" placeholder="(same as source)">
-                  <button class="btn btn-ghost btn-sm" title="Browse…" onclick="openBrowser('out-dir')"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg></button>
+                  <button class="btn btn-ghost btn-sm" onclick="openBrowser('out-dir')">Browse…</button>
                 </div>
                 <span class="fnote">Where averaged files are written</span>
               </div>
@@ -1094,25 +1082,25 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
 
           <!-- Keywords -->
           <div class="card span-2">
-            <div class="card-hd">🔑 Keywords / Sample IDs</div>
+            <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-tag"/></svg> Keywords (sample IDs)</div>
             <div class="fg" style="margin-bottom:10px">
               <label>Add keyword</label>
               <div class="cell">
                 <div class="ir">
-                  <input type="text" id="kw-in" placeholder="e.g. PIP_TMC_Run1  or  auto_…_sample">
+                  <input type="text" id="kw-in" placeholder="e.g. PIP_TMC_Run1 or auto_…_sample">
                   <button class="btn btn-ghost btn-sm" onclick="addKwInput()">+ Add</button>
                 </div>
               </div>
             </div>
-            <div class="hint">A keyword is any text in the filename. Reactor loop files are named
-              <code>&lt;recipe_id&gt;_sample</code> (sample) and <code>&lt;recipe_id&gt;_bkg</code>
-              (background) — add the <code>…_sample</code> keyword to average just the samples.</div>
+            <div class="hint">A keyword is any text in the filename. Reactor loop files are
+              <code>&lt;recipe_id&gt;_sample</code> or <code>&lt;recipe_id&gt;_bkg</code>;
+              add a <code>…_sample</code> keyword to average only samples.</div>
             <div id="chips"></div>
             <div class="inline" style="margin-top:6px; gap:6px">
               <button class="btn btn-ghost btn-xs" onclick="togglePaste()">Paste list…</button>
               <button class="btn btn-xs"
                       style="background:var(--err-lt);color:var(--err);border:1px solid var(--err-lt)"
-                      onclick="clearKw()"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-close"/></svg> Clear all</button>
+                      onclick="clearKw()"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-close"/></svg> Clear all</button>
             </div>
             <div id="paste-wrap">
               <textarea id="paste-ta" placeholder="One keyword per line…"></textarea>
@@ -1124,12 +1112,11 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
 
         <!-- ── Discover Sample IDs ──────────────────── -->
         <div class="card">
-          <div class="card-hd">🔍 Discover Sample IDs</div>
+          <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-search"/></svg> Discover sample IDs</div>
           <p class="fnote" style="margin:0 0 10px">
-            Scan your 1D folders and extract unique sample identifiers from filenames.
-            Use <strong>Trim start</strong> / <strong>Trim end</strong> to remove leading or trailing
-            tokens (e.g. run index, detector suffix) and <strong>Contains</strong> to filter by a
-            substring — then click any prefix to use it as a keyword.
+            Finds unique sample IDs in the 1D filenames. <strong>Trim start</strong> / <strong>Trim end</strong>
+            drop leading or trailing tokens (e.g. run index); <strong>Contains</strong> filters by text.
+            Click a prefix to use it as a keyword.
           </p>
 
           <!-- controls 3-column grid -->
@@ -1150,7 +1137,7 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
                 <input type="number" id="disc-strip" value="1" min="0" max="12"
                        oninput="scheduleDiscover()">
                 <span>token(s)</span>
-                <span style="margin-left:4px">sep:</span>
+                <span style="margin-left:4px">separator</span>
                 <input type="text" id="disc-delim" value="_" maxlength="3"
                        style="width:28px;text-align:center" oninput="scheduleDiscover()">
               </div>
@@ -1159,7 +1146,7 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
             <div class="disc-ctrl">
               <span class="disc-ctrl-lbl">Contains</span>
               <input type="text" id="disc-middle" class="disc-mid"
-                     placeholder="substring filter…" oninput="scheduleDiscover()">
+                     placeholder="Text in filename…" oninput="scheduleDiscover()">
             </div>
           </div>
           <!-- scan button row -->
@@ -1177,8 +1164,8 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
 
           <!-- footer: select-all / add button -->
           <div id="disc-footer">
-            <button class="btn btn-ghost btn-xs" onclick="discSelectAll(true)">✓ All</button>
-            <button class="btn btn-ghost btn-xs" onclick="discSelectAll(false)"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-close"/></svg> None</button>
+            <button class="btn btn-ghost btn-xs" onclick="discSelectAll(true)"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-pass"/></svg> All</button>
+            <button class="btn btn-ghost btn-xs" onclick="discSelectAll(false)"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-close"/></svg> None</button>
             <button class="btn btn-sm" id="disc-add-btn"
                     style="background:var(--ok);color:#fff;border:none;cursor:pointer;padding:6px 14px;border-radius:var(--radius);font-size:15px;font-weight:600"
                     onclick="discAddSelected()">
@@ -1190,10 +1177,10 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
 
         <!-- Display options -->
         <div class="card">
-          <div class="card-hd">📐 Display Options</div>
+          <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-eye"/></svg> Display options</div>
           <div class="two-col">
             <div class="fg">
-              <label>q range — min</label>
+              <label>q min</label>
               <div class="cell">
                 <div class="ir">
                   <input type="number" id="qmin" step=".01" placeholder="auto">
@@ -1204,7 +1191,7 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
                 </div>
               </div>
 
-              <label>q range — max</label>
+              <label>q max</label>
               <div class="cell">
                 <input type="number" id="qmax" step=".01" placeholder="auto">
               </div>
@@ -1212,14 +1199,14 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
               <label>Axis scale</label>
               <div class="cell">
                 <select id="scan-axis" onchange="refreshScans();try{localStorage.setItem('swaxs_view_axis',this.value)}catch(e){}">
-                  <option value="loglog">Log–Log</option>
-                  <option value="semilogy">Semilog (lin q, log I)</option>
+                  <option value="loglog">Log-log</option>
+                  <option value="semilogy">Semilog (linear q, log I)</option>
                   <option value="linear">Linear</option>
                 </select>
               </div>
             </div>
             <div class="fg">
-              <label>Max scans / keyword</label>
+              <label>Max scans per keyword</label>
               <div class="cell">
                 <input type="number" id="opt-max" value="50" min="1">
               </div>
@@ -1227,7 +1214,7 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
               <label>Display points</label>
               <div class="cell">
                 <input type="number" id="opt-pts" value="300" min="50">
-                <span class="fnote">Downsample for speed</span>
+                <span class="fnote">Points per curve on screen (fewer = faster)</span>
               </div>
 
               <label>Error bands</label>
@@ -1244,7 +1231,7 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
 
         <!-- I0 Frame Filter -->
         <div class="card">
-          <div class="card-hd">🔬 I0 Frame Filter</div>
+          <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-filter"/></svg> I0 frame filter</div>
           <label class="inline" style="font-size:15px;cursor:pointer;display:flex;align-items:center;gap:8px">
             <input type="checkbox" id="i0-filter-on"
                    style="accent-color:var(--accent);width:auto"
@@ -1252,8 +1239,8 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
             Filter frames by I0 stability
           </label>
           <p class="fnote" style="margin-top:5px">
-            Exclude frames whose I0 deviates too far from the per-keyword median.
-            Applies to both plotting and averaging.
+            Drops frames whose I0 is far from the keyword's median.
+            Applies to plots and averages.
           </p>
           <div id="i0-filter-params" class="i0-filter-params" style="display:none">
             <span class="form-lbl">Reject if I0 deviates more than</span>
@@ -1266,12 +1253,12 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
 
         <!-- Truncate saved q-range -->
         <div class="card">
-          <div class="card-hd">✂ Truncate saved q-range</div>
+          <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-truncate"/></svg> Truncate saved q-range</div>
           <label class="inline" style="font-size:15px;cursor:pointer;display:flex;align-items:center;gap:8px">
             <input type="checkbox" id="trim-on" style="accent-color:var(--accent);width:auto">
             Save only data within a q-range
           </label>
-          <p class="fnote" style="margin-top:5px">When on, the averaged file is truncated to [q-min, q-max] (nm⁻¹) before saving.</p>
+          <p class="fnote" style="margin-top:5px">The averaged file is cut to [q-min, q-max] (nm⁻¹) before saving.</p>
           <div class="two-col">
             <div class="fg"><label>q-min (nm⁻¹)</label><div class="cell"><input type="number" id="trim-qmin" step="0.01" placeholder="auto"></div></div>
             <div class="fg"><label>q-max (nm⁻¹)</label><div class="cell"><input type="number" id="trim-qmax" step="0.01" placeholder="auto"></div></div>
@@ -1280,16 +1267,16 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
 
         <!-- Actions -->
         <div class="card">
-          <div class="card-hd"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-start"/></svg> Actions</div>
+          <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-start"/></svg> Actions</div>
           <div class="btn-grp">
             <button class="btn btn-ghost" id="btn-scan" onclick="scanFiles()" disabled>
-              <span class="spin" id="sp-scan"></span>🔍 Scan Files
+              <span class="spin" id="sp-scan"></span><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-search"/></svg> Scan files
             </button>
             <button class="btn btn-primary" id="btn-load" onclick="loadAndPlot()" disabled>
-              <span class="spin" id="sp-load"></span>📈 Load &amp; Plot
+              <span class="spin" id="sp-load"></span><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-chart"/></svg> Load &amp; plot
             </button>
             <button class="btn btn-ok" id="btn-avg" onclick="doAverage()" disabled>
-              <span class="spin" id="sp-avg"></span>∑ Average &amp; Save
+              <span class="spin" id="sp-avg"></span>∑ Average &amp; save
             </button>
           </div>
         </div>
@@ -1302,11 +1289,11 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
     <div id="tab-1d-saxs" class="ipanel">
       <div class="chart-wrap">
         <div class="chart-topbar">
-          <span class="chart-title">SAXS — Individual Scans</span>
+          <span class="chart-title">SAXS individual scans</span>
           <span class="chart-count" id="pbar-saxs"></span>
         </div>
         <div class="hidden-bar" id="hidden-bar">
-          <span>🚫 <b id="hidden-count">0</b> curve(s) hidden</span>
+          <span><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-eye-off"/></svg> <b id="hidden-count">0</b> curve(s) hidden</span>
           <button class="restore-lnk" onclick="restoreAll()">Restore all</button>
         </div>
         <div class="chart-area" id="plot-saxs">
@@ -1320,7 +1307,7 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
     <div id="tab-1d-waxs" class="ipanel">
       <div class="chart-wrap">
         <div class="chart-topbar">
-          <span class="chart-title">WAXS — Individual Scans</span>
+          <span class="chart-title">WAXS individual scans</span>
           <span class="chart-count" id="pbar-waxs"></span>
         </div>
         <div class="chart-area" id="plot-waxs">
@@ -1334,8 +1321,8 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
     <div id="tab-1d-meta" class="ipanel">
       <div class="ipanel-scroll" style="padding:14px 18px">
         <p class="fnote" style="margin:0 0 10px">
-          Per-scan metadata — one card per field. Click a header to collapse.
-          Stats use SAXS when available, WAXS otherwise.
+          Per-scan metadata, one card per field; click a header to collapse.
+          Stats use SAXS if present, else WAXS.
         </p>
         <div style="display:flex;align-items:center;gap:8px;margin:0 0 12px">
           <label style="font-size:14px;color:var(--muted);font-weight:600">X-axis</label>
@@ -1343,7 +1330,7 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
             style="padding:5px 9px;font-size:15px;border:1px solid var(--border-strong);border-radius:6px;background:var(--surface);color:var(--txt)">
             <option value="scan_idx">Scan index</option>
           </select>
-          <span class="fnote" style="margin:0">points are sorted by the chosen axis</span>
+          <span class="fnote" style="margin:0">Points are sorted by this axis</span>
         </div>
         <div id="plot-meta">
           <div class="empty">Load data in Setup first.</div>
@@ -1356,13 +1343,13 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
     <div id="tab-1d-averaged" class="ipanel">
       <div class="chart-wrap">
         <div class="avg-ctrlbar">
-          <span class="chart-title">Averaged Curves</span>
-          <label><input type="checkbox" id="avg-stitch" checked onchange="replotAvg()"> Stitch SAXS+WAXS</label>
+          <span class="chart-title">Averaged curves</span>
+          <label><input type="checkbox" id="avg-stitch" checked onchange="replotAvg()"> Combine SAXS + WAXS</label>
           <label><input type="checkbox" id="avg-err"    checked onchange="replotAvg()"> Error bands</label>
-          <label>Axis <select id="avg-axis" onchange="replotAvg();try{localStorage.setItem('swaxs_view_axis',this.value)}catch(e){}"><option value="loglog">Log–Log</option><option value="semilogy">Semilog</option><option value="linear">Linear</option></select></label>
+          <label>Axis <select id="avg-axis" onchange="replotAvg();try{localStorage.setItem('swaxs_view_axis',this.value)}catch(e){}"><option value="loglog">Log-log</option><option value="semilogy">Semilog</option><option value="linear">Linear</option></select></label>
         </div>
         <div class="chart-area" id="avg-content" style="overflow-y:auto;padding:16px 20px">
-          <div class="empty">Click "Average &amp; Save" in Setup to compute averages.</div>
+          <div class="empty">Click "Average &amp; save" in Setup to compute averages.</div>
         </div>
       </div>
     </div>
@@ -1376,50 +1363,49 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
     <div style="padding:18px 22px;overflow-y:auto;height:100%">
 
       <div class="card">
-        <div class="card-hd">🤖 Automated Averaging</div>
+        <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-mode-autonomous"/></svg> Automated averaging</div>
         <p class="fnote" style="margin:0">
-          Watch the Reduction folder(s) and average each sample automatically in
-          <strong>rolling batches</strong>: every time a sample gains <strong>N</strong>
-          new frames, one averaged file is written to the Averaged folder. Leave
-          keywords blank to auto-average every sample found.
+          Watches the Reduction folders and averages each sample in
+          <strong>rolling batches</strong>: every <strong>N</strong> new frames of a
+          sample give one averaged file in Averaged. Blank keywords = all samples.
         </p>
         <p class="fnote" style="margin:6px 0 0">
-          🔁 Reactor loop files (<code>&lt;recipe_id&gt;_sample</code> /
-          <code>&lt;recipe_id&gt;_bkg</code>) are grouped automatically —
-          <strong>sample and background average separately</strong> under the same
-          recipe_id — so no keywords are needed for the autonomous loop. Set
-          <strong>N</strong> = the frames per acquisition.
+          <svg class="ico" aria-hidden="true"><use href="#swaxs-ui-mode-autonomous"/></svg> Reactor loop files (<code>&lt;recipe_id&gt;_sample</code> /
+          <code>&lt;recipe_id&gt;_bkg</code>) are grouped automatically, with
+          <strong>sample and background averaged separately</strong>, so the
+          autonomous loop needs no keywords. Set <strong>N</strong> to the frames
+          per acquisition.
         </p>
       </div>
 
       <div class="card">
-        <div class="card-hd"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg> Reduction folders</div>
+        <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg> Reduction folders</div>
         <div class="fg">
           <label>SAXS Reduction folder</label>
           <div class="cell"><div class="ir">
             <input type="text" id="aa-saxs-dir" placeholder="/…/1D/SAXS/Reduction">
-            <button class="btn btn-ghost btn-sm" title="Browse…" onclick="openBrowser('aa-saxs-dir')"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg></button>
+            <button class="btn btn-ghost btn-sm" onclick="openBrowser('aa-saxs-dir')">Browse…</button>
           </div></div>
           <label>WAXS Reduction folder</label>
           <div class="cell"><div class="ir">
             <input type="text" id="aa-waxs-dir" placeholder="/…/1D/WAXS/Reduction">
-            <button class="btn btn-ghost btn-sm" title="Browse…" onclick="openBrowser('aa-waxs-dir')"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg></button>
+            <button class="btn btn-ghost btn-sm" onclick="openBrowser('aa-waxs-dir')">Browse…</button>
           </div></div>
           <label>Output folder (blank = each detector's Averaged/)</label>
           <div class="cell"><div class="ir">
             <input type="text" id="aa-out-dir" placeholder="(default: …/Averaged)">
-            <button class="btn btn-ghost btn-sm" title="Browse…" onclick="openBrowser('aa-out-dir')"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg></button>
+            <button class="btn btn-ghost btn-sm" onclick="openBrowser('aa-out-dir')">Browse…</button>
           </div></div>
         </div>
       </div>
 
       <div class="restart-banner" id="restartBanner">
-        <span class="rb-x" onclick="this.parentElement.classList.remove('show')"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-close"/></svg></span>
+        <span class="rb-x" onclick="this.parentElement.classList.remove('show')"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-close"/></svg></span>
         <span id="restartBannerMsg"></span>
       </div>
 
       <div class="card">
-        <div class="card-hd">⚙ Averaging options</div>
+        <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-settings"/></svg> Averaging options</div>
         <div class="two-col">
           <div class="fg">
             <label>Frames per average (N)</label>
@@ -1429,7 +1415,7 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
           </div>
           <div class="fg">
             <label>Keywords (optional, comma-separated)</label>
-            <div class="cell"><input type="text" id="aa-keywords" placeholder="blank = all samples"></div>
+            <div class="cell"><input type="text" id="aa-keywords" placeholder="Blank = all samples"></div>
             <label>I0 filter % (0 = off)</label>
             <div class="cell"><input type="number" id="aa-i0" value="0" min="0" max="99"></div>
           </div>
@@ -1437,12 +1423,12 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
       </div>
 
       <div class="card">
-        <div class="card-hd">✂ Truncate saved q-range</div>
+        <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-truncate"/></svg> Truncate saved q-range</div>
         <label class="inline" style="font-size:15px;cursor:pointer;display:flex;align-items:center;gap:8px">
           <input type="checkbox" id="aa-qtrim-on" style="accent-color:var(--accent);width:auto">
           Save only data within a q-range
         </label>
-        <p class="fnote" style="margin:5px 0 8px">When on, each averaged file is truncated to [q-min, q-max] (nm⁻¹) before saving.</p>
+        <p class="fnote" style="margin:5px 0 8px">Each averaged file is cut to [q-min, q-max] (nm⁻¹) before saving.</p>
         <div class="two-col">
           <div class="fg"><label>q-min (nm⁻¹)</label><div class="cell"><input type="number" id="aa-qmin" step="0.01" placeholder="auto"></div></div>
           <div class="fg"><label>q-max (nm⁻¹)</label><div class="cell"><input type="number" id="aa-qmax" step="0.01" placeholder="auto"></div></div>
@@ -1450,14 +1436,14 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
       </div>
 
       <div class="card">
-        <div class="card-hd"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-start"/></svg> Monitor</div>
+        <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-start"/></svg> Monitor</div>
         <!-- Shared with background/templates/index.html — the two apps do the
              same job (watch a folder, process in batches, log it) and had
              drifted: green Start here vs cardinal there, buttons content-width
              here vs stretched there, two different log heights and fonts. -->
         <div class="auto-actions">
-          <button class="btn btn-primary" id="aa-start" onclick="startAutoAvg()"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-start"/></svg> Start auto-averaging</button>
-          <button class="btn btn-ghost" id="aa-stop" onclick="stopAutoAvg()" disabled><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-stop"/></svg> Stop</button>
+          <button class="btn btn-primary" id="aa-start" onclick="startAutoAvg()"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-start"/></svg> Start auto-averaging</button>
+          <button class="btn btn-ghost" id="aa-stop" onclick="stopAutoAvg()" disabled><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-stop"/></svg> Stop</button>
           <span class="auto-state" id="aa-state">Idle</span>
           <span class="auto-count" id="aa-count"></span>
         </div>
@@ -1475,8 +1461,8 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
 <div id="modal-bg" onclick="if(event.target===this)closeBrowser()">
   <div id="modal-box">
     <div id="modal-head">
-      <span id="modal-title"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg> Select Folder</span>
-      <button onclick="closeBrowser()"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-close"/></svg></button>
+      <span id="modal-title"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg> Select folder</span>
+      <button onclick="closeBrowser()"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-close"/></svg></button>
     </div>
     <div id="modal-nav">
       <button id="modal-up" onclick="browseUp()">↑ Up</button>
@@ -1486,7 +1472,7 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
     <div id="modal-foot">
       <span id="modal-cur"></span>
       <button class="m-btn m-can" onclick="closeBrowser()">Cancel</button>
-      <button class="m-btn m-sel" id="modal-sel-btn" onclick="selectFolder()">Select Folder</button>
+      <button class="m-btn m-sel" id="modal-sel-btn" onclick="selectFolder()">Select folder</button>
     </div>
   </div>
 </div>
@@ -1562,7 +1548,7 @@ function switchMode(m){
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.mode===m));
   document.querySelectorAll('.mode-panel').forEach(p=>p.classList.toggle('active',p.id===`mode-${m}`));
   document.getElementById('tb-mode').textContent=
-    m==='2d'?'2D Raw Image Viewer':m==='auto'?'Automated Averaging':'1D Processed Data Viewer';
+    m==='2d'?'2D raw image viewer':m==='auto'?'Automated averaging':'1D reduced data viewer';
   document.getElementById('tb-detail').textContent='';
   setTimeout(()=>window.dispatchEvent(new Event('resize')),80);
 }
@@ -1609,8 +1595,8 @@ async function loadOvFiles(det){
     OV[det].idx=0;
     const n=OV[det].files.length, total=OV[det].allFiles.length;
     setSt(q
-      ? `${n} of ${total} files matched "${q}" — ${det.toUpperCase()}`
-      : `${n} files loaded — ${det.toUpperCase()}`
+      ? `${det.toUpperCase()}: ${n} of ${total} files match "${q}"`
+      : `${det.toUpperCase()}: ${n} files loaded`
     , 'ok');
     switch2D(det+'-img');
     populateOvSelect(det);
@@ -1648,7 +1634,7 @@ async function renderOvImage(det){
     const p=new URLSearchParams({file:dir+'/'+fname,rows,cols,cmap,log,clip,poni});
     const d=await api(`/api/raw-image?${p}`);
     if(d.error){
-      body.innerHTML=`<div class="img-placeholder"><span class="ico">⚠</span><span>${esc(d.error)}</span></div>`;
+      body.innerHTML=`<div class="img-placeholder">${icoSvg('warning')}<span>${esc(d.error)}</span></div>`;
       return;
     }
     body.innerHTML=`<img src="data:image/png;base64,${d.image}" alt="${esc(fname)}"
@@ -1660,7 +1646,7 @@ async function renderOvImage(det){
     document.getElementById(prefix+'-mean').textContent =d.mean.toLocaleString();
     document.getElementById(prefix+'-shape').textContent=`${d.shape[0]} × ${d.shape[1]}`;
   }catch(e){
-    body.innerHTML=`<div class="img-placeholder"><span class="ico">⚠</span><span>${esc(String(e))}</span></div>`;
+    body.innerHTML=`<div class="img-placeholder">${icoSvg('warning')}<span>${esc(String(e))}</span></div>`;
   }
 }
 
@@ -1676,13 +1662,13 @@ function populateOvSelect(det){
   const allCount=OV[det].allFiles.length;
   // No folder loaded yet
   if(!allCount){
-    sel.innerHTML='<option disabled>— load a folder first (Setup tab) —</option>';
+    sel.innerHTML='<option disabled>Load a folder first (Setup tab)</option>';
     if(counter) counter.textContent='—';
     return;
   }
   // Nothing passes the current filter
   if(!files.length){
-    sel.innerHTML='<option disabled>No files match — try a different filter or reload</option>';
+    sel.innerHTML='<option disabled>No files match; change the filter or reload</option>';
     if(counter) counter.textContent=`0 / ${allCount}`;
     return;
   }
@@ -1734,7 +1720,7 @@ function updateLoadLabel(det){
   const btn=document.getElementById('ov-'+det+'-load-btn');
   if(!btn) return;
   const q=(document.getElementById('ov-'+det+'-search')?.value||'').trim();
-  btn.textContent=q?'📂 Load filtered':'📂 Load all';
+  setIco(btn,'folder',q?'Load filtered':'Load all');
 }
 
 // User picks a file directly from the dropdown.
@@ -1933,8 +1919,8 @@ function _renderDiscList(prefixes){
       `<input type="checkbox" class="disc-cb" value="${esc(item.label)}"${alreadyAdded?'':' checked'}${alreadyAdded?' disabled':''}>`+
       `<span class="disc-label" title="${esc(exTitle)}">${esc(item.label)}</span>`+
       sBadge + wBadge +
-      `<button class="disc-edit" title="Edit then add to keywords"
-               onclick="discPrefill('${escJ(item.label)}')">✏</button>`;
+      `<button class="disc-edit" title="Edit, then add as keyword"
+               onclick="discPrefill('${escJ(item.label)}')">${icoSvg('edit')}</button>`;
     list.appendChild(row);
   });
 
@@ -2105,7 +2091,7 @@ async function loadAndPlot(){
       note.classList.remove('show'); note.textContent='';
     }
 
-    const filtMsg = nb>0 ? ` — ⚠ ${nb} frame${nb>1?'s':''} rejected by I0 filter` : '';
+    const filtMsg = nb>0 ? ` (⚠ ${nb} frame${nb>1?'s':''} rejected by I0 filter)` : '';
     if(d.errors?.length) setSt('Loaded with warnings: '+d.errors[0],'warn');
     else setSt(`Loaded: ${ns} SAXS + ${nw} WAXS curves${filtMsg}`, nb>0?'warn':'ok');
     document.getElementById('btn-avg').disabled=false;
@@ -2217,7 +2203,7 @@ async function showRestartNotice(){
     b.className='restart-banner show '+n.level;   // .restored (calm) | .lost (loud)
     let msg=n.message||'';
     if(n.params&&n.params.length) msg+=' ('+n.params.join(', ')+')';
-    document.getElementById('restartBannerMsg').textContent=(n.level==='lost'?'⚠ ':'♻ ')+msg;
+    setIco(document.getElementById('restartBannerMsg'),n.level==='lost'?'warning':'mode-autonomous',msg);
   }catch(_){}
 }
 async function aaPollStatus(){
@@ -2270,16 +2256,17 @@ function applyQRange(q,I,sig){
 function axisFlags(mode){return mode==='linear'?[false,false]:mode==='semilogy'?[false,true]:[true,true];}
 (function restoreViewerAxis(){try{const a=localStorage.getItem('swaxs_view_axis');if(a){const s1=document.getElementById('scan-axis'),s2=document.getElementById('avg-axis');if(s1)s1.value=a;if(s2)s2.value=a;}}catch(e){}})();
 function baseLayout(title,xl,yl,logX=true,logY=true){
+  const T=swaxsPlotTheme();   // theme colours (light or dark), see _icon_helpers.html
   return{
-    paper_bgcolor:'transparent',plot_bgcolor:'#ffffff',
-    title:{text:title,font:{size:18,color:'#333'},x:.5,xanchor:'center'},
+    paper_bgcolor:'transparent',plot_bgcolor:T.bg,font:{color:T.fg},
+    title:{text:title,font:{size:18,color:T.fg},x:.5,xanchor:'center'},
     xaxis:{type:logX?'log':'linear',title:{text:xl,font:{size:16}},
-           showgrid:true,gridcolor:'#e8e8e8',showline:true,linecolor:'#aaa',
+           showgrid:true,gridcolor:T.grid,showline:true,linecolor:T.line,
            linewidth:1.5,mirror:true,ticks:'outside',tickfont:{size:14},zeroline:false},
     yaxis:{type:logY?'log':'linear',title:{text:yl,font:{size:16}},
-           showgrid:true,gridcolor:'#e8e8e8',showline:true,linecolor:'#aaa',
+           showgrid:true,gridcolor:T.grid,showline:true,linecolor:T.line,
            linewidth:1.5,mirror:true,ticks:'outside',tickfont:{size:14},zeroline:false},
-    legend:{bgcolor:'rgba(255,255,255,.9)',bordercolor:'#ccc',borderwidth:1,
+    legend:{bgcolor:T.legend,bordercolor:T.grid,borderwidth:1,
             font:{size:13},x:0.98,y:0.99,xanchor:'right',yanchor:'top'},
     hovermode:'closest',margin:{t:52,l:80,r:22,b:70},autosize:true,
   };
@@ -2321,7 +2308,7 @@ function plotScans(data){
       });
     }
     const [lx,ly]=axisFlags((document.getElementById('scan-axis')||{}).value||'loglog');
-    const lay=baseLayout(det.toUpperCase()+' — Individual Scans',qLbl(),'Intensity  [a.u.]',lx,ly);
+    const lay=baseLayout(det.toUpperCase()+' individual scans',qLbl(),'Intensity  [a.u.]',lx,ly);
     Plotly.react(divId,traces,lay,PCFG);
     const el=document.getElementById(divId);
     el.removeAllListeners?.('plotly_click');
@@ -2490,7 +2477,7 @@ function _fillMetaCard(di,def,kd,i0On,i0Pct){
           marker:{symbol:'x-thin',size:12,color:'#dc2626',
                   line:{width:2.5,color:'#dc2626'}},
           name:short(kw,18)+' ⚠',legendgroup:kw+'_bad',showlegend:true,
-          hovertemplate:`<b>⚠ Rejected — ${esc(short(kw,28))}</b><br>${esc(xLbl)}=%{x}<br>`+
+          hovertemplate:`<b>⚠ Rejected: ${esc(short(kw,28))}</b><br>${esc(xLbl)}=%{x}<br>`+
             `I₀=%{y:.4g}`+(med!=null?`<br>median=%{customdata:.4g}`:'')+'<extra></extra>',
         });
       }
@@ -2516,31 +2503,32 @@ function _fillMetaCard(di,def,kd,i0On,i0Pct){
         <td>${_sf(st.mean)}</td>
         <td>${_sf(st.std)}</td>
         <td class="${cvCls}">${st.cv!=null?st.cv.toFixed(1)+'%':'—'}</td>
-        <td style="white-space:nowrap">${_sf(st.min)} – ${_sf(st.max)}</td>
+        <td style="white-space:nowrap">${_sf(st.min)} to ${_sf(st.max)}</td>
       </tr>`;
     } else {
-      rows+=`<tr><td colspan="5" class="mc-no-data">${esc(short(kw,22))} — no data</td></tr>`;
+      rows+=`<tr><td colspan="5" class="mc-no-data">${esc(short(kw,22))}: no data</td></tr>`;
     }
   }
 
   statsDiv.innerHTML=
     `<table class="mc-tbl">
        <thead><tr>
-         <th>Keyword</th><th>Mean</th><th>Std</th><th>CV%</th><th>Min – Max</th>
+         <th>Keyword</th><th>Mean</th><th>Std</th><th>CV%</th><th>Min to max</th>
        </tr></thead>
        <tbody>${rows}</tbody>
      </table>`;
 
+  const T=swaxsPlotTheme();
   Plotly.react(chartId,traces,{
-    paper_bgcolor:'transparent',plot_bgcolor:'#ffffff',
+    paper_bgcolor:'transparent',plot_bgcolor:T.bg,font:{color:T.fg},
     margin:{t:8,l:66,r:12,b:52},
-    xaxis:{title:{text:_metaXLabel(),font:{size:13}},showgrid:true,gridcolor:'#e8e8e8',
-           showline:true,linecolor:'#aaa',linewidth:1,mirror:true,
+    xaxis:{title:{text:_metaXLabel(),font:{size:13}},showgrid:true,gridcolor:T.grid,
+           showline:true,linecolor:T.line,linewidth:1,mirror:true,
            ticks:'outside',tickfont:{size:12},zeroline:false},
     yaxis:{title:{text:def.lbl+(def.unit?' ['+def.unit+']':''),font:{size:13}},
-           showgrid:true,gridcolor:'#e8e8e8',showline:true,linecolor:'#aaa',
+           showgrid:true,gridcolor:T.grid,showline:true,linecolor:T.line,
            linewidth:1,mirror:true,ticks:'outside',tickfont:{size:12},zeroline:false},
-    legend:{bgcolor:'rgba(255,255,255,.85)',bordercolor:'#ccc',borderwidth:1,
+    legend:{bgcolor:T.legend,bordercolor:T.grid,borderwidth:1,
             font:{size:12},x:1.02,xanchor:'left',y:1},
     showlegend:true,hovermode:'closest',height:220,
   },{responsive:true,displayModeBar:false});
@@ -2563,23 +2551,23 @@ function replotAvg(){
     // Full-screen: fill all available height just like the SAXS 1D / WAXS 1D panels
     cont.style.cssText='overflow:hidden;padding:0;flex:1;min-height:0;';
     cont.innerHTML=`<div style="height:100%;display:flex;flex-direction:column;padding:14px;box-sizing:border-box">
-      <div class="card-hd" style="flex-shrink:0;margin-bottom:8px">∑ SAXS + WAXS — Averaged</div>
+      <div class="card-hd" style="flex-shrink:0;margin-bottom:8px">∑ Averaged SAXS + WAXS</div>
       <div id="plot-avg" style="flex:1;min-height:0"></div></div>`;
     Plotly.react('plot-avg',buildAvgTraces(allKws,data,qm,errB),
-      baseLayout('Averaged — SAXS + WAXS',ql,'Intensity  [a.u.]',lx,ly),PCFG);
+      baseLayout('Averaged SAXS + WAXS',ql,'Intensity  [a.u.]',lx,ly),PCFG);
   }else{
     // Side-by-side: full-height flex layout (same as stitch and individual panels)
     cont.style.cssText='overflow:hidden;padding:0;flex:1;min-height:0;';
     cont.innerHTML=`<div style="height:100%;display:flex;gap:18px;padding:14px;box-sizing:border-box">
       <div class="card" style="flex:1;padding:14px;display:flex;flex-direction:column;min-height:0">
-        <div class="card-hd" style="flex-shrink:0;margin-bottom:8px">SAXS — Averaged</div>
+        <div class="card-hd" style="flex-shrink:0;margin-bottom:8px">Averaged SAXS</div>
         <div id="plot-avg-saxs" style="flex:1;min-height:0"></div></div>
       <div class="card" style="flex:1;padding:14px;display:flex;flex-direction:column;min-height:0">
-        <div class="card-hd" style="flex-shrink:0;margin-bottom:8px">WAXS — Averaged</div>
+        <div class="card-hd" style="flex-shrink:0;margin-bottom:8px">Averaged WAXS</div>
         <div id="plot-avg-waxs" style="flex:1;min-height:0"></div></div></div>`;
     ['saxs','waxs'].forEach(det=>{
       Plotly.react('plot-avg-'+det,buildAvgDetTraces(allKws,data[det]??{},qm,errB),
-        baseLayout(det.toUpperCase()+' — Averaged',ql,'Intensity  [a.u.]',lx,ly),PCFG);
+        baseLayout('Averaged '+det.toUpperCase(),ql,'Intensity  [a.u.]',lx,ly),PCFG);
     });
   }
 }
@@ -2629,9 +2617,9 @@ const B={target:null,data:null,fileMode:false,filesExt:''};
 // B.fileMode = true  → file mode: dirs navigate, files are selectable
 function _openModal(id, fileMode, ext){
   B.target=id; B.fileMode=!!fileMode; B.filesExt=ext||'';
-  const title=fileMode?'📄 Select File':'📂 Select Folder';
+  const title=fileMode?'Select file':'Select folder';
   document.getElementById('modal-title').textContent=title;
-  document.getElementById('modal-sel-btn').textContent=fileMode?'Select File':'Select Folder';
+  document.getElementById('modal-sel-btn').textContent=fileMode?'Select file':'Select folder';
   document.getElementById('modal-bg').classList.add('open');
   const cur=document.getElementById(id).value.trim();
   // In file mode seed from parent dir if value already contains a file path
@@ -2704,7 +2692,7 @@ async function fetchDir(path){
       // Show a hint when no matching files in this directory
       const hint=document.createElement('div');
       hint.style.cssText='padding:10px 14px;font-size:15px;color:var(--muted);font-style:italic';
-      hint.textContent=`No ${B.filesExt} files here — navigate to the folder containing your calibration file.`;
+      hint.textContent=`No ${B.filesExt} files here. Open the folder with your calibration file.`;
       list.appendChild(hint);
     }
   }catch(e){console.error('browse',e);}
@@ -2723,7 +2711,10 @@ function selectFolder(){
    Utilities
 ═══════════════════════════════════════════════════ */
 function setSt(msg,type='info'){
+  // The status chip was removed from the top bar (operator, Oct 2026); keep the
+  // call sites harmless. Each viewer panel shows its own progress and results.
   const s=document.getElementById('sb-status');
+  if(!s) return;
   s.textContent=msg; s.className=type;
 }
 function spinBtn(which,on){
@@ -2778,9 +2769,9 @@ updBtns();
 </script>
 <script>
 (function(){var K='swaxs-theme',s=localStorage.getItem(K),
- d=s?s==='dark':matchMedia('(prefers-color-scheme:dark)').matches;
+ d=document.documentElement.getAttribute('data-theme')==='dark';
  function ap(x){document.documentElement.setAttribute('data-theme',x?'dark':'light');
-  var b=document.getElementById('themeToggle');if(b)b.textContent=x?'☀':'☾';}
+  var b=document.getElementById('themeToggle');if(b)b.innerHTML='<svg class="ico" aria-hidden="true"><use href="#swaxs-ui-'+(x?'sun':'moon')+'"/></svg>';}
  ap(d);window.toggleTheme=function(){d=!d;localStorage.setItem(K,d?'dark':'light');ap(d);};})();
 </script>
 </body>

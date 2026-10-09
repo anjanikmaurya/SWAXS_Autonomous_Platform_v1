@@ -3,9 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Geometry Calibration — SWAXS</title>
+  <title>Geometry Calibration · SWAXS</title>
     <link rel="icon" href="/app-icon">   <!-- per-app tab icon, from apps.yml (src/favicon.py) -->
   <link rel="stylesheet" href="/static/swaxs-tokens.css">
+{% include "_theme_boot.html" %}
 <style>
 /* ── SWAXS shared design system — Light theme ─────────────────────────── */
 :root{
@@ -18,7 +19,7 @@
   --txt:#1f2937; --txt-strong:#111827; --muted:#4b5563; --faint:#6b7280; --disabled:#9ca3af;
   --border:#e5e7eb; --border-strong:#c3c9d1;
   --font:'Inter','Segoe UI',system-ui,-apple-system,sans-serif;
-  --mono:"JetBrains Mono","Fira Code","Courier New",monospace;
+  --mono:'JetBrains Mono','Fira Code','Cascadia Code',ui-monospace,Menlo,Consolas,monospace;
   --radius:8px; --label-w:190px;
 }
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -41,7 +42,7 @@ html,body{height:100%;font-family:var(--font);font-size:16px;line-height:1.5;col
 #sidebar-foot{margin-top:auto;padding:10px 14px 12px;font-size:13px;color:rgba(var(--sf),.4);border-top:1px solid rgba(var(--sf),.10);line-height:1.6}
 #sse-row{display:flex;align-items:center;gap:6px;margin-bottom:2px}
 #sse-dot{width:7px;height:7px;border-radius:50%;background:rgba(var(--sf),.25);flex-shrink:0;transition:background .3s,box-shadow .3s}
-#sse-dot.live{background:#16a34a;box-shadow:0 0 6px #16a34a}
+#sse-dot.live{background:var(--ok);box-shadow:0 0 6px var(--ok)}
 #sse-txt{font-size:12px;color:rgba(var(--sf),.5)}
 
 /* ── Main ── */
@@ -63,7 +64,7 @@ html,body{height:100%;font-family:var(--font);font-size:16px;line-height:1.5;col
 .ir{display:flex;gap:6px;align-items:center}.ir input{flex:1}
 .fnote{font-size:14px;color:var(--muted);padding-left:2px}
 input[type="text"],input[type="number"],input[type="password"],select{width:100%;padding:7px 10px;background:var(--surface2);border:1px solid var(--border-strong);border-radius:5px;font-size:15px;color:var(--txt);transition:border-color .15s,box-shadow .15s;appearance:auto}
-input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(140,21,21,.12);background:#fff}
+input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(140,21,21,.12);background:var(--surface)}
 
 /* ── Buttons ── */
 .btn{padding:7px 15px;border:none;border-radius:5px;font-size:15px;font-weight:600;cursor:pointer;transition:opacity .15s;white-space:nowrap;display:inline-flex;align-items:center;gap:6px}
@@ -83,13 +84,13 @@ th{color:var(--faint);font-weight:600;text-transform:uppercase;font-size:11px;le
 .gal img{width:100%;border:1px solid var(--border);border-radius:6px}.gal figcaption{font-size:11.5px;color:var(--faint);margin-top:4px;word-break:break-all}
 .msg{font-size:13.5px;margin-top:10px}.msg.ok{color:var(--ok-text)}.msg.err{color:var(--err-text)}
 code{background:var(--surface2);padding:2px 6px;border-radius:4px;font-family:var(--mono);font-size:12.5px}
-.log{background:#0d1117;color:#e2e8f0;font-family:var(--mono);font-size:12.5px;border-radius:6px;padding:12px 14px;height:260px;overflow:auto;white-space:pre-wrap;margin-top:14px}
-.log .INFO{color:#94a3b8}.log .OK{color:#86efac}.log .WARN{color:#fbbf24}.log .ERR{color:#f87171}
+.log{background:var(--surface2);color:var(--txt);font-family:var(--mono);font-size:12.5px;border-radius:6px;padding:12px 14px;height:260px;overflow:auto;white-space:pre-wrap;margin-top:14px}
+.log .INFO{color:var(--muted)}.log .OK{color:var(--ok-text)}.log .WARN{color:var(--warn-text)}.log .ERR{color:var(--err-text)}
 .sec-label{font-size:14px;font-weight:600;color:var(--muted);margin:16px 0 4px}
 /* ── transfer progress ── */
 #prog-wrap{display:none;margin-top:16px;padding:14px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius)}
 #prog-wrap.on{display:block}
-.bar{height:12px;background:#dfe3e9;border-radius:6px;overflow:hidden;border:1px solid var(--border-strong)}
+.bar{height:12px;background:var(--surface2);border-radius:6px;overflow:hidden;border:1px solid var(--border-strong)}
 .bar-fill{height:100%;width:0%;background:linear-gradient(90deg,var(--accent),var(--accent-d));transition:width .35s ease}
 .bar-fill.done{background:var(--ok)}
 .prog-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:7px;gap:12px}
@@ -100,7 +101,7 @@ code{background:var(--surface2);padding:2px 6px;border-radius:4px;font-family:va
 #prog-cur{margin-top:10px;display:flex;flex-direction:column;gap:5px}
 .cur-row{display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--muted)}
 .cur-row .nm{flex:1;font-family:var(--mono);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.cur-row .mini{width:90px;height:5px;background:#dfe3e9;border-radius:3px;overflow:hidden;flex-shrink:0}
+.cur-row .mini{width:90px;height:5px;background:var(--surface2);border-radius:3px;overflow:hidden;flex-shrink:0}
 .cur-row .mini i{display:block;height:100%;background:var(--accent);border-radius:3px}
 .cur-row .pc{width:38px;text-align:right;font-variant-numeric:tabular-nums}
   
@@ -112,48 +113,41 @@ code{background:var(--surface2);padding:2px 6px;border-radius:4px;font-family:va
    tools/build_icon_sprite.py. */
 .app-mark { width:26px; height:26px; flex-shrink:0; color:var(--swaxs-calibration); }
 .app-lockup { display:flex; align-items:center; gap:10px; min-width:0 }
+
 </style>
 </head>
-<body>
+<body class="swaxs-shell">
 {% include "_icon_sprite.svg" %}
+{% include "_icon_helpers.html" %}
+<header class="topbar">
+  <div class="app-lockup">
+    {% include "_app_mark.svg" %}
+    <h1>Geometry <span>Calibration</span></h1>
+  </div>
+  <span class="conn-pill" id="sse-row"><span id="sse-dot"></span><span id="sse-txt" class="pill muted" style="padding:0;background:none">Idle</span></span>
+  <span id="topbar-path"></span>
+  <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" title="Toggle light / dark"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-moon"/></svg></button>
+  <span class="topbar-sub">Port 5101 · <a href="http://localhost:5100">← Hub</a></span>
+</header>
 <div id="app">
 
 <!-- ── Sidebar ── -->
 <nav id="sidebar">
-  <div id="logo">
-    <div id="logo-badge">SLAC · SSRL</div>
-    <div class="app-lockup">
-      {% include "_app_mark.svg" %}
-      <div><div id="logo-name">SWAXS<br>Pipeline</div></div>
-    </div>
-    <div id="logo-sub">Calibration &amp; Prep</div>
-  </div>
-
+  
   <div class="nav-section-label">Pre-reduction</div>
-  <button class="nav-btn active" data-tab="copy" onclick="switchTab('copy')">
-    <span class="nav-icon">⇩</span> Copy data
-  </button>
-  <button class="nav-btn" data-tab="calib" onclick="switchTab('calib')">
-    <span class="nav-icon">🎯</span> Calibrate
-  </button>
-
-  <div id="sidebar-foot">
-    <div id="sse-row"><div id="sse-dot"></div><span id="sse-txt" class="pill muted" style="padding:0;background:none">Idle</span></div>
-    localhost:5101
-  </div>
+  <button class="nav-btn active" data-tab="copy" onclick="switchTab('copy')"><span class="nav-icon"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-download"/></svg></span> Copy data</button>
+  <button class="nav-btn" data-tab="calib" onclick="switchTab('calib')"><span class="nav-icon"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-target"/></svg></span> Calibrate</button>
+  
 </nav>
 
 <!-- ── Main ── -->
 <div id="main">
-  <div id="topbar">
-    <span id="topbar-title">Geometry Calibration</span>
-    <span id="topbar-path"></span>
-  </div>
+  
 
   <!-- ════════ TAB: COPY DATA ════════ -->
   <div id="tab-copy" class="tab-panel active">
     <div class="card">
-      <div class="card-hd">⇩ Data copy — SFTP → local</div>
+      <div class="card-hd">⇩ Data copy: SFTP → local</div>
       <div class="fg">
         <label>Host</label>
         <div class="cell"><div class="ir"><input type="text" id="s_host" placeholder="sftp.slac.stanford.edu"></div></div>
@@ -162,8 +156,8 @@ code{background:var(--surface2);padding:2px 6px;border-radius:4px;font-family:va
         <label>Username</label>
         <div class="cell"><div class="ir"><input type="text" id="s_user"></div></div>
         <label>Password</label>
-        <div class="cell"><div class="ir"><input type="password" id="s_pass" placeholder="(or use SSH key below)"></div>
-          <span class="fnote">Never written to disk — re-enter each session, or use an SSH key instead.</span></div>
+        <div class="cell"><div class="ir"><input type="password" id="s_pass" placeholder="(or use an SSH key below)"></div>
+          <span class="fnote">Never saved to disk. Re-enter it each session, or use an SSH key.</span></div>
         <label>SSH key (optional)</label>
         <div class="cell"><div class="ir"><input type="text" id="s_key" placeholder="/path/to/id_rsa"></div></div>
         <label>Remote folder</label>
@@ -171,23 +165,23 @@ code{background:var(--surface2);padding:2px 6px;border-radius:4px;font-family:va
         <label>Local folder</label>
         <div class="cell"><div class="ir"><input type="text" id="s_local" placeholder="/Users/…/GoogleDrive/…">
           <button class="btn btn-ghost btn-sm" onclick="openBrowser('s_local','dir')">Browse…</button></div>
-          <span class="fnote">Destination. Sub-folders preserved; same-size files skipped.</span></div>
+          <span class="fnote">Destination. Subfolders are kept; files of the same size are skipped.</span></div>
         <label>Copy mode</label>
-        <div class="cell"><div class="ir"><select id="s_mode" onchange="modeChanged()" style="max-width:340px">
-            <option value="watch">Watch — keep copying new files (during beamtime)</option>
-            <option value="once">One-time — copy everything once, then stop (after beamtime)</option>
+        <div class="cell"><div class="ir"><select id="s_mode" onchange="modeChanged()" style="max-width:420px">
+            <option value="watch">Watch: copy new files continuously</option>
+            <option value="once">One time: copy everything, then stop</option>
           </select></div>
           <span class="fnote" id="s_modenote">Polls the remote folder on the interval below and copies anything new or changed.</span></div>
         <label>Check interval (s)</label>
         <div class="cell"><div class="ir"><input type="text" id="s_interval" value="60" style="max-width:120px"></div>
-          <span class="fnote" id="s_intnote">Watch mode only. Change requires Stop → Start.</span></div>
+          <span class="fnote" id="s_intnote">Watch mode only. Stop and start again to apply a change.</span></div>
         <label>Parallel transfers</label>
         <div class="cell"><div class="ir"><input type="number" id="s_workers" value="4" min="1" max="16" style="max-width:120px"></div>
-          <span class="fnote">Files copied at once (1–16). Raise to 8 for many small files on a fast link; lower to 1–2 if the server throttles.</span></div>
+          <span class="fnote">Files copied at once (1 to 16). Use 8 for many small files on a fast link, 1 or 2 if the server throttles.</span></div>
       </div>
       <div class="btn-row">
-        <button class="btn btn-primary" id="s_start" onclick="sftpStart()"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-start"/></svg> Start copy</button>
-        <button class="btn btn-err" id="s_stop" onclick="sftpStop()" disabled><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-stop"/></svg> Stop</button>
+        <button class="btn btn-primary" id="s_start" onclick="sftpStart()"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-start"/></svg> Start copy</button>
+        <button class="btn btn-err" id="s_stop" onclick="sftpStop()" disabled><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-stop"/></svg> Stop</button>
         <button class="btn btn-ghost" onclick="sftpTest()">Test connection</button>
         <span style="margin-left:auto;align-self:center"><span class="pill muted" id="sftp-status">Not running</span></span>
       </div>
@@ -219,10 +213,10 @@ code{background:var(--surface2);padding:2px 6px;border-radius:4px;font-family:va
         <label>Raw folder</label>
         <div class="cell"><div class="ir"><input type="text" id="rawdir" placeholder="/…/Auto_calibration/">
           <button class="btn btn-ghost btn-sm" onclick="openBrowser('rawdir','dir')">Browse…</button></div>
-          <span class="fnote">Folder of calibrant .raw (AgBehenate / LaB6). Detector auto-detected by size.</span></div>
+          <span class="fnote">Folder of calibrant .raw files (AgBh, LaB6). Detector is identified by image size.</span></div>
         <label>Keywords</label>
         <div class="cell"><div class="ir"><input type="text" id="kw" placeholder="AgBeh, LaB6"></div>
-          <span class="fnote">Comma-separated; blank = all files.</span></div>
+          <span class="fnote">Comma-separated. Leave blank for all files.</span></div>
       </div>
       <div class="btn-row">
         <button class="btn btn-ghost" onclick="listRaw()">List</button>
@@ -236,16 +230,17 @@ code{background:var(--surface2);padding:2px 6px;border-radius:4px;font-family:va
       <div class="fg">
         <label>Calibrant</label><div class="cell"><div class="ir"><select id="cal"></select></div></div>
         <label>Energy (keV)</label><div class="cell"><div class="ir"><input type="number" id="energy" step="0.1" value="12" style="max-width:140px"></div></div>
-        <label>Pixel (µm)</label><div class="cell"><div class="ir"><input type="number" id="pixel" step="1" value="172" style="max-width:140px"></div></div>
-        <label>CBF / raw file</label><div class="cell"><div class="ir"><select id="cbfsel"></select></div></div>
+        <label>Detector</label><div class="cell"><div class="ir"><select id="detsel"><option value="auto">Auto (from the image size)</option></select></div>
+          <span class="fnote" id="detnote">pyFAI knows each model's pixel size, image size and module gaps. Auto picks the Pilatus that matches the image.</span></div>
+        <label>Image</label><div class="cell"><div class="ir"><select id="cbfsel"></select></div></div>
       </div>
       <div class="btn-row"><button class="btn btn-primary" onclick="launchCalib()">Open pyFAI-calib2</button></div>
       <div id="launchmsg" class="msg"></div>
-      <p class="fnote" style="margin-top:10px">Pick rings and refine in the GUI, then <b>Save as…</b> — the dialog opens in the project <code>poni/</code> folder. Come back and hit Refresh below to see the new file.</p>
+      <p class="fnote" style="margin-top:10px">Pick rings and refine in the GUI, then <b>Save as…</b> (opens in the project <code>poni/</code> folder). Click Refresh below to see the new file.</p>
     </div>
 
     <div class="card">
-      <div class="card-hd">3 · Poni files in the project</div>
+      <div class="card-hd">3 · PONI files in project</div>
       <p class="fnote" id="ponidir"></p>
       <div id="ponilist"></div>
       <div class="btn-row"><button class="btn btn-ghost" onclick="loadPoni()">Refresh</button></div>
@@ -257,16 +252,16 @@ code{background:var(--surface2);padding:2px 6px;border-radius:4px;font-family:va
 <!-- ── File-browser modal (shared pattern) ── -->
 <div id="modal-overlay" onclick="maybeClose(event)"
      style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100;align-items:center;justify-content:center;">
-  <div style="background:#fff;border:1px solid var(--border);border-radius:10px;width:540px;max-height:78vh;display:flex;flex-direction:column;box-shadow:0 16px 48px rgba(0,0,0,.2);overflow:hidden;">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;width:540px;max-height:78vh;display:flex;flex-direction:column;box-shadow:0 16px 48px rgba(0,0,0,.2);overflow:hidden;">
     <div style="padding:14px 18px;background:var(--accent);display:flex;align-items:center;justify-content:space-between;">
       <span style="font-size:15px;font-weight:600;color:#fff;">Browse</span>
-      <button class="btn btn-sm" onclick="closeBrow()" style="background:rgba(255,255,255,.15);color:#fff;border:none;"><svg class="ico" style="width:1em;height:1em;vertical-align:-0.14em" aria-hidden="true"><use href="#swaxs-ui-close"/></svg></button>
+      <button class="btn btn-sm" onclick="closeBrow()" style="background:rgba(255,255,255,.15);color:#fff;border:none;"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-close"/></svg></button>
     </div>
     <div id="brow-path" style="padding:9px 16px;background:var(--surface2);border-bottom:1px solid var(--border);font-family:var(--mono);font-size:13px;color:var(--accent);word-break:break-all;"></div>
     <div id="brow-body" style="flex:1;overflow-y:auto;"></div>
     <div style="padding:11px 16px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--surface2);">
       <span id="brow-sel" style="font-size:13px;color:var(--muted);flex:1;word-break:break-all;">—</span>
-      <button class="btn btn-primary btn-sm" onclick="selectDir()">✓ Use this</button>
+      <button class="btn btn-primary btn-sm" onclick="selectDir()"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-pass"/></svg> Use this</button>
     </div>
   </div>
 </div>
@@ -293,10 +288,10 @@ async function loadBrowDir(path){
   const d=await j('/api/browse?path='+encodeURIComponent(path));
   S.browPath=d.path;$('brow-path').textContent=d.path;$('brow-sel').textContent=d.path;
   const body=$('brow-body');body.innerHTML='';
-  if(d.parent)body.appendChild(mkItem('⬆','.. (go up)',()=>loadBrowDir(d.parent)));
-  d.dirs.forEach(n=>{const full=d.path.replace(/[\\/]$/,'')+'/'+n;body.appendChild(mkItem('📁',n,()=>loadBrowDir(full)));});
+  if(d.parent)body.appendChild(mkItem(icoSvg('parent-dir'),'.. (go up)',()=>loadBrowDir(d.parent)));
+  d.dirs.forEach(n=>{const full=d.path.replace(/[\\/]$/,'')+'/'+n;body.appendChild(mkItem(icoSvg('folder'),n,()=>loadBrowDir(full)));});
   if(S.browMode==='file')d.files.forEach(n=>{const full=d.path.replace(/[\\/]$/,'')+'/'+n;
-    body.appendChild(mkItem('📄',n,()=>{$(S.browTarget).value=full;closeBrow();}));});
+    body.appendChild(mkItem(icoSvg('document'),n,()=>{$(S.browTarget).value=full;closeBrow();}));});
 }
 function mkItem(icon,label,cb){const div=document.createElement('div');
   div.style.cssText='display:flex;align-items:center;gap:9px;padding:9px 16px;cursor:pointer;font-size:14px;border-bottom:1px solid var(--border);color:var(--txt);';
@@ -310,9 +305,10 @@ function maybeClose(e){if(e.target.id==='modal-overlay')closeBrow();}
 // ── init ──
 async function init(){
   const p=await j("/api/project");
-  $("topbar-path").textContent=p.project_root?`project: ${p.project_root}`:"no project selected";
+  $("topbar-path").textContent=p.project_root?`Project: ${p.project_root}`:"No project selected";
   if(p.energy_keV)$("energy").value=p.energy_keV;
-  const c=await j("/api/calibrants");$("cal").innerHTML=c.calibrants.map(x=>`<option>${x}</option>`).join("");
+  loadDetectors();
+  const c=await j("/api/calibrants");const _lb=(c&&c.labels)||{};$("cal").innerHTML=((c&&c.calibrants)||[]).map(x=>`<option value="${x}">${_lb[x]||x}</option>`).join("");
   const s=await j("/api/sftp/config");const cf=s.config||{};
   for(const [id,k] of [["s_host","host"],["s_port","port"],["s_user","username"],["s_key","key_path"],["s_remote","remote_dir"],["s_local","local_dir"],["s_interval","interval"],["s_mode","mode"],["s_workers","workers"]])
     if(cf[k]!=null)$(id).value=cf[k];
@@ -328,13 +324,13 @@ function modeChanged(){const once=$("s_mode").value==="once";
   $("s_interval").disabled=once;
   $("s_intnote").style.opacity=once?".45":"1";
   $("s_modenote").textContent=once
-    ? "Walks the entire remote tree once and stops. Safe to re-run — files already present with the same size are skipped."
+    ? "Copies the whole remote tree once, then stops. Safe to re-run: files already present with the same size are skipped."
     : "Polls the remote folder on the interval below and copies anything new or changed.";
-  $("s_start").textContent=once?"▶ Copy now":"▶ Start copy";
-  $("s_stop").textContent=once?"■ Cancel":"■ Stop";}
+  setIco($("s_start"),"start",once?"Copy now":"Start copy");
+  setIco($("s_stop"),"stop",once?"Cancel":"Stop");}
 let _seq=0;
 async function sftpStart(){const r=await j("/api/sftp/start",sftpCfg());
-  if(!r.ok){alert(r.error||"failed");return;}$("s_start").disabled=true;$("s_stop").disabled=false;}
+  if(!r.ok){alert(r.error||"Could not start the copy.");return;}$("s_start").disabled=true;$("s_stop").disabled=false;}
 async function sftpStop(){await j("/api/sftp/stop",{});$("s_start").disabled=false;$("s_stop").disabled=true;}
 async function sftpTest(){await j("/api/sftp/test",sftpCfg());}
 function fmtDur(s){if(s==null)return "—";s=Math.round(s);
@@ -346,7 +342,7 @@ function renderProgress(p){
   wrap.classList.add("on");
   const pct=p.percent||0, complete=p.files_total>0&&p.files_done>=p.files_total;
   $("prog-pct").textContent=pct.toFixed(pct<100?1:0)+"%";
-  $("prog-phase").textContent=p.phase==="scanning"?"scanning remote…":(complete?"complete":"copying");
+  $("prog-phase").textContent=p.phase==="scanning"?"Scanning remote…":(complete?"Complete":"Copying");
   const fill=$("prog-fill");fill.style.width=Math.min(100,pct)+"%";fill.classList.toggle("done",complete);
   $("prog-files").textContent=`${p.files_done} / ${p.files_total}`;
   $("prog-bytes").textContent=`${p.data_done} / ${p.data_total}`;
@@ -377,7 +373,7 @@ async function pollSftp(){
 // ── calibration ──
 async function listRaw(){const r=await j("/api/list_raw",{raw_dir:$("rawdir").value.trim(),keywords:kws()});
   if(r.error){$("rawlist").innerHTML=`<div class="msg err">${r.error}</div>`;return;}
-  $("rawlist").innerHTML=`<table><tr><th>file</th><th>detector</th><th>pixels</th></tr>`+
+  $("rawlist").innerHTML=`<table><tr><th>File</th><th>Detector</th><th>Pixels</th></tr>`+
     r.files.map(f=>`<tr><td>${f.name}</td><td>${f.detector}</td><td>${f.pixels}</td></tr>`).join("")+`</table><div class="msg">${r.count} file(s)</div>`;
   $("cbfsel").innerHTML=r.files.map(f=>`<option value="${f.path}">${f.name}</option>`).join("");}
 async function convert(){$("convmsg").textContent="Converting…";$("convmsg").className="msg";
@@ -385,17 +381,36 @@ async function convert(){$("convmsg").textContent="Converting…";$("convmsg").c
   if(r.error){$("convmsg").className="msg err";$("convmsg").textContent=r.error;return;}
   const ok=r.results.filter(x=>x.ok).length;$("convmsg").className="msg ok";
   $("convmsg").innerHTML=`Converted ${ok}/${r.results.length} → <code>${r.out_dir}</code>`;
-  $("gallery").innerHTML=r.results.map(x=>x.ok?`<figure>${x.png?`<img src="${x.png}">`:""}<figcaption>${x.detector} · ${x.file}<br>max ${x.stats.max}, hot ${x.stats.hot_pixels}</figcaption></figure>`:`<figure><figcaption style="color:var(--err-text)">${x.file}: ${x.error}</figcaption></figure>`).join("");
+  $("gallery").innerHTML=r.results.map(x=>x.ok?`<figure>${x.png?`<img src="${x.png}">`:""}<figcaption>${x.detector} · ${x.file}<br>max ${x.stats.max}, hot pixels ${x.stats.hot_pixels}</figcaption></figure>`:`<figure><figcaption style="color:var(--err-text)">${x.file}: ${x.error}</figcaption></figure>`).join("");
   const cbfs=r.results.filter(x=>x.ok).map(x=>x.out);
   if(cbfs.length)$("cbfsel").innerHTML=cbfs.map(c=>`<option value="${c}">${c.split(/[\\/]/).pop()}</option>`).join("");}
+/* Detector menu: every pyFAI model, grouped by manufacturer (text set as TEXT). */
+async function loadDetectors(){
+  let r=null; try{ r=await j("/api/detectors"); }catch(e){}
+  const sel=$("detsel"); if(!sel||!r||!r.detectors) return;
+  const groups={};
+  r.detectors.forEach(d=>{ const m=d.manufacturer||"Other";
+    let g=groups[m]; if(!g){ g=document.createElement("optgroup"); g.label=m; groups[m]=g; sel.appendChild(g); }
+    const o=document.createElement("option"); o.value=d.id;
+    o.textContent=d.name+"  ("+d.shape[0]+" × "+d.shape[1]+(d.pixel_um?", "+d.pixel_um+" µm":"")+")";
+    g.appendChild(o); });
+}
 async function launchCalib(){const sel=$("cbfsel").value;if(!sel){alert("List or convert files first.");return;}
-  $("launchmsg").className="msg";$("launchmsg").textContent="Launching pyFAI-calib2…";
-  const r=await j("/api/calibrate/launch",{cbf:sel,calibrant:$("cal").value,energy_keV:+$("energy").value,pixel_um:+$("pixel").value});
+  $("launchmsg").className="msg";$("launchmsg").textContent="Opening pyFAI-calib2 (a few seconds)…";
+  const r=await j("/api/calibrate/launch",{cbf:sel,calibrant:$("cal").value,energy_keV:+$("energy").value,detector:$("detsel").value});
   $("launchmsg").className="msg "+(r.ok?"ok":"err");
-  $("launchmsg").innerHTML=(r.message||r.error||"")+`<br>command: <code>${r.command||""}</code>`;}
+  $("launchmsg").innerHTML=_esc(r.message||r.error||"")+(r.command?`<br>Command: <code>${_esc(r.command)}</code>`:"");}
+function _esc(t){return String(t).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
 async function loadPoni(){const r=await j("/api/poni");$("ponidir").innerHTML=`Folder: <code>${r.poni_dir}</code>`;
-  $("ponilist").innerHTML=r.files.length?`<table><tr><th>poni</th><th>path</th></tr>`+r.files.map(f=>`<tr><td>${f.name}</td><td>${f.path}</td></tr>`).join("")+`</table>`:`<div class="msg">No .poni files yet.</div>`;}
+  $("ponilist").innerHTML=r.files.length?`<table><tr><th>PONI</th><th>Path</th></tr>`+r.files.map(f=>`<tr><td>${f.name}</td><td>${f.path}</td></tr>`).join("")+`</table>`:`<div class="msg">No .poni files yet.</div>`;}
 init();
+</script>
+<script>
+/* theme: the platform toggle (state chosen in <head> by _theme_boot.html) */
+(function(){var K='swaxs-theme',d=document.documentElement.getAttribute('data-theme')==='dark';
+ function ap(x){document.documentElement.setAttribute('data-theme',x?'dark':'light');
+  var b=document.getElementById('themeToggle');if(b)b.innerHTML='<svg class="ico" aria-hidden="true"><use href="#swaxs-ui-'+(x?'sun':'moon')+'"/></svg>';}
+ ap(d);window.toggleTheme=function(){d=!d;try{localStorage.setItem(K,d?'dark':'light');}catch(e){}ap(d);};})();
 </script>
 </body>
 </html>

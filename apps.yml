@@ -72,7 +72,7 @@ apps:
 
   - id:           quality
     name:         "Quality Gate"
-    description:  "AI grading of subtracted profiles — good/bad scoring, auto-sort, frame selection"
+    description:  "AI grading of subtracted profiles: good or bad, auto sort, frame selection"
     port:         5105
     entry:        "quality/app.py"
     knowledge:    "quality/knowledge.md"
@@ -96,8 +96,8 @@ apps:
     color:        "#E65100"
 
   - id:           analyzer
-    name:         "Auto-Fit & Optimiser"
-    description:  "Auto-fit subtracted SAXS → size, PDI, invariant, phase, confidence (loop input)"
+    name:         "Autonomous Analyser"
+    description:  "Fits subtracted SAXS for size, PDI, invariant and phase; feeds the optimiser"
     port:         5107
     entry:        "analyzer/app.py"
     manifest_key: "analyses"
@@ -110,7 +110,7 @@ apps:
 
   - id:           reactor
     name:         "Autonomous Synthesis"
-    description:  "5-pump continuous-flow reactor control — executes predicted recipes, auto-flush"
+    description:  "Five pump flow reactor: runs predicted recipes, auto flush"
     port:         5108
     entry:        "reactor/app.py"
     knowledge:    "reactor/knowledge.md"
@@ -134,7 +134,7 @@ apps:
     color:        "#455A64"
 
   - id:           watchdog
-    name:         "Auto Watch"
+    name:         "Autonomous Watch"
     description:  "Loop liveness monitoring and all platform notifications"
     port:         5110
     entry:        "watchdog/app.py"

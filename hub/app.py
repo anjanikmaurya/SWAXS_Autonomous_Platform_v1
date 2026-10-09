@@ -172,6 +172,15 @@ def _save_project_state(path: str) -> None:
 
 _project_root: str = _load_project_state()
 
+# ── Operator: entered once, in the hub (src/operator_id.py) ───────────────────
+# Saved across hub restarts, exported to every app the hub launches
+# (SWAXS_USER_ID), and written into the selected project's manifest so apps that
+# are already running see a change without a restart.
+from src import operator_id as _opid      # noqa: E402
+_operator: str = _opid.load_saved()
+if _operator:
+    os.environ["SWAXS_USER_ID"] = _operator
+
 # ── WebSocket event bus state ─────────────────────────────────────────────────
 _ws_clients: set = set()
 _ws_lock     = threading.Lock()
@@ -389,6 +398,28 @@ def _start_app(app_id: str) -> tuple[bool, str]:
         return False, str(exc)
 
 
+def _request_graceful_shutdown(port: int, timeout: float = 20.0) -> str:
+    """Ask an app to make itself safe BEFORE the process is killed.
+
+    On Windows, terminate() is TerminateProcess: an outright kill, so the
+    reactor's SIGTERM/atexit handler never ran and the pumps stayed at their last
+    setpoint with SPEC still locked to a dead process. Even on POSIX the 5 s
+    SIGTERM grace can be shorter than a serial retry. So apps that move hardware
+    expose POST /api/shutdown, which idles pumps, closes the shutter and releases
+    SPEC synchronously; the hub waits for it, THEN kills. Apps without the route
+    answer 404 at once, and any error just falls through to the normal kill.
+    Returns "graceful" when the app confirmed, else "".
+    """
+    try:
+        req = urllib.request.Request(f"http://127.0.0.1:{port}/api/shutdown",
+                                     data=b"{}", method="POST",
+                                     headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return "graceful" if r.status == 200 else ""
+    except Exception:
+        return ""
+
+
 def _stop_app(app_id: str) -> tuple[bool, str]:
     """Stop the app and make sure nothing of it is left running.
 
@@ -404,6 +435,11 @@ def _stop_app(app_id: str) -> tuple[bool, str]:
     proc = _procs.get(app_id)
     notes = []
 
+    # Make hardware safe first (no-op 404 for apps that don't move hardware).
+    if port is not None and ((proc is not None and proc.poll() is None)
+                             or pl.port_in_use(port)):
+        if _request_graceful_shutdown(port):
+            logger.info("[Hub] %s: made itself safe before stopping", app_id)
     if proc is not None and proc.poll() is None:
         notes.append(pl.kill_tree(proc, grace=5.0))
     with _procs_lock:
@@ -798,6 +834,31 @@ def api_ports():
     return jsonify({"ports": out})
 
 
+@app.route("/api/operator", methods=["GET", "POST"])
+def api_operator():
+    """GET the current operator; POST {operator} to set it. Set once here, it is
+    used by every app's provenance (see src/operator_id.py)."""
+    global _operator
+    if request.method == "POST":
+        name = _opid.clean((request.get_json(silent=True) or {}).get("operator"))
+        _operator = name
+        try:
+            _opid.save(name)
+        except Exception as exc:
+            logger.warning("[Hub] could not save operator: %s", exc)
+        if name:
+            os.environ["SWAXS_USER_ID"] = name     # inherited by apps started from now on
+        else:
+            os.environ.pop("SWAXS_USER_ID", None)
+        if _project_root:
+            try:
+                _opid.write_to_project(_project_root, name)
+            except Exception as exc:
+                logger.warning("[Hub] could not record operator in project: %s", exc)
+        _hub_emit("operator.set", {"operator": name})
+    return jsonify({"operator": _operator})
+
+
 @app.route("/api/set_project", methods=["POST"])
 def api_set_project():
     global _project_root
@@ -806,6 +867,11 @@ def api_set_project():
     if path and Path(path).is_dir():
         _project_root = path
         _save_project_state(path)   # remember across hub restarts
+        if _operator:   # the new project records who is operating
+            try:
+                _opid.write_to_project(path, _operator)
+            except Exception as exc:
+                logger.warning("[Hub] could not record operator in %s: %s", path, exc)
         # Propagate to already-running sub-apps
         for a in APPS:
             if _is_running(a["id"]):

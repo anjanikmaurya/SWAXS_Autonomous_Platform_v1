@@ -32,6 +32,7 @@ import numpy as np                          # noqa: E402
 
 from . import diagnostics as dg             # noqa: E402
 from .campaign import _FAIL_LOSS            # noqa: E402
+from src.plot_lock import MPL_LOCK          # noqa: E402  (process-wide pyplot lock)
 
 ACCENT = "#B1040E"          # SLAC cardinal — matches the apps
 _FIGKW = dict(dpi=130, facecolor="white")
@@ -340,16 +341,166 @@ def trajectory_figure(campaign, *, truth=None) -> bytes:
     return _png(fig)
 
 
+import math                                               # noqa: E402
+
+
+def _ncdf(z):
+    """Standard-normal CDF, vectorised, no scipy dependency."""
+    return 0.5 * (1.0 + np.vectorize(math.erf)(np.asarray(z, float) / math.sqrt(2.0)))
+
+
+# ── view 4: level set — the region of recipes predicted in-spec ────────────────
+def levelset_figure(campaign, xname=None, yname=None, *, n=60,
+                    anchor_mode="best", truth=None) -> bytes:
+    """Map P(in-spec) = P(loss ≤ τ) over a 2-D cut: the set of recipes meeting the
+    specification (the level-set goal), with the band boundary drawn and the
+    measured recipes overlaid."""
+    xname = xname or dg.DEFAULT_SLICE[0]
+    yname = yname or dg.DEFAULT_SLICE[1]
+    s = dg.slice_surfaces(campaign, xname, yname, n=n, anchor_mode=anchor_mode)
+    if s is None:
+        return _empty("No results yet — the surrogate needs at least one measured recipe.")
+    mean = np.array(s["loss_mean"], float)
+    sd = np.maximum(np.array(s["loss_sd"], float), 1e-9)
+    # τ on the SAME (possibly transformed) scale as loss_mean.
+    tau_raw = getattr(campaign, "_tau", 1.0 + getattr(campaign, "weight_pdi", 1.0))
+    try:
+        tau = float(campaign._transform(np.array([tau_raw]))[0])
+    except Exception:
+        tau = float(tau_raw)
+    P = _ncdf((tau - mean) / sd)                          # probability each cell is in-spec
+    xs, ys = np.array(s["x"]), np.array(s["y"])
+    ext = [xs[0], xs[-1], ys[0], ys[-1]]
+    fig, ax = plt.subplots(figsize=(7.4, 5.6), **_FIGKW)
+    im = ax.imshow(P, origin="lower", extent=ext, aspect="auto", cmap="YlGn",
+                   vmin=0.0, vmax=1.0)
+    fig.colorbar(im, ax=ax, label="P(recipe meets the spec)")
+    try:
+        cs = ax.contour(xs, ys, P, levels=[0.5], colors=ACCENT, linewidths=1.6)
+        ax.clabel(cs, fmt="band edge", fontsize=8)
+    except Exception:
+        pass
+    obs = s.get("samples", [])
+    ok = [p for p in obs if not p.get("failed")]
+    if ok:
+        ax.scatter([p["x"] for p in ok], [p["y"] for p in ok],
+                   s=[16 + 42 * p.get("confidence", 0.3) for p in ok],
+                   facecolors="none", edgecolors="white", linewidths=1.3, zorder=4,
+                   label="measured")
+    if campaign.best is not None:
+        bp = campaign.best["params"]
+        ax.scatter([bp[xname]], [bp[yname]], s=190, marker="*", color=ACCENT,
+                   edgecolors="white", linewidths=1.0, zorder=6, label="best so far")
+    ax.set_xlabel(_label(xname)); ax.set_ylabel(_label(yname))
+    ax.set_title("Level set — recipes predicted to meet the spec", fontsize=11)
+    ax.legend(loc="upper right", fontsize=8, framealpha=0.85)
+    return _png(fig)
+
+
+# ── view 5: size–PDI Pareto front ──────────────────────────────────────────────
+def pareto_figure(campaign, *, truth=None) -> bytes:
+    """PDI vs diameter for every sized recipe, with the non-dominated trade-off
+    front (minimising size error AND PDI) highlighted — the Pareto goal."""
+    hist = [h for h in campaign.history if h.get("size") is not None]
+    if not hist:
+        return _empty("No sized results yet — the Pareto front needs measured recipes.")
+    tgt = float(getattr(campaign, "target_size", 0.0))
+    dia = np.array([2.0 * float(h["size"]) for h in hist])          # diameter (nm)
+    pdi = np.array([float(h["pdi"]) if h.get("pdi") is not None else np.nan for h in hist])
+    conf = np.array([float(h.get("confidence") or 0.0) for h in hist])
+    # Two minimised objectives: distance from target size, and PDI.
+    serr = np.abs(np.array([float(h["size"]) for h in hist]) - tgt)
+    good = np.isfinite(pdi)
+    idx = np.where(good)[0]
+    nd = []
+    for i in idx:                                                   # non-dominated set
+        dominated = any((serr[j] <= serr[i] and pdi[j] <= pdi[i]) and
+                        (serr[j] < serr[i] or pdi[j] < pdi[i]) for j in idx if j != i)
+        if not dominated:
+            nd.append(i)
+    nd.sort(key=lambda i: dia[i])
+    fig, ax = plt.subplots(figsize=(7.4, 5.0), **_FIGKW)
+    sc = ax.scatter(dia[good], pdi[good], c=conf[good], cmap="viridis", vmin=0, vmax=1,
+                    s=40, edgecolors="#333", linewidths=0.4, zorder=3)
+    fig.colorbar(sc, ax=ax, label="fit confidence")
+    if nd:
+        ax.plot(dia[nd], pdi[nd], color=ACCENT, lw=1.8, marker="o", ms=6,
+                markerfacecolor=ACCENT, markeredgecolor="white", zorder=5,
+                label="Pareto front")
+    if campaign.pdi_cap:
+        ax.axhline(float(campaign.pdi_cap), color="#888", ls="--", lw=1.0,
+                   label=f"PDI cap {campaign.pdi_cap:g}")
+    ax.axvline(2.0 * tgt, color="#4ade80", ls=":", lw=1.0, label=f"target {2.0*tgt:g} nm")
+    ax.set_xlabel("diameter (nm)"); ax.set_ylabel("PDI")
+    ax.set_title("Size–PDI trade-off (Pareto front)", fontsize=11)
+    ax.legend(loc="upper right", fontsize=8, framealpha=0.85)
+    return _png(fig)
+
+
 FIGURES = {"slice": slice_figure,
            "convergence": convergence_figure,
-           "trajectory": trajectory_figure}
+           "trajectory": trajectory_figure,
+           "levelset": levelset_figure,
+           "pareto": pareto_figure}
 
 
 def figure(view: str, campaign, **kw) -> bytes:
-    fn = FIGURES.get(str(view))
-    if fn is None:
-        return _empty(f"unknown view {view!r} — expected one of {sorted(FIGURES)}")
-    try:
-        return fn(campaign, **kw)
-    except Exception as exc:                       # a broken plot must not kill a run
-        return _empty(f"could not render {view}: {exc}")
+    # One process-wide lock: the analyzer renders these in Flask request threads
+    # while its watcher thread writes per-fit PNGs; unsynchronised pyplot use
+    # corrupts figures or crashes. On any error, close whatever was half-built so
+    # a broken plot cannot leak a Figure (memory + file descriptors) over a long
+    # run.
+    with MPL_LOCK:
+        fn = FIGURES.get(str(view))
+        if fn is None:
+            return _empty(f"unknown view {view!r} — expected one of {sorted(FIGURES)}")
+        try:
+            return fn(campaign, **kw)
+        except Exception as exc:                   # a broken plot must not kill a run
+            try:
+                plt.close("all")
+            except Exception:
+                pass
+            return _empty(f"could not render {view}: {exc}")
+
+
+def study_figure(results: dict) -> bytes:
+    """Best-loss-so-far vs iteration, one line per method, from a run_study()
+    result. Averages across repeats and shades the min/max band. In-silico
+    method-comparison figure for the Report tab (docs/AUTOFIT_REDESIGN.md)."""
+    with MPL_LOCK:
+        try:
+            if not results:
+                return _empty("run a comparison to see method sample-efficiency")
+            fig, ax = plt.subplots(figsize=(7.6, 4.4), **_FIGKW)
+            cmap = plt.get_cmap("tab10")
+            for i, (mid, r) in enumerate(results.items()):
+                curves = [run["best_loss_curve"] for run in r.get("repeats", [])
+                          if run.get("best_loss_curve")]
+                if not curves:
+                    continue
+                n = min(len(c) for c in curves)
+                if n == 0:
+                    continue
+                arr = np.array([c[:n] for c in curves], float)
+                x = np.arange(1, n + 1)
+                mean = arr.mean(axis=0)
+                col = cmap(i % 10)
+                ax.plot(x, mean, lw=2.0, color=col, label=r.get("label", mid))
+                if arr.shape[0] > 1:
+                    ax.fill_between(x, arr.min(axis=0), arr.max(axis=0),
+                                    color=col, alpha=0.15, lw=0)
+            ax.set_yscale("log")
+            ax.set_xlabel("evaluation (recipe #)")
+            ax.set_ylabel("best loss so far")
+            ax.set_title("Method comparison — sample efficiency (in silico)")
+            ax.grid(True, which="both", alpha=0.25)
+            ax.legend(loc="upper right", fontsize=9, frameon=False)
+            fig.tight_layout()
+            return _png(fig)
+        except Exception as exc:
+            try:
+                plt.close("all")
+            except Exception:
+                pass
+            return _empty(f"could not render study: {exc}")

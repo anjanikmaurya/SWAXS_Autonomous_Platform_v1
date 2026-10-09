@@ -54,7 +54,7 @@ On the rig the hub's Windows folder is translated to the beamline Linux path via
 `spec.hub_path_map`. **In mock mode that translation is skipped** — no SPEC is
 involved and the simulator writes with ordinary local file I/O, so a
 `/msd_data/...` path would be unwritable on a laptop. The hub project folder is
-used verbatim. Flipping the Mock/Real toggle re-resolves it automatically.
+used verbatim. Flipping the Simulation/Hardware toggle re-resolves it automatically.
 
 Pin mock output elsewhere with `spec.mock_data_dir` (blank = follow the hub;
 ignored when the backend is `real`, so a leftover override can never redirect

@@ -126,3 +126,300 @@
  * icon size). At 16px use ~1.33, at 20px ~1.67, at 32px ~2.67 — or set
  * vector-effect:non-scaling-stroke if you prefer a fixed rendered width.
  */
+
+/* ── Shared inline icon ─────────────────────────────────────────────────────
+ * Every in-UI icon is a sprite symbol: <svg class="ico"><use href="#swaxs-ui-…"/></svg>
+ * It sizes to the surrounding text and takes its colour from `color`, so the
+ * same markup works in buttons, headings and pills, in both themes. Emoji are
+ * not used as icons anywhere: they render differently on every OS and do not
+ * follow the theme.
+ */
+.ico { width: 1em; height: 1em; display: inline-block; vertical-align: -0.14em;
+       flex: none; overflow: visible; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * ONE light/dark palette and ONE page chrome for every app (October 2026)
+ * ═══════════════════════════════════════════════════════════════════════════
+ * Every app used to own a :root palette, and they had drifted: different
+ * greys, a dark-only top bar in three apps, semantic text colours that were
+ * never redefined for dark mode. This block is the single source of truth.
+ *
+ * The selectors are deliberately one step more specific than an app's own
+ * (`html:root…` beats `:root…`), so these values win over any leftover app
+ * palette without every template having to be edited in lockstep. Change a
+ * colour HERE, run tools/build_icon_sprite.py, and every app follows.
+ *
+ * Theme is chosen by `data-theme` on <html>, set before first paint by
+ * templates/_theme_boot.html: the saved choice (localStorage `swaxs-theme`,
+ * shared by every app) wins, otherwise the OS preference.
+ */
+html:root:not([data-theme="dark"]) {
+  color-scheme: light;
+  --bg:#f5f7fa; --surface:#ffffff; --surface2:#f0f2f5;
+  --border:#e5e7eb; --border-strong:#c3c9d1;
+  --txt:#1f2937; --txt-strong:#111827; --muted:#4b5563; --faint:#6b7280; --disabled:#9ca3af;
+  --text:var(--txt); --text-strong:var(--txt-strong);
+  --accent:#B1040E; --accent-d:#8C1515; --accent-lt:#fee2e2; --accent-l:#fbe9ea; --accent-text:#B1040E;
+  --teal:#B83A4B; --teal-lt:#fee2e2;
+  --ok:#16a34a;   --ok-lt:#dcfce7;   --ok-text:#15803d;
+  --warn:#d97706; --warn-lt:#fef3c7; --warn-text:#b45309;
+  --err:#dc2626;  --err-lt:#fee2e2;  --err-text:#b91c1c;
+  --info:#1d4ed8; --info-lt:#dbeafe; --info-text:#1d4ed8;
+  --violet:#7c3aed; --violet-lt:#ede9fe; --violet-text:#6d28d9;
+  --blue:#1d4ed8; --green:#16a34a; --red:#dc2626; --yellow:#b45309;
+  --hint-info:#eff6ff; --hint-warn:#fffbeb; --hint-err:#fef2f2;
+  --panel2:var(--surface2);
+  --sidebar:#eef1f5; --sidebar-h:#e3e7ed; --sf:31,41,55;
+  --sidebar-active-bg:rgba(177,4,14,.10); --sidebar-active-fg:#8C1515;
+  --ai-bg:#f9fafb; --ai-border:#e5e7eb; --user-bg:#eff6ff; --user-border:#bfdbfe;
+  --shadow:0 4px 18px rgba(15,23,42,.10);
+}
+html:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg:#15161a; --surface:#1f2126; --surface2:#272a31;
+  --border:#343842; --border-strong:#4c515c;
+  --txt:#e7e9ee; --txt-strong:#f5f7fa; --muted:#a4abb6; --faint:#8a919c; --disabled:#5a606b;
+  --text:var(--txt); --text-strong:var(--txt-strong);
+  /* --accent is a FILL (white text on it 4.66:1); text in the accent colour uses
+     --accent-text, which a dark surface needs lighter (6.5:1). */
+  --accent:#cc4450; --accent-d:#b1040e; --accent-lt:#3a2023; --accent-l:#3a2023; --accent-text:#ff7b8a;
+  --teal:#d44a55; --teal-lt:#3a2023;
+  --ok:#4ade80;   --ok-lt:#16301f;   --ok-text:#6ee7a0;
+  --warn:#d8a657; --warn-lt:#33270f; --warn-text:#f0c46b;
+  --err:#f87171;  --err-lt:#371a1c;  --err-text:#fca5a5;
+  --info:#7da9d8; --info-lt:#13243b; --info-text:#93c5fd;
+  --violet:#a78bfa; --violet-lt:#241c3a; --violet-text:#c4b5fd;
+  --blue:#60a5fa; --green:#3fb950; --red:#f85149; --yellow:#d29922;
+  --hint-info:#13243b; --hint-warn:#33270f; --hint-err:#371a1c;
+  --panel2:var(--surface2);
+  --sidebar:#1f2126; --sidebar-h:#2a2d34; --sf:231,233,238;
+  --sidebar-active-bg:rgba(212,74,85,.22); --sidebar-active-fg:#f0a6ab;
+  --ai-bg:#23252b; --ai-border:#343842; --user-bg:#1c2a3f; --user-border:#2d456b;
+  --shadow:0 4px 22px rgba(0,0,0,.45);
+}
+html body { background:var(--bg); color:var(--txt); }
+
+/* ── page chrome: top bar, theme toggle, tab rows ─────────────────────────── */
+html body .topbar {
+  display:flex; align-items:center; flex-wrap:wrap; gap:12px 14px;
+  min-height:56px; height:auto; padding:8px 20px; flex-shrink:0;
+  background:var(--surface); color:var(--txt); border-bottom:1px solid var(--border);
+}
+html body .topbar h1 { font-size:20px; font-weight:700; margin:0; line-height:1.2;
+  color:var(--txt-strong); white-space:nowrap; }
+html body .topbar h1 span { color:var(--accent-text); font-weight:700; }
+html body .topbar .app-mark { width:26px; height:26px; flex-shrink:0; }
+html body .topbar a { color:var(--accent-text); text-decoration:none; }
+html body .topbar a:hover { text-decoration:underline; }
+html body .topbar .sub, html body .topbar .topbar-sub { font-size:14px; color:var(--muted); white-space:nowrap; }
+html body .topbar .proj { color:var(--muted); }
+html body .theme-toggle {
+  display:inline-flex; align-items:center; justify-content:center; width:34px; height:30px;
+  padding:0; border:1px solid var(--border-strong); border-radius:7px;
+  background:var(--surface); color:var(--txt); cursor:pointer; font-size:15px; line-height:1;
+}
+html body .theme-toggle:hover { background:var(--surface2); }
+html body .toptabbar, html body .cattabbar {
+  display:flex; align-items:center; gap:2px; padding:0 16px; flex-shrink:0;
+  background:var(--surface2); border-bottom:2px solid var(--border);
+}
+html body .toptab, html body .cattabbar .navtab {
+  display:inline-flex; align-items:center; gap:7px; padding:10px 16px; margin-bottom:-2px;
+  border:none; border-bottom:3px solid transparent; border-radius:0; background:transparent;
+  color:var(--muted); font-size:15px; font-weight:600; cursor:pointer; white-space:nowrap;
+}
+html body .toptabbar .toptab:hover, html body .cattabbar .navtab:hover { color:var(--txt); background:transparent; }
+html body .toptabbar .toptab.active, html body .cattabbar .navtab.active {
+  color:var(--accent-text); font-weight:700; border-bottom-color:var(--accent); background:transparent;
+}
+/* a status pill anywhere in the bar: neutral surface, theme text */
+html body .topbar .conn-pill {
+  display:inline-flex; align-items:center; gap:7px; padding:3px 11px; border-radius:999px;
+  background:var(--surface2); border:1px solid var(--border); color:var(--muted); font-size:13px; white-space:nowrap;
+}
+
+/* ── Left-column layout (reduction, calibration, watchdog, average, analysis,
+ *    background) ─────────────────────────────────────────────────────────────
+ * The operator's preferred shell for multi-section apps: a left column with the
+ * app's logo and name on top, its sections as a list, and connection status +
+ * Port · ← Hub at the bottom; a slim bar over the content for the project path
+ * and the theme switch; each section's task tabs inside the page. Scoped to
+ * these ids, so the top-bar apps (analyzer, reactor, quality, assistant) are
+ * untouched. Colours come from the themed --sidebar tokens above. */
+html body #app { display:flex; flex-direction:row; height:100vh; overflow:hidden; }
+html body #sidebar { width:236px; flex-shrink:0; display:flex; flex-direction:column; overflow-y:auto;
+  background:var(--sidebar); border-right:1px solid var(--border); }
+html body #logo { padding:18px 16px 14px; border-bottom:1px solid rgba(var(--sf),.10); }
+html body #logo-badge { font-size:12px; font-weight:700; letter-spacing:.14em; text-transform:uppercase;
+  color:rgba(var(--sf),.6); margin-bottom:6px; }
+html body #logo .app-lockup { display:flex; align-items:center; gap:10px; }
+html body #logo .app-mark { width:28px; height:28px; flex-shrink:0; }
+html body #logo-name { font-size:20px; font-weight:700; line-height:1.15; color:rgba(var(--sf),.95); }
+html body #logo-sub { font-size:14px; margin-top:4px; color:rgba(var(--sf),.6); }
+html body #sidebar .nav-section-label { padding:14px 16px 5px; font-size:13px; font-weight:700;
+  letter-spacing:.12em; text-transform:uppercase; color:rgba(var(--sf),.5); }
+html body #sidebar .nav-btn { display:flex; align-items:center; gap:10px; width:100%; margin:0;
+  padding:11px 16px; border:none; border-left:3px solid transparent; border-radius:0; background:transparent;
+  color:rgba(var(--sf),.80); font-size:16px; font-weight:500; text-align:left; cursor:pointer;
+  transition:background .15s,color .15s; }
+html body #sidebar .nav-btn:hover { background:var(--sidebar-h); color:var(--sidebar-active-fg); }
+html body #sidebar .nav-btn.active { background:var(--sidebar-active-bg); color:var(--sidebar-active-fg);
+  border-left-color:var(--accent); font-weight:700; }
+html body #sidebar .nav-icon { width:22px; display:inline-flex; justify-content:center; flex-shrink:0; }
+html body #sidebar .nav-hint { padding:8px 16px 4px; font-size:13px; line-height:1.5; color:rgba(var(--sf),.7); }
+html body #sidebar-foot { margin-top:auto; padding:12px 16px; font-size:13px; line-height:1.6;
+  color:rgba(var(--sf),.65); border-top:1px solid rgba(var(--sf),.10); }
+html body #sidebar-foot a { color:inherit; text-decoration:underline; }
+html body #sse-row { display:flex; align-items:center; gap:7px; margin-bottom:4px; }
+html body #sse-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; background:rgba(var(--sf),.3);
+  transition:background .3s,box-shadow .3s; }
+html body #sse-dot.live { background:var(--ok); box-shadow:0 0 6px var(--ok); }
+html body #main { flex:1; display:flex; flex-direction:column; overflow:hidden; min-width:0; }
+html body #topbar { display:flex; align-items:center; flex-wrap:wrap; gap:10px 14px; min-height:48px; height:auto;
+  padding:6px 22px; flex-shrink:0; background:var(--surface); border-bottom:1px solid var(--border); }
+html body #topbar-path, html body #topbar .proj { flex:1; min-width:0; font-family:var(--mono); font-size:14px;
+  color:var(--accent-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+html body #topbar .bar-title { font-weight:700; font-size:16px; color:var(--txt-strong); white-space:nowrap; }
+html body #topbar .bar-detail { font-size:14px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+/* ── Left-column apps share the SAME top bar as every other app ─────────────
+ * Operator's choice (October 2026): every app has the identical full-width
+ * header.topbar (logo + name, status, project path, theme switch, Port · ← Hub);
+ * the six multi-section apps add the left column of sections UNDER it. The page
+ * body is marked `swaxs-shell` so it stacks: top bar, then the column + content row. */
+html body.swaxs-shell { display:flex; flex-direction:column; height:100vh; overflow:hidden; margin:0; }
+html body.swaxs-shell > #app { flex:1; min-height:0; height:auto; }
+html body.swaxs-shell #sidebar { padding-top:6px; }
+html body .topbar .spacer { flex:1; }
+/* project folder sits on the RIGHT, just before the theme switch (operator, Oct 2026):
+   margin-left:auto pushes it and everything after it to the right edge. */
+html body .topbar #topbar-path, html body .topbar .proj { flex:0 1 auto; margin-left:auto; max-width:42%;
+  min-width:0; font-family:var(--mono); font-size:14px; color:var(--muted);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+html body .topbar > .project-pill { margin-left:auto; }
+html body .topbar #sse-row { margin:0; }
+html body .topbar #sb-status { margin:0; padding:3px 11px; border-radius:999px; font-size:13px;
+  line-height:1.4; white-space:nowrap; word-break:normal; border:1px solid var(--border); }
+html body .topbar .bar-detail { font-size:14px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:30ch; }
+
+/* ── One text size and one heading size for every app (operator: 18px) ─────
+ * html:root outranks each app's own html{font-size}, and body is reset to 1rem
+ * so apps that pinned body to 16px follow too. All rem-based sizes scale with it. */
+html:root { font-size:18px; }
+html body { font-size:1rem; }
+html body .card-hd, html body .section-title { font-size:15px; }
+/* One card heading style everywhere: uppercase, accent text, a rule underneath.
+ * Covers .card-hd and analysis' bare .card > h3 so no app drifts on its own. */
+html body .card-hd, html body .card > h3 {
+  font-size:15px; font-weight:700; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--accent-text); margin:0 0 14px; padding-bottom:10px;
+  border-bottom:1px solid var(--border); }
+/* project path in the top bar: a folder icon in front makes it read as a location */
+html body .topbar .proj:not(:empty)::before, html body .topbar #topbar-path:not(:empty)::before,
+html body .topbar .pill.path::before {
+  content:''; display:inline-block; width:14px; height:14px; margin-right:6px; vertical-align:-2px;
+  background:currentColor; opacity:.75; -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 width=%2224%22 height=%2224%22 fill=%22none%22 stroke=%22black%22 stroke-width=%222.0%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E %3Cpath d=%22M3.2 18.4V6.2A1.8 1.8 0 0 1 5 4.4h4.3l2.1 2.6h7.6a1.8 1.8 0 0 1 1.8 1.8v9.6a1.8 1.8 0 0 1-1.8 1.8H5a1.8 1.8 0 0 1-1.8-1.8z%22/%3E %3C/svg%3E ") center/contain no-repeat; mask:url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 width=%2224%22 height=%2224%22 fill=%22none%22 stroke=%22black%22 stroke-width=%222.0%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E %3Cpath d=%22M3.2 18.4V6.2A1.8 1.8 0 0 1 5 4.4h4.3l2.1 2.6h7.6a1.8 1.8 0 0 1 1.8 1.8v9.6a1.8 1.8 0 0 1-1.8 1.8H5a1.8 1.8 0 0 1-1.8-1.8z%22/%3E %3C/svg%3E ") center/contain no-repeat; }
+html body .topbar > .topbar-sub { padding-left:12px; border-left:1px solid var(--border); }
+
+/* ── Uniform top row (October 2026) ──────────────────────────────────────────
+ * Same order in every app:  logo + name │ status │ project folder │ app extras │
+ * theme │ Port · ← Hub.  The project folder takes the free width, so the extras
+ * always sit in one fixed place, just left of the theme switch. */
+html body .topbar .bar-status { display:inline-flex; align-items:center; gap:7px; padding:3px 11px;
+  border-radius:999px; border:1px solid var(--border); background:var(--surface2);
+  color:var(--muted); font-size:13px; white-space:nowrap; }
+html body .topbar .bar-status .dot { width:8px; height:8px; border-radius:50%; background:var(--faint); }
+html body .topbar .bar-status.ok .dot { background:var(--ok); box-shadow:0 0 5px var(--ok); }
+html body .topbar .bar-status.down .dot { background:var(--err); }
+html body .topbar .bar-status.down { color:var(--err-text); }
+html body .topbar .bar-extras { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+html body .topbar .bar-operator { display:inline-flex; align-items:center; gap:7px; font-size:14px;
+  color:var(--muted); white-space:nowrap; }
+html body .topbar .bar-operator input { width:150px; padding:5px 9px; font-size:14px; border-radius:6px;
+  border:1px solid var(--border-strong); background:var(--surface); color:var(--txt); }
+
+/* ── Every status chip in the top bar has ONE shape (operator, Oct 2026) ─────
+ * Standard status pill, reduction/calibration connection, watchdog status,
+ * analyzer pills, reactor live/state pills, assistant API badge: same height,
+ * padding, radius, border and type size. Each keeps its own state colours. */
+html body .topbar > .bar-status, html body .topbar > .conn-pill, html body .topbar > #sb-status,
+html body .topbar > .pill, html body .topbar > .live-pill, html body .topbar > .badge,
+html body .topbar .bar-extras > .pill, html body .topbar .bar-extras > .live-pill,
+html body .topbar .bar-extras > .state-pill {
+  display:inline-flex; align-items:center; gap:7px; height:28px; padding:0 12px; margin:0;
+  border-radius:999px; border:1px solid var(--border); font-size:13px; font-weight:600;
+  line-height:1; white-space:nowrap; box-sizing:border-box;
+}
+/* Label beside input forms (.fg in reduction, calibration) stack the label
+ * above the input on a narrow window, so inputs are never squeezed. */
+/* Folder and file pickers put the label on the SAME line as the path and its
+ * Browse… button, as in reduction: label | path | Browse…. Average and
+ * background stack their other labels above the input, so this is scoped to
+ * the rows (background .field) or forms (average .fg) that hold a picker. */
+html body .fg:has(button[onclick*="Browser("]),
+html body .field:has(> .browse-row) {
+  display:grid; grid-template-columns:190px minmax(0,1fr);
+  gap:8px 16px; align-items:start; }
+html body .fg:has(button[onclick*="Browser("]) > label,
+html body .field:has(> .browse-row) > label {
+  text-align:right; padding-top:8px; margin-top:0; line-height:1.3; }
+html body .field:has(> .browse-row) > :not(label) { grid-column:2; }
+@media (max-width: 1100px) {
+  html body .fg, html body .fg:has(button[onclick*="Browser("]),
+  html body .field:has(> .browse-row) { grid-template-columns: 1fr; gap: 4px 0; }
+  html body .fg:has(button[onclick*="Browser("]) > label,
+  html body .field:has(> .browse-row) > label { text-align:left; padding-top:0; }
+  html body .field:has(> .browse-row) > :not(label) { grid-column:1; }
+}
+
+/* ── Shared folder picker (swaxsBrowse in _icon_helpers.html) ─────────────── */
+html body .swx-pick-bd { position:fixed; inset:0; z-index:10000; background:rgba(0,0,0,.45);
+  display:flex; align-items:center; justify-content:center; }
+html body .swx-pick { width:min(640px,92vw); max-height:80vh; display:flex; flex-direction:column;
+  background:var(--surface); color:var(--txt); border:1px solid var(--border);
+  border-radius:10px; box-shadow:0 12px 40px rgba(0,0,0,.35); overflow:hidden; }
+html body .swx-pick-hd { display:flex; align-items:center; justify-content:space-between;
+  padding:12px 16px; border-bottom:1px solid var(--border); }
+html body .swx-pick-x { background:none; border:0; color:var(--muted); cursor:pointer; padding:4px; }
+html body .swx-pick-path { display:flex; gap:8px; padding:10px 16px; border-bottom:1px solid var(--border); }
+html body .swx-pick-path .swx-cur { flex:1; min-width:0; font-family:var(--mono); font-size:14px; }
+html body .swx-pick-list { flex:1; overflow:auto; padding:6px 8px; min-height:160px; }
+html body .swx-dir { display:flex; align-items:center; gap:8px; width:100%; text-align:left;
+  background:none; border:0; border-radius:6px; padding:7px 10px; color:var(--txt);
+  font:inherit; cursor:pointer; }
+html body .swx-dir:hover, html body .swx-dir:focus-visible { background:var(--surface2); outline:none; }
+html body .swx-empty { color:var(--muted); padding:10px; }
+html body .swx-pick-ft { display:flex; justify-content:flex-end; gap:8px; padding:10px 16px;
+  border-top:1px solid var(--border); }
+
+/* ── One path row for apps without a form grid: label | path | Browse… [Set] ── */
+html body .path-row { display:grid; grid-template-columns:minmax(110px,max-content) minmax(0,1fr);
+  gap:6px 14px; align-items:center; }
+html body .path-row > label { font-size:15px; font-weight:600; color:var(--muted);
+  white-space:nowrap; margin:0; line-height:1.3; text-transform:none; letter-spacing:0; }
+html body .path-row input, html body .swx-pick .swx-cur {
+  padding:7px 10px; font-size:.9375rem; color:var(--txt); background:var(--surface2);
+  border:1px solid var(--border-strong); border-radius:6px; }
+html body .path-row input:focus, html body .swx-pick .swx-cur:focus {
+  outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(140,21,21,.15); }
+html body .path-row .browse-row { display:flex; gap:6px; align-items:center; min-width:0; }
+html body .path-row .browse-row input { flex:1; min-width:0; }
+html body .path-row > .path-note { grid-column:2; }
+@media (max-width: 700px) {
+  html body .path-row { grid-template-columns:1fr; }
+  html body .path-row > .path-note { grid-column:1; }
+}
+/* Button fallbacks for apps that never defined these variants (zero
+ * specificity via :where, so an app's own .btn-ghost etc. always wins). */
+:where(.btn.btn-ghost) { background:transparent; border:1px solid var(--border-strong); color:var(--txt); }
+:where(.btn.btn-ghost):hover { background:var(--surface2); }
+:where(.btn.btn-sm) { padding:4px 10px; font-size:14px; }
+:where(.btn.btn-primary) { background:var(--accent); border:1px solid var(--accent); color:#fff; }
+/* the picker's own buttons look the same in every app */
+html body .swx-pick .btn { display:inline-flex; align-items:center; gap:6px; border-radius:6px;
+  padding:6px 12px; font-family:inherit; font-weight:600; font-size:14px; line-height:1.2; cursor:pointer; white-space:nowrap; }
+html body .swx-pick .btn-ghost { background:transparent; border:1px solid var(--border-strong); color:var(--txt); }
+html body .swx-pick .btn-ghost:hover { background:var(--surface2); }
+html body .swx-pick .btn-ghost:disabled { opacity:.45; cursor:default; }
+html body .swx-pick .btn-primary { background:var(--accent); border:1px solid var(--accent); color:#fff; }
+html body .path-row .btn { white-space:nowrap; flex:none; }

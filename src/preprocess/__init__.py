@@ -1,6 +1,6 @@
 """
 src/preprocess — pre-reduction utilities: convert raw detector files to CBF and
-drive pyFAI calibration (AgBehenate / LaB6 …) to generate .poni files.
+drive pyFAI calibration (AgBh / LaB6 …) to generate .poni files.
 """
 from __future__ import annotations
 

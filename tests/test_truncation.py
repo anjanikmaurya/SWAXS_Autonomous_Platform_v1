@@ -49,9 +49,9 @@ def test_truncate_rebin_unit_conversion_matches():
 
 
 def test_truncation_defaults():
-    assert bg._TRUNC["q_min"] == 0.03 and bg._TRUNC["q_max"] == 0.6
+    assert bg._TRUNC["q_min"] == 0.3 and bg._TRUNC["q_max"] == 6.0
     assert bg._TRUNC["n_points"] == 549 and bg._TRUNC["spacing"] == "linear"
-    assert bg._TRUNC["q_unit"] == "A" and bg._TRUNC["enabled"] is True
+    assert bg._TRUNC["q_unit"] == "nm" and bg._TRUNC["enabled"] is True
 
 
 def test_automated_subtract_applies_truncation(tmp_path):
@@ -71,7 +71,7 @@ def test_automated_subtract_applies_truncation(tmp_path):
         assert rec is not None
         data = np.loadtxt((out_dir / "sample_avg_sub.dat").as_posix(), comments="#")
         assert data.shape == (549, 3)                      # fixed ML grid in auto mode
-        assert abs(data[0, 0] - 0.03) < 1e-9 and abs(data[-1, 0] - 0.6) < 1e-9
+        assert abs(data[0, 0] - 0.3) < 1e-9 and abs(data[-1, 0] - 6.0) < 1e-9
     finally:
         bg._TRUNC.clear(); bg._TRUNC.update(saved)
 
@@ -82,10 +82,10 @@ def test_write_dat_applies_truncation(tmp_path):
     qw, Iw, sw = bg._write_dat(out, q_nm, I, sig, ["# test"])
     assert len(qw) == 549                              # returned arrays are truncated
     txt = out.read_text()
-    assert "q_A-1" in txt                              # header reflects Å⁻¹
+    assert "q_nm-1" in txt                             # header reflects nm⁻¹ (default)
     data = np.loadtxt(out.as_posix(), comments="#")
     assert data.shape == (549, 3)
-    assert abs(data[0, 0] - 0.03) < 1e-9 and abs(data[-1, 0] - 0.6) < 1e-9
+    assert abs(data[0, 0] - 0.3) < 1e-9 and abs(data[-1, 0] - 6.0) < 1e-9
 
 
 # ── regressions: the truncation must never invent data ───────────────────────

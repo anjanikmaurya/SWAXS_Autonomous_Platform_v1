@@ -31,7 +31,7 @@ class CampaignController:
     def __init__(self, space: ParameterSpace, *, target_size: float, tolerance: float,
                  pdi_cap: float, budget: int = 25, n_init: int = 10,
                  confidence_min: float = 0.5, weight_pdi: float = 1.0, seed: int = 0,
-                 loss_transform: str = "none"):
+                 loss_transform: str = "none", stop_on_hit: bool = True):
         self.space = space
         self.target_size = float(target_size)
         self.tolerance = float(tolerance)
@@ -42,6 +42,12 @@ class CampaignController:
         self.weight_pdi = float(weight_pdi)
         self.seed = int(seed)
         self.loss_transform = str(loss_transform)
+        # Target-hit wants ONE good recipe, so it stops at the first confident hit.
+        # Goals that MAP a set (level-set: every in-spec recipe; Pareto: the
+        # size vs PDI front) must keep measuring to the budget: stopping at the
+        # first hit ended a Pareto run during its Sobol seeding (Run19: 5 of 10
+        # seeds) before the acquisition chose a single recipe.
+        self.stop_on_hit = bool(stop_on_hit)
 
         self.status_str = "idle"          # idle | running | converged | exhausted | aborted
         self.history: list[dict] = []     # {params, size, pdi, confidence, loss}
@@ -49,6 +55,8 @@ class CampaignController:
         self.converged_condition: dict | None = None
         self._seeds: list[dict] = []
         self._n_asked = 0
+        self.last_error: str | None = None   # set when ask() had to fall back
+        self.n_fallbacks = 0
 
     # ── lifecycle ──────────────────────────────────────────────────────────────
     def start(self, seeds: list[dict] | None = None):
@@ -77,8 +85,22 @@ class CampaignController:
         """Next condition to synthesize, or None if the campaign is finished."""
         if self.status_str != "running":
             return None
-        cond = (self._seeds[self._n_asked] if self._n_asked < len(self._seeds)
-                else self._suggest_bo())
+        self.last_error = None
+        if self._n_asked < len(self._seeds):
+            cond = self._seeds[self._n_asked]
+        else:
+            try:
+                cond = self._suggest_bo()
+            except Exception as exc:
+                # An acquisition failure (e.g. a singular GP covariance) must not
+                # stall a multi-day loop: the caller has already consumed the
+                # measurement, so with no new proposal nothing would ever be
+                # pending or time out. Fall back to a fresh constraint-valid
+                # space-filling point and record why, so it can be surfaced.
+                self.last_error = f"{type(exc).__name__}: {exc}"
+                self.n_fallbacks += 1
+                pool = self.candidate_pool(1)
+                cond = pool[0] if pool else self._seeds[0]
         self._n_asked += 1
         return dict(cond)
 
@@ -118,9 +140,10 @@ class CampaignController:
         hit = (size is not None and conf >= self.confidence_min
                and abs(size - self.target_size) <= self.tolerance
                and (pdi is None or pdi <= self.pdi_cap))
-        if hit:
+        if hit and self.converged_condition is None:
+            self.converged_condition = rec        # first confident in-spec recipe
+        if hit and self.stop_on_hit:
             self.status_str = "converged"
-            self.converged_condition = rec
         elif len(self.history) >= self.budget:
             self.status_str = "exhausted"
 

@@ -1480,6 +1480,13 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/api/project", methods=["GET"])
+def api_project_get():
+    """The project folder selected in the hub, for the uniform top bar (every
+    other app already answers this)."""
+    return jsonify({"project_root": _project_root})
+
+
 @app.route("/api/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok"})

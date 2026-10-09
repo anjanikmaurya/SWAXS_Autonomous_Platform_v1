@@ -20,6 +20,9 @@ const path=require('path');
 /* resolve the template relative to this file so the harness works from anywhere */
 const TPL=path.resolve(__dirname,'..','..','analyzer','templates','index.html');
 let html=fs.readFileSync(TPL,'utf8');
+// Expand Jinja {% include %} the way Flask does when it serves the page, so the
+// inlined sprite and the shared icon helpers (icoSvg / setIco) exist here too.
+html=html.replace(/{%\s*include\s+"([^"]+)"\s*%}/g,(m,f)=>fs.readFileSync(path.join(path.dirname(TPL),f),'utf8'));
 
 const errs=[], warns=[];
 const vc=new VirtualConsole();
@@ -68,7 +71,7 @@ w.fetch=async (u)=>{
   else if(u.startsWith('/api/campaign/diagnostics')) body=DIAG;
   else if(u.startsWith('/api/folder')) body={folder:'1D/SAXS/Subtracted',
     resolved:'/Users/a/Data/Auto_Run/1D/SAXS/Subtracted'};
-  else if(u.startsWith('/api/project')) body={watching:'/Users/a/Data/Auto_Run'};
+  else if(u.startsWith('/api/project')) body={project_root:'/Users/a/Data/Auto_Run',watching:'/Users/a/Data/Auto_Run/1D/SAXS/Subtracted'};
   else if(u.startsWith('/api/campaign')) body={ok:true};
   return {ok:true,status:200,json:async()=>body};
 };
@@ -92,7 +95,7 @@ const w=dom.window;
   ok(!!ES.last,'EventSource opened');
   ok($('p_conn').textContent.includes('live'),'connection pill goes live');
   ok($('folder').value==='1D/SAXS/Subtracted','folder input prefilled');
-  ok($('p_watch').textContent.includes('Auto_Run'),'watched path in the status strip');
+  ok($('barProject').textContent.includes('Auto_Run'),'project folder shown once, on the right of the top bar');
 
   /* first frame: snapshot */
   ES.last.emit({results:ROWS,logs:[{ts:'14:31:02',tag:'ok',msg:'✓ fit R=3.99 conf=0.93'}],
@@ -126,10 +129,11 @@ const w=dom.window;
   /* parameter space */
   ok($('ps_x').options.length===5,'slice axes populated, got '+$('ps_x').options.length);
   ok($('ps_x').value==='T_reac'&&$('ps_y').value==='x_TOP','default slice axes');
-  ok($('ps_diag').innerHTML.includes('13%')||$('ps_diag').innerHTML.includes('space explained'),
+  ok($('ps_diag').innerHTML.includes('13%')||/space explained/i.test($('ps_diag').innerHTML),
      'diagnostics tiles: '+$('ps_diag').textContent.slice(0,80));
   ok($('spark').style.display==='block','sparkline shown');
-  ok($('sparkNote').textContent.includes('inside the band'),'sparkline note: '+$('sparkNote').textContent);
+  ok(/band/.test($('sparkNote').textContent) && /\d+\/\d+ inside/.test($('sparkNote').textContent),
+     'sparkline note says how many runs landed in the band: '+$('sparkNote').textContent);
   ok([...w.document.querySelectorAll('#ps_tabs button')].some(b=>b.classList.contains('on')),
      'a view tab is active');
 
@@ -152,7 +156,7 @@ const w=dom.window;
   ok(trs().length===1,'filter narrows to 1, got '+trs().length);
   ok($('rowsnote').textContent.includes('filter'),'filter reflected in the note');
   $('filter').value='zzzz'; w.applyFilter();
-  ok(trs().length===0 && $('rows').textContent.includes('no file matches'),'empty filter state');
+  ok(trs().length===0 && /no file matches/i.test($('rows').textContent),'empty filter state');
   $('filter').value=''; w.applyFilter(); await new Promise(r=>setTimeout(r,30));
   ok(trs().length===25,'clearing the filter restores every row, got '+trs().length);
 
@@ -180,8 +184,15 @@ const w=dom.window;
   ok(!$('fold-log').classList.contains('shut'),'log card reopens');
 
   /* theme */
+  // The start theme is the platform rule (saved choice, else OS) — so check the
+  // toggle FLIPS it and flips back, rather than assuming a fixed start.
+  const th0=w.document.documentElement.getAttribute('data-theme');
+  ok(th0==='light'||th0==='dark','theme set before first paint: '+th0);
   w.toggleTheme();
-  ok(w.document.documentElement.getAttribute('data-theme')==='light','theme switches to light');
+  const th1=w.document.documentElement.getAttribute('data-theme');
+  ok(th1!==th0 && (th1==='light'||th1==='dark'),'theme toggles: '+th0+' -> '+th1);
+  w.toggleTheme();
+  ok(w.document.documentElement.getAttribute('data-theme')===th0,'theme toggles back');
   w.toggleTheme();
 
   /* idle campaign must hide the run furniture */

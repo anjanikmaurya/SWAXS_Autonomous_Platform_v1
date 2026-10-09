@@ -5,6 +5,84 @@ this file is the running summary. Dates are when the work landed on `main`.
 
 ---
 
+## October 2026
+
+### Reactor quick audit: four follow-up fixes
+
+- **Flush pump changed mid-flush** stopped the NEW pump at the end of the flush and
+  left the one actually flushing running. The flush now remembers its own pump
+  (`_flush_active`) for stopping and supervision; a new choice applies from the
+  next flush, and the log says so.
+- **Idle pump still flowing during the flush** is now detected without needing a
+  `volume_limit`: after `safety.flow_settle_s`, a non-flush pump above a few µL/min
+  for `safety.bad_flow_s` warns once (E-stop with `safety.flow_fault_estop: true`).
+- **Shutdown** idles the pumps, waits up to 1 s for the loop, idles again (a tick
+  in progress could have commanded a flow), closes the pump ports, and only then
+  waits for SPEC; a tick after shutdown commands nothing. Fits the hub's 5 s window.
+- **Checklist**: an error inside a check stays inside its line; the beamline check
+  fails on stale readings; expected pumps follow the flush pump chosen in the app.
+
+### Reactor: all residual risks closed, hardware checklist, controller split
+
+- **R6** the flush (the longest phase) is now supervised like the run: flow faults
+  warn once (E-stop only with `safety.flow_fault_estop: true`), and a non-flush
+  pump that keeps delivering past its `volume_limit` during the flush E-stops.
+  Only volume delivered during the flush counts, so a run's ramp-down tail
+  cannot trip it.
+- **R5** "Start pumps now" asks for confirmation (showing the current and target
+  temperature), and the log records the temperature the pumps started at.
+- **Run all checks** on the Hardware test tab: a read-only checklist (pumps
+  connected and answering, pressure, temperature is live, I₀/bstop arriving) with
+  a fix hint for each failure. `src/reactor/checks.py`, `GET /api/checks`,
+  `POST /api/checks/run`. Sends nothing to the hardware.
+- **controller.py split** into `controller.py` (API, loop, status, shutdown),
+  `sequence.py` (run order), `supervisor.py` (safety) and `collection.py` (SPEC
+  shots). Methods moved verbatim (all 46 compared as parsed code: identical).
+  A golden Simulation run recorded before the split is replayed by
+  `tests/test_reactor_golden_run.py`; it matches exactly.
+
+All eight July reactor risks are now closed in `docs/audits/OPEN_DEFECTS.md`.
+
+### Reactor residual risks re-checked (R1 to R8)
+
+The eight July reactor risks in `docs/audits/OPEN_DEFECTS.md` were checked against
+the code. R1, R2, R3 were already fixed. Fixed now: **R7** `shutdown()` joins the
+control loop and closes every pump serial port after idling (an open COM port
+blocked the next start on Windows); **R8** every run record and manifest entry
+carries `backend` (mock or real), so a campaign can tell simulated runs from real
+ones; **R4** `run.end_on_measurement` documented as a no-op (measurement-end is
+always on). R5 is by design. **R6 (volume and flow checks during the flush) is
+still open.** No setting in `reactor/config.yml` changed. Tests:
+`tests/test_reactor_open_defects_2026_10.py`.
+
+### Synthesis instrument contract (phase 0)
+
+New `src/synthesis/` package: the contract every future synthesis route and probe
+will implement (describe, connect, tests, setup, compile, execute, safe_state,
+estop) and an `InstrumentSession` that gates Test → Setup → Ready → Run, refuses
+out-of-limit recipes before anything moves, and always ends a failure or e-stop
+in safe state. A simulated `ToyMixer` exercises it in
+`tests/test_synthesis_contract.py`. Additive only: the reactor app, `src/reactor/`,
+`src/beamline/` and `reactor/config.yml` are untouched, and a test fails if any of
+them imports the new package. No instrument is registered; robot and well plate
+routes stay placeholders until they are developed.
+
+### Autonomous Synthesis: new page layout
+
+The reactor page now uses the left column layout of the other multi-section
+apps. Left column: the synthesis route (Flow reactor; robot and well plate are
+placeholders), with all pump controls and the emergency stop at its foot. Three
+tabs, each a numbered sequence: Hardware test (tare, pump limits, beamline test
+shot with live bstop and I₀, reactor temperature), Autonomous setup (recipe
+source, timing, data collection, run) and Live plots (flow, pressure, beamline,
+run status). The Activity log is docked below and always visible. Every control,
+element id, API call and the canvas plotting code are unchanged; forms put the
+label beside its box, two per line, and the type scale matches the other apps.
+"Run duration" reads "Synthesis duration". A runnable copy with a simulated
+backend is `docs/mockups/synthesis_flow_mockup.html`, built from the real page by
+`docs/mockups/build_flow_mockup.py`. Plan for the modular instrument platform:
+`docs/design/SYNTHESIS_PLATFORM_PLAN.md`.
+
 ## September 2026
 
 ### No WAXS peak-finder on SAXS data → structure-factor interpretation

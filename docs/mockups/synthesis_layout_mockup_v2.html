@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Autonomous Synthesis, layout mockup v2</title>
+<style>
+:root{--bg:#f4f6f8;--surface:#fff;--surface2:#eef1f4;--border:#e2e6ea;--bs:#c3c9d1;--txt:#1f2937;--muted:#5b6472;
+  --accent:#B1040E;--ok:#15803d;--warn:#b45309}
+*{box-sizing:border-box}html{font-size:18px}body{margin:0;font:1rem/1.4 system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--txt)}
+.topbar{display:flex;align-items:center;gap:12px;padding:8px 20px;min-height:56px;background:var(--surface);border-bottom:1px solid var(--border)}
+.topbar h1{font-size:20px;margin:0}.topbar h1 span{color:var(--accent)}
+.pill{font-size:14px;padding:3px 11px;border-radius:999px;background:var(--surface2);border:1px solid var(--border)}
+.pill.ok{color:var(--ok);background:#f0fdf4;border-color:#bbf7d0}
+.mode{margin-left:auto;display:inline-flex;border:2px solid var(--bs);border-radius:999px;overflow:hidden}
+.mode button{border:0;background:none;font:inherit;font-size:16px;font-weight:600;padding:6px 18px;color:var(--muted);cursor:pointer}
+.mode button.on{background:#2f6f4f;color:#fff}.mode button.on.hw{background:#b1040e}
+.sub{font-size:14px;color:var(--muted)}
+#app{display:grid;grid-template-columns:250px 1fr;height:calc(100vh - 56px)}
+#sidebar{background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:10px 0}
+.sec{padding:10px 18px 6px;font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.nav-btn{display:flex;align-items:center;gap:10px;margin:2px 10px;padding:10px 12px;border-radius:8px;cursor:pointer;border:0;background:none;font:inherit;text-align:left;color:var(--txt)}
+.nav-btn:hover{background:var(--surface2)}.nav-btn.on{background:#fbe9ea;color:var(--accent);font-weight:700}
+.nav-btn .ico{width:20px;text-align:center}
+.nav-hint{font-size:13px;color:var(--muted);padding:2px 22px 0 54px;margin-top:-4px}
+.estop{margin:auto 14px 6px;padding:12px;border:0;border-radius:8px;background:#8c1515;color:#fff;font-weight:800;letter-spacing:.04em;font-size:16px;cursor:pointer}
+#main{display:flex;flex-direction:column;min-width:0;overflow:hidden}
+.tabs{display:flex;gap:4px;padding:0 22px;background:var(--surface);border-bottom:1px solid var(--border)}
+.tab{padding:12px 16px;cursor:pointer;color:var(--muted);border-bottom:3px solid transparent;font-weight:600}
+.tab.on{color:var(--accent);border-color:var(--accent)}
+.content{overflow:auto;padding:20px 22px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 18px;margin-bottom:18px}
+.card-hd{font-size:15px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);padding-bottom:10px;margin-bottom:14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
+.card-hd .r{margin-left:auto;text-transform:none;letter-spacing:0;font-weight:500;color:var(--muted);font-size:14px}
+table{width:100%;border-collapse:collapse;font-size:15px}td,th{text-align:left;padding:7px 4px;border-bottom:1px solid var(--border)}th{color:var(--muted);font-weight:600}
+.pass{color:var(--ok);font-weight:700}.fail{color:var(--accent);font-weight:700}.todo{color:var(--muted)}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:7px;border:1px solid var(--bs);background:var(--surface);font:inherit;font-size:15px;font-weight:600;cursor:pointer}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:#fff}.btn.go{background:var(--ok);border-color:var(--ok);color:#fff}
+.btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.fg{display:grid;grid-template-columns:200px 1fr;gap:10px 16px;align-items:center}
+.fg label{text-align:right;color:var(--muted);font-weight:600;font-size:15px}
+input,select{padding:7px 10px;font:inherit;font-size:15px;border:1px solid var(--bs);border-radius:6px;background:var(--surface2);width:100%}
+.probe{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)}
+.probe:last-child{border-bottom:0}.probe .n{font-weight:700;flex:1}
+.plot{height:200px;border:1px solid var(--border);border-radius:8px;background:repeating-linear-gradient(0deg,transparent 0 39px,var(--border) 39px 40px),var(--surface2);display:flex;align-items:flex-end;padding:8px 10px;color:var(--muted);font-size:14px}
+.note{background:#f8fafc;border:1px dashed var(--bs);border-radius:8px;padding:10px 12px;font-size:14px;color:var(--muted)}
+.hidden{display:none}
+</style></head><body>
+<div class="topbar">
+  <h1>Autonomous <span>Synthesis</span></h1><span class="pill ok">live</span><span class="pill" id="statePill">IDLE</span>
+  <span class="mode"><button class="on" id="mSim">Simulation</button><button id="mHw">Hardware</button></span>
+  <span class="sub">/Users/…/Auto_Run</span><span class="sub">Port 5108 · ← Hub</span>
+</div>
+<div id="app">
+  <aside id="sidebar">
+    <div class="sec">Synthesis route</div>
+    <div id="routes"></div>
+    <button class="estop">EMERGENCY STOP</button>
+  </aside>
+  <div id="main">
+    <div class="tabs">
+      <div class="tab on" data-t="test">Hardware test</div>
+      <div class="tab" data-t="auto">Autonomous setup</div>
+      <div class="tab" data-t="live">Live plots</div>
+    </div>
+    <div class="content">
+      <!-- Hardware test -->
+      <section id="t-test">
+        <div class="grid2">
+          <div class="card"><div class="card-hd"><span id="synTitle">Flow reactor</span> hardware<span class="r" id="synState"></span></div>
+            <table id="synChecks"></table>
+            <div class="btns"><button class="btn pri">Run all checks</button><span id="synCtl"></span></div></div>
+          <div class="card"><div class="card-hd">Probes<span class="r">shared by every route</span></div>
+            <div id="probes"></div>
+            <div class="note" style="margin-top:10px">Probe checks and calibration are stored once. A probe tested here is ready in every route that uses it.</div></div>
+        </div>
+      </section>
+      <!-- Autonomous setup -->
+      <section id="t-auto" class="hidden">
+        <div class="grid2">
+          <div class="card"><div class="card-hd">Recipes</div>
+            <div class="fg"><label>Conditions folder</label><input value="1D/SAXS/Conditions">
+              <label>Queue</label><div>3 recipes waiting</div>
+              <label>From the optimiser</label><div id="optVars"></div></div></div>
+          <div class="card"><div class="card-hd"><span id="seqTitle">Flow reactor</span> sequence</div>
+            <div class="fg" id="routeParams"></div></div>
+        </div>
+        <div class="card"><div class="card-hd">Probes in this route</div>
+          <div class="fg" id="probeUse"></div>
+          <div class="btns" style="margin-top:16px"><button class="btn">Dry run (simulated)</button><button class="btn go">Run autonomously</button><button class="btn">Stop after this recipe</button></div></div>
+      </section>
+      <!-- Live plots -->
+      <section id="t-live" class="hidden">
+        <div class="grid2" id="plots"></div>
+      </section>
+    </div>
+  </div>
+</div>
+<script>
+const PROBES={saxs:{n:"SAXS/WAXS beamline",checks:["SPEC answers","Shutter opens and closes","I0 and bstop read"],ctl:["Test shot"]},
+              uv:{n:"UV Vis flow cell",checks:["Spectrometer answers","Lamp on","Dark and reference saved"],ctl:["Take spectrum"]}};
+const ROUTES=[
+ {id:"flow",n:"Flow reactor",ico:"⇉",hint:"continuous flow, 5 pumps",
+  checks:[["Serial ports open","pass","5/5"],["Every pump answers","pass","5/5"],["Pressure sensor reads","fail","no reply: check the USB cable"],["Reactor temperature reads","pass","24.8 °C"],["Leak test (2 bar, 60 s)","todo","not run"]],
+  ctl:["Prime pumps","Flush now","Vent all pumps","Tare"],
+  vars:"T_reac, F_tot, x_ODE, x_TOP, x_oley",
+  params:[["Start pumps when","reactor reaches temperature"],["Run duration (s)","default"],["Flush rate (µL/min)","500"],["Flush duration (s)","120"]],
+  probes:{saxs:"Background shot before, sample shot near the end",uv:"Monitor during the run, every 5 s"},
+  plots:["Flow rate per pump","Chamber pressure","Reactor temperature","SAXS: I0, bstop, last shot","UV Vis: absorbance at 520 nm"]},
+ {id:"chip",n:"Microfluidic chip",ico:"⌁",hint:"pressure driven droplets",
+  checks:[["Pressure controller answers","pass","4 channels"],["Flow sensors read","pass","3/3"],["Chip temperature reads","todo","not run"],["Droplet camera","todo","not run"]],
+  ctl:["Pressurise","Purge chip","Release pressure"],
+  vars:"T_chip, P1, P2, P3, residence time",
+  params:[["Droplet frequency (Hz)","20"],["Equilibrate (s)","30"],["Purge between recipes (s)","45"]],
+  probes:{saxs:"Measure the outlet capillary after equilibrium",uv:"Monitor the outlet continuously"},
+  plots:["Channel pressures","Flow sensors","Chip temperature","Droplet frequency","SAXS: last shot"]},
+ {id:"robot",n:"Liquid handling robot",ico:"✣",hint:"plates, tips, heater block",
+  checks:[["Robot connects","pass","OT2 · 192.168.1.20"],["Deck layout matches","fail","slot 3: tip rack missing"],["Heater block reads","pass","25.0 °C"],["Home all axes","todo","not run"]],
+  ctl:["Home","Pick up tip","Open door lock"],
+  vars:"volumes per reagent, incubation T, time",
+  params:[["Plate type","96 well, 200 µL"],["Wells per batch","8"],["Incubation (min)","30"],["Transfer to probe","capillary rack, slot 7"]],
+  probes:{saxs:"Measure each transferred capillary",uv:"Read every well after incubation"},
+  plots:["Heater block temperature","Batch progress (wells done)","UV Vis: spectra per well","SAXS: last shot"]},
+ {id:"syringe",n:"Syringe well plate",ico:"⊞",hint:"syringe pumps into well plates",
+  checks:[["Syringe pumps answer","pass","4/4"],["XY stage homes","todo","not run"],["Syringes primed","todo","not run"]],
+  ctl:["Prime syringes","Home stage","Refill"],
+  vars:"volume per syringe, mixing time",
+  params:[["Plate type","24 well"],["Mixing time (s)","60"],["Rinse between wells","yes"]],
+  probes:{saxs:"Not used",uv:"Read each well after mixing"},
+  plots:["Dispensed volume per syringe","Stage position","UV Vis: spectra per well"]}];
+let cur=ROUTES[0];const $=s=>document.querySelector(s);
+const cls=s=>s==="pass"?"pass":s==="fail"?"fail":"todo",sym=s=>s==="pass"?"✓":s==="fail"?"✗":"·";
+function render(){
+  $('#routes').innerHTML=ROUTES.map(r=>`<button class="nav-btn${r===cur?' on':''}" data-r="${r.id}"><span class="ico">${r.ico}</span>${r.n}</button><div class="nav-hint">${r.hint}</div>`).join('');
+  document.querySelectorAll('.nav-btn').forEach(b=>b.onclick=()=>{cur=ROUTES.find(r=>r.id===b.dataset.r);render();});
+  $('#synTitle').textContent=cur.n;$('#seqTitle').textContent=cur.n;
+  const fails=cur.checks.filter(c=>c[1]!=="pass").length;
+  $('#synState').innerHTML=fails?`<span class="fail">${fails} to fix before a run</span>`:'<span class="pass">all passed</span>';
+  $('#synChecks').innerHTML='<tr><th></th><th>Check</th><th>Result</th><th></th></tr>'+cur.checks.map(c=>`<tr><td class="${cls(c[1])}">${sym(c[1])}</td><td>${c[0]}</td><td class="${c[1]==='fail'?'fail':''}">${c[2]}</td><td><button class="btn" style="padding:3px 10px;font-size:13px">Run</button></td></tr>`).join('');
+  $('#synCtl').innerHTML=cur.ctl.map(c=>`<button class="btn">${c}</button>`).join(' ');
+  $('#probes').innerHTML=Object.entries(PROBES).map(([k,p])=>{const used=cur.probes[k]&&cur.probes[k]!=="Not used";
+    return `<div class="probe"><span class="n">${p.n}</span>${used?'<span class="pass">✓ 3/3</span>':'<span class="todo">not used in this route</span>'}<button class="btn" ${used?'':'disabled'}>${p.ctl[0]}</button><button class="btn" ${used?'':'disabled'}>Run checks</button></div>`;}).join('');
+  $('#optVars').textContent=cur.vars;
+  $('#routeParams').innerHTML=cur.params.map(p=>`<label>${p[0]}</label><input value="${p[1]}">`).join('');
+  $('#probeUse').innerHTML=Object.entries(PROBES).map(([k,p])=>`<label>${p.n}</label><select><option>${cur.probes[k]}</option><option>Not used</option></select>`).join('');
+  $('#plots').innerHTML=cur.plots.map(p=>`<div class="card" style="margin:0"><div class="card-hd">${p}</div><div class="plot">live</div></div>`).join('');
+}
+document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on',x===t));
+  ['test','auto','live'].forEach(k=>$('#t-'+k).classList.toggle('hidden',k!==t.dataset.t));});
+$('#mSim').onclick=()=>{$('#mSim').className='on';$('#mHw').className='';};$('#mHw').onclick=()=>{$('#mHw').className='on hw';$('#mSim').className='';};
+render();
+</script></body></html>

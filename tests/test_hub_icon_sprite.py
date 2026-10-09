@@ -58,7 +58,7 @@ def page():
 
 
 def _body(html: str) -> str:
-    return html[html.index("<body>"):]
+    return html[re.search(r"<body[^>]*>", html).start():]
 
 
 def _symbols(html: str) -> set[str]:
@@ -155,8 +155,10 @@ def test_the_sprite_is_hidden_and_inlined_once(page):
 def test_no_reference_points_at_a_missing_symbol(page):
     """The failure mode this guards: an unresolved reference is silent — the
     browser draws nothing and the icon is simply absent."""
+    from tests._icon_refs import static_refs, runtime_icon_names
     syms = _symbols(page)
-    used = set(re.findall(r'<use href="#([^"]+)"', _body(page)))
+    used = static_refs(_body(page))
+    used |= {f"swaxs-ui-{n}" for n in runtime_icon_names(_body(page))}
     assert used, "the page uses no icons at all"
     assert not (used - syms), f"unresolved: {sorted(used - syms)}"
 

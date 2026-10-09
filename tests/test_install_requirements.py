@@ -41,6 +41,7 @@ IMPORT_TO_DIST = {
     "websocket": "websocket-client", "sklearn": "scikit-learn",
     "dateutil": "python-dateutil", "pdfminer": "pdfminer.six",
     "sentence_transformers": "sentence-transformers",
+    "faster_whisper": "faster-whisper",
 }
 
 #: Imports that are deliberately optional. Each is inside a try/except or a
@@ -52,6 +53,7 @@ OPTIONAL = {
     "sentence_transformers": "requirements-ai.txt",
     "pypdf": "requirements-ai.txt",
     "pdfminer": "requirements-ai.txt",
+    "faster_whisper": "requirements-ai.txt",   # lazy import in the mic handler
     "serial": "requirements-hardware.txt",
     "epics": "requirements-hardware.txt",
     "sasmodels": "pip install sasmodels",

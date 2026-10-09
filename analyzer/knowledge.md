@@ -1,10 +1,10 @@
-# Auto-Fit & Optimiser — knowledge
+# Autonomous Analyser — knowledge
 
-Displayed in the hub as **Auto-Fit & Optimiser** (was "Nanoparticle Analyzer" until
+Displayed in the hub as **Autonomous Analyser** (was "Nanoparticle Analyzer" until
 September 2026). Folder, app id and log name stay `analyzer`.
 
 ## Purpose and place in the closed loop
-Auto-Fit & Optimiser (port 5107) is the **measurement half of the closed
+Autonomous Analyser (port 5107) is the **measurement half of the closed
 synthesis loop**. It watches the SAXS `Subtracted` folder and, as each new
 profile appears, auto-fits a polydisperse-sphere model to extract size,
 polydispersity, the (relative) Porod invariant, an ordered-phase classification

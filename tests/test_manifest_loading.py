@@ -83,7 +83,11 @@ def test_directory_is_never_renamed_or_backed_up():
 
 # ── Salvage of "Extra data" corruption ─────────────────────────────────────────
 
-def test_salvage_extra_data_corruption():
+def test_salvage_extra_data_corruption(monkeypatch):
+    # Legacy JSON-backend behaviour: a single-file manifest with trailing garbage
+    # is salvaged rather than discarded. (On the SQLite backend this failure mode
+    # cannot lose data at all — see tests/test_manifest_sqlite.py.)
+    monkeypatch.setattr(manifest, "_BACKEND", "json")
     d = _make_project(3, 0)
     p = manifest.manifest_path_for(d)
     good = p.read_text()
@@ -161,7 +165,8 @@ def test_export_writes_only_to_assistant_outputs():
     # nothing written outside assistant_outputs (manifest unchanged)
     assert (Path(str(d)) / "manifest.json").read_text() == manifest_before
     stray = [p for p in glob.glob(str(Path(str(d)) / "*")) if Path(p).is_file()]
-    assert {Path(p).name for p in stray} == {"manifest.json"}, stray
+    # manifest.db is the SQLite backend's store, written alongside manifest.json.
+    assert {Path(p).name for p in stray} == {"manifest.json", "manifest.db"}, stray
 
     html = next(p for p in written if p.suffix == ".html").read_text()
     assert html.lstrip().startswith("<!doctype")
@@ -293,6 +298,30 @@ def test_assistant_query_manifest_no_project_root():
     a = SWAXSAssistant(ai_knowledge_dir=tempfile.mkdtemp(), user_id="tester")
     out, _ = a._tool_query_manifest({"query_type": "summary"}, project_root=None)
     assert "No project root" in out
+
+
+def test_analyses_section_is_capped(monkeypatch):
+    """add_analysis_entry keeps only the newest _ANALYSES_CAP records, so the
+    manifest stays small over a multi-week live loop (the write-cost guard)."""
+    monkeypatch.setattr(manifest, "_ANALYSES_CAP", 5)
+    m = {}
+    for i in range(12):
+        manifest.add_analysis_entry(
+            m, analysis_type="nanoparticle", file_path=f"/tmp/p{i}.dat",
+            params={}, results={"radius": 1.0 + i},
+            provenance={}, quality_score=0.5)
+    analyses = m["analyses"]
+    assert len(analyses) == 5                      # capped
+    kept_files = {v["file_path"].split("/")[-1] for v in analyses.values()}
+    # newest five distinct files survive; oldest were dropped
+    assert "p11.dat" in {f for f in kept_files}
+    assert "p0.dat" not in kept_files
+
+    # an upsert on an EXISTING file updates in place, does not grow the section
+    manifest.add_analysis_entry(
+        m, analysis_type="nanoparticle", file_path="/tmp/p11.dat",
+        params={}, results={"radius": 99.0}, provenance={}, quality_score=0.9)
+    assert len(m["analyses"]) == 5
 
 
 # ── Standalone runner (works without pytest) ──────────────────────────────────

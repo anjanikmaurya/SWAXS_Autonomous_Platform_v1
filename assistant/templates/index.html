@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Guinier — SWAXS</title>
+<title>Guinier · SWAXS</title>
 <link rel="icon" href="/app-icon">   <!-- per-app tab icon, from apps.yml (src/favicon.py) -->
 <!-- Rich rendering: Markdown (marked) + sanitiser (DOMPurify) + math (KaTeX).
      Vendored locally under /static/vendor/ so the assistant works fully OFFLINE
@@ -17,6 +17,7 @@
 <!-- Interactive plots (Plotly), vendored offline. Falls back to static PNG if absent. -->
 <script src="/static/vendor/plotly.min.js"></script>
 <link rel="stylesheet" href="/static/swaxs-tokens.css">
+{% include "_theme_boot.html" %}
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -41,7 +42,7 @@
   --hint-err:#fef2f2;--hint-err-b:#fecaca;
   /* Typography scale (shared across all SWAXS apps) */
   --font:'Inter','Segoe UI',system-ui,-apple-system,sans-serif;
-  --mono:'JetBrains Mono','Fira Code','Cascadia Code',monospace;
+  --mono:'JetBrains Mono','Fira Code','Cascadia Code',ui-monospace,Menlo,Consolas,monospace;
   --fs-2xs:.6875rem;--fs-xs:.75rem;--fs-sm:.8125rem;--fs-md:.875rem;
   --fs-base:1rem;--fs-lg:1.125rem;--fs-xl:1.375rem;--fs-2xl:1.75rem;
   --fw-regular:400;--fw-medium:500;--fw-semibold:600;--fw-bold:700;
@@ -73,7 +74,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
   background:var(--surface);color:var(--text);font-size:14px;font-weight:500;
   cursor:pointer;transition:all .12s;white-space:nowrap;
 }
-.btn:hover{background:#f3f4f6;border-color:#9ca3af}
+.btn:hover{background:var(--surface2);border-color:var(--border-strong)}
 .btn-accent{background:var(--accent);border-color:var(--accent);color:#fff}
 .btn-accent:hover{background:var(--accent-d);border-color:var(--accent-d)}
 
@@ -84,7 +85,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
   width:362px;flex-shrink:0;border-right:1px solid var(--border);
   background:var(--surface);display:flex;flex-direction:column;overflow:hidden;
 }
-.sidebar-scroll{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:12px}
+.sidebar-scroll{flex:1;overflow-y:auto;overflow-x:hidden;min-width:0;padding:14px;display:flex;flex-direction:column;gap:12px}
 .stitle{font-size:var(--fs-xs);font-weight:700;text-transform:uppercase;letter-spacing:var(--ls-label);color:var(--muted);margin-bottom:6px}
 .scard{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:11px}
 
@@ -95,10 +96,10 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
   transition:all .12s;margin-bottom:4px;
 }
 .qp:last-child{margin-bottom:0}
-.qp:hover{border-color:var(--accent);color:var(--text);background:#fef2f2}
+.qp:hover{border-color:var(--accent);color:var(--text);background:var(--hint-err)}
 
 /* Hints panel */
-.hints-panel{flex-shrink:0;border-top:1px solid var(--border);padding:10px 14px;background:#fafafa;max-height:180px;overflow-y:auto}
+.hints-panel{flex-shrink:0;border-top:1px solid var(--border);padding:10px 14px;background:var(--surface2);max-height:180px;overflow-y:auto}
 .hint-item{
   padding:6px 9px;border-radius:6px;font-size:var(--fs-md);margin-bottom:5px;line-height:1.4;
   border-left:3px solid;
@@ -179,7 +180,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 
 /* Tool calls */
 .tool-card{
-  border:1px solid #fde68a;border-radius:8px;background:#fffbeb;
+  border:1px solid var(--warn);border-radius:8px;background:var(--hint-warn);
   padding:7px 11px;font-size:var(--fs-sm);font-family:var(--mono);max-width:680px;margin-top:4px;
 }
 .tool-card .tc-label{font-weight:700;color:var(--warn-text);margin-bottom:3px}
@@ -248,7 +249,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 }
 .input-row{display:flex;gap:9px;align-items:flex-end}
 textarea#msg{
-  flex:1;background:#f3f4f6;border:1.5px solid var(--border-strong);border-radius:10px;
+  flex:1;background:var(--surface2);border:1.5px solid var(--border-strong);border-radius:10px;
   color:var(--text);padding:9px 13px;font-size:var(--fs-base);font-family:inherit;
   resize:none;min-height:42px;max-height:160px;line-height:1.5;
   transition:border-color .12s, box-shadow .12s;
@@ -268,7 +269,7 @@ textarea#msg:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px 
 /* Voice-input (dictate) button. */
 .mic-btn{
   width:42px;height:42px;flex-shrink:0;border-radius:10px;
-  background:#f3f4f6;border:1.5px solid var(--border-strong);color:var(--muted);
+  background:var(--surface2);border:1.5px solid var(--border-strong);color:var(--muted);
   font-size:17px;cursor:pointer;display:flex;align-items:center;justify-content:center;
   transition:background .12s,border-color .12s;
 }
@@ -297,7 +298,7 @@ input[type=file]{display:none}
 .kb-item .kb-del{border:none;background:none;color:var(--faint);cursor:pointer;font-size:13px;padding:0 2px}
 .kb-item .kb-del:hover{color:var(--err-text)}
 .kb-empty{font-size:var(--fs-xs);color:var(--faint);font-style:italic;padding:4px 0}
-.kb-note{width:100%;background:#fff;border:1px solid var(--border);border-radius:6px;
+.kb-note{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:6px;
   padding:6px 9px;font-size:var(--fs-sm);color:var(--text);resize:vertical;font-family:inherit}
 /* Accessibility — visible keyboard focus ring (WCAG 2.4.7) */
 a:focus-visible,button:focus-visible,[role="button"]:focus-visible,
@@ -331,27 +332,28 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
    tools/build_icon_sprite.py. */
 .app-mark { width:26px; height:26px; flex-shrink:0; color:var(--swaxs-guinier); }
 .app-lockup { display:flex; align-items:center; gap:10px; min-width:0 }
+.topbar-sub{font-size:var(--fs-sm);color:var(--muted);white-space:nowrap}
 </style>
 </head>
 <body>
+{% include "_icon_sprite.svg" %}
+{% include "_icon_helpers.html" %}
 <div class="shell">
   <!-- ── Topbar ────────────────────────────────────────────── -->
   <header class="topbar">
-    <img src="/static/saxs_smiley.png" alt="SAXS assistant icon"
-         style="width:30px;height:30px;border-radius:7px;margin-right:10px;object-fit:cover;box-shadow:0 1px 3px rgba(0,0,0,.25)">
-    <div class="app-lockup">
+  <div class="app-lockup">
       {% include "_app_mark.svg" %}
       <h1><span>Guinier</span></h1>
     </div>
-    <div id="apiBadge" class="badge warn">Connecting…</div>
-    <div class="spacer"></div>
-    <button class="btn" onclick="clearChat()">🗑 Clear</button>
-    <button class="btn" onclick="showMemory()" title="View memory context">🧠 Memory</button>
-    <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" title="Toggle light / dark">☾</button>
-    <a href="http://localhost:5100" style="text-decoration:none">
-      <button class="btn">← Hub</button>
-    </a>
-  </header>
+  <div id="apiBadge" class="badge warn">Connecting…</div>
+  <div class="bar-extras">
+    <button class="btn" onclick="clearChat()"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-trash"/></svg> Clear</button>
+    <button class="btn" onclick="showMemory()" title="Show what the assistant remembers"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-ai"/></svg> Memory</button>
+  </div>
+  <span class="proj" id="barProject" title="Project folder">No project selected</span>
+  <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" title="Light or dark theme"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-moon"/></svg></button>
+  <span class="topbar-sub">Port 5109 · <a href="http://localhost:5100">← Hub</a></span>
+</header>
 
   <div class="body">
     <!-- ── Sidebar ──────────────────────────────────────────── -->
@@ -361,17 +363,18 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
         <div class="scard">
           <div class="stitle">Project</div>
           <input type="text" id="projectRoot" placeholder="/path/to/project"
-            style="width:100%;background:#fff;border:1px solid var(--border);border-radius:6px;
+            style="width:100%;background:var(--surface);border:1px solid var(--border);border-radius:6px;
                    padding:6px 9px;font-size:var(--fs-md);color:var(--text);margin-bottom:6px"
             onchange="saveProject()">
-          <button class="btn btn-accent" style="width:100%;justify-content:center" onclick="saveProject()">
-            Set Project
-          </button>
+          <div style="display:flex;gap:6px">
+            <button type="button" class="btn btn-ghost" style="flex:1;justify-content:center" onclick="swaxsBrowse('projectRoot')">Browse…</button>
+            <button class="btn btn-accent" style="flex:1;justify-content:center" onclick="saveProject()">Set project</button>
+          </div>
         </div>
 
         <!-- Knowledge base -->
         <div class="scard">
-          <div class="stitle">Knowledge &amp; Literature
+          <div class="stitle">Knowledge and literature
             <button class="kb-refresh" title="Refresh counts and list" onclick="refreshKB()">⟳</button>
           </div>
           <div id="kbStats" style="font-size:var(--fs-sm);color:var(--muted);margin-bottom:8px">Loading…</div>
@@ -382,28 +385,28 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
           <!-- add a paper -->
           <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px">
             <label style="font-size:var(--fs-sm);color:var(--muted);white-space:nowrap">Library</label>
-            <select id="uploadCollection" title="Where this PDF is filed. Both are searched when answering; this is just how it's organised."
+            <select id="uploadCollection" title="Where this PDF is filed. Both libraries are searched when answering."
               style="flex:1;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:4px 7px;font-size:var(--fs-sm);color:var(--text)">
               <option value="user_papers">My papers (project-specific)</option>
               <option value="literature">Literature (general reference)</option>
             </select>
           </div>
           <label class="pdf-label">
-            📄 Add PDF
+            <svg class="ico" aria-hidden="true"><use href="#swaxs-ui-document"/></svg> Add PDF
             <input type="file" id="pdfInput" accept=".pdf" onchange="uploadPDF(event)">
           </label>
           <div id="pdfStatus" style="font-size:var(--fs-xs);color:var(--muted);margin-top:4px"></div>
 
           <!-- add a note -->
           <textarea id="kbNote" class="kb-note" rows="2"
-            placeholder="Add a note/fact for the assistant to remember…"></textarea>
+            placeholder="A note or fact for the assistant to remember…"></textarea>
           <button class="btn btn-accent" style="width:100%;justify-content:center;margin-top:4px"
             onclick="addNote()">+ Add note</button>
         </div>
 
         <!-- Quick prompts -->
         <div class="scard">
-          <div class="stitle">Quick Prompts</div>
+          <div class="stitle">Quick prompts</div>
           <!-- Prompts (Sep 2026): ALL structural analysis runs on SUBTRACTED
                (background-corrected) data. Multi-sample tools (overlay, metadata,
                manifest) take a broad keyword like "Run7"; single-sample analyses
@@ -414,18 +417,18 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
                "Run7_r001" to ids that exist in the project before presenting. -->
           <div class="qp" onclick="usePrompt(this)">Plot i0 and bstop vs Timer for the averaged samples with "Run7" in the filename.</div>
           <div class="qp" onclick="usePrompt(this)">Compare and overlay all subtracted SAXS curves with "Run7" in the filename.</div>
-          <div class="qp" onclick="usePrompt(this)">Plot the most recent subtracted SAXS curve over q = 0.07–2 nm⁻¹ on a log–log scale.</div>
-          <div class="qp" onclick="usePrompt(this)">My background scale factor is 1.3 — is that reasonable for transmission-normalised data?</div>
+          <div class="qp" onclick="usePrompt(this)">Plot the most recent subtracted SAXS curve over q = 0.07 to 2 nm⁻¹ on a log-log scale.</div>
+          <div class="qp" onclick="usePrompt(this)">My background scale factor is 1.3. Is that reasonable for transmission-normalised data?</div>
           <div class="qp" onclick="usePrompt(this)">What files have been processed so far, and are there any quality flags?</div>
           <div class="qp" onclick="usePrompt(this)">Run a Guinier fit on the subtracted SAXS sample "Run7_r001": show the plot with the fit line and tell me whether the qRg range is valid.</div>
           <div class="qp" onclick="usePrompt(this)">Compute the pair-distance distribution p(r) and Dmax for the subtracted SAXS sample "Run7_r001".</div>
-          <div class="qp" onclick="usePrompt(this)">For subtracted SAXS profile "Run7_r005": check units, plot I(q) log–log, run a Guinier/Porod/Kratky workup, then recommend the best SASView models that can fit and describe the data. Also provide reasoning.</div>
+          <div class="qp" onclick="usePrompt(this)">For subtracted SAXS profile "Run7_r005": check units, plot I(q) log-log, run a Guinier/Porod/Kratky workup, then recommend the SASView models that best describe the data, with reasoning.</div>
         </div>
       </div>
 
       <!-- Hints panel (live from event bus) -->
       <div class="hints-panel">
-        <div class="stitle" style="margin-bottom:5px">Live Hints</div>
+        <div class="stitle" style="margin-bottom:5px">Live hints</div>
         <div id="hintsContainer">
           <div class="hints-empty">No hints yet</div>
         </div>
@@ -438,19 +441,19 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
         <div class="msg assistant">
           <div class="msg-label"><img src="/static/saxs_smiley.png" alt="" style="width:16px;height:16px;border-radius:4px;vertical-align:-3px;margin-right:5px">Guinier</div>
           <div class="bubble">
-            👋 I'm <b>Guinier</b>. I live in reciprocal space, so to me the big things
-            are at small q and I've never met a Fourier transform I didn't like.<br><br>
-            <i>Fun fact:</i> my namesake <b>André Guinier</b> noticed in 1939 that
-            ln&nbsp;I(q) goes linear in q² at low q: one clean line that hands you R<sub>g</sub>.
-            ~87 years later it's still move #1 on every
-            SAXS curve <span style="opacity:.7">(Guinier, <i>Ann. Phys.</i> 1939)</span>.
-            I intend to live up to the slope.<br><br>
-            Hand me a background-subtracted profile (just the sample name, e.g.
-            <code>Run7_r001</code>) and I'll take it from the classical workup
-            (Guinier, Porod, Kratky, and the pair-distance distribution p(r)/PDDF with
-            D<sub>max</sub>) to a <b>reasoned SASView model</b>, structure factor or
-            mesophase lattice included, with the plot behind every claim.<br><br>
-            What's scattering today?
+            <b>Guinier</b>, the analysis assistant for this beamtime. I work from the
+            project manifest and the reduced, averaged and subtracted profiles, and I
+            only report what the data supports.<br><br>
+            Give me a sample name (for example <code>Run7_r001</code>) and I will run
+            the standard workup: Guinier (R<sub>g</sub>, I(0), qR<sub>g</sub> validity),
+            Porod, Kratky, and p(r) with D<sub>max</sub>. From there I recommend a
+            SASView model, with structure factor or lattice where the data calls for
+            it, and show the plot and fit quality behind each conclusion.<br><br>
+            I can also track beam and sample metadata (I0, bstop, transmission,
+            temperature) across a run, flag outliers and possible radiation damage,
+            and summarise the state of the closed loop.<br><br>
+            If a result is ambiguous or the data is insufficient, I will say so
+            rather than guess.
           </div>
         </div>
       </div>
@@ -459,23 +462,23 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
         <div class="input-row">
           <textarea id="msg" rows="1" placeholder="Ask about your scattering data…"
             onkeydown="handleKey(event)" oninput="autoGrow(this)"></textarea>
-          <button class="mic-btn" id="micBtn" onclick="toggleMic()" title="Dictate (voice input)">🎤</button>
+          <button class="mic-btn" id="micBtn" onclick="toggleMic()" title="Dictate (voice input)"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-mic"/></svg> </button>
           <button class="send-btn" id="sendBtn" onclick="onSendBtn()" title="Send">↑</button>
         </div>
         <div class="input-meta">
-          <span class="input-hint">Enter to send · Shift+Enter for newline</span>
+          <span class="input-hint">Enter to send · Shift+Enter for new line</span>
           <div style="flex:1"></div>
-          <label style="font-size:var(--fs-xs);color:var(--faint)">effort
+          <label style="font-size:var(--fs-xs);color:var(--faint)">Effort
             <select id="effortSel" title="Response depth &amp; speed"
               style="font-size:var(--fs-xs);margin-left:4px">
               <option value="low">Low (fastest)</option>
               <option value="medium" selected>Medium (balanced)</option>
-              <option value="high">High (thorough · slower)</option>
+              <option value="high">High (thorough, slower)</option>
             </select>
           </label>
-          <label style="font-size:var(--fs-xs);color:var(--faint);margin-left:8px">model
-            <input id="modelSel" list="modelList" placeholder="default"
-              title="Claude model id — leave blank to use the configured/gateway default"
+          <label style="font-size:var(--fs-xs);color:var(--faint);margin-left:8px">Model
+            <input id="modelSel" list="modelList" placeholder="Default"
+              title="Claude model ID. Leave blank for the configured default."
               style="font-size:var(--fs-xs);margin-left:4px;width:150px">
             <datalist id="modelList">
               <option value="us.anthropic.claude-sonnet-4-6" label="Sonnet 4.6 (default, balanced)">
@@ -486,7 +489,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
             </datalist>
           </label>
           <div style="flex:1"></div>
-          <span id="sessionBadge" style="font-size:var(--fs-xs);color:var(--faint)">session: —</span>
+          <span id="sessionBadge" style="font-size:var(--fs-xs);color:var(--faint)">Session: none</span>
         </div>
       </div>
     </div>
@@ -537,11 +540,11 @@ function checkHealth() {
       const badge = document.getElementById('apiBadge');
       const ready = d.api_key_set || (d.credentials && d.credentials !== 'none');
       if (ready) {
-        badge.textContent = d.credentials === 'gateway-token' ? 'AI Ready · gateway' : 'AI Ready';
+        badge.textContent = d.credentials === 'gateway-token' ? 'AI ready · gateway' : 'AI ready';
         badge.className   = 'badge ok';
         badge.title       = (d.base_url || '') + (d.model ? ' · ' + d.model : '');
       } else {
-        badge.textContent = 'No API Key';
+        badge.textContent = 'No API key';
         badge.className   = 'badge warn';
       }
     })
@@ -558,7 +561,7 @@ function loadKBStats(retry) {
   // embedding model). Retry a few times so it populates without a manual refresh.
   const again = () => { if (retry < 6) { el.textContent = 'Loading knowledge base…';
                                          setTimeout(() => loadKBStats(retry + 1), 2000); }
-                        else { el.textContent = 'KB unavailable'; } };
+                        else { el.textContent = 'Knowledge base unavailable'; } };
   fetch('/api/knowledge/stats')
     .then(r => r.json())
     .then(d => {
@@ -592,10 +595,10 @@ function loadKnowledge(retry) {
       el.innerHTML = items.map(it => {
         const nm = it.name || '(unnamed)';
         const tag = (it.collection || '').replace('user_papers','paper').replace('literature','lit');
-        return `<div class="kb-item" title="${escAttr(nm)} — ${it.chunks||0} chunks, added ${it.added||''}">
+        return `<div class="kb-item" title="${escAttr(nm)}: ${it.chunks||0} chunks, added ${it.added||''}">
           <span class="kb-name">${escHtml(nm)}</span>
           <span class="kb-tag">${escHtml(tag)}</span>
-          <button class="kb-del" title="Remove" onclick="removeKnowledge('${escAttr(nm)}')">✕</button>
+          <button class="kb-del" title="Remove" onclick="removeKnowledge('${escAttr(nm)}')">${icoSvg('close')}</button>
         </div>`;
       }).join('');
     })
@@ -614,7 +617,7 @@ function addNote() {
     if (d.error) { alert('Could not save note: ' + d.error); return; }
     ta.value = '';
     loadKnowledge(); loadKBStats();
-  }).catch(() => alert('Could not save note (network).'));
+  }).catch(() => alert('Could not save note: network error.'));
 }
 
 function removeKnowledge(name) {
@@ -625,7 +628,7 @@ function removeKnowledge(name) {
   }).then(r => r.json()).then(d => {
     if (d.error) { alert('Remove failed: ' + d.error); return; }
     loadKnowledge(); loadKBStats();
-  }).catch(() => alert('Remove failed (network).'));
+  }).catch(() => alert('Remove failed: network error.'));
 }
 
 function escHtml(s){ return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
@@ -690,7 +693,7 @@ function saveProject() {
 function clearChat() {
   SESSION_ID = null;
   document.getElementById('messages').innerHTML = '';
-  document.getElementById('sessionBadge').textContent = 'session: —';
+  document.getElementById('sessionBadge').textContent = 'Session: none';
 }
 
 function showMemory() {
@@ -699,11 +702,11 @@ function showMemory() {
     .then(d => {
       const text = JSON.stringify(d, null, 2);
       appendAssistant(
-        '### Memory Context\n```\n' + text.slice(0, 1200) + (text.length > 1200 ? '\n…' : '') + '\n```',
+        '### Memory context\n```\n' + text.slice(0, 1200) + (text.length > 1200 ? '\n…' : '') + '\n```',
         [], null
       );
     })
-    .catch(err => appendSystem('Memory fetch failed: ' + err.message));
+    .catch(err => appendSystem('Could not load memory: ' + err.message));
 }
 
 // ── DOM builders ──────────────────────────────────────────────────────────
@@ -718,7 +721,7 @@ function appendSystem(text) {
 function appendUser(text) {
   const d = document.createElement('div');
   d.className = 'msg user';
-  d.innerHTML = `<div class="msg-label">👤 You</div><div class="bubble">${esc(text)}</div>`;
+  d.innerHTML = `<div class="msg-label">You</div><div class="bubble">${esc(text)}</div>`;
   document.getElementById('messages').appendChild(d);
   scrollEnd();
 }
@@ -727,7 +730,7 @@ function appendTyping() {
   const d = document.createElement('div');
   d.className = 'msg assistant'; d.id = '__typing';
   d.innerHTML = `<div class="msg-label"><img src="/static/saxs_smiley.png" alt="" style="width:16px;height:16px;border-radius:4px;vertical-align:-3px;margin-right:5px">Guinier</div>
-    <div class="det-row"><div class="det-load"><div class="field"></div><div class="bs"></div><div class="arm"></div></div><span>collecting…</span></div>`;
+    <div class="det-row"><div class="det-load"><div class="field"></div><div class="bs"></div><div class="arm"></div></div><span>Working…</span></div>`;
   document.getElementById('messages').appendChild(d);
   scrollEnd();
   return d;
@@ -756,7 +759,7 @@ function appendAssistant(text, toolCalls, plot, inlineHints, plotFig, plots) {
   // Response hints (from Claude API result)
   if (inlineHints && inlineHints.length) {
     html += '<div class="response-hints">' +
-      inlineHints.map(h => `<div class="rh info">💡 ${esc(h)}</div>`).join('') +
+      inlineHints.map(h => `<div class="rh info">${icoSvg('info')} ${esc(h)}</div>`).join('') +
       '</div>';
   }
 
@@ -764,7 +767,7 @@ function appendAssistant(text, toolCalls, plot, inlineHints, plotFig, plots) {
   if (toolCalls && toolCalls.length) {
     html += toolCalls.map(tc => `
       <div class="tool-card">
-        <div class="tc-label">⚙ ${esc(tc.name)}</div>
+        <div class="tc-label">${icoSvg('settings')} ${esc(tc.name)}</div>
         <div class="tc-body">${esc(typeof tc.output === 'string' ? tc.output.slice(0,500) : JSON.stringify(tc.output))}</div>
       </div>`).join('');
   }
@@ -883,14 +886,14 @@ async function sendMsg() {
   const finish = (data) => {
     stepsEl.remove();
     if (!data || data.error) {
-      appendAssistant('⚠ Error: ' + ((data && data.error) || 'no response'), [], null, []);
+      appendAssistant('⚠ Error: ' + ((data && data.error) || 'No response'), [], null, []);
       return;
     }
     SESSION_ID = data.session_id || SESSION_ID;
     document.getElementById('sessionBadge').textContent =
-      'session: ' + String(SESSION_ID).slice(0, 8);
+      'Session: ' + String(SESSION_ID).slice(0, 8);
     appendAssistant(
-      data.text || '(no response)',
+      data.text || '(No response)',
       data.tool_calls || [],
       data.plot || null,
       data.hints || [],
@@ -928,9 +931,9 @@ async function sendMsg() {
         if (!line) continue;
         let ev; try { ev = JSON.parse(line.slice(5).trim()); } catch (e) { continue; }
         if (ev.type === 'thinking') {
-          addStep(stepsEl, '💭 ' + ev.text, 'think');
+          addStep(stepsEl, ev.text, 'think');
         } else if (ev.type === 'tool') {
-          addStep(stepsEl, '⚙ ' + (ev.label || ev.name), 'tool');
+          addStep(stepsEl, (ev.label || ev.name), 'tool');
         } else if (ev.type === 'final') {
           finalData = ev;
         } else if (ev.type === 'error') {
@@ -947,7 +950,7 @@ async function sendMsg() {
     // User pressed Stop: keep whatever we have; do NOT re-send via the fallback.
     if (err && (err.name === 'AbortError' || (ABORT && ABORT.signal.aborted))) {
       if (finalData) { finish(finalData); }
-      else { stepsEl.remove(); appendAssistant('⏹ Stopped.', [], null, []); }
+      else { stepsEl.remove(); appendAssistant('Stopped.', [], null, []); }
     } else {
       // Fallback to the non-streaming endpoint.
       try {
@@ -978,7 +981,7 @@ function setSendStop(streaming) {
   const b = document.getElementById('sendBtn');
   if (!b) return;
   b.disabled = false;
-  b.textContent = streaming ? '⏹' : '↑';
+  b.innerHTML = streaming ? icoSvg('stop') : '↑';
   b.title = streaming ? 'Stop' : 'Send';
   b.classList.toggle('stopping', !!streaming);
 }
@@ -993,11 +996,11 @@ async function toggleMic() {
   if (MEDIA) { stopMic(); return; }                // second click → stop & send
   const micBtn = document.getElementById('micBtn');
   if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.AudioContext)) {
-    appendSystem('🎤 audio capture is not available in this browser.'); return;
+    appendSystem('Audio capture is not available in this browser.'); return;
   }
   let stream;
   try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
-  catch (e) { appendSystem('🎤 microphone permission denied or no microphone found.'); return; }
+  catch (e) { appendSystem('Microphone permission denied, or no microphone found.'); return; }
   const ctx  = new (window.AudioContext || window.webkitAudioContext)();
   try { if (ctx.state === 'suspended') await ctx.resume(); } catch (e) {}
   const src  = ctx.createMediaStreamSource(stream);
@@ -1007,7 +1010,7 @@ async function toggleMic() {
   src.connect(proc); proc.connect(ctx.destination);
   MEDIA = { stream, ctx, src, proc, chunks };
   micBtn.classList.add('recording');
-  micBtn.title = 'Stop & transcribe';
+  micBtn.title = 'Stop and transcribe';
 }
 
 async function stopMic() {
@@ -1025,7 +1028,7 @@ async function stopMic() {
   const buf = new Float32Array(n); let o = 0; for (const c of chunks) { buf.set(c, o); o += c.length; }
   const wav = _encodeWAV(buf, sr);
 
-  micBtn.textContent = '⏳'; micBtn.disabled = true;
+  micBtn.innerHTML = icoSvg('timer'); micBtn.disabled = true;
   try {
     const fd = new FormData();
     fd.append('audio', new Blob([wav], { type: 'audio/wav' }), 'clip.wav');
@@ -1036,12 +1039,12 @@ async function stopMic() {
       ta.value = (ta.value ? ta.value.trim() + ' ' : '') + d.text;
       autoGrow(ta); ta.focus();
     } else {
-      appendSystem('🎤 ' + (d.error || 'no speech recognised.'));
+      appendSystem('' + (d.error || 'No speech recognised.'));
     }
   } catch (e) {
-    appendSystem('🎤 transcription failed: ' + (e && e.message || e));
+    appendSystem('Transcription failed: ' + (e && e.message || e));
   } finally {
-    micBtn.textContent = '🎤'; micBtn.disabled = false; micBtn.title = 'Dictate (voice input)';
+    micBtn.innerHTML = icoSvg('mic'); micBtn.disabled = false; micBtn.title = 'Dictate (voice input)';
   }
 }
 
@@ -1070,7 +1073,7 @@ function appendSteps() {
   d.innerHTML = `<div class="msg-label"><img src="/static/saxs_smiley.png" alt="" style="width:16px;height:16px;border-radius:4px;vertical-align:-3px;margin-right:5px">Guinier</div>
     <div class="steps"><div class="det-row">
       <div class="det-load"><div class="field"></div><div class="bs"></div><div class="arm"></div></div>
-      <span>collecting…</span>
+      <span>Working…</span>
     </div></div>`;
   document.getElementById('messages').appendChild(d);
   scrollEnd();
@@ -1082,7 +1085,9 @@ function addStep(stepsEl, label, kind) {
   if (prev) prev.classList.remove('step-active');
   const row = document.createElement('div');
   row.className = 'step-row step-active ' + (kind || '');
-  row.textContent = label.length > 120 ? label.slice(0, 120) + '…' : label;
+  const txt = label.length > 120 ? label.slice(0, 120) + '…' : label;
+  const ic = kind === 'think' ? 'ai' : kind === 'tool' ? 'settings' : '';
+  if (ic) setIco(row, ic, txt); else row.textContent = txt;
   box.appendChild(row);
   scrollEnd();
 }
@@ -1110,7 +1115,7 @@ async function uploadPDF(event) {
       status.textContent = `✓ ${d.message}`;
       loadKBStats();
       loadKnowledge();
-      appendSystem(`PDF ingested: ${file.name} — ${d.chunks} chunks into '${d.collection}'.`);
+      appendSystem(`PDF added: ${file.name}, ${d.chunks} chunks in '${d.collection}'.`);
     }
   } catch (err) {
     status.textContent = '✗ Upload failed: ' + err.message;
@@ -1121,9 +1126,9 @@ async function uploadPDF(event) {
 </script>
 <script>
 (function(){var K='swaxs-theme',s=localStorage.getItem(K),
- d=s?s==='dark':matchMedia('(prefers-color-scheme:dark)').matches;
+ d=document.documentElement.getAttribute('data-theme')==='dark';
  function ap(x){document.documentElement.setAttribute('data-theme',x?'dark':'light');
-  var b=document.getElementById('themeToggle');if(b)b.textContent=x?'☀':'☾';}
+  var b=document.getElementById('themeToggle');if(b)b.innerHTML='<svg class="ico" aria-hidden="true"><use href="#swaxs-ui-'+(x?'sun':'moon')+'"/></svg>';}
  ap(d);window.toggleTheme=function(){d=!d;localStorage.setItem(K,d?'dark':'light');ap(d);};})();
 </script>
 </body>

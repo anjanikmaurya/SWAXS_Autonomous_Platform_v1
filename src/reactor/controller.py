@@ -50,7 +50,12 @@ def _spec_cfg_for(cfg: dict, backend: str) -> dict:
     return {**cfg, "spec": spec}
 
 
-class ReactorController:
+from .collection import CollectionMixin   # noqa: E402
+from .sequence import SequenceMixin       # noqa: E402
+from .supervisor import SupervisorMixin   # noqa: E402
+
+
+class ReactorController(SequenceMixin, SupervisorMixin, CollectionMixin):
     def __init__(self, cfg: dict, backend: str = "mock", *,
                  log_cb=None, event_cb=None, feedback_cb=None, manifest_cb=None,
                  auto_run_cb=None):
@@ -107,6 +112,12 @@ class ReactorController:
         # rehearsal is timed exactly like the beamline run it stands in for. Use
         # short durations in the app if you want a short test.
         self.default_duration = float(run.get("default_duration", 600.0))
+        # NOT READ ANYWHERE (OPEN_DEFECTS R4). Kept only so an old config that
+        # sets it still loads. Ending a run on measurement is ALWAYS on: a
+        # file.averaged signal for the current recipe ends the run
+        # (signal_measurement_complete), whatever this key says. Setting it to
+        # false does not disable that. Wiring it would change run behaviour, so
+        # it is documented as a no-op instead.
         self.end_on_measurement = bool(run.get("end_on_measurement", True))
         # how often (s) to sample the delivered-flow trace saved in the done file
         self.meas_sample_s = float(run.get("log_interval_s", 2.0))
@@ -235,7 +246,14 @@ class ReactorController:
         """Skip the remaining arming wait and start the pumps immediately."""
         with self._lock:
             if self.state == "arming":
-                self._log("⏩ arming skipped — starting pumps now", "info")
+                # R5: say what was skipped, so the record shows the temperature
+                # the pumps actually started at (the UI asks for confirmation).
+                try:
+                    t_now, t_tgt = float(self.temp.current), float(self.temp.target)
+                    why = f" at {t_now:.1f} °C (target {t_tgt:.1f} °C)"
+                except Exception:
+                    why = ""
+                self._log(f"⏩ arming skipped by the operator — starting pumps now{why}", "warn")
                 self._enter_running()
                 return True
         return False
@@ -314,6 +332,28 @@ class ReactorController:
                 self._log(f"🗑 cleared {len(removed)} queued recipe(s): "
                           + ", ".join(d["recipe_id"] for d in removed), "info")
             return removed
+
+    def withdraw_source(self, source: str, reason: str = "") -> list[str]:
+        """Drop QUEUED recipes that came from ``source`` (e.g. 'folder:Run3_r004.txt').
+
+        Never touches the recipe that is currently running. Used when the
+        producer (the analyzer) withdraws a condition it already wrote, by moving
+        the file to Conditions/done/: on a new campaign or an abort those
+        conditions belong to a run that no longer exists, and dosing them would
+        burn reagent and beam for nothing. Returns the withdrawn recipe ids.
+        """
+        with self._lock:
+            keep, gone = deque(), []
+            for item in self.queue:
+                if item[0].source == source:
+                    gone.append(item[0].recipe_id)
+                else:
+                    keep.append(item)
+            if gone:
+                self.queue = keep
+                self._log(f"↩ withdrawn {', '.join(gone)}"
+                          + (f" ({reason})" if reason else ""), "info")
+            return gone
 
     def set_auto_run(self, on: bool) -> None:
         """Arm / disarm the autonomous loop.
@@ -425,9 +465,14 @@ class ReactorController:
                     self.live_flush_duration = v
             if provided("flush_pump"):
                 fp = str(d["flush_pump"]).strip()
-                if fp in PUMP_NAMES:
+                if fp in PUMP_NAMES and fp != self._flush_pump:
                     self._flush_pump = fp
-                    self._log(f"🧼 flush pump → {fp}", "info")
+                    if self.state == "flushing":
+                        self._log(f"🧼 flush pump → {fp} (applies from the next flush; "
+                                  f"this flush keeps running on "
+                                  f"{getattr(self, '_flush_active', None) or '?'})", "info")
+                    else:
+                        self._log(f"🧼 flush pump → {fp}", "info")
             if provided("run_duration"):
                 v = bounded("run_duration", allow_zero=False,
                             what="a run of zero or less collects nothing")
@@ -436,130 +481,6 @@ class ReactorController:
                     if self.state == "running" and self._run_started:
                         self._run_deadline = self._run_started + self.live_duration
                         self._log(f"⏱ run duration → {self.live_duration:g}s (applies to current run)", "info")
-
-    def spec_lock_reason(self) -> str:
-        """Why the data-collection settings cannot be changed right now, or ''.
-
-        These define what an acquisition IS — exposure, frame count, the tags
-        that become filenames, the folder frames land in. Changing them while
-        the loop is collecting does not just risk a bad value (Run20 lost a
-        whole condition to an exposure_s of 0); even a VALID change makes the
-        conditions before and after it incomparable, which is the one thing a
-        campaign cannot tolerate, since the optimizer treats every point as a
-        measurement of the same experiment.
-
-        So they are frozen for the duration and the operator stops the run to
-        change them. Caller must hold _lock.
-        """
-        if self.auto_run:
-            return ("auto-run is ON — data-collection settings are frozen so "
-                    "every condition in the campaign is collected identically. "
-                    "Turn auto-run off to change them.")
-        if self.state not in ("idle", "ready", "estop"):
-            return (f"a run is in progress ({self.state}) — data-collection "
-                    f"settings are frozen until it finishes.")
-        return ""
-
-    def set_spec_settings(self, d: dict) -> tuple[bool, str]:
-        """Live SPEC data-collection settings from the app: exposure_s, frames,
-        spec_lead_s, sample_tag, bkg_tag, data_dir. Blank/missing keys are left
-        unchanged. Values apply to the NEXT acquisition (read when a collect fires).
-
-        Returns (ok, message) like collect_now/set_backend. Refused outright
-        while a run or campaign is in flight — see spec_lock_reason.
-        """
-        def _tag(v):
-            # keep filename-safe tokens only (letters/digits/_-)
-            return "".join(c for c in str(v).strip() if c.isalnum() or c in "_-")
-        with self._lock:
-            locked = self.spec_lock_reason()
-            if locked:
-                self._log(f"⚙ data-collection settings NOT changed — {locked}",
-                          "warn")
-                return False, locked
-            if str(d.get("exposure_s", "")).strip():
-                # A non-positive exposure is silently catastrophic: the mock
-                # detector multiplies its intensity map by exposure_s, so 0
-                # yields a correctly-sized, entirely BLANK .raw — which reduces
-                # to a structurally perfect .dat full of zeros, and only
-                # surfaces four stages later as "no usable frames" in the
-                # average app. On a real rig it is a zero-second count, i.e.
-                # burnt beamtime. `frames` beside it has always been clamped
-                # with max(1, ...); exposure_s was not, so a 0 typed into the
-                # UI field was accepted verbatim and every later condition
-                # collected nothing. Refuse it and keep the working value.
-                try:
-                    v = float(d["exposure_s"])
-                    if v > 0:
-                        self._spec_exposure = v
-                    else:
-                        self._log(f"⚠ exposure_s={v:g} refused — an exposure of "
-                                  f"zero or less collects blank frames. Keeping "
-                                  f"{self._spec_exposure:g}s.", "warn")
-                except (TypeError, ValueError): pass
-            if str(d.get("frames", "")).strip():
-                try: self._spec_frames = max(1, int(float(d["frames"])))
-                except (TypeError, ValueError): pass
-            if str(d.get("spec_lead_s", "")).strip():
-                try: self._spec_lead = float(d["spec_lead_s"])
-                except (TypeError, ValueError): pass
-            if _tag(d.get("sample_tag", "")):
-                self._spec_sample_tag = _tag(d["sample_tag"])
-            if _tag(d.get("bkg_tag", "")):
-                self._spec_bkg_tag = _tag(d["bkg_tag"])
-            if str(d.get("data_dir", "")).strip():
-                self._spec_data_dir = str(d["data_dir"]).strip()
-            msg = (f"exp {self._spec_exposure:g}s ×{self._spec_frames}, "
-                   f"lead {self._spec_lead:g}s, tags {self._spec_sample_tag}/"
-                   f"{self._spec_bkg_tag}, dir {self._spec_data_dir or '(unset)'}")
-            self._log(f"⚙ data-collection: {msg}", "info")
-            return True, msg
-
-    def set_project_root(self, path: str) -> None:
-        """Tell the controller (and the 2D simulator) where the hub project
-        folder is. That folder's config.yml supplies poni_files / detector_shapes,
-        so the simulated frames use the SAME geometry the reduction app will."""
-        with self._lock:
-            self._project_root = str(path or "").strip()
-        try:
-            self.beamline.set_project_root(self._project_root)
-        except Exception:
-            pass
-
-    def set_data_dir(self, path: str) -> None:
-        """Force the SPEC save folder (used when the hub switches project folder —
-        overwrites whatever was there so data_dir follows the hub)."""
-        with self._lock:
-            p = str(path).strip()
-            if p and p != self._spec_data_dir:
-                self._spec_data_dir = p
-                self._log(f"📁 SPEC data_dir → {p}", "info")
-
-    def default_data_dir(self, path: str) -> None:
-        """Set data_dir ONLY if it isn't already set (used to seed it from the hub
-        project folder without clobbering a config value or the user's UI entry)."""
-        with self._lock:
-            if path and not self._spec_data_dir:
-                self._spec_data_dir = str(path).strip()
-
-    def collect_now(self, role: str = "sample") -> tuple[bool, str]:
-        """Fire a one-off SPEC 2D acquisition on demand (dry-run/verify), OUTSIDE a
-        run. Allowed only when idle/ready/estop and not already collecting, so it
-        never interferes with the automated sample/background collects."""
-        with self._lock:
-            if self.state not in ("idle", "ready", "estop"):
-                return False, f"can't manually collect while {self.state} — the run manages collection"
-            if not self._spec_enabled:
-                return False, "data collection is disabled (spec.enabled = false)"
-            if self.beamline.is_collecting():
-                return False, "a collection is already in progress"
-            role = "background" if str(role).lower().startswith("b") else "sample"
-            rid = "manual_" + time.strftime("%Y%m%d_%H%M%S")
-        threading.Thread(target=self._fire_spec_collection,
-                         args=(rid, role, self.backend, self.beamline),
-                         daemon=True).start()
-        self._log(f"📷 manual collect requested ({role}) — {rid}", "info")
-        return True, rid
 
     # ── run-end triggers ───────────────────────────────────────────────────────
     def signal_measurement_complete(self, info: str = "", recipe_id: str = "") -> None:
@@ -794,589 +715,6 @@ class ReactorController:
                 return True
         return False
 
-    # ── internal transitions (call with lock held) ─────────────────────────────
-    def _release_pending(self, why: str) -> None:
-        """Return a recipe staged behind a blank flush to the front of the queue.
-
-        ``_pending`` holds the recipe whose pre-synthesis blank is being
-        collected. Only ``_end_flush`` used to clear it, so ANY other way out of
-        that flush — Stop, E-stop, Vent, a to-idle — stranded the recipe there
-        forever, and the damage was in two parts:
-
-          1. the staged condition was silently lost (no run, no record, no
-             feedback file, so the optimizer waited for a `.done.json` that was
-             never coming);
-          2. far worse, ``_begin_next`` only stages a blank when ``_pending is
-             None``, so with a stranded value EVERY LATER CONDITION RAN WITH NO
-             BACKGROUND. The run log looked perfectly normal throughout and the
-             damage only surfaced in the subtraction app, conditions later.
-
-        Nothing cleared it — not reset, not vent, not estop, not clear_queue.
-        Only restarting the app recovered. Audit finding R2.
-
-        Caller must hold _lock.
-        """
-        if self._pending is None:
-            return
-        recipe, setpoints = self._pending
-        self._pending = None
-        self._bkg_recipe_id = ""
-        self.queue.appendleft((recipe, setpoints))
-        self._log(f"↩ {recipe.recipe_id} was staged behind its blank when {why} — "
-                  f"put back at the front of the queue (it has not run)", "warn")
-
-    def _begin_next(self) -> None:
-        # Defence in depth for R2, and BEFORE the empty-queue check so a
-        # stranded recipe is recovered even when nothing else is waiting. If
-        # _pending is still set here, a blank would be skipped for this
-        # condition AND every one after it. Say so loudly and recover, rather
-        # than running the whole campaign without backgrounds in silence.
-        if self._pending is not None:
-            self._log("⚠ a recipe was still staged behind a blank that never "
-                      "completed — recovering it before starting the next "
-                      "condition (this would otherwise have skipped every "
-                      "background for the rest of the session)", "warn")
-            self._release_pending("the blank did not complete")
-
-        if not self.queue:
-            self._to_idle()
-            return
-
-        recipe, setpoints = self.queue.popleft()
-
-        # ── background BEFORE synthesis (background_when: "before") ───────────
-        # Flush the line, measure the blank on the clean capillary, THEN run the
-        # synthesis. The blank is tagged with the UPCOMING recipe_id, so the
-        # pairing is unambiguous and the background is already on disk when the
-        # sample frames land — subtraction can start immediately.
-        if (self.background_when == "before" and self._spec_enabled
-                and self._pending is None):
-            self._pending = (recipe, setpoints)
-            dur = self._blank_flush_duration()
-            if dur is not None:
-                self._log(f"🧪 line already clean — short blank rinse ({dur:g}s) + "
-                          f"background for {recipe.recipe_id}, then the synthesis "
-                          f"(no redundant full flush)", "info")
-            else:
-                self._log(f"🧪 blank first for {recipe.recipe_id} — flushing, then a "
-                          f"background collection, then the synthesis", "info")
-            self._enter_flush(kind="blank", duration=dur,
-                              bkg_recipe_id=recipe.recipe_id)
-            return
-
-        self._start_recipe(recipe, setpoints)
-
-    def _start_recipe(self, recipe, setpoints) -> None:
-        """Arm and run a recipe (the part of _begin_next after any blank flush)."""
-        self.current = recipe
-        self.setpoints = setpoints
-        self._measure_done = False
-        self._run_reason = ""
-        # Clear the PREVIOUS run's measurements now, not in _enter_running — an
-        # abort during arming would otherwise report the last run's flows.
-        self._run_started = 0.0
-        self._meas_sum = {}
-        self._meas_n = 0
-        self._meas_series = []
-        # Hand the recipe to the beamline backend. No-op on real SPEC; in mock
-        # mode this is what makes the SIMULATED 2D data reflect this recipe, so
-        # the optimizer sees a real landscape instead of constant results.
-        try:
-            self.beamline.set_recipe(recipe)
-            if self._spec_data_dir:
-                # The PROJECT ROOT (where config.yml with poni_files lives) —
-                # NOT the 2D data folder. Passing data_dir here meant the
-                # simulator never found the project config and silently fell
-                # back to synthetic geometry.
-                self.beamline.set_project_root(self._project_root or self._spec_data_dir)
-        except Exception:
-            pass
-        self.temp.set_temperature(recipe.T_reac)   # recorded for display / gating
-        # Precedence: the APP (live_*) value wins once the user has set it, then any
-        # recipe-embedded value, then the config default. So whatever is in the app
-        # UI is used for every run/repeat/autonomous run until the app is restarted.
-        self._arm_mode = (self.live_arm_mode or recipe.arm_mode or self.default_arm_mode).lower()
-        now = time.time()
-        self.state = "arming"
-        if self._arm_mode == "timed":
-            wait = (self.live_arm_wait if self.live_arm_wait is not None
-                    else recipe.arm_wait_s if recipe.arm_wait_s is not None
-                    else self.default_arm_wait)
-            self._arm_total = float(wait)
-            self._arm_ready_at = now + float(wait)
-            self._arm_deadline = 0.0    # no temperature timeout in timed mode
-            self._log(f"⏲ arming {recipe.recipe_id}: timed wait {float(wait):g}s "
-                      f"before pumps start (temperature gate off)", "info")
-        else:
-            self._arm_total = 0.0
-            self._arm_ready_at = 0.0
-            self._arm_deadline = now + self.temp.timeout
-            self._log(f"🌡 arming {recipe.recipe_id}: waiting for {recipe.T_reac:g}°C "
-                      f"(±{self.temp.tolerance:g})", "info")
-            # Say NOW, not in 900 s, that this cannot succeed (audit R13).
-            # Temperature arming gates on a reading. If there is no live source
-            # the gate can never open, so the condition waits out the full
-            # arming timeout and is then abandoned — once per condition, all
-            # night, with the reason only visible at the very end of each wait.
-            if not self.temp.trustworthy:
-                why = {"unwired": "no temperature source is wired — `current` is "
-                                  "the ambient default and never changes",
-                       "mock": "this is the MOCK backend's simulated ramp, not a "
-                               "measurement"}.get(self.temp.source,
-                                                  "the reading is stale")
-                self._log(f"⚠ arm_mode is 'temperature' but {why}. This run will "
-                          f"wait the full {self.temp.timeout:g}s and then be "
-                          f"abandoned. Switch the Timing card to a fixed wait, or "
-                          f"fix the temperature source, before leaving it "
-                          f"running.", "warn")
-
-    def _enter_running(self) -> None:
-        self.pumps.reset_volumes()          # start counting delivered volume for this run
-        self._line_clean = False            # reagents about to flow — line is now dirty
-        self._flow_faulted_prev = set()
-        failed_set = self.pumps.set_all(self.setpoints)
-        if failed_set:
-            # Some pumps are flowing and others refused the command — the mixture
-            # is wrong and unsupervised. Stop rather than run a bad composition.
-            self._log(f"🛑 could not command pump(s) {', '.join(failed_set)} — "
-                      f"emergency stop (the remaining pumps would deliver the "
-                      f"wrong composition)", "error")
-            self.estop()
-            return
-        self._meas_sum = {name: 0.0 for name in self.pumps.pumps}
-        self._meas_n = 0
-        self._meas_series = []
-        self._run_started = time.time()
-        self._meas_last_sample = self._run_started
-        self._spec_fired = False
-        dur = (self.live_duration or self.current.run_duration or self.default_duration)
-        if float(dur) <= 0:      # see the R8 note on set_run_settings
-            self._log(f"⚠ run duration {float(dur):g}s is not usable — falling back "
-                      f"to the configured {self.default_duration:g}s", "warn")
-            dur = self.default_duration
-        self._run_deadline = self._run_started + float(dur)
-        self.state = "running"
-        sp = ", ".join(f"{k}={v:g}" for k, v in self.setpoints.items() if v)
-        self._log(f"▶ RUN START {self.current.recipe_id} — {sp} µL/min "
-                  f"@ {self.current.T_reac:g}°C for {float(dur):g}s", "ok")
-
-        # Spell out what will END the run, so an unexpectedly short/long run can
-        # be traced to the trigger that actually fired.
-        enders = [f"duration {float(dur):g}s", "measurement-complete signal"]
-        if self.advance_on_new:
-            enders.append(f"next queued condition (after {self.min_dwell:g}s dwell)")
-        self._log(f"   ends on: first of — {'; '.join(enders)}", "info")
-
-        # And when the 2D collection is due. Silence here was the main reason a
-        # missing acquisition was hard to diagnose.
-        if not self._spec_enabled:
-            self._log("   📷 2D collection DISABLED (spec.enabled = false) — "
-                      "no data will be written this run", "warn")
-        elif not self._spec_data_dir:
-            self._log("   ⚠ 2D collection enabled but SPEC data_dir is UNSET — "
-                      "set the Save folder or it will fail", "warn")
-        elif self.backend != "real" and getattr(self.beamline, "simulator", None) is None:
-            self._log("   ⚠ MOCK backend with the 2D simulator OFF — collections "
-                      "will be logged but NO files written. Set "
-                      "spec.simulator.enabled: true to generate synthetic data.",
-                      "warn")
-        else:
-            if self.backend != "real":
-                self._check_mock_dir_writable()
-            fire_in = float(dur) - self._spec_lead
-            if fire_in <= 0:
-                self._log(f"   📷 2D collection fires IMMEDIATELY — lead "
-                          f"{self._spec_lead:g}s ≥ run duration {float(dur):g}s "
-                          f"(reduce spec_lead_s to collect later in the run)", "warn")
-            else:
-                self._log(f"   📷 2D collection due at T+{fire_in:g}s "
-                          f"({self._spec_lead:g}s before the end) → "
-                          f"{self._spec_data_dir}", "info")
-        self._event("reactor.run_start",
-                    {"recipe_id": self.current.recipe_id,
-                     "setpoints": self.setpoints, "T_reac": self.current.T_reac,
-                     # full recipe + planned duration so notifiers can report the
-                     # conditions without reaching back into the controller
-                     "recipe": self.current.to_dict(),
-                     "duration_s": float(dur), "backend": self.backend})
-
-    def _end_run(self, flush: bool = True) -> None:
-        rec = self.current
-        ended = time.time()
-        reason = self._run_reason or "ended"
-        # A run that never left `arming` produced no flow and no measurement.
-        # Emitting a record here used to copy the PREVIOUS run's measured_flows
-        # and flow_series into a <recipe_id>.done.json marked status="ran" — the
-        # optimizer would then train on a synthesis that never happened.
-        never_ran = not self._run_started
-        if never_ran:
-            self._log(f"⏹ {rec.recipe_id if rec else '?'} ended before the pumps "
-                      f"started ({reason}) — no run record written", "info")
-            self.current = None
-            self.setpoints = {}
-            if flush:
-                self._enter_flush()
-            else:
-                self._to_idle()
-            return
-        # stop reagents immediately (guarded per-pump so one failure can't leave
-        # the others flowing)
-        failed = self.pumps.zero_pumps(REAGENT_PUMPS)
-        if failed:
-            self._log(f"⚠ could not zero reagent pump(s): {', '.join(failed)} — check them", "warn")
-        # synthesis is over: cool the reactor to room temperature (if configured)
-        if self.cooldown_c is not None:
-            try:
-                self.temp.set_temperature(self.cooldown_c)
-                self._log(f"🌡 synthesis complete — cooling to {self.cooldown_c:g} °C", "info")
-            except Exception as exc:
-                self._log(f"⚠ cooldown command failed: {exc}", "warn")
-        # mean measured flow per pump over the run (from the flow sensors)
-        measured = ({nm: round(self._meas_sum.get(nm, 0.0) / self._meas_n, 4)
-                     for nm in self._meas_sum} if self._meas_n
-                    else {nm: round(getattr(p, "actual", 0.0), 4)
-                          for nm, p in self.pumps.pumps.items()})
-        record = {
-            "recipe_id": rec.recipe_id if rec else None,
-            "recipe": rec.to_dict() if rec else None,
-            "setpoints": self.setpoints,
-            "measured_flows": measured,
-            "started": self._run_started, "ended": ended,
-            "duration_s": round(ended - self._run_started, 1) if self._run_started else None,
-            "reason": reason, "status": "ran",
-        }
-        self.history.append(record)
-
-        # Elapsed vs planned makes "why was my synthesis shorter than I set?"
-        # answerable from the log alone.
-        planned = (self._run_deadline - self._run_started) if self._run_started else None
-        actual = record["duration_s"]
-        timing = f"{actual:g}s" if actual is not None else "?"
-        if planned and actual is not None:
-            delta = actual - planned
-            timing = (f"{actual:g}s of {planned:g}s planned"
-                      + (f" ({delta:+.0f}s)" if abs(delta) >= 1 else ""))
-        self._log(f"⏹ RUN END {record['recipe_id']} — ran {timing}; "
-                  f"stopped by: {reason}", "ok")
-        if planned and actual is not None and actual < planned - 1 and reason != "duration elapsed":
-            self._log(f"   ↳ ended EARLY by {planned - actual:.0f}s because "
-                      f"'{reason}' fired before the {planned:g}s duration", "info")
-
-        # The most confusing failure mode: the run finished but no 2D data exists.
-        if self._spec_enabled and not self._spec_fired:
-            self._log("   ⚠ NO 2D collection fired this run — the run ended before "
-                      f"T+{max(0.0, (planned or 0) - self._spec_lead):g}s "
-                      f"(spec_lead_s={self._spec_lead:g}s). Shorten spec_lead_s or "
-                      "lengthen the run.", "warn")
-        try:
-            self._manifest(record)
-            # the full delivered-flow trace goes ONLY in the done file (kept out
-            # of manifest.json / events to avoid bloat); appended at the bottom.
-            feedback_payload = {
-                **record,
-                "flow_series_note": (f"delivered flow (µL/min) per pump, sampled every "
-                                     f"{self.meas_sample_s:g}s over the synthesis run"),
-                "flow_series": self._meas_series,
-            }
-            self._feedback(record["recipe_id"], feedback_payload)
-            self._event("reactor.run_complete", record)
-        except Exception as exc:
-            self._log(f"⚠ feedback/manifest error: {exc}", "warn")
-        if flush:
-            # In "before" mode the post-synthesis clean-out and the next run's
-            # blank are the SAME flush: the line ends up clean either way, so
-            # running two back-to-back would waste a full flush duration between
-            # every pair of runs. Stage the next recipe and collect its blank at
-            # the end of this one.
-            # `and self.auto_run`: with the loop paused, do NOT stage the next
-            # condition's blank into this flush. Staging it would collect a
-            # background for a condition that is not going to run until the
-            # operator re-arms — possibly after they have changed the exposure,
-            # which would pair a sample with a blank taken under different
-            # settings. Paused means a plain clean-out; the next condition gets
-            # its own blank when it actually starts.
-            if (self.background_when == "before" and self._spec_enabled
-                    and self.queue and self._pending is None and self.auto_run):
-                nxt_recipe, nxt_setpoints = self.queue.popleft()
-                self._pending = (nxt_recipe, nxt_setpoints)
-                self._log(f"🧪 this flush doubles as the blank for the next "
-                          f"condition ({nxt_recipe.recipe_id})", "info")
-                self._enter_flush(kind="blank", bkg_recipe_id=nxt_recipe.recipe_id)
-            else:
-                self._enter_flush(kind="flush")
-        else:
-            self._to_idle()
-
-    def _blank_flush_duration(self) -> float | None:
-        """Duration for a pre-synthesis blank. Returns the short rinse when the
-        line is already clean (skips a redundant full flush), else None so
-        _enter_flush uses the full flush duration. `blank_rinse_s <= 0` disables
-        the shortcut (always full flush). The subsequent arming period keeps the
-        capillary clean while the background collection finishes, so the short
-        rinse does not risk contaminating the background."""
-        if self._line_clean and self.blank_rinse_s > 0:
-            return float(self.blank_rinse_s)
-        return None
-
-    def _enter_flush(self, rate: float | None = None, duration: float | None = None,
-                     kind: str = "flush", bkg_recipe_id: str = "") -> None:
-        """kind: "flush" (post-synthesis clean-out) | "blank" (pre-synthesis
-        background) | anything else (manual). ``bkg_recipe_id`` is the recipe the
-        background belongs to — the UPCOMING one for a blank, the just-finished
-        one for a post-run flush."""
-        # explicit arg (Flush-now) first, then the APP value, then recipe, then config
-        r = float(rate if rate is not None else
-                  (self.live_flush_rate if self.live_flush_rate is not None
-                   else self.current.flush_rate if self.current and self.current.flush_rate
-                   else self.flush_rate))
-        d = float(duration if duration is not None else
-                  (self.live_flush_duration if self.live_flush_duration is not None
-                   else self.current.flush_duration if self.current and self.current.flush_duration
-                   else self.flush_duration))
-        # Last line of defence before a number reaches the pump driver. The
-        # callers are all bounded now (audit R8), but a flush is the one
-        # operation whose failure is invisible — it announces START, waits the
-        # full duration, announces complete, and may have moved nothing. Never
-        # command a non-positive rate; fall back to the config value and say so.
-        if r <= 0:
-            self._log(f"⚠ flush rate {r:g} µL/min is not usable — falling back to "
-                      f"the configured {self.flush_rate:g} µL/min so the line is "
-                      f"actually cleaned", "warn")
-            r = float(self.flush_rate)
-        if d <= 0:
-            self._log(f"⚠ flush duration {d:g}s is not usable — falling back to "
-                      f"the configured {self.flush_duration:g}s", "warn")
-            d = float(self.flush_duration)
-        flush_pump = self._flush_pump
-        # zero every present reagent EXCEPT the one we're flushing with, plus the
-        # dedicated ode_flush if it exists and we're flushing with a reagent instead
-        present = self.pumps.pumps
-        to_zero = [p for p in REAGENT_PUMPS if p != flush_pump and p in present]
-        if flush_pump != FLUSH_PUMP and FLUSH_PUMP in present:
-            to_zero.append(FLUSH_PUMP)
-        failed = self.pumps.zero_pumps(to_zero)
-        if failed:
-            self._log(f"⚠ could not zero pump(s): {', '.join(failed)} — check them", "warn")
-        # clamp the flush rate to the chosen pump's own max_flow (a reagent pump has a
-        # smaller sensor than ode_flush — e.g. ode_dilution maxes at 50 µL/min)
-        maxf = float(self.cfg.get("pumps", {}).get(flush_pump, {}).get("max_flow", r))
-        if r > maxf:
-            self._log(f"⚠ flush rate {r:g} µL/min exceeds {flush_pump}'s max "
-                      f"{maxf:g} µL/min — clamped to {maxf:g} (flush will take longer)",
-                      "warn")
-            r = maxf
-        self.pumps.set_pump_flow(flush_pump, r)
-        self.state = "flushing"
-        self._flush_kind = kind
-        self._flush_deadline = time.time() + d
-        self._bkg_fired = False        # arm the background acquisition for this flush
-        # Which recipe this flush's background belongs to. Empty = collect none.
-        if bkg_recipe_id:
-            self._bkg_recipe_id = str(bkg_recipe_id)
-        elif kind == "flush" and self.background_when == "after" and self.current is not None:
-            self._bkg_recipe_id = self.current.recipe_id
-        else:
-            self._bkg_recipe_id = ""
-        self._log(f"🧼 {'BLANK' if kind == 'blank' else 'FLUSH'} START ({kind}) — "
-                  f"{flush_pump} at {r:g} µL/min for {d:g}s; "
-                  f"new recipes are blocked until it finishes", "info")
-        if self._spec_enabled and self._bkg_recipe_id:
-            when = d - self._spec_lead
-            if when > 0:
-                self._log(f"   📷 background for {self._bkg_recipe_id} due at "
-                          f"T+{when:g}s of the flush (on the clean capillary)", "info")
-            else:
-                self._log(f"   📷 background for {self._bkg_recipe_id} fires immediately "
-                          f"(lead {self._spec_lead:g}s ≥ flush {d:g}s) — the line may "
-                          f"not be fully flushed yet", "warn")
-
-    def _end_flush(self) -> None:
-        self.pumps.set_pump_flow(self._flush_pump, 0.0)
-        # A completed flush leaves the line clean; it stays clean until reagents
-        # flow again (_enter_running). This lets the NEXT pre-synthesis blank skip
-        # a redundant full flush — see _blank_flush_duration.
-        self._line_clean = True
-
-        # A "blank" flush is the FIRST half of starting a recipe: the line is now
-        # clean and the background has been collected, so run the synthesis it
-        # was staged for.
-        if self._flush_kind == "blank" and self._pending is not None:
-            recipe, setpoints = self._pending
-            self._pending = None
-            got_bkg = self._bkg_fired or not self._spec_enabled
-            self._log(f"✓ blank complete for {recipe.recipe_id}"
-                      + ("" if got_bkg else " (⚠ no background was collected)")
-                      + " — starting the synthesis", "ok" if got_bkg else "warn")
-            self._start_recipe(recipe, setpoints)
-            return
-
-        # THE AUTONOMOUS LOOP ADVANCES ONLY WHEN AUTO-RUN IS ON.
-        #
-        # This check did not exist, and its absence is what made "Stop
-        # autonomous" do nothing: the flag was only ever read at INTAKE
-        # (submit) and on the re-arm, never here — so once a campaign was
-        # rolling, _end_flush → _begin_next → … chained through the entire
-        # queue whatever the toggle said. Turning it off mid-campaign changed
-        # precisely one thing: newly arriving conditions no longer auto-started
-        # if the reactor happened to be idle at that moment. The rig kept
-        # going.
-        #
-        # What the operator asked for, and what this gives: pause AFTER the
-        # current condition has run and its line has been flushed. The rig is
-        # left clean and idle at `ready`, the queue is kept, and the
-        # data-collection settings unlock (spec_lock_reason clears once
-        # auto-run is off and the state is quiet) so exposure / frames / lead
-        # can be changed. Re-arming picks the queue up with the new values.
-        advancing = bool(self.queue) and self.auto_run
-        if self.queue and not self.auto_run:
-            nxt = (f"⏸ PAUSED — autonomous mode is off. {len(self.queue)} "
-                   f"condition(s) waiting; the line is flushed and the pumps "
-                   f"are idle. Data-collection settings can be changed now. "
-                   f"Press Start for one, or Run autonomously for all.")
-        else:
-            nxt = (f"starting next of {len(self.queue)} queued condition(s)"
-                   if self.queue else "no conditions queued — going idle")
-        self._log(f"✓ {self._flush_kind} complete ({self._flush_pump} stopped) — {nxt}",
-                  "warn" if (self.queue and not self.auto_run) else "ok")
-        if self.current is not None:
-            self._event("reactor.ready", {"recipe_id": self.current.recipe_id,
-                                          "paused": not self.auto_run,
-                                          "queued": len(self.queue)})
-        # advance to the next queued recipe, or idle/vent the pumps and wait
-        if advancing:
-            self._begin_next()
-        else:
-            self.pumps.idle_all()   # vent all pumps (P0) — not just hold flow 0
-            self.state = "ready"
-            self.current = None
-            self.setpoints = {}
-            if not self.queue:
-                self._log("💤 no more conditions — pumps idled, waiting for next", "info")
-
-    def _to_idle(self) -> None:
-        failed = self.pumps.idle_all()
-        if failed:
-            self._log(f"⚠ could not idle {', '.join(failed)} — check these pumps", "warn")
-        self.state = "idle"
-        self.current = None
-        self.setpoints = {}
-
-    def _abandon_condition(self, recipe_id: str, reason: str,
-                           wait_s: float | None = None) -> None:
-        """A condition that can never run (today: an arm timeout). Close it
-        LOUDLY instead of just going idle.
-
-        Going quietly to idle was a three-part silence (audit R11):
-          * no bus event, so Auto Watch could not report it;
-          * no feedback file, so the optimizer waited forever on a condition
-            that had already been abandoned;
-          * no call to _begin_next, so anything else queued sat there until the
-            next file happened to arrive — and if the ML side was itself
-            waiting on the missing feedback, that was never.
-
-        With the shipped temperature arming this fires on EVERY condition on a
-        rig whose thermocouple is not reporting, 900 s apart, in silence.
-        Caller must hold _lock.
-        """
-        rec = self.current
-        record = {
-            "recipe_id": recipe_id or (rec.recipe_id if rec else None),
-            "recipe": rec.to_dict() if rec else None,
-            "setpoints": self.setpoints,
-            "measured_flows": {},
-            "started": None, "ended": time.time(),
-            "duration_s": None,
-            "waited_s": round(float(wait_s), 1) if wait_s else None,
-            "reason": reason,
-            "status": "abandoned",
-        }
-        self.history.append(record)
-        try:
-            self._feedback(record["recipe_id"], record)
-            self._event("reactor.run_abandoned", record)
-        except Exception as exc:
-            self._log(f"⚠ could not report the abandoned condition: {exc}", "warn")
-        # DELIBERATELY NOT written to manifest.json as a run: nothing was
-        # synthesised, and a record there reads as a completed run to every
-        # other app. The feedback file and the event are how the optimizer and
-        # Auto Watch learn about it.
-        self._to_idle()
-        # Keep the campaign moving. One condition that cannot arm must not
-        # stall the queue behind it.
-        if self.auto_run and self.queue:
-            self._log(f"↪ {len(self.queue)} condition(s) still queued — "
-                      f"continuing with the next one", "info")
-            self._begin_next()
-
-    def _fire_spec_collection(self, recipe_id: str, role: str,
-                              backend_at_dispatch: str | None = None,
-                              bl=None) -> None:
-        """Trigger a SPEC 2D acquisition. ``role`` is 'sample' (during the run) or
-        'background' (during the flush). The filename is
-        ``{recipe_id}_{tag}`` so averaging separates the two and background
-        subtraction pairs them by the shared recipe_id. Runs in its own thread —
-        blocking SPEC I/O must not stall the control loop.
-
-        ``backend_at_dispatch`` and ``bl`` are captured by the DISPATCHER at
-        Thread-construction time and passed in, so the guard below can detect a
-        backend switch that happened between dispatch and this thread running.
-        (They used to be read here, inside the thread, and compared to themselves
-        one line later — the check could never fire, so a mock-initiated collect
-        could execute on real hardware, or vice versa.)"""
-        t_start = time.time()
-        if backend_at_dispatch is None:
-            backend_at_dispatch = self.backend
-        if bl is None:
-            bl = self.beamline
-        try:
-            if backend_at_dispatch != self.backend:
-                self._log(f"📷 2D {role} collect CANCELLED — backend changed from "
-                          f"{backend_at_dispatch} to {self.backend} before it ran", "warn")
-                return
-            tag = self._spec_sample_tag if role == "sample" else self._spec_bkg_tag
-            prefix = f"{recipe_id}_{tag}"
-            path = (f"{self._spec_data_dir.rstrip('/')}/{prefix}"
-                    if self._spec_data_dir else prefix)
-            total_s = self._spec_exposure * self._spec_frames
-            self._log(f"📷 2D {role.upper()} collect START — {self._spec_frames} frame(s) "
-                      f"× {self._spec_exposure:g}s = {total_s:g}s total "
-                      f"[{self.backend.upper()}]", "ok")
-            self._log(f"   → {path}_*.raw", "info")
-            self._last_collect = {"role": role, "recipe_id": recipe_id, "path": path,
-                                  "t": time.time()}
-            bl.collect(recipe_id=recipe_id, role=role, path=path,
-                       sample=prefix, main_folder=self._spec_data_dir,
-                       temperature=self.temp.target,
-                       exposure=self._spec_exposure, frames=self._spec_frames)
-            # Report what ACTUALLY landed on disk. In mock mode without the
-            # simulator, collect() is a no-op — saying "DONE" there is a lie that
-            # sends you hunting for files that were never written.
-            sim = getattr(bl, "simulator", None)
-            recs = getattr(bl, "collections", None) or []
-            sim_err = recs[-1].get("simulator_error") if recs else None
-            if backend_at_dispatch != "real" and sim is None:
-                self._log(f"📷 2D {role} collect — NO FILES WRITTEN. The mock "
-                          f"beamline only records the request; set "
-                          f"spec.simulator.enabled: true in reactor/config.yml to "
-                          f"generate synthetic 2D data.", "warn")
-            elif sim_err:
-                self._log(f"📷 2D {role} collect — NO FILES WRITTEN: {sim_err}",
-                          "error")
-            elif sim is not None and getattr(sim, "last", None):
-                last = sim.last
-                self._log(f"📷 2D {role.upper()} collect DONE — {last['n_frames']} "
-                          f"frame(s) written to {last['detector_dir']} "
-                          f"({time.time() - t_start:.0f}s)", "ok")
-            else:
-                self._log(f"📷 2D {role.upper()} collect DONE — {recipe_id} "
-                          f"({time.time() - t_start:.0f}s)", "ok")
-            self._event("reactor.spec_collect",
-                        {"recipe_id": recipe_id, "role": role, "path": path})
-        except Exception as exc:
-            self._log(f"⚠ 2D {role} collect FAILED for {recipe_id}: {exc}", "error")
-            self._log(f"   check: SPEC/bServer reachable, save folder writable "
-                      f"({self._spec_data_dir or 'UNSET'}), detector armed", "error")
-
     # ── background loop ─────────────────────────────────────────────────────────
     def _loop(self) -> None:
         while self._alive:
@@ -1452,6 +790,8 @@ class ReactorController:
                 pass
 
     def _tick_once(self) -> None:
+        if getattr(self, "_shutting_down", False):   # never command a flow after the final idle
+            return
         now = time.time()
         dt = now - self._last
         self._last = now
@@ -1540,204 +880,8 @@ class ReactorController:
                 if now > self._flush_deadline:
                     self._end_flush()
 
-    def _check_mock_dir_writable(self) -> bool:
-        """In mock mode the simulator writes with plain file I/O, so the save
-        folder must exist locally. The shipped config points data_dir at the
-        BEAMLINE path (/msd_data/...), which is unwritable on a laptop — catch
-        that here instead of at the first frame."""
-        from pathlib import Path                                  # noqa: PLC0415
-        d = Path(self._spec_data_dir)
-        try:
-            d.mkdir(parents=True, exist_ok=True)
-            probe = d / ".swaxs_write_test"
-            probe.write_text("")
-            probe.unlink()
-            return True
-        except Exception as exc:
-            self._log(f"   ⛔ save folder is NOT writable: {d} ({exc.__class__.__name__}) "
-                      f"— synthetic data cannot be saved. Point the Save folder at a "
-                      f"local directory, or set spec.mock_data_dir in "
-                      f"reactor/config.yml.", "error")
-            return False
-
     #: seconds between "still waiting" progress lines while arming
     ARM_PROGRESS_S = 20.0
-
-    def _arm_progress(self, now: float, timed: bool) -> None:
-        """Periodic 'still arming' line. Without this the app looks frozen while
-        the reactor heats, and there is nothing in the log to show whether the
-        temperature was actually climbing."""
-        last = getattr(self, "_arm_last_log", 0.0)
-        if now - last < self.ARM_PROGRESS_S:
-            return
-        self._arm_last_log = now
-        rid = self.current.recipe_id if self.current else "?"
-        if timed:
-            left = max(0.0, self._arm_ready_at - now)
-            self._log(f"⏲ arming {rid} — {left:.0f}s left of the timed wait "
-                      f"(reactor {self.temp.current:.1f}°C)", "info")
-        else:
-            tgt = self.current.T_reac if self.current else float("nan")
-            left = max(0.0, self._arm_deadline - now)
-            self._log(f"🌡 arming {rid} — {self.temp.current:.1f}°C → "
-                      f"{tgt:g}±{self.temp.tolerance:g}°C "
-                      f"(Δ{tgt - self.temp.current:+.1f}°C, {left:.0f}s before timeout)",
-                      "info")
-
-    def _safety_check(self) -> None:
-        if self.state == "estop":
-            return
-        # A pump reporting ERROR state (3) while we're trying to run/arm — e.g.
-        # low air supply, blockage, or flow-sensor loss — trips the E-stop so it
-        # can't silently deliver the wrong (or no) flow.
-        if self.state in ("arming", "running", "flushing"):
-            faulted = [n for n, p in self.pumps.pumps.items()
-                       if getattr(p, "fault", False)]
-            if faulted:
-                self._log(f"🛑 SAFETY E-STOP: pump(s) {', '.join(faulted)} report "
-                          f"ERROR/lost state while {self.state} — check air supply, "
-                          f"blockage, flow sensor and serial connection", "error")
-                self._event("reactor.safety", {"check": "pump fault",
-                            "detail": f"pumps in ERROR/lost state: {', '.join(faulted)}",
-                            "pumps": faulted, "state": self.state})
-                self.estop()
-                return
-        # A dead temperature source is NOT "25 °C, all good": if read_state()
-        # keeps failing, `current` freezes at the ambient default and the T_max
-        # comparison below can never be true — the thermal interlock would be
-        # silently disabled while reagents flow through a hot reactor.
-        # A pause WE caused is not a sensor fault. While a 2D acquisition holds the
-        # SPEC lock, read_state() returns {} by design, so the age climbs on every
-        # single collection (100 s with the shipped exposure × frames). Reporting
-        # that as "🛑 SAFETY … check spec.temp_counter" sent the operator to
-        # inspect a counter that was working perfectly. Say what is actually
-        # happening, once per run, and name the remedy that actually fixes it.
-        if self.state in ("arming", "running", "flushing") and self.temp.polling_paused:
-            if not self._temp_paused_noted:
-                self._temp_paused_noted = True
-                if self.temp.blind_during_collect:
-                    self._log(
-                        "ℹ temperature polling is paused for the duration of the 2D "
-                        "acquisition (the collect holds the SPEC lock). The "
-                        "over-temperature interlock has no fresh reading until it "
-                        "finishes. To keep it live during data collection set "
-                        "spec.read_source: \"epics\", or spec.read_during_collect: "
-                        "true.", "warn")
-        elif not self.temp.polling_paused:
-            self._temp_paused_noted = False
-
-        if self.state in ("arming", "running", "flushing") and self.temp.stale:
-            if not self._temp_stale_warned:
-                self._temp_stale_warned = True
-                # Two different faults reach here and they need different
-                # remedies, so name which one it is (audit R3). An overrun
-                # means a 2D acquisition is STILL holding the SPEC lock long
-                # past its own exposure × frames — the reading is frozen
-                # because of a hang, not because the counter is broken.
-                overrun = self.temp.collect_overrun_s
-                if overrun > 0:
-                    exp = 0.0
-                    try:
-                        exp = float(self.beamline.collect_expected_s())
-                    except Exception:
-                        pass
-                    self._log(
-                        f"🛑 SAFETY: the 2D acquisition has been holding the SPEC "
-                        f"lock for {overrun:.0f}s longer than the {exp:g}s it "
-                        f"should take. The temperature reading has been frozen "
-                        f"that whole time, so the over-temperature interlock "
-                        f"cannot protect you. Check the detector and SPEC — it "
-                        f"is not reporting the macro finished.", "error")
-                    self._event("reactor.safety",
-                                {"check": "2D acquisition overrun",
-                                 "detail": f"collect has overrun by {overrun:.0f}s "
-                                           f"(expected {exp:g}s); the "
-                                           f"over-temperature interlock is blind"})
-                else:
-                    self._log(f"🛑 SAFETY: temperature reading is STALE "
-                              f"({self.temp.age_s():.0f}s since the last successful read, "
-                              f"and no acquisition is running) — the over-temperature "
-                              f"interlock cannot protect you. Check the SPEC/EPICS "
-                              f"temperature source "
-                              f"(spec.temp_counter / spec.epics_pvs).", "error")
-                    self._event("reactor.safety", {"check": "temperature reading stale",
-                                "detail": f"no successful read for {self.temp.age_s():.0f}s — "
-                                          f"the over-temperature interlock is blind"})
-                if self._temp_stale_estop:
-                    self.estop()
-                    return
-        elif not self.temp.stale:
-            self._temp_stale_warned = False
-
-        if self.temp.current > self.T_max + 0.5:
-            self._log(f"🛑 SAFETY E-STOP: reactor {self.temp.current:.1f}°C exceeds "
-                      f"T_max {self.T_max:g}°C — all pumps idled", "error")
-            self._event("reactor.safety", {"check": "over-temperature",
-                        "detail": f"{self.temp.current:.1f}°C > T_max {self.T_max:g}°C"})
-            self.estop()
-            return
-        for name, p in self.pumps.pumps.items():
-            if p.target > self.per_pump_max + 1e-6:
-                self._log(f"🛑 SAFETY E-STOP: {name} setpoint {p.target:.1f} µL/min "
-                          f"exceeds per_pump_max {self.per_pump_max:g} µL/min "
-                          f"— check the recipe or safety.per_pump_max", "error")
-                self._event("reactor.safety", {"check": "pump setpoint over limit",
-                            "detail": f"{name} {p.target:.1f} > {self.per_pump_max:g} µL/min"})
-                self.estop()
-                return
-            # A pump's OWN max_flow, not just the platform-wide ceiling. This
-            # was checked at intake and never again (audit R9), so narrowing a
-            # limit while a recipe sat in the queue — the natural reaction to
-            # noticing a pump misbehaving — did not apply to that recipe. On the
-            # shipped config that is a 20× gap (50 vs 1000 µL/min) on the three
-            # small-sensor reagent pumps, with nothing watching it at runtime.
-            own_max = float(getattr(p, "max_flow", 0.0) or 0.0)
-            if own_max and p.target > own_max + 1e-6:
-                self._log(f"🛑 SAFETY E-STOP: {name} setpoint {p.target:.1f} µL/min "
-                          f"exceeds its own max_flow {own_max:g} µL/min — the "
-                          f"limit was narrowed after this recipe was accepted, "
-                          f"or the sensor was reconfigured", "error")
-                self._event("reactor.safety", {"check": "pump setpoint over its own max",
-                            "detail": f"{name} {p.target:.1f} > max_flow {own_max:g} µL/min"})
-                self.estop()
-                return
-            # pump pressure must never exceed the pump's pressure ceiling
-            pmax = getattr(p, "max_pressure", 0.0)
-            if pmax and getattr(p, "pressure", 0.0) > pmax + 1e-6:
-                self._log(f"🛑 SAFETY E-STOP: {name} at {p.pressure:.0f} mbar exceeds "
-                          f"its {pmax:.0f} mbar ceiling — likely a blockage "
-                          f"downstream; check the line and capillary", "error")
-                self._event("reactor.safety", {"check": "over-pressure",
-                            "detail": f"{name} {p.pressure:.0f} > {pmax:.0f} mbar"})
-                self.estop()
-                return
-        # delivered-volume limit + sustained-bad-flow checks (during a run)
-        if self.state == "running":
-            vex = self.pumps.volume_exceeded()
-            if vex:
-                det = ", ".join(
-                    f"{n} {getattr(self.pumps.pumps.get(n), 'v_delivered', 0.0):.0f}/"
-                    f"{getattr(self.pumps.pumps.get(n), 'volume_limit', 0.0):.0f} µL"
-                    for n in vex)
-                self._log(f"🛑 SAFETY: delivered-volume limit reached ({det}) "
-                          f"— ending the run early and flushing", "warn")
-                self._run_reason = "volume limit exceeded"
-                self._end_run(flush=True)
-                return
-            ff = set(self.pumps.flow_faults())
-            if ff and self._flow_fault_estop:
-                self._log(f"🛑 SAFETY E-STOP: {', '.join(sorted(ff))} flow is far from "
-                          f"setpoint — check supply pressure, blockage and the flow "
-                          f"sensor (set safety.flow_fault_estop=false to warn only)",
-                          "error")
-                self.estop()
-                return
-            for nm in ff - self._flow_faulted_prev:      # warn once per onset
-                p = self.pumps.pumps.get(nm)
-                act, tgt = getattr(p, "actual", 0.0), getattr(p, "target", 0.0)
-                self._log(f"⚠ {nm}: measured {act:.1f} vs setpoint {tgt:.1f} µL/min "
-                          f"— check supply/blockage/sensor (run continues)", "warn")
-            self._flow_faulted_prev = ff
 
     # ── status ──────────────────────────────────────────────────────────────────
     def status(self) -> dict:
@@ -1844,11 +988,33 @@ class ReactorController:
         acquisition is not on offer — this just avoids releasing control in the
         middle of a command that is about to return.
         """
+        self._shutting_down = True
         self._alive = False
         try:
             self.pumps.idle_all()
         except Exception:
             pass
+        # Pump ports next, while there is time (the hub allows 5 s before SIGKILL;
+        # OPEN_DEFECTS R7). Wait briefly for the control loop to see _alive=False,
+        # idle AGAIN in case a tick already in progress commanded a flow after the
+        # first idle (audit Oct 2026), then close every port so a Windows COM port
+        # is not left locked for the next start. A pump that will not close is
+        # skipped, never fatal.
+        try:
+            t = getattr(self, "_thread", None)
+            if t is not None and t.is_alive() and t is not threading.current_thread():
+                t.join(timeout=1.0)
+        except Exception:
+            pass
+        try:
+            self.pumps.idle_all()
+        except Exception:
+            pass
+        for p in getattr(self.pumps, "pumps", {}).values():
+            try:
+                p.close()
+            except Exception:
+                pass
         deadline = time.time() + max(0.0, float(collect_wait_s))
         try:
             while self.beamline.is_collecting() and time.time() < deadline:

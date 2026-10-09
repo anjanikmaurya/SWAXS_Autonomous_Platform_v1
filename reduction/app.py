@@ -101,18 +101,13 @@ def _now_iso() -> str:
 
 def _current_user(explicit: str | None = None) -> str:
     """
-    Determine who is running the reduction:
-    explicit value from the UI  →  SWAXS_USER_ID env  →  OS login  →  'unknown'.
+    Determine who is running the reduction. The operator is entered once, in
+    the hub (October 2026); see src/operator_id.py for the order:
+    explicit value  →  hub's operator in the project manifest  →  SWAXS_USER_ID
+    env (exported by the hub)  →  OS login  →  'unknown'.
     """
-    if explicit and explicit.strip():
-        return explicit.strip()
-    uid = os.environ.get("SWAXS_USER_ID", "").strip()
-    if uid:
-        return uid
-    try:
-        return getpass.getuser() or "unknown"
-    except Exception:
-        return "unknown"
+    from src.operator_id import current_operator
+    return current_operator(os.environ.get("SWAXS_PROJECT", "") or None, explicit)
 
 
 def _record_run_meta(project_root, operator: str, mode: str) -> None:

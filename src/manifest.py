@@ -69,10 +69,16 @@ import hashlib
 import json
 import logging
 import os
+import re
+import shutil
+import sqlite3
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
+
+from . import manifest_store
 
 try:
     import fcntl  # POSIX advisory file locking
@@ -110,13 +116,46 @@ __all__ = [
     "set_project_meta",
     # ── v2: provenance helper ─────────────────────────────────────────────
     "make_provenance",
+    # ── SQLite backend: fast indexed search ───────────────────────────────
+    "query_files",
+    "manifest_runs",
+    "manifest_counts",
+    "merge_manifest_file",
+    "merge_manifest_sources",
+    "ManifestUnreadableError",
 ]
+
+# Storage backend. "sqlite" (default) persists to manifest.db — transactional,
+# searchable, and safe against the single-file truncation that could reset the
+# old manifest.json. "json" restores the legacy single-file behaviour. The JSON
+# file is still written either way, so nothing downstream that reads it breaks.
+_BACKEND = os.environ.get("SWAXS_MANIFEST_BACKEND", "sqlite").strip().lower()
+#: Routine snapshots kept (rotated). Preshrink safety snapshots have their OWN
+#: name pattern and rotation, so routine churn can never push them out.
+_SNAPSHOTS_KEEP = int(os.environ.get("SWAXS_MANIFEST_SNAPSHOTS", "20"))
+_PRESHRINK_KEEP = int(os.environ.get("SWAXS_MANIFEST_PRESHRINK_SNAPSHOTS", "20"))
+#: Minimum seconds between routine snapshots (one is always taken on the first
+#: save of each process). Reduction saves once per frame, so snapshotting every
+#: save would both cost a full DB copy per frame and rotate the window to minutes.
+_SNAPSHOT_INTERVAL_S = float(os.environ.get("SWAXS_MANIFEST_SNAPSHOT_INTERVAL_S", "600"))
+_SNAPSHOT_DIRNAME = ".manifest_snapshots"
+#: db path -> monotonic time of this process's last routine snapshot
+_last_snapshot: dict[str, float] = {}
+
+
+class ManifestUnreadableError(RuntimeError):
+    """Prior manifest data exists but cannot be read or recovered. Raised instead
+    of silently starting an empty store over it (history must never be erased)."""
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
 MANIFEST_FILENAME = "manifest.json"
 MANIFEST_VERSION  = "2.0"
 _EVENTS_MAX       = 100   # rolling window for events[]
+#: Cap on the analyses{} section (see add_analysis_entry). Keeps the manifest
+#: small and writes fast over a multi-week live loop; the durable per-fit trail
+#: lives in Results/Fit/ regardless. 0 disables. Env-overridable.
+_ANALYSES_CAP     = int(os.environ.get("SWAXS_MANIFEST_ANALYSES_CAP", 3000))
 
 
 # ── Locating the manifest ─────────────────────────────────────────────────────
@@ -152,8 +191,187 @@ def load_manifest(path: str | Path) -> dict:
     # would otherwise look like a corrupt/empty manifest.
     if p.is_dir():
         p = p / "manifest.json"
+    root = p.parent
+
+    # SQLite backend: the DB is the source of truth. If it exists, read it. If it
+    # does not but a legacy manifest.json does, migrate the JSON into a new DB
+    # once, then read the DB. A missing/truncated JSON can no longer wipe history,
+    # because the DB survives it.
+    if _BACKEND == "sqlite":
+        return _load_sqlite(p, root)
+
+    # Legacy JSON backend.
     if not p.exists():
         return _empty_manifest(p.parent)
+    return _read_json_manifest(p)
+
+
+def _load_sqlite(p: Path, root: Path) -> dict:
+    """SQLite-backend load. Never returns an empty store when prior data exists:
+
+    1. a readable, non-empty manifest.db is the source of truth;
+    2. a missing / zero-byte / unreadable DB is restored from the newest valid
+       snapshot, then the (usually newer) manifest.json export is merged on top;
+    3. with no usable snapshot, a readable manifest.json is migrated into a new DB;
+    4. if manifest.json exists but cannot be read or salvaged, raise
+       :class:`ManifestUnreadableError` rather than create an empty DB over it;
+    5. only when nothing existed at all is a fresh empty manifest returned.
+    """
+    dbp = manifest_store.db_path_for(root)
+    if dbp.exists() and dbp.stat().st_size > 0:
+        try:
+            return manifest_store.load_dict(dbp)
+        except sqlite3.DatabaseError as exc:
+            logger.error("[manifest] %s is unreadable (%s); moving it aside and "
+                         "restoring from snapshot", dbp.name, exc)
+            _move_db_aside(dbp, "unreadable")
+    elif dbp.exists():
+        logger.error("[manifest] %s is zero bytes (truncated externally?); "
+                     "moving it aside and restoring from snapshot", dbp.name)
+        _move_db_aside(dbp, "empty")
+
+    json_data, json_err = (_try_read_json(p) if p.exists() else (None, None))
+
+    snap = _restore_from_snapshot(dbp)
+    if snap is not None:
+        if json_data:
+            # The JSON export is written after every save, so it is normally
+            # newer than the snapshot: fold it in, newest-wins, nothing deleted.
+            # (No lock taken here: load may already run inside manifest_lock.)
+            live = manifest_store.load_dict(dbp)
+            try:
+                _merge_into(live, [(p.name, _source_ts(json_data, p), json_data)])
+                manifest_store.save_dict(dbp, live, events_max=_EVENTS_MAX)
+            except Exception as exc:               # pragma: no cover
+                logger.warning("[manifest] merging %s after restore failed: %s",
+                               p.name, exc)
+            return live
+        return manifest_store.load_dict(dbp)
+
+    if p.exists():
+        if json_data is None:
+            backup = _keep_corrupt_copy(p)
+            msg = (f"{p} exists but could not be read or salvaged ({json_err}); "
+                   f"no manifest.db or snapshot to recover from. Refusing to start "
+                   f"an empty manifest over it. Damaged copy: "
+                   f"{backup.name if backup else '(copy failed)'}. Repair the file, "
+                   f"or move it aside to start fresh deliberately.")
+            logger.error("[manifest] %s", msg)
+            raise ManifestUnreadableError(msg)
+        data = _migrate_to_v2(json_data, root)
+        manifest_store.save_dict(dbp, data, events_max=_EVENTS_MAX)
+        logger.info("[manifest] migrated %s → %s (%d files)",
+                    p.name, dbp.name, len(data.get("files", {})))
+        return manifest_store.load_dict(dbp)
+    return _empty_manifest(root)
+
+
+def _try_read_json(p: Path) -> tuple[dict | None, Exception | None]:
+    """Read a manifest JSON WITHOUT touching the file. Returns (dict, None),
+    salvaging a valid leading object from "Extra data" damage, or (None, error)."""
+    try:
+        with p.open("r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        if isinstance(data, dict):
+            return data, None
+        return None, ValueError("not a JSON object")
+    except (json.JSONDecodeError, ValueError, OSError) as exc:
+        salvaged = _salvage_manifest_text(p)
+        if salvaged is not None:
+            logger.warning("[manifest] %s was damaged (%s); salvaged the valid "
+                           "leading object", p.name, exc)
+            return salvaged, None
+        return None, exc
+
+
+def _keep_corrupt_copy(p: Path) -> Path | None:
+    """Copy a damaged manifest.json to manifest.corrupt-<ts>.json (once per
+    distinct content), leaving the original in place."""
+    try:
+        blob = p.read_bytes()
+        for old in p.parent.glob("manifest.corrupt-*.json"):
+            try:
+                if old.stat().st_size == len(blob) and old.read_bytes() == blob:
+                    return old
+            except OSError:
+                continue
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        backup = p.with_name(f"manifest.corrupt-{stamp}.json")
+        shutil.copy2(p, backup)
+        return backup
+    except Exception:
+        return None
+
+
+def _move_db_aside(dbp: Path, why: str) -> None:
+    """Rename a bad manifest.db (plus its -wal/-shm) out of the way; never delete."""
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+    for suffix in ("", "-wal", "-shm"):
+        src = dbp.with_name(dbp.name + suffix)
+        if src.exists():
+            try:
+                src.replace(dbp.with_name(f"manifest.{why}-{stamp}.db{suffix}"))
+            except OSError as exc:                 # pragma: no cover
+                logger.error("[manifest] could not move %s aside: %s", src.name, exc)
+
+
+_SNAP_STAMP_RE = re.compile(r"(\d{8}-\d{6})(?:-(\d{6}))?")
+
+
+def _snapshot_sort_key(path: Path) -> str:
+    m = _SNAP_STAMP_RE.search(path.name)
+    return (m.group(1) + (m.group(2) or "000000")) if m else ""
+
+
+def _list_snapshots(snapdir: Path) -> tuple[list[Path], list[Path]]:
+    """(routine, preshrink) snapshot lists, each oldest first. Recognises the
+    legacy ``manifest-<ts>-preshrink.db`` name as preshrink too."""
+    if not snapdir.is_dir():
+        return [], []
+    routine, pre = [], []
+    for f in snapdir.glob("*.db"):
+        if f.name.startswith("preshrink-") or f.name.endswith("-preshrink.db"):
+            pre.append(f)
+        elif f.name.startswith("manifest-"):
+            routine.append(f)
+    return (sorted(routine, key=_snapshot_sort_key),
+            sorted(pre, key=_snapshot_sort_key))
+
+
+def _restore_from_snapshot(dbp: Path) -> Path | None:
+    """Restore manifest.db from the newest snapshot that opens cleanly. Returns
+    the snapshot used, or None if there was none."""
+    routine, pre = _list_snapshots(dbp.parent / _SNAPSHOT_DIRNAME)
+    for snap in sorted(routine + pre, key=_snapshot_sort_key, reverse=True):
+        try:
+            src = sqlite3.connect(f"file:{snap}?mode=ro", uri=True)
+            try:
+                src.execute("SELECT COUNT(*) FROM files").fetchone()
+                for suffix in ("-wal", "-shm"):   # stale sidecars of a lost DB
+                    side = dbp.with_name(dbp.name + suffix)
+                    if side.exists():
+                        side.replace(dbp.with_name(
+                            f"manifest.orphan-{datetime.now(timezone.utc):%Y%m%d-%H%M%S-%f}"
+                            f".db{suffix}"))
+                dst = sqlite3.connect(str(dbp))
+                try:
+                    src.backup(dst)
+                finally:
+                    dst.close()
+            finally:
+                src.close()
+        except sqlite3.DatabaseError as exc:
+            logger.warning("[manifest] snapshot %s unusable (%s); trying older",
+                           snap.name, exc)
+            continue
+        logger.error("[manifest] manifest.db was missing/unreadable; RESTORED from "
+                     "snapshot %s", snap.name)
+        return snap
+    return None
+
+
+def _read_json_manifest(p: Path) -> dict:
+    """Read and migrate a manifest.json, salvaging a corrupt file if possible."""
     try:
         with p.open("r", encoding="utf-8") as fh:
             data = json.load(fh)
@@ -177,9 +395,11 @@ def load_manifest(path: str | Path) -> dict:
                 "[manifest] %s was corrupt (%s); RECOVERED the valid leading "
                 "object (%d top-level keys). Damaged copy kept as %s.",
                 p.name, exc, len(salvaged), backup.name if backup else "(none)")
-            # Rewrite the file cleanly with the recovered content.
+            # Rewrite the file cleanly with the recovered content. Plain JSON
+            # write only: save_manifest would, on the SQLite backend, overwrite
+            # the live DB in p.parent with this (possibly old) content.
             try:
-                save_manifest(salvaged, p)
+                _write_json(salvaged, p)
             except Exception:
                 pass
             return _migrate_to_v2(salvaged, p.parent)
@@ -219,16 +439,119 @@ def _salvage_manifest_text(path: Path) -> dict | None:
 
 def save_manifest(manifest: dict, path: str | Path) -> None:
     """
-    Atomically write *manifest* to *path* (write to a unique tmp then rename).
+    Persist *manifest*.
 
-    The tmp filename includes the PID + a random suffix so that concurrent
-    writers (hub, reduction, assistant) never share a temp file — sharing one
-    was the source of "Extra data" corruption. ``replace`` is atomic on POSIX,
-    so readers always see a complete file.
+    SQLite backend (default): the DB is written transactionally (the source of
+    truth), a rotating snapshot is taken, and manifest.json is still exported
+    alongside for compatibility and portability. A truncated or deleted JSON can
+    no longer wipe history. JSON backend: the legacy atomic single-file write.
     """
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     manifest["updated_at"] = _now()
+
+    if _BACKEND == "sqlite":
+        root = p.parent
+        dbp = manifest_store.db_path_for(root)
+        # Shrink guard: if this save would drop the file index from many rows to
+        # almost none, snapshot FIRST so the drop is always recoverable. It does
+        # not block the write (a deliberate reset is allowed), only makes it safe.
+        try:
+            prev = manifest_store.file_count(dbp)
+            now_n = len(manifest.get("files", {}) or {})
+            if prev > 20 and now_n < max(1, prev // 2):
+                _snapshot_db(dbp, tag="preshrink")
+                logger.warning("[manifest] file index shrinking %d → %d; "
+                               "snapshot taken before save", prev, now_n)
+        except Exception:
+            pass
+        manifest_store.save_dict(dbp, manifest, events_max=_EVENTS_MAX)
+        _maybe_routine_snapshot(dbp)
+        # Best-effort JSON export; never let it undo the committed DB write.
+        try:
+            _write_json(manifest, p)
+        except Exception as exc:                    # pragma: no cover
+            logger.warning("[manifest] JSON export failed (%s); DB is current", exc)
+        return
+
+    _write_json(manifest, p)
+
+
+def _maybe_routine_snapshot(db_path: Path) -> None:
+    """Routine snapshot, throttled: always on a process's first save of this DB,
+    then at most once per ``_SNAPSHOT_INTERVAL_S``."""
+    key = str(Path(db_path).resolve())
+    now = time.monotonic()
+    last = _last_snapshot.get(key)
+    if last is not None and now - last < _SNAPSHOT_INTERVAL_S:
+        return
+    if _snapshot_db(db_path) is not None:
+        _last_snapshot[key] = now
+
+
+def _snapshot_db(db_path: Path, *, tag: str = "") -> Path | None:
+    """Snapshot the DB into <root>/.manifest_snapshots/ and rotate.
+
+    Uses the SQLite online-backup API, NOT a file copy: the DB runs in WAL mode,
+    so recently committed transactions may live only in manifest.db-wal until a
+    checkpoint, and a plain copy of manifest.db would silently miss them. The
+    snapshot is converted to a self-contained rollback-journal file.
+
+    Routine snapshots are ``manifest-<ts>.db`` (keep ``_SNAPSHOTS_KEEP``);
+    ``tag="preshrink"`` snapshots are ``preshrink-<ts>.db`` with their own
+    rotation (``_PRESHRINK_KEEP``), so routine churn never evicts them.
+    """
+    db_path = Path(db_path)
+    if not db_path.exists():
+        return None
+    snapdir = db_path.parent / _SNAPSHOT_DIRNAME
+    snapdir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+    prefix = "preshrink" if tag == "preshrink" else "manifest"
+    final = snapdir / f"{prefix}-{stamp}.db"
+    tmp = snapdir / f".{final.name}.tmp.{os.getpid()}"
+    try:
+        src = sqlite3.connect(str(db_path), timeout=30.0)
+        try:
+            dst = sqlite3.connect(str(tmp))
+            try:
+                src.backup(dst)
+                dst.execute("PRAGMA journal_mode=DELETE")
+            finally:
+                dst.close()
+        finally:
+            src.close()
+        tmp.replace(final)
+    except Exception as exc:
+        logger.warning("[manifest] snapshot failed (%s)", exc)
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        return None
+    routine, pre = _list_snapshots(snapdir)
+    victims = []
+    if _SNAPSHOTS_KEEP > 0:
+        victims += routine[:-_SNAPSHOTS_KEEP]
+    if _PRESHRINK_KEEP > 0:
+        victims += pre[:-_PRESHRINK_KEEP]
+    for old in victims:
+        try:
+            old.unlink()
+        except Exception:
+            pass
+    return final
+
+
+def _write_json(manifest: dict, p: Path) -> None:
+    """Atomic single-file JSON write (unique tmp then rename).
+
+    The tmp filename includes the PID + a random suffix so that concurrent
+    writers never share a temp file — sharing one was the source of "Extra data"
+    corruption. ``replace`` is atomic on POSIX, so readers see a complete file.
+    """
+    p = Path(p)
+    p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_name(f".{p.name}.tmp.{os.getpid()}.{uuid.uuid4().hex[:8]}")
     try:
         with tmp.open("w", encoding="utf-8") as fh:
@@ -309,6 +632,227 @@ def update_manifest(project_root: str | Path, mutator: Callable[[dict], Any]) ->
         result = mutator(m)
         save_manifest(m, mpath)
         return result
+
+
+# ── Fast indexed search (SQLite backend) ────────────────────────────────────────
+
+def query_files(project_root: str | Path, *, run: str | None = None,
+                stage: str | None = None, detector: str | None = None,
+                keyword: str | None = None, limit: int | None = None) -> list[dict]:
+    """Return file records matching the given filters, without loading the whole
+    manifest. On the SQLite backend this is an indexed query (fast at any size);
+    on the JSON backend it falls back to filtering the loaded dict."""
+    if _BACKEND == "sqlite":
+        return manifest_store.query_files(
+            manifest_store.db_path_for(project_root),
+            run=run, stage=stage, detector=detector, keyword=keyword, limit=limit)
+    m = load_manifest(manifest_path_for(project_root))
+    out = []
+    for v in (m.get("files", {}) or {}).values():
+        if stage and v.get("stage", "").lower() != stage.lower():
+            continue
+        if detector and v.get("detector", "").lower() != detector.lower():
+            continue
+        if run and run not in f"{v.get('keyword','')} {v.get('path','')}":
+            continue
+        if keyword and keyword.lower() not in v.get("keyword", "").lower():
+            continue
+        out.append(v)
+        if limit and len(out) >= limit:
+            break
+    return out
+
+
+def manifest_runs(project_root: str | Path) -> list[str]:
+    """Distinct run tags (Run1, Run2, …) present in the file index, natural-sorted."""
+    if _BACKEND == "sqlite":
+        return manifest_store.distinct_runs(manifest_store.db_path_for(project_root))
+    seen = set()
+    for v in query_files(project_root):
+        m = re.search(r"Run\d+", f"{v.get('keyword','')} {v.get('path','')}")
+        if m:
+            seen.add(m.group(0))
+    return sorted(seen, key=lambda s: int(re.sub(r"\D", "", s) or 0))
+
+
+def manifest_counts(project_root: str | Path) -> dict:
+    """Totals per stage and per run — a cheap overview."""
+    if _BACKEND == "sqlite":
+        return manifest_store.counts(manifest_store.db_path_for(project_root))
+    files = query_files(project_root)
+    by_stage, by_run = {}, {}
+    for v in files:
+        by_stage[v.get("stage", "")] = by_stage.get(v.get("stage", ""), 0) + 1
+    return {"files": len(files), "by_stage": by_stage, "by_run": by_run}
+
+
+def merge_manifest_file(project_root: str | Path, json_path: str | Path) -> dict:
+    """Append-only merge of another manifest.json (e.g. a manifest.corrupt-*.json
+    backup, or a second project's manifest) into this project's store. Nothing is
+    deleted; an existing entry is only replaced if the source file is newer than
+    the live store. Returns per-section counts (see :func:`merge_manifest_sources`)."""
+    return merge_manifest_sources(project_root, [json_path])
+
+
+#: keyed sections merged per key: (section path in the dict, summary name)
+_MERGE_KEYED = (
+    (("files",), "files"),
+    (("analyses",), "analyses"),
+    (("background",), "background"),
+    (("quality",), "quality"),
+    (("reactor", "runs"), "reactor_runs"),
+)
+
+
+def _source_ts(data: dict, path: Path | None = None) -> str:
+    """A source's age, for newest-wins ordering: its ``updated_at``, else the
+    file's mtime (UTC ISO, so it compares with ``_now()`` strings)."""
+    ts = str(data.get("updated_at") or "")
+    if ts:
+        return ts
+    if path is not None:
+        try:
+            return datetime.fromtimestamp(Path(path).stat().st_mtime,
+                                          timezone.utc).isoformat()
+        except OSError:
+            pass
+    return ""
+
+
+def _dig(d: dict, keys: tuple, create: bool = False) -> dict | None:
+    for k in keys:
+        nxt = d.get(k)
+        if not isinstance(nxt, dict):
+            if not create:
+                return None
+            nxt = d[k] = {}
+        d = nxt
+    return d
+
+
+def _merge_into(live: dict, sources: list[tuple[str, str, dict]]) -> dict:
+    """Merge ``sources`` [(name, ts, manifest_dict), ...] into ``live`` in place.
+
+    Never deletes. Sources are applied oldest first, so among sources the newest
+    wins per key. Against the live store: a key missing from ``live`` is added;
+    a key already present is replaced only if its source is newer than the live
+    store's ``updated_at``. ``files`` are keyed by path, ``analyses`` by id,
+    ``background``/``quality`` by output path, ``reactor.runs`` by recipe id.
+    Lists (events, AI corrections, summaries) are unioned; dicts of context are
+    filled without overwriting. Returns {section: n_added, ..., "updated": {...}}.
+    """
+    live_ts = str(live.get("updated_at") or "")
+    added = {name: 0 for _, name in _MERGE_KEYED}
+    updated = {name: 0 for _, name in _MERGE_KEYED}
+    ordered = sorted(sources, key=lambda s: s[1] or "")
+
+    # 1. collapse the sources (oldest -> newest), remembering each key's source ts
+    acc: dict[str, dict[str, tuple[str, Any]]] = {name: {} for _, name in _MERGE_KEYED}
+    for _name, ts, data in ordered:
+        for keys, name in _MERGE_KEYED:
+            sect = _dig(data, keys) or {}
+            for k, v in sect.items():
+                acc[name][k] = (ts, v)
+
+    # 2. fold into live
+    for keys, name in _MERGE_KEYED:
+        if not acc[name]:
+            continue
+        dest = _dig(live, keys, create=True)
+        for k, (ts, v) in acc[name].items():
+            if k not in dest:
+                dest[k] = v
+                added[name] += 1
+            elif ts and ts > live_ts and dest[k] != v:
+                dest[k] = v
+                updated[name] += 1
+
+    # 3. non-keyed content: union, never drop
+    def _key(o: Any) -> str:
+        return json.dumps(o, sort_keys=True, default=str)
+
+    for _name, _ts, data in ordered:
+        if data.get("created_at") and (not live.get("created_at")
+                                       or str(data["created_at"]) < str(live["created_at"])):
+            live["created_at"] = data["created_at"]
+        pm = live.setdefault("project_meta", {})
+        for k, v in (data.get("project_meta") or {}).items():
+            pm.setdefault(k, v)
+        src_ai = data.get("ai_memory") or {}
+        ai = live.setdefault("ai_memory", {})
+        for lst in ("corrections", "session_summaries"):
+            cur = ai.setdefault(lst, [])
+            seen = {_key(x) for x in cur}
+            for item in src_ai.get(lst) or []:
+                if _key(item) not in seen:
+                    cur.append(item)
+                    seen.add(_key(item))
+        qf = ai.setdefault("quality_flags", {})
+        for path, flags in (src_ai.get("quality_flags") or {}).items():
+            cur = qf.setdefault(path, [])
+            cur.extend(f for f in flags or [] if f not in cur)
+        uc = ai.setdefault("user_context", {})
+        for k, v in (src_ai.get("user_context") or {}).items():
+            uc.setdefault(k, v)
+        evs = live.setdefault("events", [])
+        seen = {_key(e) for e in evs}
+        for e in data.get("events") or []:
+            if _key(e) not in seen:
+                evs.append(e)
+                seen.add(_key(e))
+    if live.get("events"):
+        live["events"] = sorted(live["events"],
+                                key=lambda e: str((e or {}).get("timestamp", "")))[-_EVENTS_MAX:]
+    return {**added, "updated": updated}
+
+
+def merge_manifest_sources(project_root: str | Path,
+                           json_paths: list[str | Path]) -> dict:
+    """Recover runs from manifest JSON files into the LIVE store (whatever the
+    backend), append-only and newest-wins (see :func:`_merge_into`).
+
+    Source files are only read, never renamed or rewritten; damaged files are
+    salvaged in memory when possible and skipped otherwise. Idempotent: a second
+    run adds and updates nothing. Returns per-section counts plus ``updated``,
+    ``sources`` (names merged) and ``skipped`` (unreadable names).
+    """
+    sources, skipped = [], []
+    for jp in json_paths:
+        jp = Path(jp)
+        data, err = _try_read_json(jp)
+        if not data:
+            logger.warning("[manifest] merge: skipping %s (%s)", jp.name, err)
+            skipped.append(jp.name)
+            continue
+        sources.append((jp.name, _source_ts(data, jp), data))
+
+    holder: dict = {}
+
+    def _mut(m: dict) -> None:
+        holder.update(_merge_into(m, sources))
+
+    if sources:
+        try:
+            update_manifest(project_root, _mut)
+        except ManifestUnreadableError as exc:
+            # The live manifest.json is unrecoverable and there is no DB or
+            # snapshot (a damaged copy was already kept). The readable sources
+            # ARE the surviving history: build the store from them.
+            logger.warning("[manifest] merge: live manifest unreadable (%s); "
+                           "rebuilding the store from the readable sources", exc)
+            with manifest_lock(project_root):
+                root = Path(project_root).resolve()
+                m = _empty_manifest(root)
+                m["created_at"] = ""
+                holder.update(_merge_into(m, sources))
+                m["created_at"] = m["created_at"] or _now()
+                save_manifest(m, manifest_path_for(root))
+    else:
+        holder.update({name: 0 for _, name in _MERGE_KEYED},
+                      updated={name: 0 for _, name in _MERGE_KEYED})
+    holder["sources"] = [s[0] for s in sorted(sources, key=lambda s: s[1] or "")]
+    holder["skipped"] = skipped
+    return holder
 
 
 # ── Writing file entries ──────────────────────────────────────────────────────
@@ -393,6 +937,19 @@ def add_analysis_entry(
         "created_at":    created or _now(),
         "updated_at":    _now(),
     }
+    # Cap the analyses section. It upserts by (type, file_path), so re-fits don't
+    # duplicate, but over weeks of a live loop one entry accrues per distinct
+    # profile — thousands of them — and the WHOLE manifest.json is rewritten on
+    # every fit, so write latency climbs with N. The durable per-fit trail lives
+    # in Results/Fit/ regardless; here we keep only the most recent entries so the
+    # manifest stays small and writes stay fast. 0 disables the cap.
+    if _ANALYSES_CAP > 0 and len(analyses) > _ANALYSES_CAP:
+        # Drop oldest by updated_at (falls back to created_at), keeping newest cap.
+        ordered = sorted(analyses.items(),
+                         key=lambda kv: (kv[1].get("updated_at")
+                                         or kv[1].get("created_at") or ""))
+        for k, _ in ordered[:len(analyses) - _ANALYSES_CAP]:
+            analyses.pop(k, None)
     return aid
 
 
