@@ -301,6 +301,16 @@ input:focus, select:focus {
 /* The mode list now lives in the shared left column (#sidebar), so the page body
    is a single column; it fills #main under the slim bar. */
 .body{grid-template-columns:1fr;flex:1;min-height:0;height:auto}
+/* Numbered steps (October 2026): visible sections are numbered in order; a
+   section hidden in the current mode is skipped, so the numbers always run 1, 2, 3. */
+#manual-setup, #auto-setup { counter-reset: bgstep; }
+#manual-setup > .section > .section-title::before,
+#manual-setup > .section > .fl-head > .section-title::before,
+#auto-setup > .section > .section-title::before,
+#auto-setup > .row > .section > .section-title::before { counter-increment: bgstep; content: counter(bgstep) " · "; }
+#manual-setup .opt, #auto-setup .opt { text-transform:none; letter-spacing:0; font-weight:500; color:var(--muted); }
+#manual-setup .tr-box:has(input[type=checkbox]:not(:checked)) .tr-fields,
+#auto-setup .tr-box:has(input[type=checkbox]:not(:checked)) .tr-fields { opacity:.5; }
 </style>
 </head>
 <body class="swaxs-shell">
@@ -348,7 +358,7 @@ input:focus, select:focus {
           <section class="inputs" style="border-right:none;flex:1">
            <div id="manual-setup">
             <div class="hint" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;color:var(--muted)">
-              <b>1.</b> Pick a mode (left) &nbsp;·&nbsp; <b>2.</b> Set folders &amp; background &nbsp;·&nbsp; <b>3.</b> Choose method &nbsp;·&nbsp; <b>4.</b> Preview &amp; plot, then Subtract &amp; save
+              Pick a mode on the left, follow the numbered steps below, then <b>Preview &amp; plot</b> and <b>Subtract &amp; save</b>.
             </div>
             <div class="section">
               <div class="section-title">Detector</div>
@@ -359,24 +369,6 @@ input:focus, select:focus {
               <div class="hint">Tags output and routes results to the matching BG-Sub tab.</div>
             </div>
 
-            <div class="section">
-              <div class="section-title">ML output: truncate &amp; rebin</div>
-              <label style="display:flex;align-items:center;gap:8px">
-                <input type="checkbox" id="tr-enabled" onchange="pushTrunc()">
-                Truncate &amp; rebin every subtracted file (for the ML model)
-              </label>
-              <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:8px;max-width:420px">
-                <div class="field"><label>q min</label><input type="number" id="tr-qmin" step="0.001" min="0" onchange="pushTrunc()"></div>
-                <div class="field"><label>q max</label><input type="number" id="tr-qmax" step="0.001" min="0" onchange="pushTrunc()"></div>
-                <div class="field"><label>Number of points</label><input type="number" id="tr-npts" step="1" min="2" onchange="pushTrunc()"></div>
-                <div class="field"><label>Spacing</label>
-                  <select id="tr-spacing" onchange="pushTrunc()"><option value="linear">linear</option><option value="log">log</option></select></div>
-                <div class="field"><label>q unit</label>
-                  <select id="tr-unit" onchange="pushTrunc()"><option value="nm">nm⁻¹</option><option value="A">Å⁻¹</option></select></div>
-              </div>
-              <div class="hint" id="tr-hint">Default 0.3 to 6.0 nm⁻¹, 549 points, linear. Pick Å⁻¹ to convert. Overwrites the subtracted .dat with this grid.</div>
-            </div>
-
             <!-- folders -->
             <div class="section">
               <div class="section-title">Folders</div>
@@ -385,7 +377,6 @@ input:focus, select:focus {
                 <div class="browse-row">
                   <input type="text" id="sam-folder" placeholder="/…/1D/SAXS/Averaged">
                   <button class="btn btn-ghost btn-sm" onclick="openBrowser('sam-folder')">Browse…</button>
-                  <button class="btn btn-sm" onclick="listSamples()">List</button>
                 </div>
               </div>
               <div class="field" id="row-bkg-folder" style="display:none">
@@ -417,7 +408,15 @@ input:focus, select:focus {
                 <span class="section-title" style="margin:0">Files in folder</span>
                 <span class="fl-count" id="sam-count">None listed</span>
               </div>
-              <div class="hint" style="margin:0 0 6px">Mark one file as <b style="color:var(--warn-text)">BG</b> (background); check the rest as <b style="color:var(--accent)">samples</b>.</div>
+              <!-- Every file action in one place (October 2026): List used to sit up in
+                   Folders and the select buttons below the list. -->
+              <div class="file-actions" style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 8px">
+                <button class="btn btn-primary btn-sm" onclick="listSamples()"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-open"/></svg> List files</button>
+                <button class="btn btn-sm" onclick="toggleAll()">Select all samples</button>
+                <button class="btn btn-sm" onclick="clearSamples()">Clear</button>
+                <button class="btn btn-sm" onclick="clearIndFilters()">Reset filters</button>
+              </div>
+              <div class="hint" style="margin:0 0 6px">List the files in the sample folder, mark one as <b style="color:var(--warn-text)">BG</b> (background) and check the rest as <b style="color:var(--accent)">samples</b>.</div>
               <div class="row" style="margin:0 0 6px">
                 <div class="field"><label>Background name filter</label>
                   <input type="text" id="ind-bkg-kw" placeholder="e.g. Empty · buffer" oninput="renderSamples()"></div>
@@ -425,12 +424,7 @@ input:focus, select:focus {
                   <input type="text" id="ind-sam-kw" placeholder="e.g. Dilution · Sample" oninput="renderSamples()"></div>
               </div>
               <div class="hint" style="margin:0 0 6px">Comma-separated, not case-sensitive; blank = all. <b>BG</b> can only go on a background match, samples only on a sample match.</div>
-              <div class="filelist" id="sam-filelist"><div class="fl-empty">Click “List” to load .dat files</div></div>
-              <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
-                <button class="btn btn-sm" onclick="toggleAll()">Select all samples</button>
-                <button class="btn btn-sm" onclick="clearSamples()">Clear</button>
-                <button class="btn btn-sm" onclick="clearIndFilters()">Reset filters</button>
-              </div>
+              <div class="filelist" id="sam-filelist"><div class="fl-empty">Click “List files” above to load the .dat files in the sample folder</div></div>
             </div>
 
             <!-- shared match & review (Scan + Suggested) -->
@@ -492,6 +486,24 @@ input:focus, select:focus {
               <div class="hint" id="methHint">I<sub>sub</sub> = I<sub>sample</sub> − <b>scale</b> × I<sub>background</sub></div>
             </div>
 
+            <div class="section tr-box">
+              <div class="section-title">ML output: truncate &amp; rebin <span class="opt">(optional)</span></div>
+              <label style="display:flex;align-items:center;gap:8px">
+                <input type="checkbox" id="tr-enabled" onchange="pushTrunc()">
+                Truncate &amp; rebin every subtracted file
+              </label>
+              <div class="tr-fields" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 28px;margin-top:8px;max-width:820px">
+                <div class="field"><label>q min</label><input type="number" id="tr-qmin" step="0.001" min="0" onchange="pushTrunc()"></div>
+                <div class="field"><label>q max</label><input type="number" id="tr-qmax" step="0.001" min="0" onchange="pushTrunc()"></div>
+                <div class="field"><label>Number of points</label><input type="number" id="tr-npts" step="1" min="2" onchange="pushTrunc()"></div>
+                <div class="field"><label>Spacing</label>
+                  <select id="tr-spacing" onchange="pushTrunc()"><option value="linear">linear</option><option value="log">log</option></select></div>
+                <div class="field"><label>q unit</label>
+                  <select id="tr-unit" onchange="pushTrunc()"><option value="nm">nm⁻¹</option><option value="A">Å⁻¹</option></select></div>
+              </div>
+              <div class="hint" id="tr-hint">For the ML model: each subtracted curve is resampled onto this fixed q grid and the .dat is overwritten with it. Default 0.3 to 6.0 nm⁻¹, 549 points, linear; pick Å⁻¹ to write Å⁻¹.</div>
+            </div>
+
             <div class="actions">
               <button class="btn btn-ghost" onclick="preview()"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-search"/></svg> Preview &amp; plot</button>
               <button class="btn btn-primary" id="btnRun" onclick="run()"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-pass"/></svg> Subtract &amp; save</button>
@@ -537,26 +549,9 @@ input:focus, select:focus {
               <div class="hint" style="margin:4px 0 0">Background keyword replaces name detection (buffer, blank, empty…). Sample keyword limits which files count as samples.</div>
             </div>
 
-            <div class="section">
-              <div class="section-title"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-truncate"/></svg> ML output: truncate &amp; rebin</div>
-              <label style="display:flex;align-items:center;gap:8px">
-                <input type="checkbox" id="atr-enabled" onchange="pushTrunc('a')">
-                Truncate &amp; rebin every subtracted file (for the ML model)
-              </label>
-              <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:8px;max-width:420px">
-                <div class="field"><label>q min</label><input type="number" id="atr-qmin" step="0.001" min="0" onchange="pushTrunc('a')"></div>
-                <div class="field"><label>q max</label><input type="number" id="atr-qmax" step="0.001" min="0" onchange="pushTrunc('a')"></div>
-                <div class="field"><label>Number of points</label><input type="number" id="atr-npts" step="1" min="2" onchange="pushTrunc('a')"></div>
-                <div class="field"><label>Spacing</label>
-                  <select id="atr-spacing" onchange="pushTrunc('a')"><option value="linear">linear</option><option value="log">log</option></select></div>
-                <div class="field"><label>q unit</label>
-                  <select id="atr-unit" onchange="pushTrunc('a')"><option value="nm">nm⁻¹</option><option value="A">Å⁻¹</option></select></div>
-              </div>
-              <div class="hint" style="margin:4px 0 0">Shared with the manual modes; applies to every auto-subtracted file. Default 0.3 to 6.0 nm⁻¹, 549 points, linear.</div>
-            </div>
-
-            <!-- Scale and Schedule are both small; .row puts them side by
-                 side and collapses to one column when the pane is narrow. -->
+            <!-- Steps in the order they are set: folders, keywords, then Scale
+                 and Schedule side by side (both small; .row collapses to one
+                 column when the pane is narrow), the optional ML grid, Monitor. -->
             <div class="row">
             <div class="section">
               <div class="section-title"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-settings"/></svg> Scale</div>
@@ -564,7 +559,7 @@ input:focus, select:focus {
                 <button id="auto-meth-auto" class="active" onclick="setAutoScaleMode('auto')">Auto high-q</button>
                 <button id="auto-meth-fixed" onclick="setAutoScaleMode('fixed')">Fixed value</button>
               </div>
-              <div class="field" id="auto-fixed-row" style="display:none;max-width:220px;margin-top:8px">
+              <div class="field" id="auto-fixed-row" style="display:none;max-width:380px;margin-top:8px">
                 <label>Scale value</label>
                 <input type="number" id="auto-fixed-scale" value="1.0" min="0" step="0.01">
               </div>
@@ -573,12 +568,30 @@ input:focus, select:focus {
 
             <div class="section">
               <div class="section-title"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-timer"/></svg> Schedule</div>
-              <div class="field" style="max-width:220px">
+              <div class="field" style="max-width:380px">
                 <label>Check interval (seconds)</label>
                 <input type="number" id="auto-interval" value="3" min="1">
               </div>
             </div>
             </div><!-- /.row -->
+
+            <div class="section tr-box">
+              <div class="section-title"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-truncate"/></svg> ML output: truncate &amp; rebin <span class="opt">(optional)</span></div>
+              <label style="display:flex;align-items:center;gap:8px">
+                <input type="checkbox" id="atr-enabled" onchange="pushTrunc('a')">
+                Truncate &amp; rebin every subtracted file
+              </label>
+              <div class="tr-fields" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 28px;margin-top:8px;max-width:820px">
+                <div class="field"><label>q min</label><input type="number" id="atr-qmin" step="0.001" min="0" onchange="pushTrunc('a')"></div>
+                <div class="field"><label>q max</label><input type="number" id="atr-qmax" step="0.001" min="0" onchange="pushTrunc('a')"></div>
+                <div class="field"><label>Number of points</label><input type="number" id="atr-npts" step="1" min="2" onchange="pushTrunc('a')"></div>
+                <div class="field"><label>Spacing</label>
+                  <select id="atr-spacing" onchange="pushTrunc('a')"><option value="linear">linear</option><option value="log">log</option></select></div>
+                <div class="field"><label>q unit</label>
+                  <select id="atr-unit" onchange="pushTrunc('a')"><option value="nm">nm⁻¹</option><option value="A">Å⁻¹</option></select></div>
+              </div>
+              <div class="hint" style="margin:4px 0 0">Same setting as the manual modes; applies to every auto-subtracted file. Default 0.3 to 6.0 nm⁻¹, 549 points, linear.</div>
+            </div>
 
             <!-- Wrapped in a panel titled "▶ Monitor", matching the same
                  control in average/templates/index.html. It used to sit bare

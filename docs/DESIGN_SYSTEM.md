@@ -146,6 +146,14 @@ Single-workspace apps (analyzer, quality, assistant) have the top bar only. All 
 styled in the shared stylesheet. Side panels that hold
 CONTENT (the assistant's knowledge base) are fine. Guarded by `tests/test_ui_icon_policy.py`.
 
+**Forms: label beside its box** (October 2026). Every setting is one line, label
+on the left and box on the right, in every app. One shared rule in
+`assets/icons/swaxs-tokens.css` covers the three patterns the apps use: `.fg`
+label/cell pairs, a `.field` holding a label and one box, and `.grid2`/`.grid3`
+cells (two or three settings per line, with a fixed label column so the boxes
+line up). Checkboxes, radios and sliders keep their inline layout; below
+1100 px wide the label goes back above the box.
+
 ---
 
 ## 0. Per-app conformance
