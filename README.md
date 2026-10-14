@@ -1,83 +1,85 @@
-# SWAXS Platform
+# <img src="assets/icons/docs/swaxs-ui-mark.svg" width="32" height="32" alt=""> SWAXS Platform
 
-A local, AI-assisted toolkit for processing **small- and wide-angle X-ray scattering (SAXS/WAXS)** data — from raw 2D detector images all the way to structural analysis. Built around the SSRL Beamline 1-5 workflow, but configurable for other setups.
+A local, AI-assisted toolkit for **small- and wide-angle X-ray scattering
+(SAXS/WAXS)**: from raw 2D detector images to 1D curves, background subtraction,
+structural analysis and, optionally, a closed autonomous loop that runs a flow
+reactor at the beamline. Built around the SSRL Beamline 1-5 workflow, configurable
+for other setups.
 
-Everything runs on your own machine — the apps are local web servers and your data stays in the folder you point them at. The platform does make outbound connections, all of them optional and off by default: the Claude API (AI Assistant and AI quality grading), SFTP to a beamline host (Calibration's data sync), HTTP to the SPEC bServer (real beamline control), and Slack webhooks or SMTP (run notifications).
+Everything runs on your own machine as local web pages, and your data stays in the
+project folder you choose. Outbound connections are all optional: the Claude API
+(AI assistant and AI quality grading), SFTP to a beamline host (Calibration's data
+copy), HTTP to the SPEC bServer (real beamline control) and Slack (notifications).
 
-### 🚀 New machine? → **[Quick start](#quick-start)** — three steps, ~10 minutes.
-Works on macOS, Windows (PowerShell, Anaconda Prompt or cmd) and Linux.
+**New machine?** Go to [Quick start](#quick-start) below (about 10 minutes, macOS,
+Windows or Linux). Full guide with troubleshooting: [QUICKSTART.md](QUICKSTART.md).
 
 ---
 
-## What it does
+## The apps
 
-The platform is organized as ten small web apps, launched from one central hub. You move through them roughly in order:
+One hub (**http://localhost:5100**) starts, stops and monitors ten apps. You
+normally move through them in this order:
 
-| # | App | Port | What it's for |
-|---|-----|------|---------------|
-| 🎯 | **Geometry Calibration** | 5101 | Convert calibrant `.raw` → CBF and generate the pyFAI `.poni` geometry files everything downstream needs; optional SFTP pull from the beamline host |
-| 🌀 | **Reduction & Correction** | 5102 | Convert raw 2D detector images → 1D I(q) curves (PyFAI integration, transmission/normalization corrections) |
-| 📊 | **Visualisation & Average** | 5103 | Visualise 2D & 1D data, average repeated scans, view SAXS and WAXS together |
-| ➖ | **Background Subtraction** | 5104 | Subtract buffer/background by keyword, scan-matching, or manual selection |
-| 🚦 | **Quality Gate** | 5105 | AI good/bad grading of subtracted profiles — scoring, auto-sort into Good/NeedsReview, frame selection |
-| 📈 | **Data Analysis** | 5106 | Guinier, Porod, Kratky, pair-distance, peak fitting |
-| 🧭 | **Autonomous Analyser** | 5107 | Fits nanoparticle size / PDI / phase from subtracted SAXS and proposes the next synthesis conditions (Bayesian optimization) — the brain of the autonomous loop |
-| 🔁 | **Autonomous Synthesis (reactor)** | 5108 | 5-pump flow reactor **and** beamline control: sets temperature (SPEC `csettemp`) and triggers 2D collection (shutter + a configurable collect command, default `ct`) through the SPEC bServer, plus auto-flush |
-| 🤖 | **Guinier** (AI assistant) | 5109 | Ask questions about your data, generate plots, get proactive quality hints |
-| 📡 | **Autonomous Watch** | 5110 | Loop-stall detection and the sole gateway for all platform notifications (Slack) |
+| | App | Port | What it is for |
+|---|---|---|---|
+| <img src="assets/icons/docs/swaxs-calibration.svg" width="20" height="20" alt=""> | **Geometry Calibration** | 5101 | Convert calibrant `.raw` → CBF, make the pyFAI `.poni` geometry files, optional SFTP copy from the beamline host |
+| <img src="assets/icons/docs/swaxs-reduction.svg" width="20" height="20" alt=""> | **Reduction & Correction** | 5102 | 2D detector images → 1D I(q) (pyFAI integration, transmission and normalization corrections) |
+| <img src="assets/icons/docs/swaxs-visualisation.svg" width="20" height="20" alt=""> | **Visualisation & Average** | 5103 | View 2D and 1D data, average repeated frames, show SAXS and WAXS on one axis |
+| <img src="assets/icons/docs/swaxs-subtraction.svg" width="20" height="20" alt=""> | **Background Subtraction** | 5104 | Subtract buffer/background by keyword, scan matching or manual choice |
+| <img src="assets/icons/docs/swaxs-quality.svg" width="20" height="20" alt=""> | **Quality Gate** | 5105 | AI good/bad grading of subtracted curves, sorted into `Good/` and `NeedsReview/` |
+| <img src="assets/icons/docs/swaxs-analysis.svg" width="20" height="20" alt=""> | **Data Analysis** | 5106 | Guinier, Porod, Kratky, p(r), model fitting (sasmodels), peaks |
+| <img src="assets/icons/docs/swaxs-autofit.svg" width="20" height="20" alt=""> | **Autonomous Analyser** | 5107 | Fits nanoparticle size, PDI and phase, and proposes the next synthesis conditions (Bayesian optimisation) |
+| <img src="assets/icons/docs/swaxs-synthesis.svg" width="20" height="20" alt=""> | **Autonomous Synthesis** | 5108 | Five-pump flow reactor plus SPEC beamline control (temperature, 2D collection, auto flush); starts in Simulation |
+| <img src="assets/icons/docs/swaxs-guinier-ai.svg" width="20" height="20" alt=""> | **Guinier** | 5109 | AI assistant: ask about your data, get plots and hints |
+| <img src="assets/icons/docs/swaxs-watch.svg" width="20" height="20" alt=""> | **Autonomous Watch** | 5110 | Watches the autonomous loop for stalls and sends every platform notification (Slack) |
 
-A typical **data** session: **reduce → view & average → subtract background → quality-gate (optional) → analyze**, with the assistant available throughout.
+A typical **data** session: reduce → average → subtract → (quality gate) →
+analyse, with the assistant available throughout.
 
-### Autonomous closed loop (optional)
+### The autonomous loop (optional)
 
-For self-driving nanoparticle synthesis at the beamline, the reactor and analyzer close a loop:
+Autonomous Synthesis runs a recipe (temperature and flows) and triggers a SPEC 2D
+collection of the sample and its background, both tagged with the `recipe_id` →
+the data apps reduce, average and subtract it → the Autonomous Analyser fits size
+and PDI and writes the next condition → the reactor runs it. Stop and E-stop act on
+the pumps only and never interrupt an X-ray collection. Turning **Run
+autonomously** off pauses after the current condition (the queue is kept); that
+paused window is when beamline settings can be changed.
 
-**Autonomous Synthesis** sets the temperature and flows for a recipe → triggers a SPEC 2D collection of the reacting sample (and a background during flush), tagged by `recipe_id` → the data pipeline reduces/averages/subtracts it → the **Analyzer** fits size/PDI/phase and the **optimizer** (`src/optimizer`) proposes the next conditions → the reactor runs them. Temperature and beamline actions go through the SPEC bServer; Stop/E-stop act on pumps only and never interrupt an in-progress X-ray collection. See the reactor doc set under `docs/` before a run.
-
-**Run vs. pause vs. stop.** *Run autonomously* arms the loop. *Stopping* it **pauses** rather than aborting: the current condition finishes and its line flushes, then the loop waits at *ready* with the queue kept — and that paused window is when the beamline settings (exposure, frames, trigger-before-end) unlock for editing, applied when you re-arm. New condition files keep queuing while paused; their files stay in the watched folder until the reactor has actually run them, and a reactor restart resumes that queue (startup order of reactor and optimizer does not matter). Run and beamline settings both persist across a restart. Notifications are Autonomous Watch's alone (port 5110). Full history: `docs/CHANGELOG.md`; correctness/safety detail: `docs/audits/REACTOR_AUDIT.md`.
+To rehearse the whole loop on a laptop with synthetic data, see
+[docs/SIMULATED_2D_DATA.md](docs/SIMULATED_2D_DATA.md). For a real run, follow
+[docs/AUTONOMOUS_RUN_STEPS.md](docs/AUTONOMOUS_RUN_STEPS.md).
 
 ---
 
 ## Quick start
 
-You install once, in about **10 minutes**. It is the same three steps on every
-platform:
+Install once, then start the hub. If a command fails, the fix is almost certainly
+in [QUICKSTART.md § Troubleshooting](QUICKSTART.md#troubleshooting).
 
-**① get Python and git → ② download the code and install → ③ start the hub.**
+> **Install from `requirements-core.txt`.** There is no `requirements.txt`. If an
+> old clone still has one, delete it: it makes pip try to compile numpy on Windows
+> ("Microsoft Visual C++ 14.0 or greater is required").
 
-If a command fails, the exact error is almost certainly in
-[QUICKSTART.md](QUICKSTART.md#troubleshooting).
-
-> **⚠ One thing that matters more than anything else on this page:**
-> install from **`requirements-core.txt`**. There is no `requirements.txt` —
-> it used to be an old snapshot of one developer's Mac that dragged in ~1 GB
-> the platform never uses and pinned versions with no Windows build, so pip
-> tried to *compile* numpy and died with *"Microsoft Visual C++ 14.0 or
-> greater is required"*. It broke the first Windows install badly enough that
-> it was removed outright (September 2026) rather than just discouraged — if
-> you have an old clone with one still in it, delete it, don't install it.
-> `requirements-core.txt` is 16 packages that install from prebuilt wheels
-> everywhere, with no compiler.
-
-### ① Get Python and git
+### 1. Get Python and git
 
 You need **Python 3.10 or newer** (3.11 or 3.12 recommended) and **git**.
-Check with `python --version` — on macOS and Linux, `python3 --version`.
 
 | Your machine | How to get them |
 |---|---|
-| **macOS** | Python from [python.org](https://www.python.org/downloads/macos/). git comes with Xcode command-line tools — running `git --version` offers to install it. |
-| **Windows** | Python from [python.org](https://www.python.org/downloads/windows/) — **tick "Add python.exe to PATH"** on the installer's first screen. It is easy to miss and nothing works without it. Then [Git for Windows](https://git-scm.com/download/win). |
-| **Windows + Anaconda** | You already have both. Use the **Anaconda Prompt** from the Start menu, not PowerShell. If git is missing: `conda install -y git`. |
-| **Linux** | `sudo apt install -y python3 python3-venv python3-pip git` (Debian/Ubuntu) · `sudo dnf install -y python3 python3-pip git` (Fedora/RHEL) |
+| **macOS** | Python from [python.org](https://www.python.org/downloads/macos/). `git --version` offers to install git if it is missing. |
+| **Windows** | Python from [python.org](https://www.python.org/downloads/windows/), **tick "Add python.exe to PATH"** on the first installer screen. Then [Git for Windows](https://git-scm.com/download/win). |
+| **Windows + Anaconda** | Use the **Anaconda Prompt** (not PowerShell). If git is missing: `conda install -y git`. |
+| **Linux** | `sudo apt install -y python3 python3-venv python3-pip git` (Debian/Ubuntu) or `sudo dnf install -y python3 python3-pip git` (Fedora/RHEL) |
 
-### ② Download the code and install
+### 2. Download the code and install
 
-Copy the whole block for your setup and paste it into one terminal window. The
-`(venv)` or `(swaxs)` that appears in your prompt is how you know it worked.
+Paste the block for your setup into one terminal. The `(venv)` or `(swaxs)` in your
+prompt shows it worked.
 
 <details open>
-<summary><b>🍎 macOS &nbsp;·&nbsp; 🐧 Linux</b> — Terminal</summary>
+<summary><b>macOS / Linux</b> (Terminal)</summary>
 
 ```bash
 cd ~/Desktop                                   # or wherever you keep projects
@@ -94,7 +96,7 @@ pip install -r requirements-core.txt           # 1-3 minutes
 </details>
 
 <details open>
-<summary><b>🪟 Windows</b> — PowerShell</summary>
+<summary><b>Windows</b> (PowerShell)</summary>
 
 ```powershell
 cd $HOME\Documents
@@ -108,20 +110,14 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements-core.txt
 ```
 
-Blocked with *"running scripts is disabled on this system"*? Allow scripts for
-your own account once, then re-run the activate line:
-
-```powershell
-Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-```
+Blocked with "running scripts is disabled on this system"? Run
+`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once, then the activate line
+again.
 
 </details>
 
 <details open>
-<summary><b>🐍 Windows + Anaconda</b> — Anaconda Prompt</summary>
-
-The most reliable route on Windows: conda ships the science stack as prebuilt
-binaries, and it needs no execution-policy change.
+<summary><b>Windows + Anaconda</b> (Anaconda Prompt)</summary>
 
 ```bat
 cd %USERPROFILE%\Documents
@@ -135,116 +131,61 @@ conda install -y -c conda-forge numpy scipy pandas matplotlib pyyaml h5py
 python -m pip install -r requirements-core.txt
 ```
 
-Create the `swaxs` environment as shown — don't install into conda `base`, where
-a breakage would affect every other conda project on the machine.
+Use the named `swaxs` environment, not conda `base`.
 
 </details>
 
-### ③ Start the hub
+### 3. Start the hub
 
-In the same terminal, still with the environment active:
-
-| | Run | Notes |
-|---|---|---|
-| **macOS / Linux** | `./start_platform.sh` | |
-| **Windows PowerShell** | `.\start_platform.bat` | a `.bat` runs fine from PowerShell, and needs no execution-policy change |
-| **Anaconda Prompt / cmd** | `start_platform.bat` | also works by **double-clicking** it in File Explorer |
-
-Then open **http://localhost:5100** in your browser. That's the hub.
-
-The launcher tells you what it found — interpreter, Python version, whether the
-dependencies are installed — and stops with a clear message instead of a stack
-trace if something is missing.
-
-<details open>
-<summary>Two things that occasionally get in the way</summary>
-
-- **Port 5100 is busy.** The hub uses 5100 (apps 5101-5110) precisely to dodge
-  macOS AirPlay Receiver, which owns 5000. If 5100 itself is taken, run
-  `SWAXS_HUB_PORT=5200 ./start_platform.sh`, or switch AirPlay Receiver off in
-  System Settings → General → AirDrop & Handoff.
-- **Headless Linux server.** Plots render server-side, so no display is needed —
-  forward the port: `ssh -L 5100:localhost:5100 you@server`.
-
-</details>
-
-### Starting it again tomorrow
-
-Installing was a one-off. From then on it is two lines in a new terminal:
-
-| | |
+| | Run |
 |---|---|
-| **macOS / Linux** | `cd <repo>` → `source venv/bin/activate` → `./start_platform.sh` |
-| **Windows PowerShell** | `cd <repo>` → `.\venv\Scripts\Activate.ps1` → `.\start_platform.bat` |
-| **Anaconda Prompt** | `cd <repo>` → `conda activate swaxs` → `start_platform.bat` |
+| **macOS / Linux** | `./start_platform.sh` |
+| **Windows PowerShell** | `.\start_platform.bat` |
+| **Anaconda Prompt / cmd** | `start_platform.bat` (or double-click it) |
 
-Forgetting to activate the environment is the most common day-two problem. It
-looks like `ModuleNotFoundError: No module named 'flask'` — activate, then retry.
+Then open **http://localhost:5100**. The launcher reports the interpreter and
+Python version it found and stops with a clear message if a package is missing.
+Next time, it is: `cd` into the folder, activate (`source venv/bin/activate`,
+`.\venv\Scripts\Activate.ps1` or `conda activate swaxs`), run the launcher.
 
-### Your first session
+### 4. First session
 
-1. **Pick your project folder** — top-right of the hub page. Any folder with the
-   `2D/SAXS` layout [shown below](#organizing-your-experiment-data) works; the
-   apps create the `1D/` tree themselves. Put your name or initials in the
-   **Operator** box in the same top bar: it is entered only there, and every app
-   records it with its results.
-2. **Start an app** with ▶, wait for the green dot, then **↗ Open**. Work left to
-   right through the app table above.
-3. **Stop** one app with ■, or press `Ctrl-C` in the terminal to close the hub —
-   which closes every app with it.
+1. Click the project folder box in the hub's top bar and choose your experiment
+   folder (layout [below](#organizing-your-experiment-data)). Type your name in the
+   **Operator** box next to it; every app records it with its results.
+2. Press **Start** on an app card, wait for the green dot, press **Open**.
+3. Press **Stop** on a card, or `Ctrl-C` in the terminal to close the hub and all
+   apps.
 
-To skip step 1 next time, pass the folder to the launcher:
-`./start_platform.sh /path/to/experiment` or `start_platform.bat D:\data\Auto_Run`.
-
-### Optional add-ons
-
-Nothing here is needed to process data. Each one degrades gracefully — the app
-says what is missing and keeps working.
-
-| You want | Run |
-|---|---|
-| The real reactor (pumps + EPICS temperature) | `pip install -r requirements-hardware.txt` |
-| AI Assistant chat | `pip install anthropic` + a token (below) |
-| AI searchable knowledge base | `pip install -r requirements-ai.txt` — **pulls torch, ~2 GB** |
-| Model fitting in the analysis app | nothing extra: `sasmodels` is in `requirements-core.txt` |
-| The test suite | `pip install pytest` then `pytest -q` |
-
-**AI Assistant token.** The assistant reaches SLAC-managed AI services through the
-enterprise gateway, so it needs a token (request via ServiceNow, SLAC IT
-KB0015379) and the SLAC network or VPN. Put it in **`~/.claude/settings.json`** —
-the sanctioned location, shared with the Claude Code CLI — and **never in `.env`
-or anywhere inside the repo**. Steps: [SECURITY.md](SECURITY.md). Without a token
-every data-processing app works normally; only the AI features are off.
+Optional extras (real reactor hardware, AI assistant, Slack alerts) are listed in
+[QUICKSTART.md § Optional extras](QUICKSTART.md#optional-extras). The AI token goes
+in `~/.claude/settings.json`, never in the repo: see [SECURITY.md](SECURITY.md).
 
 ---
 
 ## Organizing your experiment data
 
-Apps read and write inside a single project folder. The expected layout:
+All apps read and write inside one project folder:
 
 ```
 <project_root>/
 ├── 2D/
-│   ├── SAXS/                 # *.raw detector images + *.raw.pdi metadata
-│   └── WAXS/                 # *.raw detector images + *.raw.pdi metadata
-├── poni/                     # PyFAI calibration (*.poni) + detector masks (*.edf)
-├── config.yml                # Reduction settings (see below)
-├── 1D/                       # Created by the apps:
-│   ├── SAXS/
-│   │   ├── {Reduction,Averaged}/
-│   │   ├── Subtracted/{Good,NeedsReview}/   # NeedsReview/Good sorted by Quality Gate
-│   │   └── Results/           # everything kept after the fact
-│   │       ├── Fit/               # per-fit PNG + .dat, every analyzed profile (cross-check after beamtime)
-│   │       ├── QualityReports/    # Quality Gate CSV reports + accepted lists
-│   │       └── campaign_<id>/     # Autonomous Analyser: final figures, written when a campaign ends
+│   ├── SAXS/                 # *.raw detector images (+ *.raw.pdi metadata)
 │   ├── WAXS/
-│   │   ├── {Reduction,Averaged}/
-│   │   └── Subtracted/{Good,NeedsReview}/
-├── manifest.db               # Auto-managed shared state across apps (SQLite)
-└── manifest.json             # JSON export of the same, rewritten on every save
+│   └── *.csv                 # beamline metadata, if metadata_format: "csv"
+├── poni/                     # pyFAI calibration (*.poni) + detector masks (*.edf)
+├── config.yml                # reduction settings
+├── 1D/                       # created by the apps
+│   ├── SAXS/
+│   │   ├── Reduction/  Averaged/
+│   │   ├── Subtracted/{Good,NeedsReview}/   # Good/NeedsReview sorted by the Quality Gate
+│   │   ├── Analysed/<Type>/                 # Data Analysis results
+│   │   ├── Conditions/                      # next recipes, optimiser → reactor
+│   │   └── Results/                         # Fit/, QualityReports/, campaign_<id>/
+│   └── WAXS/                 # same tree
+├── manifest.db               # shared record of every file and analysis (SQLite)
+└── manifest.json             # JSON copy of the same, rewritten on every save
 ```
-
-CSV metadata (one `*.csv` per scan at the `2D/` level) is also supported instead of `.raw.pdi` — set `metadata_format` accordingly in `config.yml`.
 
 ### config.yml essentials
 
@@ -252,13 +193,13 @@ CSV metadata (one `*.csv` per scan at the `2D/` level) is also supported instead
 data_directory: "/path/to/2D"
 poni_directory: "/path/to/poni"
 
-compound: "C2H4"          # sample formula (for absorption / thickness)
+compound: "C2H4"          # sample formula (absorption / thickness)
 energy_keV: 12
 density_g_cm3: 0.92
-thickness: null           # null = auto-derive from transmission
+thickness: null           # metres; null = derive from transmission
 
-mode: "SWAXS"             # "SAXS", "WAXS", or "SWAXS"
-metadata_format: "pdi"    # "pdi" or "csv"
+mode: "SWAXS"             # "SAXS", "WAXS" or "SWAXS"
+metadata_format: "csv"    # "csv" or "pdi"
 
 detector_shapes:
   saxs: [1043, 981]
@@ -267,33 +208,15 @@ detector_shapes:
 poni_files: { saxs: "atT_SAXS.poni", waxs: "atT_WAXS.poni" }
 mask_files: { saxs: "RT_SAXS_mask_03.edf", waxs: null }
 
-npt_radial: 1000
-error_model: "poisson"
+npt_radial: 1000          # required
+error_model: "poisson"    # required
+normalization: ["bstop"]  # "bstop" (default), "i0" or "absolute": choose one
 ```
 
-See [`CLAUDE.md`](CLAUDE.md) for the full config reference, including normalization terms, air-path transmission, dark/flat frames, and polarization.
-
----
-
-## How the apps talk to each other
-
-- **`manifest.json`** at the project root is the shared record of every file produced and every analysis run. Each app writes only its own section.
-- The **hub runs an event bus** (WebSocket). When one app finishes something (e.g. reduces a file), it announces it; the others — and the AI Assistant — can react. The hub UI shows these events live.
-
-You don't need to manage any of this; it happens automatically.
-
----
-
-## The AI Assistant
-
-When enabled, the assistant can:
-
-- Answer questions about what's been processed (it reads `manifest.json`).
-- Run analyses and generate plots inline (Guinier, Kratky, Porod, etc.).
-- Surface **proactive hints** — e.g. a Guinier range outside the valid qRg window, a possible aggregation upturn, an I₀ outlier frame, or an unusual background scale factor.
-- Learn from corrections you make, and remember per-user, per-project, and per-beamline context across sessions.
-
-Its domain knowledge lives in `ai_knowledge/` and the per-app `knowledge.md` files, which are indexed into a local vector database on first run.
+You can also edit and save all of this from the Reduction app's **Setup** tab. The
+full reference (normalization modes, air-path transmission, dark/flat frames,
+polarization) is in [CLAUDE.md](CLAUDE.md#configyml-reference) and
+`reduction/knowledge.md`.
 
 ---
 
@@ -301,59 +224,34 @@ Its domain knowledge lives in `ai_knowledge/` and the per-app `knowledge.md` fil
 
 | Symptom | Likely cause / fix |
 |---|---|
-| Assistant/Quality Gate say the AI token isn't set | Add your token to `~/.claude/settings.json` (`ANTHROPIC_AUTH_TOKEN`, endpoint, model — see `SECURITY.md`) and restart. Do **not** put it in `.env`. You must also be on the SLAC network/VPN. |
-| "Bus" badge in the hub stays grey | `flask-sock` is missing — it is in `requirements-core.txt`, so this only happens after a partial install. The apps still work; only live events are affected. |
-| Reduction error: `'i0' not found in metadata` | `metadata_format` in `config.yml` doesn't match your files (`pdi` vs `csv`), or the metadata lacks an `i0`/`bstop` field. |
-| Transmission > 1.0 warning | Check `i0_air`/`bstop_air` and the offset values in `config.yml`. |
-| Negative intensities after reduction | Check `i0_offset` / `bstop_offset` (should be ≤ the dark-current reading with the shutter closed). |
-| An app card shows "Starting…" forever, then "Not responding" | Read `logs/<app>.log` (the previous run is kept as `logs/<app>.log.1`). Usually a bad path in `config.yml` or a missing `.poni`. |
-| An app card shows "⚠ CRASHED" | The card names the reason and the last log lines. Fix it, then press ▶ Start again. |
-| `ModuleNotFoundError: No module named 'flask'` | The virtual environment isn't activated — your prompt should show `(venv)` or `(swaxs)`. See [Starting again later](#starting-again-later). |
-| Red `Microsoft Visual C++ 14.0 or greater is required` on Windows | You installed a leftover `requirements.txt` from an old clone (delete it — it's gone from the repo), or your Python is 3.9 or older. Use `requirements-core.txt` and Python 3.11/3.12. You do **not** need Visual Studio. |
-| `... running scripts is disabled` (activating the venv) | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`. The launcher itself is a `.bat` and never needs this. |
-| Pipeline runs but no averaged files appear | Frames/batch is larger than the frames one acquisition delivers, so a batch can never complete. The Visualisation & Average log says so — set frames/batch to match `spec.frames`. |
+| `ModuleNotFoundError: No module named 'flask'` | The environment is not activated; the prompt should show `(venv)` or `(swaxs)`. |
+| An app card shows "Starting…", then "Not responding" | Read `logs/<app>.log`. Usually a bad path in `config.yml` or a missing `.poni`. |
+| An app card shows "CRASHED" | The card shows the reason and the last log lines. Fix it, press **Start** again. |
+| Reduction error: `'i0' not found in metadata` | `metadata_format` does not match your files (`pdi` vs `csv`), or the metadata has no `i0`/`bstop` field. |
+| Transmission > 1.0 warning | Check `i0_air` / `bstop_air` and the offsets in `config.yml`. |
+| Pipeline runs but no averaged files appear | **Frames per average (N)** in Visualisation & Average is larger than the frames one acquisition delivers. The app's log says so; set N to match. |
+| AI features say the token is not set | Put the token in `~/.claude/settings.json` (see [SECURITY.md](SECURITY.md)), be on the SLAC network or VPN, restart. |
+| The "Bus" badge in the hub stays grey | Partial install (`flask-sock` missing). Apps still work; only live events are affected. |
 
-More, with fuller explanations: **[QUICKSTART.md § Troubleshooting](QUICKSTART.md#troubleshooting)**.
+More: [QUICKSTART.md § Troubleshooting](QUICKSTART.md#troubleshooting).
 
 ---
 
-## For developers
+## Where to go next
 
-### Plugging your own program into the pipeline
-
-You are not limited to the ten built-in apps. Every stage hands off through a
-**folder of files** plus `manifest.json`, so a program of your own — in any
-language — can read one stage's output and write the next stage's input,
-without touching this codebase and with no plugin API to learn.
-
-The common case is **your own ML model in place of the Autonomous Analyser**: it
-watches `1D/SAXS/Subtracted/Good/` for newly subtracted profiles, predicts the
-structure, and drops the next conditions into `1D/SAXS/Conditions/`, which the
-Autonomous Synthesis app already polls. Leave app 5107 stopped and the loop closes
-through your model instead. Three folder paths and one small file format.
-
-Other ways in: subscribe to the WebSocket event bus for push notifications
-instead of polling, import `src/` directly as a Python library, write your
-results into `manifest.json` for provenance, or register your program in
-`apps.yml` so it gets its own hub card with start/stop.
-
-**→ [docs/INTEGRATING_YOUR_OWN_CODE.md](docs/INTEGRATING_YOUR_OWN_CODE.md)** —
-exact paths, the condition-file format and its required fields and bounds, a
-working ~30-line skeleton, every integration surface ranked by how stable it
-is, and the safety notes for anything that can drive the reactor.
-
-### Reference
-
-- **`CLAUDE.md`** — developer guide and full `config.yml` reference.
-- **`docs/CHANGELOG.md`** — running summary of notable changes (start here to catch up on recent development).
-- **`docs/`** — extended documentation: `ARCHITECTURE.md` (system design), `DESIGN_SYSTEM.md`, app specs, and `docs/audits/` (point-in-time correctness/safety audits, incl. `REACTOR_AUDIT.md`).
-- **Reactor / beamtime docs** — `docs/REACTOR_SETUP.md` (software install/run), `docs/REACTOR_HARDWARE_SETUP.md` (fluidics + temperature + beamline wiring), `docs/REACTOR_MAP.md` (code map / troubleshooting), `tools/BEAMLINE_TESTING.md` (bench-test runbook), and `docs/audits/PRE_BEAMTIME_READINESS.md` + `BEAMLINE_SAFETY_AUDIT.md`.
-- **`apps.yml`** — the app registry. Add an app here and the hub picks it up; no hub code changes needed.
-- **`check_imports.py`** — `python check_imports.py` audits which `src/` modules each app uses.
-- **Launchers** — `start_platform.sh` (macOS/Linux) and `start_platform.bat` (every Windows shell, including PowerShell, plus double-click). Both resolve your venv/conda interpreter, refuse a Python older than 3.10, probe the dependencies, and then start `hub/app.py` with that interpreter — the same one the hub uses to launch every sub-app.
-- **Dependencies** — `requirements-core.txt` runs the platform; `requirements-hardware.txt` and `requirements-ai.txt` are opt-in extras. `tests/test_install_requirements.py` fails if a new import is added without being declared, or if an exact pin creeps back in.
-
-**The one rule:** all science and data logic lives in `src/`. Each `app.py` is a thin Flask shell (routing only).
+| You want to | Read |
+|---|---|
+| Install, first run, fix an install problem | [QUICKSTART.md](QUICKSTART.md) |
+| Rehearse the closed loop without beam | [docs/SIMULATED_2D_DATA.md](docs/SIMULATED_2D_DATA.md) |
+| Run an autonomous campaign at the beamline | [docs/AUTONOMOUS_RUN_STEPS.md](docs/AUTONOMOUS_RUN_STEPS.md), then [docs/audits/PRE_BEAMTIME_READINESS.md](docs/audits/PRE_BEAMTIME_READINESS.md) |
+| Set up the reactor software and rig | [docs/REACTOR_SETUP.md](docs/REACTOR_SETUP.md), [docs/REACTOR_HARDWARE_SETUP.md](docs/REACTOR_HARDWARE_SETUP.md), [docs/PUMP_FLOW_CALIBRATION.md](docs/PUMP_FLOW_CALIBRATION.md) |
+| Bench-test the SPEC/beamline link | [tools/BEAMLINE_TESTING.md](tools/BEAMLINE_TESTING.md) |
+| Get Slack alerts | [docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md) |
+| Set up the AI token | [SECURITY.md](SECURITY.md) |
+| Plug in your own program (e.g. your own ML model) | [docs/INTEGRATING_YOUR_OWN_CODE.md](docs/INTEGRATING_YOUR_OWN_CODE.md) |
+| See what changed recently | [docs/CHANGELOG.md](docs/CHANGELOG.md) |
+| Develop on the code | [CLAUDE.md](CLAUDE.md) (developer guide), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| Work on two computers | [SYNC.md](SYNC.md) |
 
 ---
 
