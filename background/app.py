@@ -170,13 +170,13 @@ def _restore_trunc() -> None:
                     _TRUNC[k] = st[k]
             _TRUNC_NOTICE = {
                 "level": "restored",
-                "message": "The ML truncation grid was restored from your last "
+                "message": "The output q-range and rebinning was restored from your last "
                            "session. Review it before subtracting.",
                 "params": ["truncation grid"]}
         elif existed:
             _TRUNC_NOTICE = {
                 "level": "lost",
-                "message": "The saved ML truncation grid could NOT be restored (too "
+                "message": "The saved output q-range and rebinning could NOT be restored (too "
                            "old or unreadable). Every subtracted file will be written "
                            "on the DEFAULT grid (0.3 to 6.0 nm⁻¹, 549 pts, linear) — set "
                            "it before subtracting.",
@@ -232,7 +232,7 @@ def _write_dat(out_path: Path, q: np.ndarray, I: np.ndarray, sigma: np.ndarray,
         f"# Columns: {label}  I  sigma",
     ]
     if _TRUNC.get("enabled"):
-        lines.append(f"# Truncated/rebinned for ML: {_TRUNC['q_min']}–{_TRUNC['q_max']} "
+        lines.append(f"# Truncated/rebinned: {_TRUNC['q_min']}–{_TRUNC['q_max']} "
                      f"{'Å⁻¹' if _TRUNC.get('q_unit')=='A' else 'nm⁻¹'}, "
                      f"{_TRUNC['n_points']} pts ({_TRUNC['spacing']})")
     if header_extra:
