@@ -154,8 +154,8 @@ Next time, it is: `cd` into the folder, activate (`source venv/bin/activate`,
    folder (layout [below](#organizing-your-experiment-data)). Type your name in the
    **Operator** box next to it; every app records it with its results.
 2. Press **Start** on an app card, wait for the green dot, press **Open**.
-3. Press **Stop** on a card, or `Ctrl-C` in the terminal to close the hub and all
-   apps.
+3. Press **Stop** on a card, **Stop all** above the cards, or `Ctrl-C` in the
+   terminal to close the hub and all apps.
 
 Optional extras (real reactor hardware, AI assistant, Slack alerts) are listed in
 [QUICKSTART.md § Optional extras](QUICKSTART.md#optional-extras). The AI token goes
@@ -229,7 +229,7 @@ polarization) is in [CLAUDE.md](CLAUDE.md#configyml-reference) and
 | An app card shows "CRASHED" | The card shows the reason and the last log lines. Fix it, press **Start** again. |
 | Reduction error: `'i0' not found in metadata` | `metadata_format` does not match your files (`pdi` vs `csv`), or the metadata has no `i0`/`bstop` field. |
 | Transmission > 1.0 warning | Check `i0_air` / `bstop_air` and the offsets in `config.yml`. |
-| Pipeline runs but no averaged files appear | **Frames per average (N)** in Visualisation & Average is larger than the frames one acquisition delivers. The app's log says so; set N to match. |
+| Pipeline runs but no averaged files appear | **Frames per average (N)** in Visualisation & Average is larger than the frames one acquisition delivers (`spec.frames` in `reactor/config.yml`, which is also N's default). The app's log says so; set N to match. |
 | AI features say the token is not set | Put the token in `~/.claude/settings.json` (see [SECURITY.md](SECURITY.md)), be on the SLAC network or VPN, restart. |
 | The "Bus" badge in the hub stays grey | Partial install (`flask-sock` missing). Apps still work; only live events are affected. |
 
