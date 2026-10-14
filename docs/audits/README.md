@@ -20,6 +20,7 @@ new findings in the register instead.
 
 | File | Scope | When | Result |
 |---|---|---|---|
+| [`PLATFORM_QUICK_AUDIT_2026_10.md`](PLATFORM_QUICK_AUDIT_2026_10.md) | every app and the shared platform code (Q1 to Q37) | 2026-10-14 | **all open** (10 High) |
 | [`REACTOR_AUDIT.md`](REACTOR_AUDIT.md) | reactor app, `src/reactor/`, `src/beamline/` (R1 to R28) | Sept 2026 | 25 of 27 fixed, R4 accepted, **R12 open** |
 | [`AUTO_WATCH_AUDIT.md`](AUTO_WATCH_AUDIT.md) | watchdog app, `src/watchdog/` (W1 to W25) | 2026-09-11 | 14 fixed, **11 open** |
 | [`ASSISTANT_AUDIT.md`](ASSISTANT_AUDIT.md) | assistant app, `src/ai/` (A1 to A10) | Sept 2026, two passes | 6 fixed, A4 accepted, A10 by design, **A9 open** |
