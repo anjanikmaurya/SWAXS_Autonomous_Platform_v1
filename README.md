@@ -255,6 +255,54 @@ More: [QUICKSTART.md § Troubleshooting](QUICKSTART.md#troubleshooting).
 
 ---
 
+## For developers
+
+**The one rule:** all science and data logic lives in `src/`. Each `app.py` is a
+thin Flask shell: it puts the project root on `sys.path`, imports from `src/`,
+and defines routes. Each app also has `templates/index.html` (its page) and
+`knowledge.md` (read by the AI assistant).
+
+### How the apps talk to each other
+
+- **Folders of files.** Each stage writes into the project tree (`1D/SAXS/Reduction/`,
+  `Averaged/`, `Subtracted/`, `Conditions/` …) and the next stage polls it. This is
+  the handoff, so any program in any language can join in.
+- **Manifest** (`manifest.db`, exported to `manifest.json`): the shared record of every
+  file and analysis. Each app writes only its own section (`manifest_key` in
+  `apps.yml`), through `src/manifest.py`.
+- **Event bus** (`ws://localhost:5100/ws`, run by the hub): apps announce what they
+  finished (`file.reduced`, `fit.complete` …) with the `emit_*` helpers in
+  `src/events.py`. The watchdog and the assistant listen; the hub shows it live.
+
+### Adding something new
+
+| You want to add | Where it goes | Steps |
+|---|---|---|
+| **Your own program** (e.g. your own ML model in place of the Autonomous Analyser) | Outside this repo, any language | Read new profiles from `1D/SAXS/Subtracted/Good/`, write the next condition file into `1D/SAXS/Conditions/`, leave app 5107 stopped. Format, a 30-line skeleton and the safety notes: [docs/INTEGRATING_YOUR_OWN_CODE.md](docs/INTEGRATING_YOUR_OWN_CODE.md). |
+| **A new app** with its own hub card | `myapp/` + `src/myapp/` | 1. Copy the `sys.path` block from any `app.py`, add routes. 2. Add `templates/index.html` and `knowledge.md`. 3. Put the logic in `src/`. 4. Register it in `apps.yml` (`id`, `name`, `port`, `entry`, optional `manifest_key`, `icon_id`, `accent`, `knowledge`). 5. Add the port to both launcher banners. No hub code change: `POST /api/apps/reload` re-reads `apps.yml`. |
+| **A fitting method** for the Autonomous Analyser | a new module in `src/fitting/` | An object with `id`, `label`, `ready` and `fit(q, I, sigma=None, **opts)` returning the standard result dict (see `ls_sphere.py`). Call `register(...)` and import it at the bottom of `src/fitting/__init__.py`; it then appears in the Analyser's method menu. |
+| **An optimiser strategy** | a new module in `src/optimizer/methods/` | Subclass `CampaignController` and override `_suggest_bo()` (see `random.py`), keeping its `ask`/`tell` bookkeeping, then `register("my_id", factory, "Label")` and import it in `methods/__init__.py`. Add it to `GOAL_METHODS` for the goals it suits. |
+| **A tool for the AI assistant** (Guinier) | `src/ai/assistant.py` | Add a schema to `_TOOLS` (name, description, `input_schema`), a `_tool_<name>` method, and a branch in `_run_tool`. Domain notes go in `ai_knowledge/` or the app's `knowledge.md`. |
+| **A new instrument** (robot, well plate, UV-vis) | `src/synthesis/` | Implement the `Instrument` contract (`describe`, `connect`, `safe_state`, `estop` …) and `register()` it in `src/synthesis/registry.py`; `toy.py` is a worked example. Phase 0 only: the reactor does not use this contract yet. Plan: [docs/design/SYNTHESIS_PLATFORM_PLAN.md](docs/design/SYNTHESIS_PLATFORM_PLAN.md). |
+| **A notification** | `src/watchdog/messages.py` | Emit a bus event; map it to a category in `src/watchdog/policy.py`. Only the watchdog sends Slack messages. See [docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md). |
+| **A UI icon** | `assets/icons/swaxs-icons-svg/` | Drop in the SVG, run `python tools/build_icon_sprite.py`, use `<svg class="ico"><use href="#swaxs-…"/></svg>`. For README/QUICKSTART run `python tools/build_doc_icons.py`. |
+
+### Before you commit
+
+- Run `python -m pytest` from the activated environment (no hardware or network
+  needed). Reactor changes must keep `tests/test_reactor_golden_run.py` passing.
+- New imports go in `requirements-core.txt` (or the `-hardware` / `-ai` extras);
+  `tests/test_install_requirements.py` checks this.
+- Add a line to [docs/CHANGELOG.md](docs/CHANGELOG.md); known problems go in
+  [docs/audits/OPEN_DEFECTS.md](docs/audits/OPEN_DEFECTS.md).
+- Never commit secrets: the AI token lives in `~/.claude/settings.json`, the Slack
+  webhook in `.env` ([SECURITY.md](SECURITY.md)).
+
+Full developer guide (module map, `config.yml` reference, imports per app):
+[CLAUDE.md](CLAUDE.md). System design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+---
+
 ## For reviewers
 
 The state of the code, and what is known to be unfinished:
