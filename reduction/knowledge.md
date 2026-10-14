@@ -66,7 +66,12 @@ edits apply without saving (save them to keep them).
 - **Watch for new files** (toggle) **every N seconds** (default 10): starts a
   *new run*. At the first poll everything already in the folder is treated as
   done (see below), and only new frames are reduced. A frame is reduced once its
-  file has been unchanged for 2 s.
+  file has been unchanged for 2 s. A frame counts as already reduced only when
+  its OWN detector folder holds exactly `{stem}_SAXS.dat` (or `_WAXS.dat`),
+  newer than the frame; a WAXS `.dat` never marks the SAXS frame done.
+  Start is refused (409) while a Run now is in progress, and also when the
+  previous watcher is still finishing its current frame after Stop (try again
+  a few seconds later); two watchers never run side by side.
 - **Reprocess existing frames** (checkbox, ticked before starting the watcher):
   reduces every frame in the folder again, oldest first, overwriting existing
   output; new frames queue behind it, so do not use it during a beamtime. It is
@@ -99,7 +104,9 @@ its own).
 ### 1. Metadata
 - **CSV mode** (`metadata_format: csv`): the CSV lives in the folder one level
   above `SAXS/`/`WAXS/` (i.e. in `2D/`). The CSV whose filename stem appears in
-  the raw name (with its `_NNNN` index removed) is used; the longest match wins.
+  the raw name (with its `_NNNN` index removed) as whole `_`-separated words is
+  used; the longest match wins. `run_scan1.csv` matches `run_scan1_0003.raw` and
+  `sone_run_scan1_0003.raw`, but never `run_scan10_0003.raw`.
   The row read is the frame index from the filename (`run_0009.raw` → row 9;
   4 or more digits).
 - **PDI mode** (`metadata_format: pdi`): reads `<frame>.raw.pdi`. If a WAXS PDI
@@ -266,13 +273,15 @@ unrelated to the scalar `i0_offset`/`bstop_offset` diode corrections.
 | Very low transmission (< 0.02) | Sample too thick, beam off-centre, or sample dried on the window. |
 | Negative I at high q | Not expected here: reduction does no background subtraction. Negative values appear after subtraction of noisy data; cut q_max before analysis. |
 | Hot pixels or streaks | Check the mask `.edf` covers bad pixels and the beamstop; set `dummy` if the detector flags dead pixels with a value. |
-| "No CSV matching ..." | CSV mode: no CSV in `2D/` whose name is contained in the raw name. During a watch this waits while the acquisition is still producing frames. Check `metadata_format`. |
+| "No CSV matching ..." | CSV mode: no CSV in `2D/` whose name appears in the raw name as whole `_`-separated words. During a watch this waits while the acquisition is still producing frames. Check `metadata_format`. |
 | "'i0' (or 'bstop') not found in metadata" | Wrong `metadata_format`, or the CSV/PDI lacks an I0/Bstop column. |
 | "Could not parse frame index" | The raw name has no `_NNNN.` index (4+ digits), needed to pick the CSV row. |
 | "I0_corrected ≤ 0" / "Bstop_corrected ≤ 0" | The offset is larger than the reading; the frame is skipped. Offsets should be the shutter-closed reading. |
 | "integrates to no signal" | Blank frame (zero exposure, shutter closed, or a mask covering everything); skipped. |
 | "failed 3×, skipping until restart or Retry failed" | Fix the cause, then **↻ Retry failed**. |
-| Run now refused: "The file monitor is running" | Only one of Run now / Watch can run; the watcher is already reducing new files. |
+| Run now refused: "The file monitor is running" | Only one of Run now / Watch can run; the watcher is already reducing new files (or is still stopping). |
+| Watch refused: "A one-shot run (Run now) is in progress" | Only one of Run now / Watch can run. Wait for the run to finish, or Stop it, then start the watcher. |
+| Watch refused: "The previous monitor is still finishing" | Stop was pressed and the old watcher is still on its current frame. Press Start again in a few seconds. |
 | Restart re-reduced old frames, or did not | Run now redoes frames not seen this session; use Watch (which skips existing output) unless you want a full redo. |
 | KeyError `npt_radial` / `error_model` | Both are required in `config.yml`. |
 
@@ -286,7 +295,7 @@ unrelated to the scalar `i0_offset`/`bstop_offset` diode corrections.
 | `GET /api/browse?path=` | Folder browser |
 | `POST /api/run` | One-shot run with the config in the body (409 if the watcher runs) |
 | `POST /api/run/stop` | Stop the one-shot run after the current frame |
-| `POST /api/monitor/start` | `{config, interval, reprocess_existing}` start the watcher |
+| `POST /api/monitor/start` | `{config, interval, reprocess_existing}` start the watcher (409 while Run now is active or the previous watcher is still stopping) |
 | `POST /api/monitor/stop` | Stop the watcher |
 | `GET /api/monitor/status` | `{monitoring}` |
 | `POST /api/retry-failed` | Clear failure counts (old name `/api/reset` still works) |

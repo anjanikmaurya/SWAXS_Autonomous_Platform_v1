@@ -102,16 +102,23 @@ counted as flagged.
 
 On start, files whose `_sub.dat` already exists, or that are older than the
 crash-gap window, are treated as done, so a new run does not redo the
-back-catalogue. Progress is saved in `.swaxs_state/` and a restart resumes.
+back-catalogue. Progress is saved in `.swaxs_state/`. After an app restart the
+monitor resumes on its own only when the platform was started with
+`SWAXS_RESUME=1` (and `SWAXS_NO_RESUME` is not set); otherwise press Start
+again. Stop then Start waits for the previous run to finish its current file,
+so two loops never run at once.
 
 ## 4. Settings, defaults and the maths
 
 ### Output q-range & rebinning
-On by default, shared by all modes (`truncate_rebin` in
+Set per detector, shared by all modes (`truncate_rebin` in
 `src/background/core.py`). Each subtracted curve is trimmed to `[q min, q max]`
-and resampled onto a fixed number of points before it is written.
+and resampled onto a fixed number of points before it is written. SAXS is on by
+default; WAXS has its own setting and is OFF by default (the SAXS window would
+cut most of a WAXS curve away). Pick the detector in the panel to edit its
+setting; `/api/truncation?detector=waxs` reads it, and POST takes `detector`.
 
-| Setting | Default |
+| Setting | Default (SAXS) |
 |---|---|
 | q min / q max | 0.3 to 6.0 nm⁻¹ |
 | Number of points | 549 |
@@ -136,7 +143,9 @@ c = Σ w·I_sample·I_bkg / Σ w·I_bkg²,    w = 1/σ_sample²
 Then one robust refit after a 3σ MAD clip of the residuals
 (`σ_MAD = 1.4826 · median|r − median(r)|`, applied if ≥ 3 points survive), so
 WAXS Bragg peaks or outliers cannot bias c. c is clamped to **[0.1, 5]**; fewer
-than 3 usable points gives c = 1.0.
+than 3 usable points gives c = 1.0 and a `warning` in the result, which the
+app writes to the log and reports as `scale_warnings`. The window q-min/q-max
+fields are in nm⁻¹.
 
 ### Scale, Auto-Subtract: driven to zero high-q residual (`_auto_adjust_scale`)
 1. `s0` = the weighted-LS scale above.

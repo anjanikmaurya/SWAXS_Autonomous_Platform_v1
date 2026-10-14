@@ -37,8 +37,9 @@ if str(_ROOT) not in sys.path:
 from src.favicon import register_favicon               # noqa: E402
 from src.plot_reduction import (                                       # noqa: E402
     read_folder, average_and_save, average_batch, diagnose_unusable,
-    list_folder_index,
+    list_folder_index, detector_tagged, acquisition_order_key,
 )
+from src.backlog import partition_backlog                              # noqa: E402
 from src.utils.read_dat_metadata import read_dat_data_metadata         # noqa: E402
 from src.loop_naming import condition_keyword                          # noqa: E402
 from src.manifest import (                                             # noqa: E402
@@ -186,7 +187,32 @@ def _load_batch_state() -> None:
         _avg_emit(f"⚠ could not load the batch state: {exc}", "warn")
 
 
-def _seed_batch_state_from_disk(dets, n_per_batch: int) -> None:
+def _out_dir_for(folder, outdir) -> Path:
+    """Where one detector's averages go: the explicit folder, or the sibling
+    ``Averaged/`` of its Reduction folder (the loop's long-standing default)."""
+    return Path(outdir) if outdir else Path(folder).parent / "Averaged"
+
+
+def _detector_tags(dets) -> dict:
+    """det -> "SAXS"/"WAXS" for every detector whose output folder is shared
+    with another detector, else det -> None (Q12).
+
+    With one folder for both (the UI sends the same "Output folder" to both),
+    the SAXS and WAXS averages had identical names and the second overwrote
+    the first. Only the colliding case gets the ``_{DET}`` tag, so the default
+    layout (1D/SAXS/Averaged, 1D/WAXS/Averaged) keeps its names exactly."""
+    def _key(det_folder_out):
+        _det, folder, outdir = det_folder_out
+        try:
+            return str(_out_dir_for(folder, outdir).resolve())
+        except Exception:
+            return str(_out_dir_for(folder, outdir))
+    keys = [_key(d) for d in dets]
+    return {d[0]: (d[0].upper() if keys.count(k) > 1 else None)
+            for d, k in zip(dets, keys)}
+
+
+def _seed_batch_state_from_disk(dets, n_per_batch: int, *, now=None) -> None:
     """Reconstruct the batch state from the Averaged files already on disk.
 
     What a FRESH operator start used to do instead was `_avg_batch_state = {}`,
@@ -199,32 +225,46 @@ def _seed_batch_state_from_disk(dets, n_per_batch: int) -> None:
     group: not just slow, lossy.
 
     Rebuilt from the only durable record there is, the output filenames
-    (`{kw}_batch{NNN}_{N}files_{label}.dat`):
+    (`{kw}_batch{NNN}_{N}files_{label}.dat`, plus `_{DET}` when both detectors
+    share the output folder):
 
       • `n` = how many batches that group already has, so numbering continues
         at the next one instead of overwriting
       • the first `n * n_per_batch` frames of the group, in acquisition order,
         are the ones those batches consumed — marked consumed
 
-    Only batches of the CURRENT `n_per_batch` count: a group averaged at a
-    different batch size is not a statement about how many frames this run's
-    batches will consume, so it is left alone rather than guessed at.
+    Only batches of the CURRENT `n_per_batch` count are read that way: a group
+    averaged at a different batch size is not a statement about how many
+    frames this run's batches will consume.
+
+    Q13: every frame NOT accounted for by such a batch then goes through the
+    shared fresh-start rule (src/backlog.partition_backlog), as in Reduction
+    and Background: older than the crash-gap window = history, marked consumed
+    (batch numbering untouched); recent = left for the loop. Before this, a
+    fresh start with a different N re-averaged the whole back-catalogue.
     """
     total_seeded = 0
+    total_history = 0
+    tags = _detector_tags(dets)
+    now = time.time() if now is None else now
     for det, folder, outdir in dets:
         fp = Path(folder)
-        out_dir = Path(outdir) if outdir else fp.parent / "Averaged"
-        if not (fp.is_dir() and out_dir.is_dir()):
+        out_dir = _out_dir_for(folder, outdir)
+        if not fp.is_dir():
             continue
+        tag = tags.get(det)
         # How many batches each group already has on disk.
         batches: dict = {}
-        for p in out_dir.glob(f"*_batch*_{n_per_batch}files_*.dat"):
-            m = re.match(rf"(?P<kw>.+)_batch(?P<no>\d+)_{n_per_batch}files_", p.name)
-            if m:
-                kw = m.group("kw")
-                batches[kw] = max(batches.get(kw, 0), int(m.group("no")))
-        if not batches:
-            continue
+        if out_dir.is_dir():
+            for p in out_dir.glob(f"*_batch*_{n_per_batch}files_*.dat"):
+                # In a shared folder only THIS detector's tagged files count.
+                if tag and not p.name.upper().endswith(f"_{tag}.DAT"):
+                    continue
+                m = re.match(rf"(?P<kw>.+)_batch(?P<no>\d+)_{n_per_batch}files_",
+                             p.name)
+                if m:
+                    kw = m.group("kw")
+                    batches[kw] = max(batches.get(kw, 0), int(m.group("no")))
         # Which frames those batches consumed, in acquisition order.
         #
         # list_folder_index, not read_folder: this only needs each file's
@@ -245,17 +285,41 @@ def _seed_batch_state_from_disk(dets, n_per_batch: int) -> None:
             gk = condition_keyword(fd["filename"]) or fd["keyword"]
             groups.setdefault(gk, []).append(fd)
         for kw, n_batches in batches.items():
-            grp = sorted(groups.get(kw, []), key=lambda d: d.get("scan_idx", 0))
+            grp = sorted(groups.get(kw, []), key=acquisition_order_key)
             consumed = [fd["filename"] for fd in grp[: n_batches * n_per_batch]]
             rec = _batch_rec((det, kw))
             rec["files"].update(consumed)
             rec["n"] = max(rec["n"], n_batches)
             total_seeded += len(consumed)
+        # Q13: the rest of the folder, by the shared backlog rule.
+        for kw, grp in groups.items():
+            rec = _avg_batch_state.get((det, kw))
+            seen = rec["files"] if rec else set()
+            cands = []
+            for fd in grp:
+                if fd["filename"] in seen:
+                    continue
+                try:
+                    mt = (fp / fd["filename"]).stat().st_mtime
+                except OSError:
+                    mt = now                    # unknown age: leave it alone
+                cands.append((fd["filename"], mt))
+            if not cands:
+                continue
+            history, _recent = partition_backlog(
+                cands, has_output=lambda _f: False, now=now)
+            if history:
+                _batch_rec((det, kw))["files"].update(history)
+                total_history += len(history)
     if total_seeded:
         _avg_emit(f"↪ {total_seeded} frame(s) in "
                   f"{len(_avg_batch_state)} group(s) were already averaged — "
                   f"skipping them and continuing the batch numbering "
                   f"(a new run, not a re-run of the folder)", "ok")
+    if total_history:
+        _avg_emit(f"↪ {total_history} older frame(s) with no batch at this size "
+                  f"are history, skipping them (a new run, not a re-run of the "
+                  f"folder)", "ok")
     _save_batch_state()
 
 
@@ -680,6 +744,14 @@ def api_average():
     # Manifest mutations are collected and applied atomically (locked) at the end.
     pending = []
 
+    # Q12: one output folder for both detectors gave both averages the same
+    # name, so WAXS overwrote SAXS. Tag the names only in that case.
+    _man = [(d, (r or "").strip(), output_dir)
+            for d, r in (("saxs", body.get("saxs_folder", "")),
+                         ("waxs", body.get("waxs_folder", "")))
+            if (r or "").strip()]
+    tags = _detector_tags(_man)
+
     for det, raw in [("saxs", body.get("saxs_folder", "")),
                      ("waxs", body.get("waxs_folder", ""))]:
         # A blank field means "this detector is not in use" — skip it. The old
@@ -696,7 +768,8 @@ def api_average():
             saved = average_and_save(str(folder), keywords,
                                      output_dir=output_dir,
                                      i0_filter_pct=i0_filter_pct,
-                                     q_min=q_min, q_max=q_max)
+                                     q_min=q_min, q_max=q_max,
+                                     detector_tag=tags.get(det))
             for kw, out_path in saved:
                 response["saved"].append(str(out_path))
                 _, q, I, sigma, _ = read_dat_data_metadata(out_path)
@@ -791,6 +864,7 @@ def _avg_monitor_loop(dets, n_per_batch, interval, i0_filter_pct,
     _avg_emit(f"▶  Auto-averaging started — {n_per_batch} frames/batch, "
               f"every {interval}s", "ok")
 
+    tags = _detector_tags(dets)          # Q12: tag names only when folders collide
     while _avg_monitoring:
         pending: list[dict] = []
         for det, folder, outdir in dets:
@@ -815,7 +889,7 @@ def _avg_monitor_loop(dets, n_per_batch, interval, i0_filter_pct,
                 groups.setdefault(gk, []).append(fd)
 
             for kw, grp in groups.items():
-                grp.sort(key=lambda d: d.get("scan_idx", 0))
+                grp.sort(key=acquisition_order_key)      # Q29: scan, then index
                 key = (det, kw)
                 # N4: what is LEFT is defined by identity, not by an index into
                 # a list that a failed read can shorten.
@@ -847,15 +921,16 @@ def _avg_monitor_loop(dets, n_per_batch, interval, i0_filter_pct,
                 while _avg_monitoring and len(todo) >= n_per_batch:
                     batch    = todo[:n_per_batch]
                     batch_no = _batch_number(key)
-                    out_dir  = Path(outdir) if outdir else fp.parent / "Averaged"
-                    out_path = (out_dir /
-                                f"{kw}_batch{batch_no:03d}_{n_per_batch}files_"
-                                f"{label_suffix}.dat")
+                    out_dir  = _out_dir_for(fp, outdir)
+                    out_path = out_dir / detector_tagged(
+                        f"{kw}_batch{batch_no:03d}_{n_per_batch}files_"
+                        f"{label_suffix}.dat", tags.get(det))
                     try:
-                        written = average_batch(
+                        written, n_used = average_batch(
                             batch, kw, out_path,
                             i0_filter_pct=i0_filter_pct, n_pts=n_pts,
                             q_min=q_min, q_max=q_max,
+                            return_n_used=True,
                         )
                     except Exception as exc:
                         _avg_emit(f"✗  {kw} [{det}] batch {batch_no}: {exc}", "error")
@@ -898,13 +973,17 @@ def _avg_monitor_loop(dets, n_per_batch, interval, i0_filter_pct,
 
                     _avg_status["batches"] += 1
                     _avg_status["last"] = written.name
-                    _avg_emit(f"✓  {written.name}  ({n_per_batch} frames)", "ok")
+                    # Q27: the frames that CONTRIBUTED, not the batch size: I0 or
+                    # validity rejection can leave fewer.
+                    _used = (f"{n_used} frames" if n_used == n_per_batch else
+                             f"{n_used} of {n_per_batch} frames used")
+                    _avg_emit(f"✓  {written.name}  ({_used})", "ok")
 
                     if _bus is not None:
                         try:
                             _bus.emit_file_averaged(
                                 str(written), keyword=kw,
-                                n_files=n_per_batch, detector=det,
+                                n_files=int(n_used), detector=det,
                             )
                         except Exception:
                             pass
@@ -917,6 +996,7 @@ def _avg_monitor_loop(dets, n_per_batch, interval, i0_filter_pct,
                                 config={"keyword": kw, "detector": det,
                                         "auto_average": True,
                                         "frames_per_average": n_per_batch,
+                                        "frames_used": int(n_used),
                                         "batch": batch_no,
                                         "i0_filter_pct": i0_filter_pct},
                             )

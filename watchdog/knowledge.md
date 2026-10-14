@@ -13,7 +13,10 @@ Slack Workflow Builder webhook. Setup and the full event table are in
 **Reads**
 - Every event on the hub bus (`ws://localhost:5100/ws`). On start, and when the
   project changes, it also recovers the recent event window from the manifest,
-  so a stall that began before a restart is still seen.
+  so a stall that began before a restart is still seen. If it loses the bus
+  for more than 60 s it sends one fault ("Auto Watch lost the event bus") and
+  an info message when it reconnects; `bus_connected` is in `/api/health` and
+  `/api/settings`.
 - Status probes of the loop apps: reduction (5102), average (5103), background
   (5104), quality (5105), analyzer (5107), reactor (5108).
 - The project folder (file counts and dashboard metrics).
@@ -38,7 +41,9 @@ nothing else in the platform is affected.
    category filter, so success only proves the webhook works.
 3. Open Autonomous Watch from the hub. The sidebar has three views:
    - **The loop**: the dashboard (below).
-   - **Messages**: the most recent messages it decided to send.
+   - **Messages**: the most recent messages it decided to send, each with its
+     delivery status: `not configured` (no webhook), `queued`, `sent`,
+     `failed` or `dropped`.
    - **Alerts**: the Slack controls.
 4. On **Alerts**, set **Sending** on (the master button), choose **Quiet hours**
    (type `23:00-07:00`, click **Set**; **Turn off** clears them), and tick the
@@ -151,7 +156,7 @@ published workflow.
 | Method | Route | Purpose |
 |---|---|---|
 | GET | `/` | UI |
-| GET | `/api/health` | Always `{"status": "ok"}` |
+| GET | `/api/health` | `{"status": "ok", "bus_connected": true/false}` |
 | GET | `/api/project` | Project folder in use |
 | POST | `/api/set_project` | `{path}` set the project, reload settings, clear snooze |
 | GET | `/api/metrics` | One dashboard snapshot (`loop`, `health`, `probe`, throughput, stage durations, file counts, run outcomes) |

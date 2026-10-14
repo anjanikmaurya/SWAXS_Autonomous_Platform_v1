@@ -479,8 +479,8 @@ input:focus, select:focus {
               </div>
               <div id="autoWindow" style="margin-top:10px;display:none">
                 <div class="row">
-                  <div class="field"><label>High-q window q-min</label><input type="number" id="auto-qmin" step="0.01" placeholder="auto (top 25%)"></div>
-                  <div class="field"><label>q-max</label><input type="number" id="auto-qmax" step="0.01" placeholder="auto (max q)"></div>
+                  <div class="field"><label>High-q window q-min (nm⁻¹)</label><input type="number" id="auto-qmin" step="0.01" placeholder="auto (top 25%)"></div>
+                  <div class="field"><label>q-max (nm⁻¹)</label><input type="number" id="auto-qmax" step="0.01" placeholder="auto (max q)"></div>
                 </div>
               </div>
               <div class="hint" id="methHint">I<sub>sub</sub> = I<sub>sample</sub> − <b>scale</b> × I<sub>background</sub></div>
@@ -492,6 +492,8 @@ input:focus, select:focus {
                 <input type="checkbox" id="tr-enabled" onchange="pushTrunc()">
                 Trim and rebin every subtracted file to this q-range
               </label>
+              <div class="field" style="max-width:380px;margin-top:8px"><label>Detector (each has its own setting; WAXS is off by default)</label>
+                <select id="tr-det" onchange="selTruncDet(this.value)"><option value="saxs">SAXS</option><option value="waxs">WAXS</option></select></div>
               <div class="tr-fields" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 28px;margin-top:8px;max-width:820px">
                 <div class="field"><label>q min</label><input type="number" id="tr-qmin" step="0.001" min="0" onchange="pushTrunc()"></div>
                 <div class="field"><label>q max</label><input type="number" id="tr-qmax" step="0.001" min="0" onchange="pushTrunc()"></div>
@@ -501,7 +503,7 @@ input:focus, select:focus {
                 <div class="field"><label>q unit</label>
                   <select id="tr-unit" onchange="pushTrunc()"><option value="nm">nm⁻¹</option><option value="A">Å⁻¹</option></select></div>
               </div>
-              <div class="hint" id="tr-hint">Each subtracted curve is trimmed to this q-range and resampled onto this many points; the .dat is overwritten with it. Default 0.3 to 6.0 nm⁻¹, 549 points, linear; pick Å⁻¹ to write Å⁻¹.</div>
+              <div class="hint" id="tr-hint">Each subtracted curve is trimmed to this q-range and resampled onto this many points; the .dat is overwritten with it. SAXS default 0.3 to 6.0 nm⁻¹, 549 points, linear; WAXS is not trimmed unless you turn it on. Pick Å⁻¹ to write Å⁻¹.</div>
             </div>
 
             <div class="actions">
@@ -581,6 +583,8 @@ input:focus, select:focus {
                 <input type="checkbox" id="atr-enabled" onchange="pushTrunc('a')">
                 Trim and rebin every subtracted file to this q-range
               </label>
+              <div class="field" style="max-width:380px;margin-top:8px"><label>Detector (each has its own setting; WAXS is off by default)</label>
+                <select id="atr-det" onchange="selTruncDet(this.value)"><option value="saxs">SAXS</option><option value="waxs">WAXS</option></select></div>
               <div class="tr-fields" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 28px;margin-top:8px;max-width:820px">
                 <div class="field"><label>q min</label><input type="number" id="atr-qmin" step="0.001" min="0" onchange="pushTrunc('a')"></div>
                 <div class="field"><label>q max</label><input type="number" id="atr-qmax" step="0.001" min="0" onchange="pushTrunc('a')"></div>
@@ -590,7 +594,7 @@ input:focus, select:focus {
                 <div class="field"><label>q unit</label>
                   <select id="atr-unit" onchange="pushTrunc('a')"><option value="nm">nm⁻¹</option><option value="A">Å⁻¹</option></select></div>
               </div>
-              <div class="hint" style="margin:4px 0 0">Same setting as the manual modes; applies to every auto-subtracted file. Default 0.3 to 6.0 nm⁻¹, 549 points, linear.</div>
+              <div class="hint" style="margin:4px 0 0">Same setting as the manual modes, kept per detector. SAXS default 0.3 to 6.0 nm⁻¹, 549 points, linear; WAXS off by default.</div>
             </div>
 
             <!-- Wrapped in a panel titled "▶ Monitor", matching the same
@@ -961,7 +965,7 @@ async function doPreview(sample_file,bkg_file){
     renderQC(det,d.qc,d.scale_used);
     syncResultScale(det,d.scale_used);
     showPage(det);   // show the plot on the BG-Sub SAXS/WAXS tab
-    const win=d.window?` · window q∈[${d.window.q_min.toFixed(3)}, ${d.window.q_max.toFixed(3)}]`:'';
+    const win=d.window?` · window q∈[${d.window.q_min.toFixed(3)}, ${d.window.q_max.toFixed(3)}] nm⁻¹${d.window.warning?' · '+d.window.warning:''}`:'';
     setStatus(`Preview ${sample_file.split(/[\\/]/).pop()}: scale=${d.scale_used} (${d.method})${win}`,'ok');
   }catch(e){setStatus('Preview error: '+e,'err');}
 }
@@ -1002,7 +1006,7 @@ async function run(){
     const d=await post(endpoint,body);
     if(d.error){setStatus(d.error,'err');return;}
     renderBatchResults(det,d);
-    const ne=(d.errors||[]).length;setStatus(`Done: ${d.saved.length} saved${ne?` (${ne} errors)`:''}${d.warning?' · '+d.warning:''}`,ne?'err':'ok');
+    const ne=(d.errors||[]).length;setStatus(`Done: ${d.saved.length} saved${ne?` (${ne} errors)`:''}${d.warning?' · '+d.warning:''}${(d.scale_warnings||[]).length?' · '+d.scale_warnings.length+' auto scale fallback(s) to 1.0, see log':''}`,ne?'err':'ok');
     showPage(det);
   }catch(e){setStatus('Error: '+e,'err');}finally{document.getElementById('btnRun').disabled=false;}
 }
@@ -1191,20 +1195,25 @@ async function post(url,body){return (await fetch(url,{method:'POST',headers:{'C
 /* ===== Output q-range & rebinning (shared by manual + automated tabs) ===== */
 function _tSet(id,v){const e=document.getElementById(id); if(!e)return; if(e.type==='checkbox')e.checked=!!v; else e.value=v;}
 function _tGet(id){const e=document.getElementById(id); return e?(e.type==='checkbox'?e.checked:e.value):'';}
+let _truncDet='saxs';   // which detector's setting the panels show (Q8)
 function _applyTrunc(t){
   if(!t)return;
+  if(t.detector) _truncDet=t.detector;
   for(const p of ['tr-','atr-']){
+    _tSet(p+'det',_truncDet);
     _tSet(p+'enabled',t.enabled); _tSet(p+'qmin',t.q_min); _tSet(p+'qmax',t.q_max);
     _tSet(p+'npts',t.n_points);   _tSet(p+'spacing',t.spacing); _tSet(p+'unit',t.q_unit);
   }
 }
 async function initTrunc(){
-  try{ _applyTrunc(await (await fetch('/api/truncation')).json()); }catch(_){}
+  try{ _applyTrunc(await (await fetch('/api/truncation?detector='+_truncDet)).json()); }catch(_){}
 }
+function selTruncDet(d){ _truncDet=(d==='waxs')?'waxs':'saxs'; initTrunc(); }
 async function pushTrunc(which){
   const p = (which==='a') ? 'atr-' : 'tr-';   // read from whichever panel changed
   const body={ enabled:_tGet(p+'enabled'), q_min:_tGet(p+'qmin'), q_max:_tGet(p+'qmax'),
-    n_points:_tGet(p+'npts'), spacing:_tGet(p+'spacing'), q_unit:_tGet(p+'unit') };
+    n_points:_tGet(p+'npts'), spacing:_tGet(p+'spacing'), q_unit:_tGet(p+'unit'),
+    detector:_truncDet };
   try{ _applyTrunc(await post('/api/truncation',body)); }catch(_){}   // sync both panels
 }
 

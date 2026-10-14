@@ -66,7 +66,7 @@ if errorlevel 1 (
 
 if not "%~1"=="" (
   set SWAXS_PROJECT=%~1
-  echo   Project: %SWAXS_PROJECT%
+  echo   Project: !SWAXS_PROJECT!
 ) else (
   echo   Project: pick it in the hub UI ^(top-right^)
 )
@@ -79,10 +79,10 @@ echo   ^|   SWAXS Platform Hub                                 ^|
 echo   ^|   -^> http://localhost:%SWAXS_HUB_PORT%                            ^|
 echo   ^|                                                      ^|
 echo   ^|   Apps are started from the hub web page:             ^|
-echo   ^|     5101 Calibration  5102 Reduction  5103 Vis & Avg ^|
+echo   ^|     5101 Calibration  5102 Reduction  5103 Vis ^& Avg ^|
 echo   ^|     5104 Background   5105 Quality    5106 Analysis  ^|
-echo   ^|     5107 Auto-Fit     5108 Reactor    5109 Guinier   ^|
-echo   ^|     5110 Autonomous Watch                            ^|
+echo   ^|     5107 Autonomous Analyser   5108 Reactor          ^|
+echo   ^|     5109 Guinier      5110 Autonomous Watch          ^|
 echo   ^|                                                      ^|
 echo   ^|   Press Ctrl-C to stop the hub AND its apps           ^|
 echo   +======================================================+

@@ -224,6 +224,14 @@ _monitor_thread       = None
 # set, each seeing files the other hasn't marked yet and reducing (and
 # emitting file.reduced for) the same .raw file twice.
 _monitor_start_lock   = threading.Lock()
+# Q5: a per-run stop event. Stop used to clear only the shared _monitoring flag,
+# so a Start within one poll interval set it again before the old thread woke,
+# and the old loop carried on (old settings) beside the new one. Each loop now
+# owns its own Event; Stop sets it (also waking the sleep) and a new Start
+# never reuses it.
+_monitor_stop_event   = threading.Event()
+#: How long Start waits for a stopping loop to finish its current file.
+_MONITOR_JOIN_S       = 5.0
 
 # ── N1: the processed set must survive a restart ─────────────────────────────
 # It used to be memory-only, and find_new_raw_files() filters on nothing else,
@@ -368,7 +376,18 @@ def _publish_permanent_skip(raw: Path, detector: str, keyword: str) -> None:
         pass
 
 
-def _already_reduced(raw_path, out_root, prefixes=()) -> bool:
+def _raw_detector(raw_path) -> str | None:
+    """"SAXS" / "WAXS" for a .raw, from its folder, the same way
+    ``reduction_core.find_new_raw_files`` classifies it (``**/SAXS/**`` vs
+    ``**/WAXS/**``). The innermost matching folder wins. None when the path
+    names neither."""
+    for part in reversed(Path(raw_path).parent.parts):
+        if part.upper() in ("SAXS", "WAXS"):
+            return part.upper()
+    return None
+
+
+def _already_reduced(raw_path, out_root, prefixes=(), detector=None) -> bool:
     """True when this .raw already has a NEWER .dat on disk.
 
     The second defence, and the one that works with no saved state at all — it
@@ -384,6 +403,14 @@ def _already_reduced(raw_path, out_root, prefixes=()) -> bool:
     ``{stem-with-prefix}*.dat`` — it matched nothing, the check always returned
     False, and the only defence against reprocessing the folder was silently
     inoperative on exactly the setups that configure a prefix.
+
+    Q3 (Oct 2026): only THIS raw's detector folder is consulted, and only the
+    exact output name ``{stem}_{DET}.dat`` counts. It used to glob
+    ``{stem}*.dat`` in both SAXS/ and WAXS/Reduction, so with prefixes stripped
+    (both detectors then share a stem) whichever detector finished first marked
+    the other's frame as done, and that frame was never reduced. A ``{stem}*``
+    glob also let ``scan1_0001`` match ``scan1_00010_SAXS.dat``.
+    ``detector`` overrides the folder-derived one (``_raw_detector``).
     """
     try:
         raw = Path(raw_path)
@@ -398,15 +425,17 @@ def _already_reduced(raw_path, out_root, prefixes=()) -> bool:
         for p in prefixes:
             if p and stem.startswith(p):
                 stems.add(stem[len(p):])
+        det = (detector or "").upper() or _raw_detector(raw)
+        dets = (det,) if det in ("SAXS", "WAXS") else ("SAXS", "WAXS")
         raw_mtime = raw.stat().st_mtime
-        for det in ("SAXS", "WAXS"):
+        for det in dets:
             d = Path(out_root) / det / "Reduction"
             if not d.is_dir():
                 continue
             for s in stems:
-                for cand in d.glob(f"{s}*.dat"):
-                    if cand.stat().st_mtime >= raw_mtime:
-                        return True
+                cand = d / f"{s}_{det}.dat"
+                if cand.is_file() and cand.stat().st_mtime >= raw_mtime:
+                    return True
         return False
     except Exception:
         return False        # never let the check itself skip a frame
@@ -444,15 +473,19 @@ def _seed_processed_from_disk(config, out_root, *, now=None) -> str:
         return ""
 
     candidates = []
-    for f in list(saxs_all) + list(waxs_all):
-        try:
-            candidates.append((f, Path(f).stat().st_mtime))
-        except OSError:
-            candidates.append((f, 0.0))
+    det_of = {}
+    for det, files in (("SAXS", saxs_all), ("WAXS", waxs_all)):
+        for f in files:
+            det_of[str(f)] = det
+            try:
+                candidates.append((f, Path(f).stat().st_mtime))
+            except OSError:
+                candidates.append((f, 0.0))
 
     done, todo = partition_backlog(
         candidates,
-        has_output=lambda f: _already_reduced(f, out_root, prefixes),
+        has_output=lambda f: _already_reduced(f, out_root, prefixes,
+                                              detector=det_of.get(str(f))),
         now=time.time() if now is None else now,
     )
     if done:
@@ -736,16 +769,25 @@ def run():
     # to every downstream size/mtime check and is consumed as real data.
     # Refusing is the honest answer: the monitor is already processing new
     # files, so a one-shot run has nothing to add.
-    if monitor_alive(_monitoring, _monitor_thread):
-        return jsonify({
-            "ok": False,
-            "error": ("The file monitor is running — it is already reducing new "
-                      "files. Stop monitoring first if you need a one-shot run."),
-        }), 409
-    with _run_lock_guard() as got:
-        if not got:
-            return jsonify({"ok": False,
-                            "error": "A one-shot run is already in progress."}), 409
+    # Check-and-claim under the monitor's start lock, so a Start racing this
+    # request cannot slip in between the two (Q6).
+    if not _monitor_start_lock.acquire(timeout=5):
+        return jsonify({"ok": False, "error": "Monitor start in progress"}), 409
+    try:
+        if monitor_alive(_monitoring, _monitor_thread) or (
+                _monitor_thread is not None and _monitor_thread.is_alive()):
+            return jsonify({
+                "ok": False,
+                "error": ("The file monitor is running (or still stopping): it "
+                          "is already reducing new files. Stop monitoring first "
+                          "if you need a one-shot run."),
+            }), 409
+        with _run_lock_guard() as got:
+            if not got:
+                return jsonify({"ok": False,
+                                "error": "A one-shot run is already in progress."}), 409
+    finally:
+        _monitor_start_lock.release()
 
     # Operator is metadata, not an Experiment parameter — pop it BEFORE the
     # config is hashed/cached so changing operator never reloads PyFAI. (user capture)
@@ -776,6 +818,7 @@ def run():
                 config,
                 log_callback      = _emit,
                 processed_files   = _processed_files,
+                processed_lock    = _processed_lock,     # Q6
                 experiment        = experiment,          # pass cached — not reloaded
                 stop_event        = _run_stop_event,     # allows graceful mid-run stop
                 file_done_callback = lambda result, raw_path, det: (
@@ -829,7 +872,7 @@ def _stale_monitor_notice() -> None:
 
 @app.route("/api/monitor/start", methods=["POST"])
 def monitor_start():
-    global _monitoring, _monitor_thread
+    global _monitoring, _monitor_thread, _monitor_stop_event
     # The alive-check, the _monitoring flag, and starting the thread must be
     # one atomic step — two concurrent POSTs (e.g. a UI click racing the
     # boot-time auto-resume) could otherwise both see "not running" and each
@@ -843,6 +886,28 @@ def monitor_start():
         # (src/runstate.monitor_alive).
         if monitor_alive(_monitoring, _monitor_thread):
             return jsonify({"ok": False, "error": "Already monitoring"})
+        # Q6: a one-shot Run now shares the cached Experiment (single-threaded
+        # pyFAI integrator) and the same `.part` files. /api/run already refuses
+        # while Watch runs; this is the other direction.
+        with _run_active_lock:
+            run_busy = _run_active
+        if run_busy:
+            return jsonify({
+                "ok": False,
+                "error": ("A one-shot run (Run now) is in progress. Wait for it to "
+                          "finish, or stop it, before starting the monitor."),
+            }), 409
+        # Q5: Stop was pressed but the old loop is still finishing a file.
+        # Give it a moment; if it is still going, refuse rather than run two.
+        if _monitor_thread is not None and _monitor_thread.is_alive():
+            _monitor_stop_event.set()
+            _monitor_thread.join(timeout=_MONITOR_JOIN_S)
+            if _monitor_thread.is_alive():
+                return jsonify({
+                    "ok": False,
+                    "error": ("The previous monitor is still finishing its current "
+                              "file. Try Start again in a few seconds."),
+                }), 409
         if _monitoring:
             _stale_monitor_notice()
 
@@ -858,6 +923,8 @@ def monitor_start():
         if not config:
             return jsonify({"ok": False, "error": "No config provided"}), 400
 
+        stop_ev = threading.Event()        # Q5: this run's own stop signal
+        _monitor_stop_event = stop_ev
         _monitoring = True
         _skip_note_shown[0] = False      # say it once per run, not once per process
         _emit(f"👁  Monitoring started — checking every {interval} s  ·  Operator: {operator}", "ok")
@@ -888,7 +955,10 @@ def monitor_start():
             MAX_BACKOFF   = 300        # cap at 5 minutes
             seeded        = reprocess  # nothing to seed when redoing the folder
 
-            while _monitoring:
+            def _live() -> bool:
+                return _monitoring and not stop_ev.is_set()
+
+            while _live():
                 # ── Ensure we have a working Experiment ──────────────────────
                 if experiment is None:
                     try:
@@ -898,7 +968,7 @@ def monitor_start():
                     except Exception as e:
                         _emit(f"⚠  Cannot load integrators: {e}", "error")
                         _emit(f"   Retrying in {backoff} s…", "warn")
-                        time.sleep(backoff)
+                        stop_ev.wait(backoff)
                         backoff = min(backoff * 2, MAX_BACKOFF)
                         continue
 
@@ -928,7 +998,7 @@ def monitor_start():
                     )
                 except Exception as e:
                     _emit(f"⚠  File scan error: {e}", "error")
-                    time.sleep(interval)
+                    stop_ev.wait(interval)
                     continue
 
                 # Record prefix activity from the RAW scan, before any settle/
@@ -947,10 +1017,17 @@ def monitor_start():
                 _n_before = len(saxs_new) + len(waxs_new)
                 # …unless the operator explicitly asked to redo the folder, in
                 # which case a newer .dat is exactly what they want overwritten.
-                _done = (lambda f: False) if reprocess else \
-                        (lambda f: _already_reduced(f, _out_root, _prefixes))
-                saxs_new = [f for f in saxs_new if not _done(f) and _ready_to_reduce(f)]
-                waxs_new = [f for f in waxs_new if not _done(f) and _ready_to_reduce(f)]
+                # Q3: each list is checked against its OWN detector's output.
+                _done_saxs = (lambda f: False) if reprocess else \
+                        (lambda f: _already_reduced(f, _out_root, _prefixes,
+                                                    detector="SAXS"))
+                _done_waxs = (lambda f: False) if reprocess else \
+                        (lambda f: _already_reduced(f, _out_root, _prefixes,
+                                                    detector="WAXS"))
+                saxs_new = [f for f in saxs_new
+                            if not _done_saxs(f) and _ready_to_reduce(f)]
+                waxs_new = [f for f in waxs_new
+                            if not _done_waxs(f) and _ready_to_reduce(f)]
 
                 # Say so ONCE, the first time a folder with previous work in it
                 # is skipped. Silence here is what made "started a run, nothing
@@ -984,7 +1061,7 @@ def monitor_start():
 
                 # ── Process SAXS files — one at a time ────────────────────────
                 for f in saxs_new:
-                    if not _monitoring:
+                    if not _live():
                         break
                     _emit(f"  SAXS  {f.name}", "info")
                     _process_one_raw(f, "saxs", experiment, config, operator, interval)
@@ -992,7 +1069,7 @@ def monitor_start():
 
                 # ── Process WAXS files — one at a time ────────────────────────
                 for f in waxs_new:
-                    if not _monitoring:
+                    if not _live():
                         break
                     _emit(f"  WAXS  {f.name}", "info")
                     _process_one_raw(f, "waxs", experiment, config, operator, interval)
@@ -1005,7 +1082,7 @@ def monitor_start():
                 if saxs_new or waxs_new:
                     _save_processed()
                 gc.collect()
-                time.sleep(interval)
+                stop_ev.wait(interval)
 
             _emit("⏹  Monitoring stopped", "warn")
 
@@ -1020,6 +1097,7 @@ def monitor_start():
 def monitor_stop():
     global _monitoring
     _monitoring = False
+    _monitor_stop_event.set()          # Q5: stops THIS run's loop for good
     return jsonify({"ok": True})
 
 

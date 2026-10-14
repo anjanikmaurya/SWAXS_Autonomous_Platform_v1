@@ -87,6 +87,11 @@ class ParetoEHVI(CampaignController):
             R, pdi = h.get("size"), h.get("pdi")
             if R is None or h.get("loss", 0.0) >= _FAIL_LOSS:
                 continue
+            # A low-confidence fit (railed / noisy) is not a trusted point on the
+            # front: it would set the hypervolume the EHVI tries to beat and be
+            # reported as part of the mapped set (audit Q34).
+            if float(h.get("confidence") or 0.0) < self.confidence_min:
+                continue
             m1, m2 = self._obj(np.array([R]), np.array([pdi if pdi is not None else 1.0]))
             pts.append((float(m1[0]), float(m2[0])))
         return pts

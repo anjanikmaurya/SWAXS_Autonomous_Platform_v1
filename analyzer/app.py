@@ -241,11 +241,108 @@ def _resolve_sub() -> Path:
     return base
 
 
-def _resolve_cond() -> Path:
-    p = Path(_cond_folder)
+def _space_cfg() -> dict:
+    """The reactor config the search space is built from, with the reactor's
+    LIVE pump limits (<project>/reactor_limits.json, saved by the reactor app's
+    pump-limit card) laid over config.yml, so ParameterSpace.valid() rejects
+    the same per-pump rates the reactor would (audit Q33)."""
+    cfg = load_config()
+    try:
+        if _project_root:
+            lp = Path(_project_root) / "reactor_limits.json"
+            if lp.is_file():
+                lim = json.loads(lp.read_text(encoding="utf-8") or "{}").get("limits") or {}
+                pumps = cfg.setdefault("pumps", {})
+                for name, v in lim.items():
+                    if name in pumps and isinstance(v, dict):
+                        for k in ("sensor_min", "max_flow"):
+                            if v.get(k) not in (None, ""):
+                                pumps[name][k] = float(v[k])
+    except Exception as exc:
+        _emit(f"⚠ could not read reactor_limits.json for the search space: {exc}",
+              "warn")
+    return cfg
+
+
+_DEFAULT_COND_FOLDER = "1D/SAXS/Conditions"
+#: True once the operator sets the Conditions folder HERE (POST
+#: /api/campaign/folder). Until then the analyzer follows the reactor's folder.
+_cond_folder_explicit: bool = False
+_reactor_cond_cache: tuple = (0.0, "", "")      # (time, project_root, folder)
+_cond_mismatch_warned: str = ""
+
+
+def _reactor_cond_folder() -> str:
+    """The Conditions folder the REACTOR watches, resolved the way reactor/app.py
+    does: the operator's override in <project>/reactor_settings.json
+    ("recipes_folder"), else folders.recipes from the reactor config. Cached for
+    a few seconds (the status stream asks every second). "" when unknown."""
+    global _reactor_cond_cache
+    now = time.time()
+    t, root, folder = _reactor_cond_cache
+    if root == _project_root and now - t < 5.0:
+        return folder
+    folder = ""
+    try:
+        if _project_root:
+            sp = Path(_project_root) / "reactor_settings.json"
+            if sp.is_file():
+                folder = str(json.loads(sp.read_text(encoding="utf-8") or "{}")
+                             .get("recipes_folder") or "")
+    except Exception:
+        folder = ""
+    if not folder:
+        try:
+            folder = str((load_config().get("folders") or {}).get("recipes") or "")
+        except Exception:
+            folder = ""
+    _reactor_cond_cache = (now, _project_root, folder)
+    return folder
+
+
+def _abs_folder(f: str) -> Path:
+    p = Path(f)
     if not p.is_absolute():
-        p = (Path(_project_root) if _project_root else Path.cwd()) / _cond_folder
+        p = (Path(_project_root) if _project_root else Path.cwd()) / f
     return p
+
+
+def _resolve_cond() -> Path:
+    """Where conditions are written. Follows the reactor's folder (audit Q20)
+    unless the operator chose one here explicitly; a mismatch is then reported
+    by _cond_folder_check()."""
+    f = _cond_folder
+    if not _cond_folder_explicit and _cond_folder == _DEFAULT_COND_FOLDER:
+        f = _reactor_cond_folder() or _cond_folder
+    return _abs_folder(f)
+
+
+def _cond_folder_check() -> dict:
+    """{reactor, mismatch}: is the analyzer writing where the reactor reads?
+    Warns loudly (once per differing pair) when not, since a mismatch means
+    the reactor never sees a single proposed condition."""
+    global _cond_mismatch_warned
+    rf = _reactor_cond_folder()
+    if not rf:
+        return {"reactor": "", "mismatch": False}
+    mine, theirs = _resolve_cond(), _abs_folder(rf)
+    try:
+        same = mine.resolve() == theirs.resolve()
+    except Exception:
+        same = str(mine) == str(theirs)
+    if not same:
+        key = f"{mine}|{theirs}"
+        if key != _cond_mismatch_warned:
+            _cond_mismatch_warned = key
+            _emit(f"⚠ CONDITIONS FOLDER MISMATCH: the analyzer writes to {mine} "
+                  f"but the reactor watches {theirs}. The reactor will not see "
+                  f"any proposed condition. Set the same folder in both apps.",
+                  "error")
+            print(f"[analyzer] WARNING conditions folder mismatch: analyzer={mine} "
+                  f"reactor={theirs}", file=sys.stderr, flush=True)
+    else:
+        _cond_mismatch_warned = ""
+    return {"reactor": str(theirs), "mismatch": not same}
 
 
 def _resolve_results() -> Path:
@@ -391,6 +488,7 @@ def _max_run_seq(tag: str, ids) -> int:
 
 
 def _write_condition(rid: str, params: dict) -> None:
+    _cond_folder_check()            # warn loudly if the reactor reads elsewhere
     d = _resolve_cond(); d.mkdir(parents=True, exist_ok=True)
     (d / f"{rid}.txt").write_text(to_param_file(rid, params), encoding="utf-8")
     sp = " ".join(f"{k}={float(v):g}" for k, v in params.items())
@@ -448,6 +546,34 @@ def _clear_conditions_for_new_campaign(why: str = "a new campaign started") -> i
     except Exception as exc:
         _emit(f"⚠ could not clear leftover conditions: {exc}", "warn")
         return 0
+
+
+def _withdraw_condition_file(rid: str, why: str) -> bool:
+    """Move this recipe's condition file(s) out of Conditions/ into done/ with a
+    NOT RUN note, the same way _clear_conditions_for_new_campaign does. Never
+    raises; returns True if a file was moved."""
+    moved = False
+    try:
+        cond = _resolve_cond()
+        done = cond / "done"
+        for ext in (".txt", ".dat", ".json"):
+            f = cond / f"{rid}{ext}"
+            if not f.is_file():
+                continue
+            done.mkdir(parents=True, exist_ok=True)
+            dest = done / f.name
+            f.replace(dest)
+            with dest.open("a", encoding="utf-8") as fh:
+                fh.write(f"\n# ── NOT RUN: withdrawn because {why} at "
+                         f"{time.strftime('%Y-%m-%dT%H:%M:%S')}\n"
+                         f"# Move this file back into the Conditions folder to "
+                         f"run it.\n")
+            moved = True
+        if moved:
+            _emit(f"↩ withdrew {rid} from the reactor queue ({why})", "info")
+    except Exception as exc:
+        _emit(f"⚠ could not withdraw {rid}: {exc}", "warn")
+    return moved
 
 
 def _advance_campaign() -> None:
@@ -740,7 +866,7 @@ def _restore_campaign() -> None:
                    + list((st.get("handled") or {}).keys()))
         _run_seq = _max_run_seq(_run_tag, _issued)
     try:
-        space = ParameterSpace.from_config(load_config())
+        space = ParameterSpace.from_config(_space_cfg())
         # Rebuild the SAME acquisition the run used: for level-set/pareto the goal
         # pins it (BAX / EHVI), recorded in meta["optimiser"]; _build_optimiser
         # re-derives it from the goal so a resume never silently swaps methods.
@@ -757,13 +883,20 @@ def _restore_campaign() -> None:
         # AND the conditions still in flight. Counting only history re-proposed an
         # in-flight Sobol seed when a restart landed during seeding.
         camp._n_asked = len(camp.history) + len(st.get("pending") or {})
+        if _run_tag:
+            # the r-number counts every ask() this run made (see _continue_run)
+            camp._n_asked = max(camp._n_asked, _run_seq)
         with _campaign_lock:
             _campaign = camp
             _campaign_cfg = cfg
             _pending.clear(); _pending.update(st.get("pending") or {})
+            # Restart the expiry clock NOW for every pending condition (audit
+            # Q19). The saved proposal times include the downtime, so a restart
+            # after an hour expired every in-flight condition on the first poll,
+            # even one the reactor was measuring at that moment.
+            _now = time.time()
             _pending_at.clear()
-            _pending_at.update({k: float(v) for k, v in
-                                (st.get("pending_at") or {}).items()})
+            _pending_at.update({k: _now for k in _pending})
             # Restoring `handled` is what stops a restart re-analysing every
             # existing profile — which would append a duplicate manifest entry
             # (new uuid each time) and fire a duplicate notification per file.
@@ -821,9 +954,20 @@ def _expire_pending() -> None:
                   f"{_PENDING_TIMEOUT_S / 60:.0f} min — recording it as a FAILED "
                   f"measurement and proposing the next condition", "warn")
             try:
-                _campaign.tell(params, None, None, 0.0, recipe_id=rid)
+                rec = _campaign.tell(params, None, None, 0.0, recipe_id=rid)
+                # Marked so a LATE result for it can replace the failure
+                # (CampaignController.replace_failed), see _feed_campaign.
+                rec["expired"] = True
             except Exception as exc:
                 _emit(f"⚠ could not record the failed measurement: {exc}", "warn")
+            # Withdraw the file too (audit Q9). Left in Conditions/ the reactor
+            # still ran it later (oldest first), spending reagent and beam on a
+            # recipe already scored as failed, and delaying the replacement.
+            # Moving it to done/ is the existing withdraw contract: the reactor
+            # drops a QUEUED recipe whose file went there; one already RUNNING
+            # finishes safely and its late result is accepted in _feed_campaign.
+            _withdraw_condition_file(rid, f"it expired after "
+                                          f"{_PENDING_TIMEOUT_S / 60:.0f} min")
         if stale:
             _advance_campaign()
     if stale:
@@ -974,7 +1118,7 @@ def _continue_run() -> dict:
     # run_tag scope above also keeps out other runs' profiles cross-stamped with
     # this campaign_id.
     recipe_recs = _fit_recs_by_recipe(fit_recs)
-    space = ParameterSpace.from_config(load_config())
+    space = ParameterSpace.from_config(_space_cfg())
     camp, _ = _build_optimiser(space, meta.get("goal"),
                                meta.get("size_range"), cfg,
                                method_params=meta.get("method_params"),
@@ -1014,12 +1158,26 @@ def _continue_run() -> dict:
                 _pending[rid] = {k: float(data[k]) for k in NAMES if k in data}
                 _pending_at[rid] = time.time()
             reissued.append(rid)
-    # Re-issued conditions are proposals already made: advance past them too, so
-    # a Continue during seeding doesn't hand the same Sobol seed out twice.
-    camp._n_asked = len(camp.history) + len(reissued)
+    # Every proposal already made consumed one ask(), and the r-number counts
+    # them: r001 was the first ask, rNNN the NNN-th. History length undercounts
+    # (expired, withdrawn and unrecoverable conditions are not in it), which
+    # made Continue hand out a Sobol seed already issued (audit Q18). So take
+    # the highest r-number issued anywhere this run: fit records, re-issued
+    # files, Conditions/done/ (consumed or withdrawn) and the reactor feedback.
+    issued = [fr["recipe_id"] for fr in fit_recs] + reissued
+    for folder, pat in ((done_dir, f"{run_tag}_r*.*"),
+                        (Path(_project_root or Path.cwd()) / "reactor" / "feedback",
+                         f"{run_tag}_r*.done.json")):
+        try:
+            if folder.is_dir():
+                issued += [f.name for f in folder.glob(pat)]
+        except Exception:
+            pass
+    hi_seq = _max_run_seq(run_tag, issued)
+    camp._n_asked = max(hi_seq, len(camp.history) + len(reissued))
 
     _run_tag = run_tag
-    _run_seq = _max_run_seq(run_tag, [fr["recipe_id"] for fr in fit_recs] + reissued)
+    _run_seq = hi_seq
     with _campaign_lock:
         _campaign = camp
         _campaign_cfg = cfg
@@ -1046,12 +1204,51 @@ def _continue_run() -> dict:
     return summary
 
 
+def _accept_late_result(name: str, res: dict) -> bool:
+    """A profile for a condition that EXPIRED (scored as failed) arrived after
+    all: record it in place of the failure instead of discarding it (audit Q9).
+    Lock held by caller. Returns True when it was recorded."""
+    expired = [str(h.get("recipe_id") or "") for h in _campaign.history
+               if h.get("expired") and h.get("size") is None and h.get("recipe_id")]
+    rid = match_recipe_id(name, expired) if expired else None
+    if not rid:
+        return False
+    sz = res.get("size") or {}
+    size, pdi, conf = sz.get("radius"), res.get("pdi"), res.get("confidence", 0.0)
+    try:
+        rec = _campaign.replace_failed(rid, size, pdi, conf)
+    except Exception as exc:
+        _emit(f"⚠ could not record the late result for {rid}: {exc}", "warn")
+        return False
+    if rec is None:
+        return False
+    _emit(f"📊 late result for expired {rid}: R={size} PDI={pdi} conf={conf} "
+          f"recorded in place of the failure (loss={rec['loss']:.3f})", "info")
+    if _campaign.status_str != "running":
+        # The late result ended the run (e.g. a confident in-spec hit): report
+        # it and withdraw whatever is still queued for this campaign.
+        _clear_conditions_for_new_campaign(
+            why=f"the campaign {_campaign.status_str} on a late result")
+        _pending.clear(); _pending_at.clear()
+        _advance_campaign()
+    _save_campaign()      # safe under _campaign_lock: it takes only _intake_lock
+    return True
+
+
 def _feed_campaign(name: str, res: dict) -> None:
     """Match a measured profile to a pending proposed condition and drive the loop."""
     with _campaign_lock:
-        if _campaign is None or _campaign.status_str != "running":
+        if _campaign is None:
+            return
+        if _campaign.status_str != "running":
+            # A late result for an expired condition still counts once the
+            # budget is spent; it can only improve the record.
+            if _campaign.status_str == "exhausted":
+                _accept_late_result(name, res)
             return
         rid = match_recipe_id(name, _pending.keys())
+        if not rid and _accept_late_result(name, res):
+            return
         if not rid:
             # A measurement that carries a recipe_id but matches nothing pending is
             # an ORPHAN — a late frame from a timed-out/expired condition, or a
@@ -1505,8 +1702,20 @@ def _watch_once() -> None:
         # thousands of already-handled / startup-frozen profiles; stat-ing all of
         # them every 3 s was O(N) per poll and climbing. Files still "waiting"
         # (in _lastsig, mid-write) are not in _handled, so they stay candidates.
+        # A profile for a PENDING condition is never "pre-existing history": it
+        # is the measurement the running campaign is waiting for, which landed
+        # while this process was down (audit Q19). Exempt it from the startup
+        # freeze, or the loop waits for it until the condition expires.
+        with _campaign_lock:
+            pend = list(_pending.keys()) if (
+                _campaign is not None and _campaign.status_str == "running") else []
+
+        def _frozen(p) -> bool:
+            return (str(p) in _startup_present
+                    and not (pend and match_recipe_id(p.name, pend)))
+
         candidates = [p for p in all_dats
-                      if str(p) not in _handled and str(p) not in _startup_present]
+                      if str(p) not in _handled and not _frozen(p)]
         files = sorted(candidates, key=lambda p: p.stat().st_mtime)
         # Decide for every file FIRST, fit second: the fit-me list has to be
         # known in full before any fitting starts, or _triage_backlog can't
@@ -1537,7 +1746,7 @@ def _watch_once() -> None:
             # and a running campaign still fit these; the record check above then
             # skips it for good. Live arrivals (paths not present at startup) fall
             # through and are fit normally.
-            if key in _startup_present:
+            if _frozen(f):
                 continue
             action = decide_intake(key, sig, _handled, _lastsig)
             if action == "skip":
@@ -1914,7 +2123,7 @@ def api_study():
             if k in body:
                 cfg[k] = (int if k in ("budget", "n_init") else float)(body[k])
         repeats = max(1, min(int(body.get("repeats", 3)), 10))
-        space = ParameterSpace.from_config(load_config())
+        space = ParameterSpace.from_config(_space_cfg())
         res = _study.run_study(space, ids, cfg, repeats=repeats)
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
@@ -2001,6 +2210,9 @@ def _campaign_status() -> dict:
         st = _campaign.status()
         st["pending"] = list(_pending.keys())
     st["conditions_folder"] = str(_resolve_cond())
+    _cc = _cond_folder_check()
+    st["conditions_folder_reactor"] = _cc["reactor"]
+    st["conditions_folder_mismatch"] = _cc["mismatch"]
     # Goal + size range so the Live Progress panel can read the run the way the
     # operator set it up: a single target for target-hit / level-set, a diameter
     # RANGE for Pareto (where "distance to one target" is meaningless).
@@ -2069,7 +2281,7 @@ def api_campaign_start():
     global _campaign, _campaign_cfg, _campaign_id, _campaign_meta, _run_tag, _run_seq
     b = request.get_json(silent=True) or {}
     try:
-        space = ParameterSpace.from_config(load_config())
+        space = ParameterSpace.from_config(_space_cfg())
         with _campaign_lock:
             # Refuse to start over a live run: a second start would drop the running
             # campaign's history, orphan its pending conditions, and re-derive the
@@ -2197,12 +2409,15 @@ def api_campaign_abort():
 
 @app.route("/api/campaign/folder", methods=["GET", "POST"])
 def api_campaign_folder():
-    global _cond_folder
+    global _cond_folder, _cond_folder_explicit
     if request.method == "POST":
         f = (request.get_json(silent=True) or {}).get("folder", "").strip()
         if f:
             _cond_folder = f
-    return jsonify({"folder": _cond_folder, "resolved": str(_resolve_cond())})
+            _cond_folder_explicit = True
+    cc = _cond_folder_check()
+    return jsonify({"folder": _cond_folder, "resolved": str(_resolve_cond()),
+                    "reactor": cc["reactor"], "mismatch": cc["mismatch"]})
 
 
 # ── parameter-space diagnostics ──────────────────────────────────────────────

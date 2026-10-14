@@ -74,6 +74,33 @@ app = Flask(__name__)
 # otherwise give ten identical tabs. See src/favicon.py.
 register_favicon(app, "hub")
 
+
+# Q23: reject cross-site writes. Any web page the operator opens can POST to
+# localhost; a browser always sends Origin (or at least Referer) on those, while
+# the hub's own server-side calls to the apps send neither, so they still pass.
+_LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+
+def _is_local_url(value: str) -> bool:
+    from urllib.parse import urlsplit
+    try:
+        return (urlsplit(value).hostname or "").lower() in _LOCAL_HOSTS
+    except ValueError:
+        return False
+
+
+@app.before_request
+def _reject_cross_site():
+    if request.method not in ("POST", "PUT", "PATCH", "DELETE"):
+        return None
+    for header in ("Origin", "Referer"):
+        value = request.headers.get(header)
+        if value:
+            if not _is_local_url(value):
+                return jsonify({"error": "Cross-site request refused."}), 403
+            break
+    return None
+
 # ── flask-sock (WebSocket event bus) ─────────────────────────────────────────
 try:
     from flask_sock import Sock
@@ -348,6 +375,9 @@ def _start_app(app_id: str) -> tuple[bool, str]:
     # chokes on non-ASCII content such as the emoji in knowledge.md / manifest.
     env["PYTHONUTF8"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
+    # Q22: apps build the bus URL from this, so a hub on an overridden port
+    # does not cut every app off the event bus.
+    env["SWAXS_HUB_PORT"] = str(_HUB_PORT)
 
     # Capture each app's output to a log file (instead of discarding it) so
     # startup failures are diagnosable. See logs/<app_id>.log.
@@ -357,16 +387,20 @@ def _start_app(app_id: str) -> tuple[bool, str]:
     pl.rotate_log(log_path)          # keep the previous run's traceback (audit O17)
 
     def _launch(cmd):
-        logf = open(log_path, "w", encoding="utf-8")
-        return subprocess.Popen(
-            cmd,
-            cwd=str(_ROOT),
-            env=env,
-            stdout=logf,
-            stderr=subprocess.STDOUT,
-            # own process group → stopping the app can signal the whole tree
-            **pl.popen_kwargs(),
-        )
+        # Q26: the child inherits its own copy of the handle, so the hub closes
+        # its copy straight away. Left open, the handles leaked one per start
+        # and, on Windows, the open handle made rotate_log fail, so a restart
+        # truncated the very crash log it was meant to keep.
+        with open(log_path, "w", encoding="utf-8") as logf:
+            return subprocess.Popen(
+                cmd,
+                cwd=str(_ROOT),
+                env=env,
+                stdout=logf,
+                stderr=subprocess.STDOUT,
+                # own process group → stopping the app can signal the whole tree
+                **pl.popen_kwargs(),
+            )
 
     # Launch with the SAME interpreter that runs the hub. This guarantees the
     # app uses the identical environment (the venv) with all dependencies
@@ -862,8 +896,8 @@ def api_operator():
 @app.route("/api/set_project", methods=["POST"])
 def api_set_project():
     global _project_root
-    body = request.get_json(force=True)
-    path = body.get("path", "").strip()
+    body = request.get_json(silent=True) or {}
+    path = str(body.get("path") or "").strip()
     if path and Path(path).is_dir():
         _project_root = path
         _save_project_state(path)   # remember across hub restarts

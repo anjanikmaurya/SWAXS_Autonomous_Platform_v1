@@ -450,10 +450,26 @@ def _recount() -> None:
                     "threshold": _pass_threshold()})
 
 
+def _drop_stale_llm(rec: dict) -> None:
+    """Q16: an LLM verdict only adjudicates a BORDERLINE score. Once a rescore or
+    a threshold change moves the profile out of the band, that verdict no longer
+    applies and must not keep overriding the threshold."""
+    if rec.get("llm_verdict") in (None, ""):
+        return
+    try:
+        out_of_band = abs(float(rec["score"]) - _pass_threshold()) > _band()
+    except (KeyError, TypeError, ValueError):
+        out_of_band = True
+    if out_of_band:
+        rec.pop("llm_verdict", None)
+        rec["llm_note"] = None
+
+
 def _recolor() -> None:
     """Re-derive verdicts from the current threshold without re-reading files."""
     _invalidate_grades()   # rules changed → re-grade next cycle
     for rec in _results_snapshot():
+        _drop_stale_llm(rec)
         rec["verdict"] = _effective_verdict(rec)
         try:
             _sort_into_folder(Path(rec["path"]), rec["verdict"])
@@ -475,6 +491,7 @@ def _rescore_all() -> None:
         if score >= t["score_pass"] and not reasons:
             reasons = ["clean profile — good SNR, structured, no over-subtraction"]
         rec["reasons"] = reasons
+        _drop_stale_llm(rec)
         rec["verdict"] = _effective_verdict(rec)
         try:
             _sort_into_folder(Path(rec["path"]), rec["verdict"])
@@ -908,7 +925,10 @@ def monitor_start():
     interval = max(int(body.get("interval", 10) or 10), 1)
     saxs = (body.get("saxs_folder", "") or "").strip()
     waxs = (body.get("waxs_folder", "") or "").strip()
-    if "threshold" in body:
+    # Q31: a resume replays the body saved at the last Start. Its threshold is
+    # stale: the operator may have moved the slider since (saved to
+    # quality_config.json, already loaded). Never take it from a replay.
+    if "threshold" in body and not body.get("resume"):
         try:
             _params["score_pass"] = float(body["threshold"])
         except (TypeError, ValueError):
@@ -1015,6 +1035,10 @@ def _boot_resume_monitor() -> None:
         params = load_monitor(_state_root(), _MON_APP)
         if not params:
             return
+        # Q31: keep the saved pass threshold (quality_config.json), not the one
+        # in the replayed Start request.
+        params = {k: v for k, v in params.items() if k != "threshold"}
+        params["resume"] = True
         rv = app.test_client().post("/api/monitor/start", json=params)
         body = rv.get_json(silent=True) or {}
         # "Already monitoring" is a SUCCESS for our purposes: the loop is running.

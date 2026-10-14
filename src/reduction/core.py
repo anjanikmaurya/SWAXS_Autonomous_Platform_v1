@@ -867,6 +867,7 @@ def run_pipeline(
     # emit event-bus events and register files in the manifest.  Any exception
     # raised inside the callback is caught and silently ignored so that a
     # broken callback never stops the pipeline.
+    processed_lock=None,      # optional threading.Lock guarding processed_files
 ) -> dict:
     """
     Process all new .raw files, strictly one at a time.
@@ -886,6 +887,15 @@ def run_pipeline(
     """
     if processed_files is None:
         processed_files = set()
+
+    def _mark_done(path) -> None:
+        # The app shares processed_files with its persistence code, which
+        # iterates the set under its own lock (Q6): take the same lock here.
+        if processed_lock is None:
+            processed_files.add(str(path))
+        else:
+            with processed_lock:
+                processed_files.add(str(path))
 
     log     = log_callback or (lambda msg, tag="info": None)
     stopped = False          # set True if stop_event fires mid-run
@@ -916,7 +926,7 @@ def run_pipeline(
             log(f"  [{i}/{len(saxs_files)}]  {f.name}", "info")
             try:
                 result = experiment.process_saxs_file(f)  # arrays freed inside
-                processed_files.add(str(f))
+                _mark_done(f)
                 n_saxs += 1
                 log(_fmt_result_line(result), "ok")
                 if file_done_callback is not None:
@@ -939,7 +949,7 @@ def run_pipeline(
             log(f"  [{i}/{len(waxs_files)}]  {f.name}", "info")
             try:
                 result = experiment.process_waxs_file(f)
-                processed_files.add(str(f))
+                _mark_done(f)
                 n_waxs += 1
                 log(_fmt_result_line(result), "ok")
                 if file_done_callback is not None:

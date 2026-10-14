@@ -12,11 +12,17 @@ Run short, model/user-supplied analysis snippets with multiple guard layers:
      the Flask process.
   3. READ-ONLY DATA: the snippet receives the project path for reading only; the
      ONLY writable location is the project's ``assistant_outputs/`` folder.
-  4. The caller (assistant) must show the code and get user confirmation first.
+  4. RUNTIME AUDIT HOOK (Q2): before the preamble and the user code, the child
+     installs a ``sys.addaudithook`` hook that raises PermissionError on network
+     calls (socket connect/getaddrinfo/bind), starting programs (subprocess,
+     os.system/exec*/spawn*/posix_spawn/fork), ctypes.dlopen, reads or folder
+     listings outside the project and the Python install (sys.path), and writes,
+     deletes or renames outside the temp work folder, assistant_outputs/ and the
+     matplotlib cache (MPLCONFIGDIR, in the temp folder).
+  5. The caller (assistant) must show the code and get user confirmation first.
 
-This is a guard, not a perfect jail — Python can't be fully sandboxed in-process.
-The static check blocks the obvious destructive/network operations; the human
-confirmation is the real control.
+This is a guard, not an OS sandbox: C extensions can still do I/O the audit hook
+does not see. The human confirmation remains the real control.
 """
 from __future__ import annotations
 
@@ -93,6 +99,96 @@ def check_code_safety(code: str) -> tuple[bool, str]:
     return True, "ok"
 
 
+# Runtime guard (Q2): installed in the CHILD before the preamble and the user
+# code. The static check above is a name deny-list and can be walked around
+# (matplotlib.subprocess..., np.loadtxt('/abs/path'), pd.read_csv('http://...'),
+# np.savetxt('/tmp/x'), Path('/Users').iterdir()). A sys.addaudithook hook sees
+# the real operation whatever the spelling, and an audit hook cannot be removed.
+_GUARD = r'''
+import os as _g_os, sys as _g_sys
+try:
+    import ctypes as _g_ctypes  # its import dlopens libpython; do it before the hook
+except Exception:
+    pass
+def _g_norm(p):
+    return _g_os.path.normcase(_g_os.path.realpath(_g_os.path.abspath(p)))
+_G_READ = []
+_G_WRITE = []
+for _p in {read_roots!r}:
+    _G_READ.append(_g_norm(_p))
+for _p in {write_roots!r}:
+    _G_WRITE.append(_g_norm(_p))
+for _p in list(_g_sys.path):
+    if _p:
+        _G_READ.append(_g_norm(_p if _g_os.path.isdir(_p) else _g_os.path.dirname(_p)))
+_G_READ.extend(_G_WRITE)
+_G_DENY = ("subprocess.Popen", "os.system", "os.exec", "os.spawn", "os.posix_spawn",
+           "os.fork", "os.forkpty", "os.kill", "os.killpg", "pty.spawn", "ctypes.dlopen",
+           "ctypes.dlsym", "socket.connect", "socket.getaddrinfo", "socket.bind",
+           "socket.sendto", "socket.sendmsg", "socket.gethostbyname",
+           "socket.gethostbyaddr", "socket.gethostbyname_ex", "_winapi.CreateProcess",
+           "os.startfile", "winreg.", "webbrowser.open")
+_G_WRITE_EVENTS = ("os.remove", "os.rename", "os.rmdir", "os.mkdir", "os.symlink",
+                   "os.link", "os.truncate", "os.chmod", "os.chown", "os.utime",
+                   "shutil.rmtree", "shutil.move", "shutil.copyfile", "os.chflags")
+_G_LIST_EVENTS = ("os.listdir", "os.scandir", "glob.glob")
+_G_WFLAGS = (_g_os.O_WRONLY | _g_os.O_RDWR | getattr(_g_os, "O_APPEND", 0)
+             | getattr(_g_os, "O_CREAT", 0) | getattr(_g_os, "O_TRUNC", 0))
+def _g_under(p, roots):
+    for r in roots:
+        if p == r or p.startswith(r.rstrip(_g_os.sep) + _g_os.sep):
+            return True
+    return False
+def _g_path_ok(p, roots):
+    if isinstance(p, int):
+        return True          # an fd that is already open
+    if isinstance(p, bytes):
+        p = _g_os.fsdecode(p)
+    if not isinstance(p, str):
+        p = _g_os.fspath(p)
+    return _g_under(_g_norm(p), roots)
+_g_busy = [False]
+def _g_hook(event, args):
+    if _g_busy[0]:
+        return
+    _g_busy[0] = True
+    try:
+        if event.startswith(_G_DENY):
+            raise PermissionError("Blocked by the run_python sandbox: " + event)
+        if event == "open":
+            path = args[0]
+            mode = args[1] if len(args) > 1 else None
+            flags = args[2] if len(args) > 2 else 0
+            writing = bool((isinstance(flags, int) and flags & _G_WFLAGS)
+                           or (isinstance(mode, str) and any(c in mode for c in "wax+")))
+            if writing:
+                if not _g_path_ok(path, _G_WRITE):
+                    raise PermissionError("Blocked by the run_python sandbox: "
+                                          "write outside the output folder: %s" % (path,))
+            elif not _g_path_ok(path, _G_READ):
+                raise PermissionError("Blocked by the run_python sandbox: "
+                                      "read outside the project: %s" % (path,))
+        elif event.startswith(_G_WRITE_EVENTS):
+            for a in args[:2]:
+                if isinstance(a, (str, bytes)) or hasattr(a, "__fspath__"):
+                    if not _g_path_ok(a, _G_WRITE):
+                        raise PermissionError("Blocked by the run_python sandbox: "
+                                              "%s outside the output folder: %s" % (event, a))
+        elif event in _G_LIST_EVENTS:
+            a = args[0] if args else "."
+            if a is None:
+                a = "."
+            if (isinstance(a, (str, bytes)) or hasattr(a, "__fspath__")) \
+                    and not _g_path_ok(a, _G_READ):
+                raise PermissionError("Blocked by the run_python sandbox: "
+                                      "listing outside the project: %s" % (a,))
+    finally:
+        _g_busy[0] = False
+_g_sys.addaudithook(_g_hook)
+del _p
+'''
+
+
 _PREAMBLE = '''\
 import matplotlib
 matplotlib.use("Agg")
@@ -151,12 +247,15 @@ def run_user_code(
     project_root: str | Path | None = None,
     timeout:      float = 15.0,
     mem_mb:       int = 1024,
+    *,
+    _static_check: bool = True,
+    runtime_guard: bool = True,
 ) -> dict:
     """
     Run *code* under the guards. Returns
         {"ok": bool, "stdout": str, "error": str|None, "figure": b64|None}
     """
-    ok, reason = check_code_safety(code)
+    ok, reason = check_code_safety(code) if _static_check else (True, "ok")
     if not ok:
         return {"ok": False, "stdout": "", "error": f"Blocked: {reason}",
                 "figure": None}
@@ -172,8 +271,17 @@ def run_user_code(
 
     workdir = Path(tempfile.mkdtemp(prefix="swaxs_exec_"))
     figpath = workdir / "figure.png"
+    mpl_dir = Path(tempfile.gettempdir()) / "swaxs_exec_mplconfig"
+    try:
+        mpl_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        mpl_dir = workdir / "mplconfig"
+    write_roots = [str(workdir), str(outputs), str(mpl_dir)]
+    read_roots  = [str(root)]
     script  = (
-        _PREAMBLE.format(project=str(root), outputs=str(outputs))
+        (_GUARD.format(read_roots=read_roots, write_roots=write_roots)
+         if runtime_guard else "")
+        + _PREAMBLE.format(project=str(root), outputs=str(outputs))
         + "\n# ── user code ──\n"
         + textwrap.dedent(code)
         + "\n"
@@ -185,7 +293,7 @@ def run_user_code(
     # Minimal environment: no proxy/network hints, no inherited secrets. HOME is
     # remapped to the workdir so `~` / Path.home() can't reach the real home
     # (where the gateway token lives).
-    env = {"HOME": str(workdir), "MPLBACKEND": "Agg",
+    env = {"HOME": str(workdir), "MPLBACKEND": "Agg", "MPLCONFIGDIR": str(mpl_dir),
            "PYTHONHASHSEED": "0", "PYTHONUTF8": "1"}
     if sys.platform == "win32":
         # Windows Python needs SYSTEMROOT/PATH/PATHEXT/TEMP to start. Do NOT leak

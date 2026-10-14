@@ -138,7 +138,10 @@ data unless stated.
   `kind` `session_report` (html or pdf), `fit_results` (csv or xlsx), `notes` (md).
 - `run_python`: short snippet in a guarded sandbox with `np`, `plt`, scipy,
   pandas, pathlib and `load_dat(name) -> (q, I, sigma)` (accepts a bare
-  filename). Read-only on data; os, network and deletion are blocked. Disabled
+  filename). It runs in a separate Python process with a time limit; a runtime
+  guard blocks network access, starting programs, reading outside the project
+  and the Python install, and writing outside `assistant_outputs/` and a temp
+  folder. It is a guard, not an OS sandbox. Disabled
   unless the assistant was started with `SWAXS_ALLOW_CODE_EXEC=1`. The code must
   be shown and confirmed by the user first; prefer the dedicated tools.
 
@@ -204,7 +207,10 @@ chat history on disk remains.
 - `SWAXS_ALLOW_CODE_EXEC=1`: enables `run_python`.
 - `SWAXS_WHISPER_MODEL`: voice model (default `base.en`).
 - `SWAXS_HUB_URL` (default `ws://localhost:5100/ws`), `SWAXS_HUB_API` (default
-  `http://localhost:5100`).
+  `http://localhost:5100`). Without them both follow `SWAXS_HUB_PORT`, which
+  the hub sets for every app it starts.
+- The assistant listens on 127.0.0.1 only, and refuses POSTs whose `Origin` or
+  `Referer` is not a localhost page.
 
 **Install**: `pip install -r requirements-ai.txt` (`anthropic`, `chromadb`,
 `sentence-transformers`, `faster-whisper`). Chat and manifest questions work with

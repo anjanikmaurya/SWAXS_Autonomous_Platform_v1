@@ -22,7 +22,9 @@ Reduction (5102) → **Visualisation & Average (5103)** → Background (5104).
 | `<project>/2D/SAXS/*.raw`, `<project>/2D/WAXS/*.raw` (2D Viewer) | `<raw folder>/Saved_2D/*.png` + `.svg` (2D image saves) |
 
 Every averaged file gets a `files` entry with `stage: "averaged"` in the manifest
-and a `file.averaged` bus event (`file_path`, `keyword`, `n_files`, `detector`).
+and a `file.averaged` bus event (`file_path`, `keyword`, `n_files`, `detector`);
+`n_files` is the number of frames that actually contributed (after the I0 and
+validity filters), which can be fewer than the batch size.
 Folder fields auto-fill from the hub project and every one has a **Browse…** button.
 
 ## 3. How to use it
@@ -70,8 +72,9 @@ The left bar has three modes: **2D Viewer**, **1D Viewer**, **Auto-Average**.
 
 ### Auto-Average (the monitor)
 1. Set the SAXS/WAXS **Reduction folders** and optionally an **Output folder**
-   (blank = each detector's `Averaged/`; prefer blank, because one shared folder
-   gets SAXS and WAXS batches with the same filename).
+   (blank = each detector's `Averaged/`, recommended). If SAXS and WAXS write to
+   one shared folder, every name gets a `_SAXS` / `_WAXS` tag before `.dat` so
+   neither overwrites the other.
 2. **Averaging options**: **Frames per average (N)** (default: the reactor's `spec.frames`,
    10 as shipped; a larger N never completes in the loop), **Check
    interval (seconds)** (default 3), **Keywords** (comma-separated, blank = all
@@ -81,8 +84,9 @@ The left bar has three modes: **2D Viewer**, **1D Viewer**, **Auto-Average**.
    `kw [saxs]: 12/30 frames, waiting for 18 more`.
 
 Each poll groups frames by keyword and averages every full block of N
-not-yet-used frames (ordered by scan index); each frame is used in exactly one
-batch. Reactor loop files are grouped by `{recipe_id}_{role}`
+not-yet-used frames, in acquisition order (the scan part of the name in
+natural order, so `scan2` before `scan10`, then the frame index); each frame is
+used in exactly one batch. Reactor loop files are grouped by `{recipe_id}_{role}`
 (`src/loop_naming.py`), so sample and background of a condition are averaged
 separately and need no keywords. **Set N to at most the frames per acquisition**
 (`spec.frames` in the reactor config): a group never larger than N never
@@ -90,7 +94,11 @@ completes. The app warns at start if N is larger.
 
 Settings and progress persist in `.swaxs_state/`; after a restart the last
 settings are shown (with a banner) and, if the resume policy allows, the
-monitor resumes without re-averaging frames already used.
+monitor resumes without re-averaging frames already used. A fresh Start is a
+new run, not a re-run of the folder: batches already on disk at the current N
+are recognised (numbering continues), and any other frame older than 10 minutes
+(`src/backlog.py`, the same rule as Reduction and Background) is treated as
+history and not averaged, even when N changed since the last run.
 
 ## 4. Settings, defaults and the maths
 
@@ -125,7 +133,10 @@ fewer than 2 points would remain, the cut is ignored with a warning.
 ### Output files
 - Manual: `<keyword>_<N>files_Average.dat`, N = frames that contributed.
 - Monitor: `<keyword>_batch<NNN>_<N>files_Average.dat`, N = batch size (the header
-  `# Files averaged:` gives the frames actually used).
+  `# Files averaged:` and the `file.averaged` event give the frames actually used).
+- Both detectors writing to the same folder: `_SAXS` / `_WAXS` is added before
+  `.dat` (e.g. `<keyword>_batch001_10files_Average_SAXS.dat`); the keyword
+  parser strips it again.
 - Written atomically (`.part`, then rename), so watchers never read half a file.
 - Layout: header lines `# Averaged SAXS/WAXS data, keyword: …`,
   `# Files averaged: N`, `# Columns: q_nm-1  I  sigma`, then data, then

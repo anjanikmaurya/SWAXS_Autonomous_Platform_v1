@@ -55,13 +55,27 @@ def find_row_number_to_read(raw_file_path: Path) -> int:
     return int(match.group(1))
 
 
+def _csv_stem_matches(csv_stem: str, raw_stem_no_idx: str) -> bool:
+    """True when a CSV stem names this raw's acquisition: it must occur in the
+    stripped raw stem as WHOLE "_"-separated tokens, i.e. bounded on both sides
+    by "_" or the ends of the name. That covers the raw stem itself, its tail
+    after a raw-only prefix ("sone_"), and the simulator's per-prefix CSV
+    ("{prefix}.csv" for "{prefix}_scan1_0000.raw"). Never a bare substring:
+    "..._scan1" must not match "..._scan10" (Q4)."""
+    if not csv_stem:
+        return False
+    return re.search(rf"(?:^|_){re.escape(csv_stem)}(?:_|$)",
+                     raw_stem_no_idx) is not None
+
+
 def process_csv_metadata(raw_file_path: Path) -> dict:
     """
     Find the CSV file that matches this .raw file, read the correct row,
     and return a dict of metadata values (I0, bstop, etc.).
 
     The CSV is expected to live one directory above the SAXS/ or WAXS/ subfolder.
-    The CSV filename stem must appear somewhere in the .raw filename.
+    The CSV filename stem must occur in the .raw stem (index stripped) as
+    whole "_"-separated tokens (see _csv_stem_matches).
     """
     raw_file_path = Path(raw_file_path)
     csv_dir = raw_file_path.parent.parent   # up one level from SAXS/ or WAXS/
@@ -70,19 +84,28 @@ def process_csv_metadata(raw_file_path: Path) -> dict:
     # 1. Strip the trailing _NNNN index from the raw filename stem so we compare
     #    apples to apples (the CSV has no index suffix).
     #    e.g. "sone_Run1_...scan1_0001" → "sone_Run1_...scan1"
-    # 2. Find every CSV whose stem appears as a substring of that stripped name.
-    #    This handles both cases:
+    #    (>=4 digits, like find_row_number_to_read: frame 10000+ must strip too.)
+    # 2. Keep every CSV whose stem matches that stripped name ON TOKEN
+    #    BOUNDARIES ("_" or either end of the name on both sides):
     #    a. CSV stem == stripped raw stem (exact, e.g. both start with "sone_")
-    #    b. CSV stem is embedded (e.g. raw has "sone_" prefix but CSV does not)
+    #    b. CSV stem is the tail (e.g. raw has "sone_" prefix but CSV does not)
+    #    c. CSV stem is the head (simulator: "{prefix}.csv" for
+    #       "{prefix}_scan1_0000.raw", src/simulator/writer.py)
+    #    Q4 (Oct 2026): this used to be a plain substring test, so while
+    #    "..._scan10" was still acquiring (its CSV is written at the END),
+    #    "..._scan1.csv" matched and every frame got scan1's i0/bstop: wrong
+    #    normalisation, no warning, and the CSV wait bypassed.
     # 3. Among multiple matches, pick the LONGEST stem so we prefer the most
-    #    specific CSV over a shorter accidental substring.
-    raw_stem_no_idx = re.sub(r'_\d{4}$', '', raw_file_path.stem)
+    #    specific CSV.
+    raw_stem_no_idx = re.sub(r'_\d{4,}$', '', raw_file_path.stem)
 
     csv_file   = None
     best_len   = -1
     for candidate in csv_dir.glob("*.csv"):
         stem = candidate.stem
-        if stem in raw_stem_no_idx and len(stem) > best_len:
+        if not _csv_stem_matches(stem, raw_stem_no_idx):
+            continue
+        if len(stem) > best_len:
             csv_file = candidate
             best_len = len(stem)
 

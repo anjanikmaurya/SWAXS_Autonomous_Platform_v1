@@ -195,13 +195,17 @@
     "I0": 12640.0,
     "R2": 0.27733,
     "Rg": 27.5315,
+    "converged": false,
     "intercept": 9.445,
     "qRg_max": 1.98,
     "q_range": [
       0.006420332,
       0.0719115703
     ],
-    "slope": -252.7
+    "slope": -252.7,
+    "warnings": [
+      "Guinier auto range did not converge: q_max\u00b7Rg = 1.98 > 1.3 after 4 iteration(s)"
+    ]
   },
   "pipeline_counts": {
     "saxs_count": 9,

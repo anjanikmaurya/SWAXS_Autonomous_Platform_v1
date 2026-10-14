@@ -188,7 +188,7 @@ table.res td:last-child{font-family:var(--mono);font-weight:600}
             </select>
             <label>q_min</label><input type="number" id="mqmin" step="0.001">
             <label>q_max</label><input type="number" id="mqmax" step="0.001">
-            <label title="Unit of q in your data. sasmodels works in Å⁻¹, so nm⁻¹ data is converted and sizes are reported in Å.">q unit</label>
+            <label title="The unit stated in the .dat header is always used (files labelled q_A-1 are converted to nm⁻¹). This choice applies only to a file whose header names no unit. q_min and q_max are in nm⁻¹. sasmodels works in Å⁻¹; sizes are reported in Å.">q unit if the file does not say</label>
             <select id="mqunit"><option value="nm^-1">nm⁻¹ (platform)</option><option value="A^-1">Å⁻¹</option></select>
           </div>
           <div class="muted" style="margin:4px 0 8px">Tick <b>Fit</b> to free a parameter; bounds are optional. Polydispersity (e.g. <code>radius_pd</code>) is listed too. Fitted lengths are in <b>Å</b>, SLDs in <b>1e-6 Å⁻²</b>.</div>

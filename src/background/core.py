@@ -158,8 +158,12 @@ def _auto_scale(q_sam, I_sam, sig_sam, q_bkg, I_bkg, sig_bkg,
     win = ((q_sam >= qlo) & (q_sam <= qhi) & (I_b > 0)
            & np.isfinite(I_sam) & np.isfinite(sig_sam) & (sig_sam > 0))
     if win.sum() < 3:
+        # Q32: do not fall back to 1.0 silently; say why so callers can log it.
         return {"scale": 1.0, "q_min": float(qlo), "q_max": float(qhi),
-                "n_points": int(win.sum()), "n_clipped": 0}
+                "n_points": int(win.sum()), "n_clipped": 0,
+                "warning": (f"auto scale: only {int(win.sum())} usable point(s) in the "
+                            f"high-q window [{qlo:.4g}, {qhi:.4g}] nm^-1 (need 3); "
+                            f"scale fell back to 1.0")}
 
     Is, Ib = I_sam[win], I_b[win]
     w = 1.0 / np.maximum(sig_sam[win] ** 2, 1e-30)

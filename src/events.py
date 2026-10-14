@@ -57,7 +57,29 @@ from typing import Callable
 
 logger = logging.getLogger("swaxs_platform")
 
-_HUB_WS_URL  = "ws://localhost:5100/ws"
+def hub_port() -> int:
+    """The hub's port: SWAXS_HUB_PORT (the hub exports it to every app it
+    launches), else 5100."""
+    try:
+        return int(os.environ.get("SWAXS_HUB_PORT", "") or 5100)
+    except ValueError:
+        return 5100
+
+
+def hub_ws_url() -> str:
+    """Bus URL: SWAXS_HUB_URL if set (a full ws:// URL), else built from
+    SWAXS_HUB_PORT (Q22: an overridden hub port used to cut every app off)."""
+    url = (os.environ.get("SWAXS_HUB_URL") or "").strip()
+    return url or f"ws://localhost:{hub_port()}/ws"
+
+
+def hub_http_url() -> str:
+    """Hub HTTP base: SWAXS_HUB_API if set, else built from SWAXS_HUB_PORT."""
+    url = (os.environ.get("SWAXS_HUB_API") or "").strip()
+    return (url or f"http://localhost:{hub_port()}").rstrip("/")
+
+
+_HUB_WS_URL  = hub_ws_url()
 _RETRY_DELAY  = 5    # seconds between reconnect attempts
 _PING_INTERVAL = 30  # seconds between WebSocket keepalive pings
 _PING_TIMEOUT  = 10  # seconds to wait for ping response
@@ -115,10 +137,10 @@ class EventBusClient:
     def __init__(
         self,
         app_id:  str,
-        hub_url: str = _HUB_WS_URL,
+        hub_url: str | None = None,
     ) -> None:
         self._app_id    = app_id
-        self._url       = hub_url
+        self._url       = hub_url or hub_ws_url()
         self._ws        = None           # active WebSocketApp instance
         self._thread: threading.Thread | None = None
         self._running   = False

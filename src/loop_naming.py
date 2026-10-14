@@ -16,8 +16,13 @@ import re
 
 # Longest-first so 'background' wins over 'bg', etc.
 ROLE_TAGS = ("sample", "background", "solvent", "buffer", "blank",
-             "empty", "water", "bkg", "bg")
+             "empty", "water", "smp", "bkg", "bg")
 BKG_TAGS = ("background", "solvent", "buffer", "blank", "empty", "water", "bkg", "bg")
+#: Role tags that mean "sample" (everything in ROLE_TAGS that is not a background).
+#: The reactor's sample/background keywords must come from these two lists
+#: (src/reactor/collection.py::set_spec_settings), or the averaging and
+#: subtraction apps cannot tell the two acquisitions of a condition apart.
+SAMPLE_TAGS = tuple(t for t in ROLE_TAGS if t not in BKG_TAGS)
 
 _ROLE_RE = re.compile(r"_(" + "|".join(ROLE_TAGS) + r")(?=[_.\-]|$)", re.IGNORECASE)
 

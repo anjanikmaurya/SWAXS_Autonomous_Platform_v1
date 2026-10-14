@@ -2,7 +2,7 @@
 from pathlib import Path
 import numpy as np
 
-__all__ = ["read_dat_data_metadata"]
+__all__ = ["read_dat_data_metadata", "q_unit_from_header", "q_to_nm"]
 
 # Global constant for metadata section identifier
 METADATA_SECTION_PREFIX = "# METADATA INFORMATION"
@@ -71,3 +71,51 @@ def read_dat_data_metadata(file_path: Path) -> tuple:
     sigma_values = data_arrays[:, 2]
 
     return header_lines, q_values, intensity_values, sigma_values, metadata_dict
+
+
+# ── q unit (Q7) ───────────────────────────────────────────────────────────────
+# Background writes ``q_A-1`` when the operator picks Angstrom output; everything
+# else on the platform is nm^-1. A reader that ignores the label is 10x off.
+_A_MARKERS = ("q_a-1", "q_a^-1", "q(a-1)", "q (a-1)", "a^-1", "a-1)", "å⁻¹", "å^-1",
+              "å-1", "1/å", "angstrom")
+_NM_MARKERS = ("q_nm", "nm^-1", "nm-1", "nm⁻¹", "1/nm")
+
+
+def _unit_of_line(line: str):
+    t = line.lower()
+    a = any(m in t for m in _A_MARKERS)
+    n = any(m in t for m in _NM_MARKERS)
+    if a and not n:
+        return "A^-1"
+    if n and not a:
+        return "nm^-1"
+    return None
+
+
+def q_unit_from_header(header_lines) -> str | None:
+    """The q unit a .dat header states: "A^-1", "nm^-1", or None if it says nothing.
+
+    The column-label lines (``# Columns: q_A-1 ...`` or ``# q_nm-1  I  sigma``)
+    decide first; only if none of them names a unit is the rest of the header used.
+    """
+    lines = [str(l) for l in (header_lines or [])]
+    col = [l for l in lines
+           if "columns" in l.lower() or l.lstrip("#").strip().lower().startswith("q")]
+    for l in reversed(col):           # the last column label is the one above the data
+        u = _unit_of_line(l)
+        if u:
+            return u
+    units = {u for u in (_unit_of_line(l) for l in lines) if u}
+    return units.pop() if len(units) == 1 else None
+
+
+def q_to_nm(q, header_lines, default: str = "nm^-1"):
+    """Return (q in nm^-1, unit read). Angstrom^-1 is multiplied by 10; I is untouched.
+
+    ``default`` is used only when the header states no unit (e.g. a UI override
+    for an unlabelled external file)."""
+    unit = q_unit_from_header(header_lines) or default or "nm^-1"
+    q = np.asarray(q, float)
+    if str(unit).lower().replace(" ", "").startswith(("a", "å")):
+        return q * 10.0, "A^-1"
+    return q, "nm^-1"

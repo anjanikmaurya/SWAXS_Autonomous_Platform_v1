@@ -67,6 +67,10 @@ _project_root: str = ""
 # average is paired with its nearest-index background and subtracted.
 _sub_monitoring: bool = False
 _sub_monitor_thread: threading.Thread | None = None
+# Q11: per-run stop event. Stop sets the CURRENT run's event, so a quick Start
+# (which creates a fresh event) can never revive the old loop; the old thread
+# wakes from its sleep at once and exits. Start joins (or refuses) while it lives.
+_sub_stop_evt: threading.Event = threading.Event()
 _sub_lock = threading.Lock()
 _sub_log: collections.deque = collections.deque(maxlen=500)   # (seq, line)
 _sub_seq: int = 0
@@ -128,6 +132,25 @@ _TRUNC = {
     "q_unit":   "nm",        # "nm" (nm⁻¹, platform default) | "A" (Å⁻¹)
 }
 
+# Q8: the window above is a SAXS window. Applying it to WAXS cut most of the WAXS
+# curve away, so WAXS has its OWN setting and it is OFF by default. _TRUNC stays
+# the SAXS setting (unchanged name, so every existing caller keeps working).
+_TRUNC_WAXS = {
+    "enabled":  False,
+    "q_min":    5.0,
+    "q_max":    30.0,
+    "n_points": 549,
+    "spacing":  "linear",
+    "q_unit":   "nm",
+}
+_TRUNC_KEYS = ("enabled", "q_min", "q_max", "n_points", "spacing", "q_unit")
+
+
+def _trunc_cfg(det: str | None = None) -> dict:
+    """The truncation setting for a detector: WAXS has its own, everything else
+    (SAXS, unknown) uses _TRUNC."""
+    return _TRUNC_WAXS if str(det or "").strip().lower() == "waxs" else _TRUNC
+
 
 # _TRUNC used to be pure in-memory session state (reset to defaults on every
 # restart), yet it shapes EVERY subtracted .dat. A restart silently reverted the
@@ -148,7 +171,7 @@ def _save_trunc() -> None:
     if not root:
         return
     try:
-        save_state(root, _TRUNC_STATE, dict(_TRUNC))
+        save_state(root, _TRUNC_STATE, {**dict(_TRUNC), "waxs": dict(_TRUNC_WAXS)})
     except Exception:
         pass
 
@@ -165,9 +188,13 @@ def _restore_trunc() -> None:
         existed = bool(p and p.is_file())
         st = load_state(root, _TRUNC_STATE, max_age_s=48 * 3600, honour_no_resume=False)
         if st:
-            for k in ("enabled", "q_min", "q_max", "n_points", "spacing", "q_unit"):
+            for k in _TRUNC_KEYS:
                 if k in st and st[k] is not None:
                     _TRUNC[k] = st[k]
+            w = st.get("waxs") if isinstance(st.get("waxs"), dict) else {}
+            for k in _TRUNC_KEYS:
+                if k in w and w[k] is not None:
+                    _TRUNC_WAXS[k] = w[k]
             _TRUNC_NOTICE = {
                 "level": "restored",
                 "message": "The output q-range and rebinning was restored from your last "
@@ -187,13 +214,15 @@ def _restore_trunc() -> None:
         pass
 
 
-def _trunc_q_label() -> str:
-    return "q_A-1" if (_TRUNC.get("enabled") and _TRUNC.get("q_unit") == "A") else "q_nm-1"
+def _trunc_q_label(det: str | None = None) -> str:
+    t = _trunc_cfg(det)
+    return "q_A-1" if (t.get("enabled") and t.get("q_unit") == "A") else "q_nm-1"
 
 
 
 
-def _apply_truncation(q: np.ndarray, I: np.ndarray, sigma: np.ndarray):
+def _apply_truncation(q: np.ndarray, I: np.ndarray, sigma: np.ndarray,
+                      det: str | None = None):
     """Returns (q, I, sigma, applied).
 
     ``applied`` matters: the column label is chosen from the CONFIGURED unit, so
@@ -201,16 +230,17 @@ def _apply_truncation(q: np.ndarray, I: np.ndarray, sigma: np.ndarray):
     header still said ``q_A-1``, the analyzer would multiply q by 10 and report a
     radius 10× too small. The caller must label from what was actually written.
     """
-    if not _TRUNC.get("enabled"):
+    T = _trunc_cfg(det)
+    if not T.get("enabled"):
         return q, I, sigma, False
     try:
         g, I_g, s_g, clipped, (lo, hi) = truncate_rebin(
-            q, I, sigma, _TRUNC["q_min"], _TRUNC["q_max"],
-            _TRUNC["n_points"], _TRUNC["spacing"], _TRUNC["q_unit"])
+            q, I, sigma, T["q_min"], T["q_max"],
+            T["n_points"], T["spacing"], T["q_unit"])
         if clipped:
             _sub_emit(f"ℹ truncation window clipped to the measured range "
-                  f"[{lo:.4g}, {hi:.4g}] {_TRUNC['q_unit']}⁻¹ — the requested "
-                  f"[{_TRUNC['q_min']:g}, {_TRUNC['q_max']:g}] extends beyond the "
+                  f"[{lo:.4g}, {hi:.4g}] {T['q_unit']}⁻¹ — the requested "
+                  f"[{T['q_min']:g}, {T['q_max']:g}] extends beyond the "
                   f"detector's coverage (no data is invented)", "info")
         return g, I_g, s_g, True
     except Exception as exc:
@@ -220,21 +250,23 @@ def _apply_truncation(q: np.ndarray, I: np.ndarray, sigma: np.ndarray):
 
 
 def _write_dat(out_path: Path, q: np.ndarray, I: np.ndarray, sigma: np.ndarray,
-               header_extra: list[str] | None = None):
-    """Truncate/rebin (if enabled), write the .dat, and RETURN the written
-    (q, I, sigma) so callers use the same arrays for the preview."""
-    q, I, sigma, _applied = _apply_truncation(q, I, sigma)
+               header_extra: list[str] | None = None, det: str = "saxs"):
+    """Truncate/rebin (if enabled for ``det``), write the .dat, and RETURN the
+    written (q, I, sigma) so callers use the same arrays for the preview.
+    Truncation is per detector (Q8): WAXS has its own setting, off by default."""
+    q, I, sigma, _applied = _apply_truncation(q, I, sigma, det)
+    T = _trunc_cfg(det)
     # Label from what was ACTUALLY written, never from the config alone.
-    label = _trunc_q_label() if _applied else "q_nm-1"
+    label = _trunc_q_label(det) if _applied else "q_nm-1"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     lines = [
         "# SAXS/WAXS background-subtracted data",
         f"# Columns: {label}  I  sigma",
     ]
-    if _TRUNC.get("enabled"):
-        lines.append(f"# Truncated/rebinned: {_TRUNC['q_min']}–{_TRUNC['q_max']} "
-                     f"{'Å⁻¹' if _TRUNC.get('q_unit')=='A' else 'nm⁻¹'}, "
-                     f"{_TRUNC['n_points']} pts ({_TRUNC['spacing']})")
+    if _applied:
+        lines.append(f"# Truncated/rebinned: {T['q_min']}–{T['q_max']} "
+                     f"{'Å⁻¹' if T.get('q_unit')=='A' else 'nm⁻¹'}, "
+                     f"{T['n_points']} pts ({T['spacing']})")
     if header_extra:
         lines.extend(header_extra)
     lines.append(f"# {label}  I  sigma")
@@ -420,11 +452,14 @@ def _auto_adjust_scale(q_s, I_s, sig_s, q_b, I_b, sig_b, frac: float = 0.25) -> 
     s_final = float(min(max(s_zero, lo), hi))
     s_final = float(min(max(s_final, 0.1), 5.0))
 
-    return {"scale": s_final, "ls_scale": round(s0, 4),
-            "zero_scale": round(float(s_zero), 4),
-            "clamped": not (lo <= s_zero <= hi),
-            "q_min": float(qlo), "q_max": float(qhi),
-            "n_points": int(win.sum())}
+    out = {"scale": s_final, "ls_scale": round(s0, 4),
+           "zero_scale": round(float(s_zero), 4),
+           "clamped": not (lo <= s_zero <= hi),
+           "q_min": float(qlo), "q_max": float(qhi),
+           "n_points": int(win.sum())}
+    if base.get("warning"):          # Q32: too few high-q points, scale is a fallback
+        out["warning"] = base["warning"]
+    return out
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -443,26 +478,32 @@ def health():
 def api_truncation():
     """Get/set the ML truncation+rebin applied to every subtracted file:
     enabled, q_min, q_max (in q_unit), n_points, spacing (linear|log), q_unit (A|nm).
-    Blank/missing keys are left unchanged; values persist until the app restarts."""
+    Per detector (Q8): ``detector`` = "saxs" (default) | "waxs", as a query
+    parameter on GET or a body key on POST. WAXS is off by default.
+    Blank/missing keys are left unchanged; values are persisted."""
+    det = (request.args.get("detector") or "saxs").strip().lower()
     if request.method == "POST":
         d = request.get_json(force=True) or {}
+        det = str(d.get("detector") or det or "saxs").strip().lower()
+        T = _trunc_cfg(det)
         if "enabled" in d:
-            _TRUNC["enabled"] = bool(d["enabled"])
+            T["enabled"] = bool(d["enabled"])
         for key in ("q_min", "q_max"):
             if str(d.get(key, "")).strip() != "":
-                try: _TRUNC[key] = float(d[key])
+                try: T[key] = float(d[key])
                 except (TypeError, ValueError): pass
         if str(d.get("n_points", "")).strip() != "":
-            try: _TRUNC["n_points"] = max(2, int(float(d["n_points"])))
+            try: T["n_points"] = max(2, int(float(d["n_points"])))
             except (TypeError, ValueError): pass
         if str(d.get("spacing", "")).strip():
             s = str(d["spacing"]).lower()
-            if s in ("linear", "log"): _TRUNC["spacing"] = s
+            if s in ("linear", "log"): T["spacing"] = s
         if str(d.get("q_unit", "")).strip():
             u = "A" if str(d["q_unit"]).lower().startswith("a") else "nm"
-            _TRUNC["q_unit"] = u
+            T["q_unit"] = u
         _save_trunc()          # persist so a restart restores it, never silently resets
-    return jsonify(dict(_TRUNC))
+    det = "waxs" if det == "waxs" else "saxs"
+    return jsonify({**dict(_trunc_cfg(det)), "detector": det})
 
 
 @app.route("/api/set_project", methods=["POST"])
@@ -788,6 +829,7 @@ def api_subtract_keyword():
     bkg_file   = Path(body.get("bkg_file",   "").strip())
     sam_kw     = body.get("sample_keyword", "").strip() or None
     scale      = float(body.get("scale", 1.0))
+    detector   = (body.get("detector", "saxs") or "saxs").lower()
     out_folder = body.get("output_folder", "").strip()
     out_folder = Path(out_folder) if out_folder else sam_folder / "Subtracted"
 
@@ -819,7 +861,7 @@ def api_subtract_keyword():
                 f"# Background : {bkg_file}",
                 f"# Scale      : {scale}",
                 f"# Mode       : keyword",
-            ])
+            ], det=detector)
             saved.append(str(out_path))
 
             if _project_root:
@@ -830,7 +872,7 @@ def api_subtract_keyword():
                 )
                 def _add(m, out_path=out_path, f=f, prov=prov):
                     add_file_entry(m, path=out_path, stage="subtracted",
-                                   detector="saxs", keyword=f.stem,
+                                   detector=detector, keyword=f.stem,
                                    scan_idx=_scan_idx(f), provenance=prov)
                     add_background_entry(m, output_path=out_path,
                                          sample_path=f, bkg_path=bkg_file,
@@ -917,6 +959,7 @@ def api_subtract_scan_matched():
     saved   = []
     errors  = []
     results = []
+    scale_warnings = []   # Q32: auto scale fell back to 1.0 (too few points)
 
     pending = []   # manifest mutations, applied atomically under lock at the end
 
@@ -926,7 +969,11 @@ def api_subtract_scan_matched():
             q_b, I_b, sig_b = _load_dat(f_b)
             s_use = scale
             if method == "auto_highq":
-                s_use = _auto_scale(q_s, I_s, sig_s, q_b, I_b, sig_b, qmin=qmin, qmax=qmax)["scale"]
+                _as = _auto_scale(q_s, I_s, sig_s, q_b, I_b, sig_b, qmin=qmin, qmax=qmax)
+                s_use = _as["scale"]
+                if _as.get("warning"):
+                    scale_warnings.append(f"{f_s.name}: {_as['warning']}")
+                    _sub_emit(f"⚠  {f_s.name}: {_as['warning']}", "warn")
             q_r, I_r, sig_r = _subtract(q_s, I_s, sig_s, q_b, I_b, sig_b, s_use)
             out_name = f_s.stem + "_sub.dat"
             out_path = out_folder / out_name
@@ -938,7 +985,7 @@ def api_subtract_scan_matched():
                 f"# Detector   : {detector}",
                 f"# Mode       : scan_matched",
                 f"# scan_idx   : {idx}",
-            ])
+            ], det=detector)
             saved.append(str(out_path))
 
             if _project_root:
@@ -965,7 +1012,7 @@ def api_subtract_scan_matched():
                     _bus.emit_file_subtracted(
                         str(out_path),
                         keyword = f_s.stem,
-                        scale   = scale,
+                        scale   = s_use,          # the scale actually applied
                         mode    = "scan_matched",
                     )
                 except Exception:
@@ -986,7 +1033,8 @@ def api_subtract_scan_matched():
         update_manifest(_project_root, lambda m: [fn(m) for fn in pending])
 
     return jsonify({"saved": saved, "errors": errors, "results": results,
-                    "n_matched": len(pair_list), "warning": warning})
+                    "n_matched": len(pair_list), "warning": warning,
+                    "scale_warnings": scale_warnings})
 
 
 @app.route("/api/subtract/individual", methods=["POST"])
@@ -1015,6 +1063,7 @@ def api_subtract_individual():
     q_b, I_b, sig_b = _load_dat(bkg_file)
 
     saved, errors, results, pending = [], [], [], []
+    scale_warnings = []   # Q32
     for f in sample_files:
         try:
             if not f.exists():
@@ -1023,7 +1072,11 @@ def api_subtract_individual():
             q_s, I_s, sig_s = _load_dat(f)
             s_use = scale
             if method == "auto_highq":
-                s_use = _auto_scale(q_s, I_s, sig_s, q_b, I_b, sig_b, qmin=qmin, qmax=qmax)["scale"]
+                _as = _auto_scale(q_s, I_s, sig_s, q_b, I_b, sig_b, qmin=qmin, qmax=qmax)
+                s_use = _as["scale"]
+                if _as.get("warning"):
+                    scale_warnings.append(f"{f.name}: {_as['warning']}")
+                    _sub_emit(f"⚠  {f.name}: {_as['warning']}", "warn")
             q_r, I_r, sig_r = _subtract(q_s, I_s, sig_s, q_b, I_b, sig_b, s_use)
             out_path = out_folder / (f.stem + "_sub.dat")
             q_r, I_r, sig_r = _write_dat(out_path, q_r, I_r, sig_r, [
@@ -1033,7 +1086,7 @@ def api_subtract_individual():
                 f"# Method     : {method}",
                 f"# Detector   : {detector}",
                 f"# Mode       : individual",
-            ])
+            ], det=detector)
             saved.append(str(out_path))
 
             if _project_root:
@@ -1056,7 +1109,7 @@ def api_subtract_individual():
             if _bus is not None:
                 try:
                     _bus.emit_file_subtracted(str(out_path), keyword=f.stem,
-                                              scale=scale, mode="individual")
+                                              scale=s_use, mode="individual")
                 except Exception:
                     pass
 
@@ -1072,7 +1125,8 @@ def api_subtract_individual():
     if _project_root and pending:
         update_manifest(_project_root, lambda m: [fn(m) for fn in pending])
 
-    return jsonify({"saved": saved, "errors": errors, "results": results})
+    return jsonify({"saved": saved, "errors": errors, "results": results,
+                    "scale_warnings": scale_warnings})
 
 
 # ── Automated-subtraction monitor ─────────────────────────────────────────────
@@ -1110,6 +1164,8 @@ def _process_one(sample: Path, bkg: Path, out_folder: Path, det: str,
         scale_method = "auto"
         scale_note   = (f"{scale:.4f}  (auto, high-q→0; LS={adj['ls_scale']}, "
                         f"zero={adj['zero_scale']}{', clamped' if adj['clamped'] else ''})")
+        if adj.get("warning"):
+            _sub_emit(f"⚠  {sample.name}: {adj['warning']}", "warn")
 
     q_r, I_r, sig_r = _subtract(q_s, I_s, sig_s, q_b, I_b, sig_b, scale)
     qc      = _qc_metrics(q_r, I_r, I_s)
@@ -1123,7 +1179,7 @@ def _process_one(sample: Path, bkg: Path, out_folder: Path, det: str,
         f"# Mode         : auto ({scale_method} scale)",
         f"# QC           : {verdict}  "
         f"(neg={qc['pct_negative']}%, highq_ratio={qc['highq_ratio']})",
-    ])
+    ], det=det)
 
     if _project_root:
         try:
@@ -1191,7 +1247,7 @@ def _sub_pending_note(sample: Path, bkgs: list) -> None:
 
 
 def _sub_monitor_loop(dets, interval, sample_kw="", bkg_kw="",
-                      scale_mode="auto", fixed_scale=1.0):
+                      scale_mode="auto", fixed_scale=1.0, stop_evt=None):
     """Continuous auto-subtraction loop (runs in a daemon thread).
 
     ``bkg_kw``    — if set, a file is a background when its name contains this
@@ -1201,6 +1257,12 @@ def _sub_monitor_loop(dets, interval, sample_kw="", bkg_kw="",
                     samples (others are ignored).
     """
     global _sub_monitoring
+    if stop_evt is None:
+        stop_evt = threading.Event()
+
+    def _running() -> bool:
+        return _sub_monitoring and not stop_evt.is_set()
+
     s_mode = "fixed" if scale_mode == "fixed" else "auto"
     scale_desc = f"fixed scale {fixed_scale:g}" if s_mode == "fixed" else "auto high-q scale"
     kw_desc = (f"  ·  sample~'{sample_kw}'" if sample_kw else "") + \
@@ -1213,7 +1275,7 @@ def _sub_monitor_loop(dets, interval, sample_kw="", bkg_kw="",
     def _is_bg(name: str) -> bool:
         return (bk in name.lower()) if bk else _is_background(name)
 
-    while _sub_monitoring:
+    while _running():
         _cycle_changed = False
         for det, avg_folder, out_folder in dets:
             fp = Path(avg_folder)
@@ -1234,7 +1296,7 @@ def _sub_monitor_loop(dets, interval, sample_kw="", bkg_kw="",
                           "info" if sams and bkgs else "warn")
 
             for sample in sams:
-                if not _sub_monitoring:
+                if not _running():
                     break
                 rp = str(sample.resolve())
                 # Only touch a file whose size+mtime were unchanged across two
@@ -1284,10 +1346,13 @@ def _sub_monitor_loop(dets, interval, sample_kw="", bkg_kw="",
         if _cycle_changed:
             _save_sub_done()          # persist so a restart resumes, not redoes
         gc.collect()
-        time.sleep(interval)
+        stop_evt.wait(interval)          # wakes at once on Stop
 
-    _sub_monitoring = False
-    _sub_status["monitoring"] = False
+    # Only the CURRENT run may clear the shared flag/status; a superseded loop
+    # finishing late must not mark the new run as stopped.
+    if stop_evt is _sub_stop_evt:
+        _sub_monitoring = False
+        _sub_status["monitoring"] = False
     _sub_emit("⏹  Auto-subtraction stopped", "warn")
 
 def _stale_monitor_notice() -> None:
@@ -1310,7 +1375,7 @@ def monitor_start():
             sample_keyword?, bkg_keyword?,
             scale_mode? ("auto"|"fixed"), fixed_scale? }
     """
-    global _sub_monitoring, _sub_monitor_thread, _sub_done
+    global _sub_monitoring, _sub_monitor_thread, _sub_done, _sub_stop_evt
     # Refuse only if the worker is ACTUALLY alive. A bare flag check meant that a
     # monitor whose thread had died reported "Already monitoring" forever, so the
     # app could never be restarted from the UI (src/runstate.monitor_alive).
@@ -1318,6 +1383,15 @@ def monitor_start():
         return jsonify({"ok": False, "error": "Already monitoring"})
     if _sub_monitoring:
         _stale_monitor_notice()
+    # Q11: a Stop was requested but the old loop may still be finishing a file.
+    # Wait for it; never run two loops side by side.
+    _old = _sub_monitor_thread
+    if _old is not None and _old.is_alive():
+        _sub_stop_evt.set()
+        _old.join(timeout=15.0)
+        if _old.is_alive():
+            return jsonify({"ok": False, "error": "The previous run is still stopping "
+                            "(finishing a file). Try Start again in a few seconds."}), 409
 
     body        = request.get_json(force=True)
     # 3 s, not 10. Subtraction's per-poll cost is already proportional to
@@ -1366,10 +1440,11 @@ def monitor_start():
     _sub_nobkg.clear(); _sub_seen.clear(); _sub_lastsig.clear()
     _sub_status.update({"monitoring": True, "subtracted": 0, "flagged": 0,
                         "last": None, "interval": interval})
+    _sub_stop_evt = threading.Event()        # fresh per run (Q11)
     _sub_monitoring = True
     _sub_monitor_thread = threading.Thread(
         target=_sub_monitor_loop,
-        args=(dets, interval, sample_kw, bkg_kw, scale_mode, fixed_scale),
+        args=(dets, interval, sample_kw, bkg_kw, scale_mode, fixed_scale, _sub_stop_evt),
         daemon=True)
     _sub_monitor_thread.start()
     return jsonify({"ok": True})
@@ -1379,6 +1454,7 @@ def monitor_start():
 def monitor_stop():
     global _sub_monitoring
     _sub_monitoring = False
+    _sub_stop_evt.set()                      # this run only; a new Start makes a new one
     return jsonify({"ok": True})
 
 

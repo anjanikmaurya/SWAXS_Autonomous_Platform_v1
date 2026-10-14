@@ -341,8 +341,19 @@ class ReactorController(SequenceMixin, SupervisorMixin, CollectionMixin):
         the file to Conditions/done/: on a new campaign or an abort those
         conditions belong to a run that no longer exists, and dosing them would
         burn reagent and beam for nothing. Returns the withdrawn recipe ids.
+
+        A recipe STAGED behind its pre-synthesis blank (``_pending``) has not run
+        either, so it is withdrawn too (audit Q17): it goes back to the queue by
+        the existing release path and is then dropped with the rest. The blank
+        flush itself carries on (solvent only, the line ends clean); with
+        nothing staged it ends as a plain flush and the next condition gets its
+        own blank.
         """
         with self._lock:
+            staged = getattr(self, "_pending", None)
+            if staged is not None and getattr(staged[0], "source", None) == source:
+                self._release_pending("it was withdrawn"
+                                      + (f" ({reason})" if reason else ""))
             keep, gone = deque(), []
             for item in self.queue:
                 if item[0].source == source:

@@ -1396,7 +1396,13 @@ function renderCampaign(c){
     txt += ` → accepted: T=${num(p.T_reac,0)}°C F=${num(p.F_tot,0)} `+
            `x=(${num(p.x_ODE)},${num(p.x_TOP)},${num(p.x_oley)})`;
   }
+  if(c.conditions_folder_mismatch){
+    // The reactor reads a different Conditions folder: nothing proposed here
+    // will ever run. Say so in the status line, not only in the log.
+    txt += ` · WARNING: conditions go to ${c.conditions_folder} but the reactor watches ${c.conditions_folder_reactor}`;
+  }
   $('c_status').textContent=txt;
+  $('c_status').style.color = c.conditions_folder_mismatch ? 'var(--err-text)' : '';
   setPill('p_best','', b&&b.size!=null
     ? `best ${num(b.size,3)} nm · PDI ${num(b.pdi,3)}` : 'best: no valid fit yet');
 }

@@ -39,7 +39,42 @@ _IDX_RE = re.compile(r"_(\d+)(?:_[A-Za-z]+)?\.dat$")
 # Averaged/ folder returns the original keyword.
 # e.g. BSA_10mg_Average.dat        → keyword "BSA_10mg"
 # e.g. BSA_10mg_30files_Average.dat → keyword "BSA_10mg"
-_LABEL_RE = re.compile(r"(?:_\d+files)?_(?:Average|Avg)$", re.IGNORECASE)
+# e.g. BSA_10mg_30files_Average_SAXS.dat → keyword "BSA_10mg" (Q12: the
+#      detector tag written when SAXS and WAXS share one output folder)
+_LABEL_RE = re.compile(r"(?:_\d+files)?_(?:Average|Avg)(?:_(?:SAXS|WAXS))?$",
+                       re.IGNORECASE)
+
+
+def detector_tagged(name: str, detector: str | None) -> str:
+    """``name`` (a ``*.dat`` filename) with ``_{DET}`` inserted before
+    ``.dat`` when ``detector`` is given, else unchanged.
+
+    Q12: SAXS and WAXS averages written to ONE folder used identical names
+    (``{kw}_{n}files_Average.dat``), so the second detector silently
+    overwrote the first. The tag follows the reduction convention
+    (``{stem}_SAXS.dat``) and keeps every token the loop parses
+    (``_batchNNN``, ``_Nfiles_``, the role tag) where it was.
+    """
+    if not detector:
+        return name
+    stem = name[:-4] if name.endswith(".dat") else name
+    return f"{stem}_{str(detector).upper()}.dat"
+
+
+def _natural_key(text: str) -> tuple:
+    return tuple(int(t) if t.isdigit() else t.lower()
+                 for t in re.split(r"(\d+)", str(text)) if t != "")
+
+
+def acquisition_order_key(fd: dict) -> tuple:
+    """Sort key putting one group's frames in acquisition order (Q29).
+
+    A loop group ({recipe_id}_{role}) can hold several scans, and each scan
+    restarts its frame index at 0000. Sorting on the index alone interleaved
+    them (scan1_0001, scan2_0001, scan1_0002, ...), so a batch mixed frames of
+    different scans. Order by the scan part of the name first (natural order,
+    so scan10 follows scan9), then by the frame index."""
+    return (_natural_key(fd.get("keyword", "")), int(fd.get("scan_idx", 0) or 0))
 
 
 # ── Private helpers ────────────────────────────────────────────────────────────
@@ -515,6 +550,7 @@ def average_and_save(
     i0_filter_pct: float = 0.0,
     q_min: float | None = None,
     q_max: float | None = None,
+    detector_tag: str | None = None,
 ) -> list[tuple[str, Path]]:
     """
     Average 1-D scans per keyword and save the result as a .dat file.
@@ -536,6 +572,10 @@ def average_and_save(
     i0_filter_pct : float
         If > 0, discard frames whose I0 deviates from the median by more than
         this percentage.  0 = no filtering.
+    detector_tag : str | None
+        "SAXS"/"WAXS" to append ``_{DET}`` to every output name (see
+        :func:`detector_tagged`); the app passes it when both detectors write
+        to the same folder (Q12).  None = names unchanged.
 
     Returns
     -------
@@ -583,7 +623,8 @@ def average_and_save(
         q_out, I_out, sig_out = _truncate_q(q_out, I_out, sig_out, q_min, q_max)
 
         # ── Write output .dat ─────────────────────────────────────────────────
-        out_path = output_dir / f"{kw}_{n_files}files_{label_suffix}.dat"
+        out_path = output_dir / detector_tagged(
+            f"{kw}_{n_files}files_{label_suffix}.dat", detector_tag)
         _write_averaged_dat(out_path, q_out, I_out, sig_out, kw,
                             meta_out, n_files=n_files)
         saved.append((kw, out_path))
@@ -601,7 +642,8 @@ def average_batch(
     n_pts: int = 1000,
     q_min: float | None = None,
     q_max: float | None = None,
-) -> Path | None:
+    return_n_used: bool = False,
+):
     """
     Average an explicit list of frame dicts and write a single averaged .dat.
 
@@ -625,16 +667,21 @@ def average_batch(
     n_pts : int
         Number of q points in the common log-spaced output grid.
 
+    return_n_used : bool
+        When True, return ``(path_or_None, n_used)`` instead: the number of
+        frames that actually contributed after I0 / validity rejection (Q27),
+        which can be fewer than ``len(frames)``.
+
     Returns
     -------
     Path | None
         The written path, or ``None`` if the batch had no usable frames.
     """
     if not frames:
-        return None
+        return (None, 0) if return_n_used else None
     result = _average_group(frames, i0_filter_pct=i0_filter_pct, n_pts=n_pts)
     if result is None:
-        return None
+        return (None, 0) if return_n_used else None
     q_out, I_out, sig_out, meta_out, n_used = result
     q_out, I_out, sig_out = _truncate_q(q_out, I_out, sig_out, q_min, q_max)
 
@@ -643,4 +690,4 @@ def average_batch(
     _write_averaged_dat(out_path, q_out, I_out, sig_out, keyword,
                         meta_out, n_files=n_used)
     logger.info("[average_batch] Saved %s (%d frames)", out_path.name, n_used)
-    return out_path
+    return (out_path, int(n_used)) if return_n_used else out_path

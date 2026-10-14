@@ -25,7 +25,8 @@ Background (5104) → **Quality Gate (5105)** → Analysis (5106).
   contains rejected profiles.
 - Each verdict is stored in the manifest `quality` section; `quality_score` and
   `quality_flags` are mirrored onto the file entry and into `ai_memory`, so the
-  Assistant can see them.
+  Assistant can see them. A re-grade replaces the previous grade's flags (flags
+  added by the Assistant are kept).
 - A `file.classified` bus event is emitted (`file_path`, `score`, `verdict`,
   `detector`, `flags`). `/api/health` reports good/bad counts for the hub badge.
 
@@ -101,7 +102,12 @@ you set in the UI apply to both detectors and replace these defaults.
 
 ### Verdict order
 A user override wins, then an LLM verdict for a borderline profile, then the
-threshold.
+threshold. If a threshold change or a rescore moves a profile out of the
+borderline band, its LLM verdict is cleared and the threshold decides.
+
+A monitor resumed after a restart keeps the pass threshold saved in
+`quality_config.json`; it does not take the threshold from the replayed Start
+request.
 
 ## 5. Troubleshooting
 

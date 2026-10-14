@@ -137,8 +137,10 @@ logger = logging.getLogger("swaxs_assistant")
 
 # ── Config ────────────────────────────────────────────────────────────────────
 PORT          = 5109
-HUB_URL       = os.environ.get("SWAXS_HUB_URL",  "ws://localhost:5100/ws")
-HUB_API       = os.environ.get("SWAXS_HUB_API",  "http://localhost:5100")
+# Q22: follow SWAXS_HUB_PORT (the hub exports it) unless a full URL is given.
+from src.events import hub_ws_url as _hub_ws_url, hub_http_url as _hub_http_url
+HUB_URL       = _hub_ws_url()
+HUB_API       = _hub_http_url()
 BEAMLINE_ID   = os.environ.get("SWAXS_BEAMLINE",  "ssrl_1-5")
 SESSION_TTL_S = 7200   # 2-hour session expiry
 
@@ -147,6 +149,33 @@ app = Flask(__name__, template_folder="templates")
 # experiment data also lives) or OOM the chunk/embed step. 50 MB is generous for
 # a paper; a larger body gets a 413 instead of crashing the process.
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024
+
+
+# Q23: reject cross-site writes. Any web page the operator opens can POST to
+# localhost; a browser always sends Origin (or at least Referer) on those, while
+# the hub's own server-side calls to the apps send neither, so they still pass.
+_LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+
+def _is_local_url(value: str) -> bool:
+    from urllib.parse import urlsplit
+    try:
+        return (urlsplit(value).hostname or "").lower() in _LOCAL_HOSTS
+    except ValueError:
+        return False
+
+
+@app.before_request
+def _reject_cross_site():
+    if request.method not in ("POST", "PUT", "PATCH", "DELETE"):
+        return None
+    for header in ("Origin", "Referer"):
+        value = request.headers.get(header)
+        if value:
+            if not _is_local_url(value):
+                return jsonify({"error": "Cross-site request refused."}), 403
+            break
+    return None
 
 
 def _fail(exc, code: int = 500):
@@ -474,7 +503,7 @@ def api_chat():
     """
     _expire_sessions()
 
-    body       = request.get_json(force=True, silent=True) or {}
+    body       = request.get_json(silent=True) or {}
     message    = (body.get("message") or "").strip()
     session_id = body.get("session_id") or str(uuid.uuid4())
     app_id     = body.get("app_id", "assistant")
@@ -555,7 +584,7 @@ def api_chat_stream():
     import threading as _threading
 
     _expire_sessions()
-    body       = request.get_json(force=True, silent=True) or {}
+    body       = request.get_json(silent=True) or {}
     message    = (body.get("message") or "").strip()
     session_id = body.get("session_id") or str(uuid.uuid4())
     app_id     = body.get("app_id", "assistant")
@@ -855,7 +884,7 @@ def api_knowledge_list():
 @app.route("/api/knowledge/note", methods=["POST"])
 def api_knowledge_note():
     """POST /api/knowledge/note {name, text, collection?} — save a text note."""
-    body = request.get_json(force=True) or {}
+    body = request.get_json(silent=True) or {}
     text = (body.get("text") or "").strip()
     name = (body.get("name") or "note").strip()
     col  = body.get("collection", "user_papers")
@@ -874,7 +903,7 @@ def api_knowledge_note():
 @app.route("/api/knowledge/remove", methods=["POST"])
 def api_knowledge_remove():
     """POST /api/knowledge/remove {name} — remove a source from the KB + log."""
-    body = request.get_json(force=True) or {}
+    body = request.get_json(silent=True) or {}
     name = (body.get("name") or "").strip()
     if not name:
         return jsonify({"error": "name is required"}), 400
@@ -1059,4 +1088,4 @@ if __name__ == "__main__":
     _threading.Thread(target=_warm_kb, daemon=True).start()
 
     _setup_event_bus()
-    app.run(host="0.0.0.0", port=PORT, debug=False, threaded=True)
+    app.run(host="127.0.0.1", port=PORT, debug=False, threaded=True)

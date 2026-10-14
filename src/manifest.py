@@ -1086,6 +1086,11 @@ def add_quality_entry(
     key = str(Path(path).resolve())
     if analysis_ready is None:
         analysis_ready = (verdict == "good")
+    # Q30: the flags of the PREVIOUS grade, so a re-grade REPLACES them instead of
+    # accumulating (a profile fixed by a rescore kept "over_subtracted" forever).
+    # Flags added by someone else (add_quality_flag, e.g. the Assistant) are kept.
+    _prev_grade = set((manifest.get("quality", {}).get(key) or {}).get("flags") or [])
+    new_flags = list(dict.fromkeys(flags or []))
     manifest.setdefault("quality", {})[key] = {
         "score":          float(score),
         "verdict":        verdict,
@@ -1112,17 +1117,15 @@ def add_quality_entry(
     entry = manifest.get("files", {}).get(key)
     if entry is not None:
         entry["quality_score"] = float(score)
-        existing = entry.setdefault("quality_flags", [])
-        for f in (flags or []):
-            if f not in existing:
-                existing.append(f)
+        others = [f for f in (entry.get("quality_flags") or [])
+                  if f not in _prev_grade and f not in new_flags]
+        entry["quality_flags"] = others + new_flags
 
-    # Mirror flags into ai_memory for the AI subsystem.
+    # Mirror flags into ai_memory for the AI subsystem (same replace rule).
     ai_flags = manifest.setdefault("ai_memory", {}).setdefault("quality_flags", {})
-    cur = ai_flags.setdefault(key, [])
-    for f in (flags or []):
-        if f not in cur:
-            cur.append(f)
+    others = [f for f in (ai_flags.get(key) or [])
+              if f not in _prev_grade and f not in new_flags]
+    ai_flags[key] = others + new_flags
 
 
 def add_reactor_run(manifest: dict, *, record: dict) -> None:

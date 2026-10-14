@@ -286,6 +286,19 @@ def _signal_group(proc, sig) -> None:
     """Signal the child's whole process group when we created one for it."""
     try:
         if IS_WIN:
+            # Q35: Windows has no process groups to signal and terminate() is
+            # TerminateProcess on the top process only, so anything it spawned
+            # (a fitting binary, a worker) was left running. Kill the
+            # descendants first (collected before the parent dies), then it.
+            if psutil is not None:
+                try:
+                    for kid in psutil.Process(proc.pid).children(recursive=True):
+                        try:
+                            kid.kill()
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
             proc.terminate()
             return
         os.killpg(os.getpgid(proc.pid), sig)

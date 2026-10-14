@@ -292,6 +292,10 @@ def _probe_refresh_loop() -> None:
             _probe_cache["ts"] = _time.monotonic()
         except Exception as exc:
             _emit(f"probe refresh error: {exc}", "warn")
+        try:
+            _bus_watch_tick()
+        except Exception as exc:
+            _emit(f"bus check error: {exc}", "warn")
         _time.sleep(_PROBE_TTL_S)
 
 
@@ -1320,6 +1324,78 @@ except Exception as exc:  # pragma: no cover
     _emit(f"startup failed: {exc}", "error")
     _transport = None
 
+def _deliver(title: str, text: str, level: str) -> dict:
+    """Hand a message to the transport and record it in the history with the
+    REAL outcome (Q25): "not configured", "queued", "dropped", and later
+    "sent" or "failed" once the worker has posted it. It used to be recorded
+    as sent even when no webhook was set, so the history looked healthy while
+    nothing reached Slack."""
+    rec = {"timestamp": _now().isoformat(), "title": title, "text": text,
+           "level": level}
+    status = None
+    if _transport is not None:
+        try:
+            status = _transport.send(title, text, level, record=rec)
+        except TypeError:          # a transport without the record argument
+            status = _transport.send(title, text, level)
+    else:
+        status = "not configured"
+    rec.setdefault("status", status if isinstance(status, str) else "queued")
+    _sent_messages.append(rec)
+    if len(_sent_messages) > 50:
+        _sent_messages.pop(0)
+    return rec
+
+
+# ── Bus liveness (Q24) ────────────────────────────────────────────────────────
+#: Seconds off the bus before a fault goes out. Every alert this app sends is
+#: driven by bus events, so a watchdog that has lost the bus is blind and, until
+#: now, looked exactly like a quiet run.
+_BUS_LOST_AFTER_S = 60.0
+_bus_watch: dict = {"down_since": None, "alerted": False}
+
+
+def _bus_connected() -> bool:
+    bus = globals().get("_bus")
+    return bool(bus is not None and getattr(bus, "connected", False))
+
+
+def _bus_watch_tick(now_mono: float | None = None,
+                    connected: bool | None = None) -> None:
+    """Raise one fault after _BUS_LOST_AFTER_S off the bus; clear (and say so)
+    when it reconnects."""
+    now_mono = _time.monotonic() if now_mono is None else now_mono
+    connected = _bus_connected() if connected is None else connected
+    if connected:
+        if _bus_watch["alerted"]:
+            send, level = should_send("info", _now().astimezone(), _settings,
+                                      _state, "stalls")
+            if send:
+                _deliver("Auto Watch reconnected to the event bus",
+                         "Auto Watch is receiving platform events again; "
+                         "alerts are back on.", level)
+            _emit("event bus reconnected", "ok")
+        _bus_watch["down_since"] = None
+        _bus_watch["alerted"] = False
+        return
+    if _bus_watch["down_since"] is None:
+        _bus_watch["down_since"] = now_mono
+        return
+    down_s = now_mono - _bus_watch["down_since"]
+    if _bus_watch["alerted"] or down_s < _BUS_LOST_AFTER_S:
+        return
+    _bus_watch["alerted"] = True
+    _emit(f"event bus disconnected for {down_s:.0f} s", "warn")
+    send, level = should_send("fault", _now().astimezone(), _settings, _state,
+                              "stalls")
+    if send:
+        _deliver("Auto Watch lost the event bus",
+                 f"Auto Watch has not been connected to the hub's event bus for "
+                 f"{down_s:.0f} s, so it cannot see the pipeline and will not "
+                 f"report stalls or faults. Check that the hub is running.",
+                 level)
+
+
 # ── Event bus and processing ──────────────────────────────────────────────────
 
 def _on_bus_event(event: dict) -> None:
@@ -1355,15 +1431,7 @@ def _on_bus_event(event: dict) -> None:
         # quiet_hours in config.yml is written in the operator's local time.
         send, actual_level = should_send(kind, _now().astimezone(), _settings, _state, category)
         if send and _transport:
-            _transport.send(title, text, actual_level)
-            _sent_messages.append({
-                "timestamp": _now().isoformat(),
-                "title": title,
-                "text": text,
-                "level": actual_level,
-            })
-            if len(_sent_messages) > 50:
-                _sent_messages.pop(0)
+            _deliver(title, text, actual_level)
 
 
 # Event bus subscription (graceful degradation)
@@ -1427,15 +1495,7 @@ def _stall_check_loop() -> None:
             last_alert_ts = time.monotonic()
             send, actual_level = should_send("fault", _now().astimezone(), _settings, _state, "stalls")
             if send and _transport:
-                _transport.send(diag_title, diag_text, actual_level)
-                _sent_messages.append({
-                    "timestamp": _now().isoformat(),
-                    "title": diag_title,
-                    "text": diag_text,
-                    "level": actual_level,
-                })
-                if len(_sent_messages) > 50:
-                    _sent_messages.pop(0)
+                _deliver(diag_title, diag_text, actual_level)
         except Exception as exc:
             _emit(f"stall check failed: {exc}", "warn")
 
@@ -1489,7 +1549,7 @@ def api_project_get():
 
 @app.route("/api/health", methods=["GET"])
 def health():
-    return jsonify({"status": "ok"})
+    return jsonify({"status": "ok", "bus_connected": _bus_connected()})
 
 
 #: Where a local plotly.min.js may already live. The analysis and assistant
@@ -1563,6 +1623,7 @@ def get_settings():
         "snoozed": snoozed,
         "snooze_until_ts": snooze_until,
         "webhook_configured": bool(_transport and _transport.webhook_url),
+        "bus_connected": _bus_connected(),
         "sent_messages": _sent_messages[-20:],  # Last 20 for the status page
         "slack_enabled": _settings.get("slack_enabled", True),
         "categories": _settings.get("categories", {c: True for c in CATEGORIES}),
@@ -1777,10 +1838,7 @@ def _send_farewell() -> None:
         # is gone" is not routine — it is the one message whose absence cannot
         # be noticed, because silence is exactly what it is warning about.
         if _settings.get("slack_enabled", True):
-            _transport.send(title, text, level)
-            _sent_messages.append({"timestamp": _now().isoformat(),
-                                    "title": title, "text": text,
-                                    "level": level})
+            _deliver(title, text, level)
     except Exception:
         pass
 

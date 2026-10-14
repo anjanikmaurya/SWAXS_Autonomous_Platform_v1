@@ -113,7 +113,7 @@ Confidence badges: green at ≥ 0.6, amber at ≥ 0.3, otherwise low.
 | Method | What it does |
 |---|---|
 | **Least-squares sphere** (`ls_sphere`, default) | the physics fit below |
-| **ML regressor (k-NN)** (`ml_regressor`) | k-nearest-neighbour match against a library of Schulz sphere curves (R 1 to 18 nm, PDI 0.02 to 0.40); fast baseline |
+| **ML regressor (k-NN)** (`ml_regressor`) | k-nearest-neighbour match against a library of Schulz sphere curves (R 1 to 18 nm, PDI 0.02 to 0.40); fast baseline. Its confidence is absolute: the log RMS of the predicted model against the data (scale and background fitted), times a signal check (a flat curve scores about 0), cut to a quarter when R or PDI sits on the library edge (`diagnostics.railed`; a 30 nm particle reads as about 18 nm). The library has no background term, so a curve with a strong flat background usually scores below 0.5 |
 | **LLM-assisted** (`llm_assisted`) | same numbers as the least-squares fit, plus an AI plain-language reading; identical to `ls_sphere` with no AI backend |
 
 The least-squares model (`src/analysis/nanoparticle.py`, `analyze_profile`):
@@ -261,6 +261,20 @@ the budget without a hit is `exhausted`.
 **Timeouts and restarts**:
 - A condition with no measurement after `SWAXS_PENDING_TIMEOUT_S` (default 3600 s)
   is recorded as failed and the next one is proposed, so the loop never idles.
+  Its file is moved to `Conditions/done/` with a "NOT RUN" note, so the reactor
+  drops it if it is still queued (one already running finishes). If its
+  measurement arrives later anyway, it replaces the failure in the history
+  (the budget count does not change) and can still converge the campaign.
+- After a restart, the expiry clock of every pending condition starts again,
+  and a profile for a pending condition that landed while the app was down is
+  fitted (other profiles on disk at startup stay frozen).
+- Continue and resume count the proposals already made from the highest
+  `RunN_rNNN` issued (fit records, `Conditions/`, `Conditions/done/`, reactor
+  feedback), so a seed already handed out is never proposed again.
+- The search space applies each pump's `[sensor_min, max_flow]` (the reactor's
+  live limits from `reactor_limits.json` over `reactor/config.yml`): a nonzero
+  rate `x · F_tot` outside it is never proposed. The Pareto front uses only
+  fits with confidence at least `confidence_min`.
 - A running campaign is **not** auto-resumed after a restart (it drives the
   reactor); a banner says so. Use **Continue RunN** to rebuild it from the
   durable fit records, which also re-issues conditions still waiting in
@@ -330,7 +344,7 @@ and `*.json` there as a recipe.
 | `POST /api/campaign/start` | start a campaign (body keys above) |
 | `POST /api/campaign/abort` | operator abort |
 | `GET /api/campaign/incomplete`, `POST /api/campaign/continue` | offer and rebuild the latest unfinished Target Run |
-| `GET/POST /api/campaign/folder` | conditions folder (default `1D/SAXS/Conditions`) |
+| `GET/POST /api/campaign/folder` | conditions folder. Until set here it follows the reactor's folder (`reactor_settings.json`, else `folders.recipes` in `reactor/config.yml`). Returns `reactor` and `mismatch`; a folder that differs from the reactor's is logged as an error and shown in the campaign status line (`conditions_folder_mismatch` in `GET /api/campaign`) |
 | `GET /api/campaign/diagnostics` | read-only learning and convergence summary |
 | `GET /api/campaign/plot/<view>.png` | `slice` (`x`, `y`, `anchor`), `convergence`, `trajectory`, `levelset`, `pareto` |
 | `POST /api/study`, `GET /api/study/plot.png` | in-silico method comparison |

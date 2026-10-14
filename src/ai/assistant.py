@@ -3081,8 +3081,12 @@ Experiment data was not modified.</p></body></html>"""
         if os.environ.get("SWAXS_ALLOW_CODE_EXEC", "").strip().lower() not in ("1", "true", "yes"):
             return (
                 "Code execution is disabled. I did NOT run this. To allow ad-hoc "
-                "Python, restart the assistant with SWAXS_ALLOW_CODE_EXEC=1 (it runs "
-                "sandboxed: no network, no file writes, no secret reads). Proposed "
+                "Python, restart the assistant with SWAXS_ALLOW_CODE_EXEC=1. It then runs "
+                "in a separate Python process with a time limit; a runtime guard "
+                "blocks network access, starting programs, reading files outside the "
+                "project folder and Python's own install, and writing anywhere except "
+                "assistant_outputs/ and a temporary folder. It is a guard, not an OS "
+                "sandbox, so review the code before allowing it. Proposed "
                 "snippet for your review:\n\n```python\n" + code.strip() + "\n```"
             ), None
         try:

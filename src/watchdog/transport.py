@@ -43,6 +43,16 @@ def _post(url: str, payload: dict, timeout: float = 6.0) -> dict:
         return {"ok": False, "error": str(exc)}
 
 
+def _mark(item, status: str) -> None:
+    """Write the delivery outcome back into the caller's history record."""
+    try:
+        rec = item.get("record") if isinstance(item, dict) else None
+        if isinstance(rec, dict):
+            rec["status"] = status
+    except Exception:
+        pass
+
+
 class WebhookTransport:
     """
     Queue-based Slack webhook sender. Thread-safe, fire-and-forget, never blocks
@@ -93,36 +103,44 @@ class WebhookTransport:
             )
             self._worker.start()
 
-    def send(self, title: str, text: str, level: str) -> None:
+    def send(self, title: str, text: str, level: str,
+             record: dict | None = None) -> str:
         """
         Queue a message for delivery. Never blocks, never raises.
-        Returns immediately.
+        Returns immediately with the delivery status (Q25):
+        ``"not configured"`` (no webhook, nothing will be sent), ``"queued"``
+        (the worker will POST it) or ``"dropped"`` (queue full). When *record*
+        is given, the worker later sets ``record["status"]`` to ``"sent"`` or
+        ``"failed"``, so a history entry shows what really happened.
 
         ``level == "fault"`` goes on the priority queue: drained first, sent
         without the throttle, and never dropped in favour of an info message.
         """
         if not self.webhook_url:
-            return
-        item = {"title": title, "text": text, "level": level}
+            return "not configured"
+        item = {"title": title, "text": text, "level": level, "record": record}
         if level == "fault":
             try:
                 self._fault_q.put_nowait(item)
-                return
+                return "queued"
             except queue.Full:
                 # 200 unsent faults is itself the emergency; keep the NEWEST.
                 try:
-                    self._fault_q.get_nowait()
+                    old = self._fault_q.get_nowait()
                     self._fault_q.put_nowait(item)
                     self.n_dropped += 1
+                    _mark(old, "dropped")
                     logger.error("fault queue full — dropped the oldest fault")
+                    return "queued"
                 except Exception:
-                    pass
-                return
+                    return "dropped"
         try:
             self._q.put_nowait(item)
+            return "queued"
         except queue.Full:
             self.n_dropped += 1
             logger.warning("Slack webhook queue full — dropped a message")
+            return "dropped"
 
     def close(self, timeout: float = 2.0) -> None:
         """Stop the worker, draining what is already queued first.
@@ -180,12 +198,15 @@ class WebhookTransport:
                 if result.get("ok"):
                     self.n_sent += 1
                     self.last_error = ""
+                    _mark(item, "sent")
                 else:
                     self.n_failed += 1
                     self.last_error = str(result.get("error") or result)[:300]
+                    _mark(item, "failed")
                     logger.warning("Slack rejected message: %s", result)
             except Exception as exc:
                 self.n_failed += 1
+                _mark(item, "failed")
                 self.last_error = str(exc)[:300]
                 logger.exception("transport send failed")
 

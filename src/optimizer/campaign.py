@@ -118,13 +118,20 @@ class CampaignController:
                "confidence": float(confidence), "loss": loss,
                "recipe_id": str(recipe_id or "")}
         self.history.append(rec)
+        self._consider_best(rec)
+        self._check_stop(rec)
+        return rec
+
+    def _consider_best(self, rec: dict) -> None:
+        """Fold one history record into ``best``."""
+        size, loss = rec["size"], rec["loss"]
         # Track `best` among CONFIDENCE-GATED points. `best` is reported as the
         # recommended recipe on exhaustion, so a low-confidence lucky hit (a
         # railed/noisy fit whose size happens to land on target → lowest loss)
         # must not become the answer. A trusted point always beats an untrusted
         # one; within a tier, lowest loss wins; an all-failed campaign still keeps
         # its least-bad point so `best` is never None once there's data.
-        trusted = (size is not None and float(confidence) >= self.confidence_min)
+        trusted = (size is not None and float(rec["confidence"]) >= self.confidence_min)
         cur = self.best
         if cur is None:
             self.best = {**rec, "_trusted": trusted}
@@ -132,7 +139,36 @@ class CampaignController:
             self.best = {**rec, "_trusted": True}
         elif bool(cur.get("_trusted")) == trusted and loss < cur["loss"]:
             self.best = {**rec, "_trusted": trusted}
-        self._check_stop(rec)
+
+    def replace_failed(self, recipe_id: str, size, pdi, confidence: float) -> dict | None:
+        """Put a LATE measurement in place of the failure recorded for it.
+
+        A condition whose data did not arrive in time is told as a failure so the
+        loop keeps moving (analyzer ``_expire_pending``). If its real result then
+        lands, discarding it wastes a budget slot that was actually measured, so
+        the failed record is overwritten in place: the budget count is unchanged,
+        ``best`` is recomputed, and a confident in-spec late result can still
+        converge the campaign. Only a record marked ``expired`` (a timeout, not
+        a measured-but-unsized profile) is replaced, and only once. Returns the
+        new record, or None when this recipe_id has nothing to replace."""
+        rid = str(recipe_id or "")
+        if not rid:
+            return None
+        for i, h in enumerate(self.history):
+            if (h.get("recipe_id") == rid and h.get("size") is None
+                    and h.get("expired")):
+                break
+        else:
+            return None
+        rec = {"params": dict(h["params"]), "size": size, "pdi": pdi,
+               "confidence": float(confidence), "loss": self.loss(size, pdi),
+               "recipe_id": rid, "late": True}
+        self.history[i] = rec
+        self.best = None
+        for r in self.history:
+            self._consider_best(r)
+        if self.status_str in ("running", "exhausted"):
+            self._check_stop(rec)
         return rec
 
     def _check_stop(self, rec):

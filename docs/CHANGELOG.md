@@ -7,6 +7,27 @@ this file is the running summary. Dates are when the work landed on `main`.
 
 ## October 2026
 
+### Platform quick audit: 37 fixes (Q1 to Q37)
+
+- **Security:** the assistant binds to localhost only; `run_python` runs under an
+  audit-hook guard (no network, no programs, no reads or writes outside the
+  project and temp); hub and assistant refuse cross-site POSTs.
+- **Silent data errors:** Reduction no longer skips a SAXS frame because its
+  WAXS twin exists, and matches beamline CSVs on whole name parts (`scan1` never
+  matches `scan10`); Analysis converts Å⁻¹ files to nm⁻¹; Background truncation
+  is per detector (WAXS off by default); auto Guinier iterates to q·Rg ≤ 1.3 and
+  flags a fit that does not converge.
+- **Monitors:** a quick Stop then Start can no longer run two loops (Reduction,
+  Background); Run now and Watch exclude each other.
+- **Loop:** an expired condition is withdrawn and a late result replaces the
+  failure; the ML regressor reports low confidence on noise and railed sizes;
+  the analyser follows the reactor's Conditions folder; the search space honours
+  per-pump limits; Continue and restart keep the right ask count and pending fits.
+- **Platform:** `SWAXS_HUB_PORT` reaches every app; the watchdog reports a lost
+  bus and shows whether each message was actually sent; hub log handles close
+  (Windows crash logs survive restarts); Windows launcher banner fixed.
+- Full list: `docs/audits/PLATFORM_QUICK_AUDIT_2026_10.md`.
+
 ### Two loop fixes
 
 - **Average: frames per average.** The page shipped N = 30 while the reactor

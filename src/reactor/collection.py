@@ -82,6 +82,27 @@ class CollectionMixin:
                 self._log(f"⚙ data-collection settings NOT changed — {locked}",
                           "warn")
                 return False, locked
+            # The tags are not free text (audit Q21): every downstream parser
+            # (src/loop_naming.py) knows only fixed role names. A sample tag it
+            # does not know leaves the frames unpaired; one that is really a
+            # background name (e.g. "buffer") makes the sample read as a
+            # background. Refuse the whole change before applying any of it.
+            from src.loop_naming import SAMPLE_TAGS, BKG_TAGS
+            bad = []
+            st, bt = _tag(d.get("sample_tag", "")), _tag(d.get("bkg_tag", ""))
+            if st and st.lower() not in SAMPLE_TAGS:
+                bad.append(f"sample keyword '{st}' is not one of "
+                           f"{', '.join(SAMPLE_TAGS)}")
+            if bt and bt.lower() not in BKG_TAGS:
+                bad.append(f"background keyword '{bt}' is not one of "
+                           f"{', '.join(BKG_TAGS)}")
+            if bad:
+                msg = ("data-collection settings NOT changed: "
+                       + "; ".join(bad)
+                       + ". The averaging and subtraction apps recognise only "
+                         "these names.")
+                self._log(f"⚙ {msg}", "warn")
+                return False, msg
             if str(d.get("exposure_s", "")).strip():
                 # A non-positive exposure is silently catastrophic: the mock
                 # detector multiplies its intensity map by exposure_s, so 0
@@ -108,10 +129,10 @@ class CollectionMixin:
             if str(d.get("spec_lead_s", "")).strip():
                 try: self._spec_lead = float(d["spec_lead_s"])
                 except (TypeError, ValueError): pass
-            if _tag(d.get("sample_tag", "")):
-                self._spec_sample_tag = _tag(d["sample_tag"])
-            if _tag(d.get("bkg_tag", "")):
-                self._spec_bkg_tag = _tag(d["bkg_tag"])
+            if st:
+                self._spec_sample_tag = st.lower()
+            if bt:
+                self._spec_bkg_tag = bt.lower()
             if str(d.get("data_dir", "")).strip():
                 self._spec_data_dir = str(d["data_dir"]).strip()
             msg = (f"exp {self._spec_exposure:g}s ×{self._spec_frames}, "

@@ -26,8 +26,8 @@ feeds the optimiser is done by the Autonomous Analyser (port 5107), not here.
   `1D/WAXS/Averaged/`. You can type or browse to any other folder in the
   **Folder** box (for example `Subtracted/Good`, the Quality Gate's accepted set).
 - **Writes to:** `1D/<DET>/Analysed/<Type>/` (see Output files), a
-  `# ANALYSIS INFORMATION` block appended to the source `.dat`, and the
-  manifest's `analyses` section.
+  `# ANALYSIS INFORMATION` sidecar `1D/<DET>/Analysed/<source stem>.analysis.txt`
+  (the source `.dat` is never modified), and the manifest's `analyses` section.
 - **Emits:** `analysis.complete` on the event bus after each single-file
   Classical, SASView or peak fit (`analysis_type`, `file_path`, `results`).
   Batch runs and ATSAS runs do not emit it.
@@ -81,7 +81,9 @@ Batch notes:
 Card **2 · Classical analysis**: **Type** menu (Guinier, Kratky, Dimensionless
 Kratky, Porod (exponent), p(r) & Dmax, Invariant), **Auto q-range** checkbox
 (on by default; untick to type **q_min** / **q_max**), and **Dmax** (nm) for
-p(r). q is in the unit of the data, nm⁻¹ by default.
+p(r). Every curve is loaded in nm⁻¹: the q unit is read from the `.dat` header,
+and a file labelled `q_A-1` (Background's Å⁻¹ output) is converted (q × 10), so
+Rg, Dmax, invariants and d-spacings are always in nm. q_min / q_max are in nm⁻¹.
 
 Dimensionless Kratky and Invariant need Rg and I0. If they are not supplied the
 app runs an automatic Guinier fit first; if that fails the analysis reports
@@ -113,7 +115,7 @@ gives slope = −Rg²/3 (Rg = sqrt(−3·slope)) and intercept = ln I0.
 Warnings: q_max·Rg above the limit; q_min·Rg > 0.65 ("extend to lower q");
 R² < 0.99. No warnings gives PASS, otherwise WARN; a failed fit is FAIL.
 
-Rg is in the inverse of the q unit (nm for nm⁻¹ data). Rough guide: 1 to 2 nm
+Rg is in nm (q is always nm⁻¹ after loading). Rough guide: 1 to 2 nm
 small protein (~20 kDa), 2 to 4 nm medium protein, 4 to 8 nm large protein or
 complex, above 10 nm large complex or nanoparticle.
 
@@ -203,7 +205,9 @@ Card **2 · SASView model fit**:
   guinier_porod, mass_fractal), then the full catalog.
 - **S(q)**: None, hardsphere, hayter_msa, stickyhardsphere, squarewell. The
   model becomes `form@structure`, for example `sphere@hardsphere`.
-- **q_min / q_max** (optional) and **q unit** (nm⁻¹, the platform default, or Å⁻¹).
+- **q_min / q_max** (optional, nm⁻¹) and **q unit if the file does not say**
+  (nm⁻¹, the platform default, or Å⁻¹). The unit in the `.dat` header always
+  wins; the menu only matters for an unlabelled file.
 - Parameter table: tick **Fit** to free a parameter (scale, background, radius,
   length, thickness, sld and rg are ticked by default), set the start **Value**
   and optional **Lower** / **Upper** bounds. Polydispersity parameters such as
@@ -214,9 +218,9 @@ How it fits:
   reports parameters pinned at a bound (`at_bounds`); without bounds it uses
   Nelder-Mead.
 - **Units:** sasmodels works in Å⁻¹, with lengths in Å and SLD in 1e-6 Å⁻².
-  nm⁻¹ data is converted (q_Å = q_nm/10) before fitting, so **fitted lengths
-  are in Å** (a radius of 50 is 5 nm). The fit curve is converted back to the
-  data's q unit for plotting.
+  The loaded nm⁻¹ data is converted once (q_Å = q_nm/10) before fitting, so
+  **fitted lengths are in Å** (a radius of 50 is 5 nm). The fit curve is
+  converted back to nm⁻¹ for plotting.
 - Returns `model`, `params`, reduced `chi2`, `converged`, `at_bounds`,
   `length_unit`, `sld_unit`, `q_unit`. `converged` and `at_bounds` are saved,
   so a railed parameter can be told apart from a good fit.
@@ -297,17 +301,24 @@ folder:
   own type name.
 - If the source is not inside a `Subtracted/`, `Averaged/` or `Reduction/`
   folder, `Analysed/<Type>/` is created next to the source file.
-- `_fit.dat` has the header `# q_nm-1  I` and two columns (for p(r) results the
-  columns are r and p(r)).
+- `_fit.dat` has two columns and a header naming them. Classical, SASView and
+  peak fits, including p(r) & Dmax, write the fitted curve `# q_nm-1  I` (for
+  p(r) that is the I(q) back-calculated from p(r), not p(r) itself; p(r) is not
+  written to the `_fit.dat`). ATSAS GNOM-type results write `# r_nm  P(r)`
+  (`# r_A  P(r)` when the source file is in Å⁻¹, since ATSAS reads the file as
+  it is).
 - The analysis app does not write PNG figures; the plots are interactive in the
   browser (Plotly, bundled for offline use).
 - Only scalars, strings and booleans go into the saved results; arrays and plot
   data are dropped. Short lists such as `at_bounds` are kept as text.
 - Saving with the same file and analysis type again overwrites the JSON and fit.
 
-**Source `.dat` annotation:** the scalar results are appended to the fitted
-file's footer under `# ANALYSIS INFORMATION`, one `# <type>.<key>: <value>`
-line each. Re-running the same type replaces its previous lines.
+**Annotation sidecar:** the scalar results are written to
+`1D/<DET>/Analysed/<source stem>.analysis.txt` under `# ANALYSIS INFORMATION`,
+one `# <type>.<key>: <value>` line each. Re-running the same type replaces its
+previous lines. The source `.dat` is left untouched: rewriting it used to change
+its mtime, so the Quality Gate graded it again (with an LLM call) and re-copied
+it to `Good/`.
 
 ## Manifest record
 Saved analyses go into the manifest's `analyses` section (only when a project is

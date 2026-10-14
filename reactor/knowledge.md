@@ -20,7 +20,16 @@ conditions this app runs.
   also arrive by `POST /api/recipe` or the manual form.
 - **Writes** 2D frames via SPEC (or the simulator) into the 2D tree, named
   `{recipe_id}_{sample_tag}` and `{recipe_id}_{bkg_tag}` (defaults `sample`,
-  `bkg`). The shared `recipe_id` is how the Background app pairs them.
+  `bkg`). The shared `recipe_id` is how the Background app pairs them. The
+  keywords are not free text: the sample keyword must be `sample` or `smp`,
+  the background keyword one of `background`, `solvent`, `buffer`, `blank`,
+  `empty`, `water`, `bkg`, `bg` (`src/loop_naming.py`). Anything else is
+  refused with a message, because the averaging and subtraction apps could
+  not tell the two acquisitions apart.
+- **Withdrawn conditions**: a condition file the analyzer moves to
+  `Conditions/done/` (new campaign, abort, or an expired condition) is dropped
+  from the queue, including one staged behind its pre-synthesis blank flush.
+  The blank flush itself carries on (solvent only) and ends as a plain flush.
 - **Listens** for the `file.averaged` bus event (with a folder watch on
   `folders.averaged_watch`, `1D/SAXS/Averaged`, as backstop) to know the
   measurement for the current recipe is done.

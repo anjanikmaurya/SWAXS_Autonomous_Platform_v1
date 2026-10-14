@@ -173,21 +173,61 @@ def guinier_fit(
     Rg = float(np.sqrt(max(-3 * slope, 0)))
     I0 = float(np.exp(intercept))
 
-    # Auto-refine range: enforce q_max·Rg ≤ 1.3
+    # Auto-refine range: enforce q_max·Rg ≤ 1.3 (Q15). One refit was not enough:
+    # the first Rg comes from a too-wide window, so the refit window can still
+    # break the limit. Iterate the fixed point q_max = 1.3/Rg, starting from the
+    # LOW-q end (a full-range first fit flattens the slope and can make the
+    # window never shrink), until q_max·Rg ≤ 1.3 and the window is stable.
+    converged = True
+    n_iter = 0
     if auto_range and Rg > 0:
-        q_max_ok = 1.3 / Rg
-        mask2 = mask & (q <= q_max_ok)
-        if mask2.sum() >= 5:
-            q_r2, I_r2 = q[mask2], I[mask2]
-            sigma_r2   = sigma_arr[mask2] if (sigma_arr is not None and sigma_arr.shape == mask2.shape) else None
-            sigma_lnI2 = (sigma_r2 / I_r2) if sigma_r2 is not None else None
-            sl2, ic2, r2b = _weighted_linregress(q_r2**2, np.log(I_r2), sigma_lnI2)
-            if sl2 < 0:
-                Rg              = float(np.sqrt(-3 * sl2))
-                I0              = float(np.exp(ic2))
-                slope, intercept, r2 = sl2, ic2, r2b
-                q2, lnI         = q_r2**2, np.log(I_r2)
-                q_r             = q_r2
+        def _fit_on(m):
+            qq, II = q[m], I[m]
+            ss = sigma_arr[m] if (sigma_arr is not None and sigma_arr.shape == m.shape) else None
+            return _weighted_linregress(qq ** 2, np.log(II), (ss / II) if ss is not None else None)
+
+        def _iterate(start):
+            """Fixed-point iteration from window ``start``.
+            Returns (best, converged, n_iter); best = (Rg, slope, icpt, r2, window)."""
+            cur, best, ok, seen, it = start.copy(), None, False, set(), 0
+            for it in range(1, 31):
+                if cur.sum() < 5:
+                    break
+                sl_c, ic_c, r2_c = _fit_on(cur)
+                if not (sl_c < 0):
+                    break
+                Rg_c = float(np.sqrt(-3 * sl_c))
+                best = (Rg_c, sl_c, ic_c, r2_c, cur.copy())
+                nxt = mask & (q <= 1.3 / Rg_c)
+                if float(q[cur].max()) * Rg_c <= 1.3 + 1e-9 and np.array_equal(nxt, cur):
+                    ok = True
+                    break
+                key = nxt.tobytes()
+                if key in seen:      # cycling between windows: settle on the smaller one
+                    nxt = nxt & cur
+                    if np.array_equal(nxt, cur):
+                        break
+                seen.add(key)
+                cur = nxt
+            if best is not None and not ok and float(q[best[4]].max()) * best[0] <= 1.3 + 1e-9:
+                ok = True            # window could not grow further but obeys the limit
+            return best, ok, it
+
+        # Start from the low-q end; if that cannot converge (e.g. the lowest points
+        # rise toward the beamstop), retry from the full window, as before.
+        idx_r = np.flatnonzero(mask)
+        low = np.zeros(len(q), dtype=bool)
+        low[idx_r[:min(len(idx_r), max(8, len(idx_r) // 5))]] = True
+        best, converged, n_iter = _iterate(low)
+        if not converged:
+            b2, c2, n2 = _iterate(mask)
+            if c2 or best is None:
+                best, converged, n_iter = b2, c2, n_iter + n2
+        if best is not None:
+            Rg, slope, intercept, r2, wmask = best
+            I0 = float(np.exp(intercept))
+            q_r = q[wmask]
+            q2, lnI = q_r ** 2, np.log(I[wmask])
 
     q2_fit  = np.linspace(q2.min(), q2.max(), 100)
     lnI_fit = intercept + slope * q2_fit
@@ -200,6 +240,12 @@ def guinier_fit(
         "R2":        round(r2, 5),
         "q_range":   [float(q_r.min()), float(q_r.max())],
         "qRg_max":   round(float(q_r.max()) * Rg, 3),
+        # Q15: False when the auto range could not reach q_max·Rg ≤ 1.3; the
+        # value must not be treated (or batch-saved) as a valid Guinier Rg.
+        "converged": bool(converged),
+        **({} if converged else {"warnings": [
+            f"Guinier auto range did not converge: q_max·Rg = "
+            f"{float(q_r.max()) * Rg:.3g} > 1.3 after {n_iter} iteration(s)"]}),
         "plot": {
             "q2_data":  q2.tolist(),
             "lnI_data": lnI.tolist(),
@@ -589,6 +635,10 @@ def guinier_quality(result: dict, shape: str = "globular") -> dict:
     if r2 is not None and r2 < 0.99:
         warns.append(f"Guinier R² = {r2} (<0.99) — fit may be poor.")
     verdict = "PASS" if not warns else "WARN"
+    if result.get("converged") is False:      # Q15: auto range never met the limit
+        warns.append("Guinier auto range did not converge to q_max·Rg ≤ 1.3; "
+                     "Rg is not valid.")
+        verdict = "FAIL"
     return {"verdict": verdict, "qRg_min": qRg_min, "qRg_max": qRg_max,
             "warnings": warns}
 

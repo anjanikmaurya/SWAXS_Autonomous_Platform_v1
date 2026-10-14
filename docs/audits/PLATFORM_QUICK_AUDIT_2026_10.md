@@ -1,6 +1,8 @@
 # Platform quick audit, October 2026
 
-> **Status, 2026-10-14: all findings OPEN.** This is a quick, read-only pass over every app
+> **Status, 2026-10-14: Q1 to Q37 FIXED** (same day; tests in `tests/test_quick_audit_*.py`). One residual: with SAXS and WAXS averaged into one shared folder, Background pairing ignores the new `_SAXS`/`_WAXS` name tag (default separate folders are unaffected). Q2 is a runtime guard (audit hook), not an OS sandbox.
+>
+> *Original status:* all findings OPEN. This is a quick, read-only pass over every app
 > and the shared platform code. Every finding was confirmed by reading the code,
 > except the ones marked *suspected*. Items already in [OPEN_DEFECTS.md](OPEN_DEFECTS.md)
 > and the reactor items in [REACTOR_AUDIT.md](REACTOR_AUDIT.md) are not repeated

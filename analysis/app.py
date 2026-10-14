@@ -28,7 +28,7 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from src.favicon import register_favicon               # noqa: E402
-from src.utils.read_dat_metadata import read_dat_data_metadata   # noqa: E402
+from src.utils.read_dat_metadata import read_dat_data_metadata, q_to_nm   # noqa: E402
 from src.manifest import (                                        # noqa: E402
     update_manifest, add_analysis_entry, make_provenance,
 )
@@ -59,9 +59,14 @@ _project_root: str = ""
 # Analysis functions (guinier_fit, porod_fit, kratky_plot, peak_fit,
 # sasmodels_fit) live in src/analysis/core.py and are imported above.
 
-def _load(path: Path):
-    """Return (q, I, sigma) arrays, positive only."""
-    _, q, I, sigma, _ = read_dat_data_metadata(path)
+def _load(path: Path, default_unit: str = "nm^-1"):
+    """Return (q, I, sigma) arrays, positive only, with q ALWAYS in nm⁻¹.
+
+    The q unit is read from the .dat header (Q7): Background writes ``q_A-1`` when
+    Å⁻¹ output is chosen, and treating that as nm⁻¹ made Rg, Dmax, invariants and
+    d-spacings 10x off. ``default_unit`` applies only when the header names no unit."""
+    hdr, q, I, sigma, _ = read_dat_data_metadata(path)
+    q, _unit = q_to_nm(q, hdr, default=default_unit)
     mask = (q > 0) & (I > 0) & (sigma > 0)
     return q[mask], I[mask], sigma[mask]
 
@@ -275,9 +280,12 @@ _CLASSICAL = ("guinier", "kratky", "porod", "pair_distance",
               "dimensionless_kratky", "invariant")
 
 
-def _detector_of(path: Path) -> str:
-    s = str(path).upper()
-    return "waxs" if "/WAXS/" in s or "_WAXS" in s else "saxs"
+def _detector_of(path) -> str:
+    """saxs | waxs from a path, shared with the Quality Gate (src.quality.detector_of):
+    whole SAXS/WAXS token in the file name, else the nearest SAXS/WAXS folder.
+    Handles Windows backslash paths and does not mistake "SWAXS" for WAXS."""
+    from src.quality.core import detector_of  # noqa: PLC0415
+    return detector_of(path)
 
 
 #: Exact on-disk folder names, keyed by a normalised alias. The Quality Gate
@@ -419,6 +427,13 @@ def api_classical_batch():
             res = out["results"]
             if "error" in res:
                 errors.append({"file": p.name, "error": res["error"]})
+                continue
+            if res.get("converged") is False:
+                # Q15: never batch-save a non-converged Guinier Rg as a valid value.
+                errors.append({"file": p.name, "converged": False,
+                               "Rg": res.get("Rg"), "qRg_max": res.get("qRg_max"),
+                               "error": "Guinier auto range did not converge "
+                                        f"(q_max·Rg = {res.get('qRg_max')} > 1.3); not saved"})
                 continue
             analysis_io.save_analysis(_project_root, p, detector, analysis,
                                       params=body, results=res,
@@ -614,7 +629,10 @@ def _model_qc(res: dict) -> dict:
 
 
 def _run_model(path: Path, body: dict) -> dict:
-    q, I, sigma = _load(path)
+    # _load returns nm⁻¹ whatever the file holds (header wins; the UI q-unit
+    # choice applies only to an unlabelled file), so sasmodels is always told
+    # nm⁻¹ and never converts twice (Q7).
+    q, I, sigma = _load(path, default_unit=body.get("q_unit", "nm^-1"))
     q, I, sigma = _trim_q(q, I, sigma, body)
     model = body.get("model_name", "sphere")
     sf    = (body.get("structure_factor") or "").strip()
@@ -622,7 +640,7 @@ def _run_model(path: Path, body: dict) -> dict:
         model = f"{model}@{sf}"
     res = sasmodels_fit(q, I, sigma, model, body.get("params", {}),
                         free=body.get("free"), bounds=body.get("bounds"),
-                        q_unit=body.get("q_unit", "nm^-1"))
+                        q_unit="nm^-1")
     return res
 
 
@@ -710,13 +728,13 @@ def api_sasview_compare():
     if not models:
         return jsonify({"error": "Provide a list of models to compare."}), 400
     try:
-        q, I, sigma = _load(path)
+        q, I, sigma = _load(path, default_unit=body.get("q_unit", "nm^-1"))
         q, I, sigma = _trim_q(q, I, sigma, body)
         out = []
         for mn in models:
             r = sasmodels_fit(q, I, sigma, mn, body.get("params", {}).get(mn, {}),
                               free=body.get("free", {}).get(mn),
-                              q_unit=body.get("q_unit", "nm^-1"))
+                              q_unit="nm^-1")
             out.append({"model": mn, "chi2": r.get("chi2"),
                         "error": r.get("error"), "params": r.get("params")})
         out.sort(key=lambda x: (x["chi2"] is None, x["chi2"] if x["chi2"] is not None else 1e30))

@@ -3,8 +3,11 @@
 An instance-based machine-learning method: a library of polydisperse-sphere
 curves is generated once from the physics model across a grid of (radius, PDI);
 a measured profile is resampled onto the same q-grid, scale/background-normalised,
-and its radius/PDI predicted from the weighted nearest library curves. Neighbour
-agreement gives an uncertainty-aware confidence.
+and its radius/PDI predicted from the weighted nearest library curves. The
+confidence is ABSOLUTE: how well the predicted model (scale and background
+fitted) reproduces the measured curve, whether the curve carries any form-factor
+signal at all, and a hard penalty when the answer sits on the library edge
+(1 to 18 nm), where larger or smaller particles clamp.
 
 Kept numpy-only (no scikit-learn / torch) so it is always available and matches
 the platform's numpy-only GP. It is deliberately a baseline ML method — fast,
@@ -56,6 +59,35 @@ def _library() -> _Library:
     return _LIB
 
 
+def _absolute_fit(q: np.ndarray, I: np.ndarray, R: float, pdi: float):
+    """How well the predicted (R, PDI) explains the measured curve, absolutely.
+
+    Scale and a flat background are fitted by relative-weighted linear least
+    squares over the library q-range. Returns (log10 RMS residual, decades the
+    fitted model spans across that range). Never raises: a degenerate case
+    returns (inf, 0.0), which scores zero confidence."""
+    try:
+        m = (q >= _QGRID[0]) & (q <= _QGRID[-1]) & (I > 0)
+        if m.sum() < 8:
+            return float("inf"), 0.0
+        qm, Im = q[m], I[m]
+        P = np.asarray(model_intensity(qm, R, float(pdi), scale=1.0, bkg=0.0,
+                                       dist="schulz"), float)
+        A = np.vstack([P, np.ones_like(P)]).T
+        wt = 1.0 / Im
+        coef, *_ = np.linalg.lstsq(A * wt[:, None], Im * wt, rcond=None)
+        coef = np.maximum(coef, 0.0)
+        model = A @ coef
+        if not np.all(np.isfinite(model)) or np.max(model) <= 0:
+            return float("inf"), 0.0
+        model = np.maximum(model, 1e-30)
+        rms = float(np.sqrt(np.mean((np.log10(Im) - np.log10(model)) ** 2)))
+        span = float(np.log10(np.max(model) / max(np.min(model), 1e-30)))
+        return rms, span
+    except Exception:
+        return float("inf"), 0.0
+
+
 class MLRegressor:
     id = "ml_regressor"
     label = "ML regressor (k-NN)"
@@ -79,17 +111,42 @@ class MLRegressor:
         w = 1.0 / (d[idx] + 1e-6); w /= w.sum()
         R = float(np.sum(w * lib.T[idx, 0]))
         pdi = float(np.sum(w * lib.T[idx, 1]))
-        # confidence: neighbour agreement on R (tight → high) and feature closeness.
+        # Confidence. It GATES campaign convergence (campaign._check_stop), so it
+        # must say how well the answer explains THIS curve, not only how the
+        # neighbours agree with each other. The old relative score (neighbour
+        # agreement + distance relative to the median library distance) gave flat
+        # noise R = 4.1 nm at 0.51 and a 30 nm sphere 17.5 nm at 0.73, both past
+        # confidence_min 0.5 (audit Q10). Now three absolute terms multiply:
+        #   * fit:    log10 RMS of the predicted model (scale + background fitted
+        #             by least squares) against the measured curve, same scale as
+        #             ls_sphere (about 0.05 = borderline);
+        #   * signal: the fitted model must actually vary across q (a decade or
+        #             more); a flat curve fitted by "background only" gets ~0;
+        #   * railed: a size or PDI at the library edge is a wall, not an answer
+        #             (sizes outside 1 to 18 nm clamp there), so it is cut hard.
         rstd = float(np.sqrt(np.sum(w * (lib.T[idx, 0] - R) ** 2)))
         agree = 1.0 / (1.0 + rstd / max(0.1 * R, 1e-3))
-        close = float(np.exp(-np.min(d) / (np.median(d) + 1e-9)))
-        conf = float(np.clip(0.5 * agree + 0.5 * close, 0.05, 0.95))
+        rms_log, span = _absolute_fit(qg, Ig, R, pdi)
+        f_fit = 1.0 / (1.0 + (rms_log / 0.05) ** 2)
+        f_signal = float(np.clip(span / 1.0, 0.0, 1.0))
+        r_step = float(_R_LIB[1] - _R_LIB[0])
+        p_step = float(_PDI_LIB[1] - _PDI_LIB[0])
+        railed = bool(R <= _R_LIB[0] + r_step or R >= _R_LIB[-1] - r_step
+                      or pdi >= _PDI_LIB[-1] - p_step)
+        conf = f_fit * f_signal * (0.5 + 0.5 * agree)
+        if railed:
+            conf *= 0.25
+        conf = float(np.clip(conf, 0.0, 0.95))
         res.update({
             "size": {"radius": R, "diameter": 2.0 * R, "source": "ml"},
             "pdi": pdi, "confidence": conf,
             "diagnostics": {"method": "ml_knn", "k": _K,
                             "neighbour_R_std": round(rstd, 3),
-                            "min_feat_dist": round(float(np.min(d)), 4)},
+                            "min_feat_dist": round(float(np.min(d)), 4),
+                            "rms_log": round(rms_log, 4),
+                            "model_span_decades": round(span, 3),
+                            "railed": railed,
+                            "library_R_nm": [float(_R_LIB[0]), float(_R_LIB[-1])]},
         })
         return res
 

@@ -10,8 +10,10 @@ detector then analysis type:
                                        .png            (figure, if provided)
 
 It also:
-  • appends the fit parameters back into the source ``.dat`` footer (the file
-    that was fitted),
+  • writes the fit parameters to a sidecar next to the results,
+    ``Analysed/<source stem>.analysis.txt`` (Q14: the source ``.dat`` is NOT
+    rewritten; rewriting Background's file changed its mtime and made the
+    Quality Gate grade it again, with an LLM call, and re-copy it to Good/),
   • registers the analysis in ``manifest.json`` (cross-app + AI visibility),
   • writes a combined batch **summary table** (CSV, plus XLSX when openpyxl is
     available).
@@ -85,20 +87,55 @@ def _scalar_results(results: dict) -> dict:
     return out
 
 
+def annotation_path_for_source(source_path: str | Path) -> Path:
+    """Sidecar that holds the ``# ANALYSIS INFORMATION`` block for a source curve:
+    ``<Analysed>/<source stem>.analysis.txt`` (same Analysed folder as the
+    results; not a ``.dat``, so no watcher picks it up)."""
+    src = Path(source_path)
+    parent = src.parent
+    base = parent.parent if parent.name.lower() in ("subtracted", "averaged",
+                                                    "reduction", "reduced") else parent
+    # Quality's Good/ and NeedsReview/ sit one level deeper, inside Subtracted/
+    if parent.name.lower() in ("good", "needsreview") and \
+            parent.parent.name.lower() == "subtracted":
+        base = parent.parent.parent
+    return base / "Analysed" / f"{src.stem}.analysis.txt"
+
+
+def read_annotations(source_path: str | Path) -> dict:
+    """{"<type>.<key>": "value"} from the sidecar of a source curve ({} if none)."""
+    out = {}
+    p = annotation_path_for_source(source_path)
+    try:
+        for ln in p.read_text(encoding="utf-8").splitlines():
+            if (ln.startswith("# ") and ":" in ln and ln.strip() != _ANNOTATE_MARKER
+                    and not ln.startswith("# source:")):
+                k, v = ln[2:].split(":", 1)
+                out[k.strip()] = v.strip()
+    except Exception:
+        pass
+    return out
+
+
 def annotate_source_dat(source_path: str | Path, analysis_type: str,
                         results: dict) -> bool:
     """
-    Append the (scalar) fit parameters into the source ``.dat`` footer under an
+    Record the (scalar) fit parameters for a source curve under an
     ``# ANALYSIS INFORMATION`` block, e.g. ``# guinier.Rg: 3.21``. A previous
     block for the SAME analysis_type is replaced. Returns True on success.
+
+    Q14: written to the SIDECAR ``annotation_path_for_source(source)``, never into
+    the source ``.dat`` itself (the source is left byte for byte untouched). The
+    sidecar is published atomically (temp file + os.replace).
     """
-    p = Path(source_path)
-    if not p.is_file():
+    src = Path(source_path)
+    if not src.is_file():
         return False
+    p = annotation_path_for_source(src)
     try:
-        lines = p.read_text(encoding="utf-8").splitlines()
+        lines = p.read_text(encoding="utf-8").splitlines() if p.is_file() else []
     except Exception:
-        return False
+        lines = []
 
     prefix = f"# {analysis_type.lower()}."
     # drop any existing lines for this analysis type (idempotent re-runs)
@@ -113,15 +150,38 @@ def annotate_source_dat(source_path: str | Path, analysis_type: str,
     idx = kept.index(_ANNOTATE_MARKER) + 1
     kept[idx:idx] = block
     try:
-        p.write_text("\n".join(kept) + "\n", encoding="utf-8")
+        import os
+        p.parent.mkdir(parents=True, exist_ok=True)
+        if not kept or kept[0] != f"# source: {src}":
+            kept = [ln for ln in kept if not ln.startswith("# source:")]
+            kept.insert(0, f"# source: {src}")
+        tmp = p.with_name(p.name + ".part")
+        tmp.write_text("\n".join(kept) + "\n", encoding="utf-8")
+        os.replace(tmp, p)
         return True
     except Exception:
         return False
 
 
-def _write_fit_dat(path: Path, q, I, header: str) -> None:
+def _fit_columns(analysis_type: str, source: Path) -> str:
+    """Column label for a _fit.dat, from what is actually written (Q37).
+
+    The analysis app loads every curve in nm⁻¹ (header unit converted), so q-type
+    fit curves are nm⁻¹. ATSAS saves (r, P(r)) computed by ATSAS from the file as
+    it is on disk, so r is in the inverse of the file's own q unit."""
+    if (analysis_type or "").lower() == "atsas":
+        try:
+            from src.utils.read_dat_metadata import read_dat_data_metadata, q_unit_from_header
+            unit = q_unit_from_header(read_dat_data_metadata(source)[0])
+        except Exception:
+            unit = None
+        return "r_A  P(r)" if unit == "A^-1" else "r_nm  P(r)"
+    return "q_nm-1  I"
+
+
+def _write_fit_dat(path: Path, q, I, header: str, columns: str = "q_nm-1  I") -> None:
     with path.open("w", encoding="utf-8") as fh:
-        fh.write(f"# {header}\n# q_nm-1  I\n")
+        fh.write(f"# {header}\n# {columns}\n")
         for qi, Ii in zip(q, I):
             fh.write(f"{qi:.6e}  {Ii:.6e}\n")
 
@@ -142,7 +202,8 @@ def save_analysis(
 ) -> dict:
     """
     Persist one analysis: JSON (+ optional fit .dat and PNG) into Analysed/,
-    annotate the source .dat, and register it in the manifest.
+    write the annotation sidecar (the source .dat is not modified), and
+    register it in the manifest.
 
     Returns {"json": path, "dat": path|None, "png": path|None,
              "analysis_id": str|None, "annotated": bool}.
@@ -167,7 +228,8 @@ def save_analysis(
     if fit_curve is not None and fit_curve[0] is not None:
         dat_path = out_dir / f"{stem}_fit.dat"
         _write_fit_dat(dat_path, fit_curve[0], fit_curve[1],
-                       f"{analysis_type} fit curve for {src.name}")
+                       f"{analysis_type} fit curve for {src.name}",
+                       _fit_columns(analysis_type, src))
 
     png_path = None
     if plot_png_b64:
@@ -200,7 +262,8 @@ def save_analysis(
 
     return {"json": str(json_path), "dat": str(dat_path) if dat_path else None,
             "png": str(png_path) if png_path else None,
-            "analysis_id": analysis_id, "annotated": annotated}
+            "analysis_id": analysis_id, "annotated": annotated,
+            "annotation": str(annotation_path_for_source(src)) if annotated else None}
 
 
 def write_batch_summary(

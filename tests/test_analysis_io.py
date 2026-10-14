@@ -65,13 +65,18 @@ def test_save_analysis_writes_bundle_to_analysed():
 
 
 def test_source_dat_annotated_idempotently():
+    # Q14 (quick audit 2026-10): the annotation goes to a sidecar; the source .dat
+    # (Background's file, watched by the Quality Gate) must stay untouched.
     d, src, q = _project_with_subtracted()
+    before = src.read_bytes()
     io.save_analysis(d, src, "saxs", "guinier", {}, {"Rg": 3.21}, user="t")
-    foot = src.read_text()
+    assert src.read_bytes() == before
+    side = io.annotation_path_for_source(src)
+    foot = side.read_text()
     assert "# ANALYSIS INFORMATION" in foot and "# guinier.Rg: 3.21" in foot
     # re-run updates in place, does not duplicate
     io.save_analysis(d, src, "saxs", "guinier", {}, {"Rg": 3.50}, user="t")
-    foot2 = src.read_text()
+    foot2 = side.read_text()
     assert foot2.count("# guinier.Rg") == 1 and "# guinier.Rg: 3.5" in foot2
 
 
