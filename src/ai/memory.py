@@ -98,7 +98,11 @@ class LayeredMemory:
         # Change 4: durable, AUTHORITATIVE operator corrections. Repo-level (git-
         # visible, like group SOPs), injected into the STATIC cached prefix, and
         # ranked above package `documented` knowledge and any knowledge.md.
-        self._corrections_path = self._kb_dir / "corrections.json"
+        # Its OWN attribute: it once reused `_corrections_path`, which made
+        # save_correction() append chat JSONL lines into this JSON file, after
+        # which the file no longer parsed and every authoritative correction
+        # silently dropped out (and the next add_correction overwrote them).
+        self._authoritative_path = self._kb_dir / "corrections.json"
 
     # ── Context assembly ───────────────────────────────────────────────────────
 
@@ -251,17 +255,60 @@ class LayeredMemory:
     # operator authors an `active` correction.
 
     def _load_corrections_raw(self) -> list[dict]:
-        if not self._corrections_path.exists():
+        path = self._authoritative_path
+        if not path.exists():
             return []
         try:
-            data = json.loads(self._corrections_path.read_text(encoding="utf-8"))
-            return data if isinstance(data, list) else []
+            text = path.read_text(encoding="utf-8")
         except Exception as exc:
-            logger.debug("[Memory] Could not read corrections.json: %s", exc)
+            logger.warning("[Memory] Could not read corrections.json: %s", exc)
             return []
+        try:
+            data = json.loads(text)
+            return data if isinstance(data, list) else []
+        except ValueError:
+            pass
+        return self._repair_corrections(text)
+
+    def _repair_corrections(self, text: str) -> list[dict]:
+        """Recover a corrections.json that had chat-correction JSONL lines
+        appended after its array (the old shared-path bug). Keeps the array,
+        moves each stray line to the per-user corrections.jsonl it belonged
+        in, and rewrites the file clean. Anything unparseable is left alone
+        (returns []) so an operator can look at it; nothing is deleted."""
+        try:
+            data, end = json.JSONDecoder().raw_decode(text.lstrip())
+        except ValueError as exc:
+            logger.warning("[Memory] corrections.json is not valid JSON, "
+                           "ignoring it until fixed: %s", exc)
+            return []
+        if not isinstance(data, list):
+            return []
+        stray = []
+        for line in text.lstrip()[end:].splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                logger.warning("[Memory] corrections.json has trailing text "
+                               "that is not JSON; left in place")
+                return data
+            if isinstance(rec, dict):
+                stray.append(rec)
+        with _WRITE_LOCK:
+            if stray:
+                with self._corrections_path.open("a", encoding="utf-8") as fh:
+                    for rec in stray:
+                        fh.write(json.dumps(rec) + "\n")
+            self._save_corrections(data)
+        logger.warning("[Memory] Repaired corrections.json: moved %d chat "
+                       "correction(s) to %s", len(stray), self._corrections_path)
+        return data
 
     def _save_corrections(self, rows: list[dict]) -> None:
-        _atomic_write_text(self._corrections_path, json.dumps(rows, indent=2))
+        _atomic_write_text(self._authoritative_path, json.dumps(rows, indent=2))
 
     @staticmethod
     def _normalize_scope(scope: str | None) -> str:
@@ -593,7 +640,7 @@ class LayeredMemory:
 
 #: Serialises the small config read-modify-write paths (preferences.yml,
 #: group/sops.json) across concurrent Flask threads so an update isn't lost.
-_WRITE_LOCK = threading.Lock()
+_WRITE_LOCK = threading.RLock()  # re-entrant: the corrections repair runs under add_correction
 
 
 def _atomic_write_text(path: Path, text: str) -> None:

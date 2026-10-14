@@ -7,6 +7,20 @@ this file is the running summary. Dates are when the work landed on `main`.
 
 ## October 2026
 
+### Two loop fixes
+
+- **Average: frames per average.** The page shipped N = 30 while the reactor
+  collects `spec.frames` = 10 per acquisition, so no loop batch could ever
+  complete. The default is now read from `reactor/config.yml` (10 if it cannot
+  be read). Test: `tests/test_average_batch_deadlock.py`.
+- **Assistant: corrections store.** Chat corrections were appended as JSONL
+  lines into `ai_knowledge/corrections.json`, which then stopped parsing, so
+  every authoritative correction silently dropped out and the next one added
+  overwrote the rest. They now go to the per-user `corrections.jsonl` again,
+  and an already affected file is repaired on read (array kept, stray lines
+  moved). Test: `tests/test_corrections_channel.py`.
+- README and QUICKSTART show the new SWAXS app icons (`tools/build_doc_icons.py`).
+
 ### SQLite manifest store
 
 - The manifest is now stored in `manifest.db` (SQLite, WAL mode,

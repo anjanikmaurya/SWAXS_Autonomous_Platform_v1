@@ -138,3 +138,16 @@ def test_the_frames_per_acquisition_probe_reads_the_reactor_config():
     from src.reactor import load_config
     expected = int((load_config().get("spec") or {}).get("frames", 0) or 0)
     assert expected > 0, "reactor config no longer declares spec.frames"
+
+
+def test_page_default_batch_size_comes_from_reactor_frames(tmp_path, monkeypatch):
+    """The UI used to ship value="30" while the reactor collects 10 frames, the
+    exact deadlock above. The page default now IS spec.frames."""
+    m = _average_app("vdefault", tmp_path, monkeypatch)
+    monkeypatch.setattr(m, "_frames_per_acquisition", lambda: 7)
+    html = m.app.test_client().get("/").get_data(as_text=True)
+    assert 'id="aa-n" value="7"' in html
+    assert "||7," in html and "||30," not in html
+    monkeypatch.setattr(m, "_frames_per_acquisition", lambda: 0)  # config unreadable
+    html = m.app.test_client().get("/").get_data(as_text=True)
+    assert 'id="aa-n" value="10"' in html

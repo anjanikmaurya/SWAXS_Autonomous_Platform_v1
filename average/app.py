@@ -431,7 +431,11 @@ def api_project():
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    # The batch size must not exceed the frames one reactor acquisition writes,
+    # or no loop batch ever completes (see /api/auto_average/start). Default it
+    # to the reactor's spec.frames so a fresh page cannot ship that deadlock.
+    return render_template("index.html",
+                           default_frames=_frames_per_acquisition() or 10)
 
 
 @app.route("/api/browse", methods=["GET"])

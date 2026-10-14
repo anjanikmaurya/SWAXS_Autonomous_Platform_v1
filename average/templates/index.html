@@ -1409,7 +1409,7 @@ body { display:flex; flex-direction:column; height:100vh; margin:0; overflow:hid
         <div class="two-col">
           <div class="fg">
             <label>Frames per average (N)</label>
-            <div class="cell"><input type="number" id="aa-n" value="30" min="1"></div>
+            <div class="cell"><input type="number" id="aa-n" value="{{ default_frames }}" min="1" title="Default: the reactor's frames per acquisition (spec.frames = {{ default_frames }}). A larger batch never completes in the autonomous loop."></div>
             <label>Check interval (seconds)</label>
             <div class="cell"><input type="number" id="aa-interval" value="3" min="1"></div>
           </div>
@@ -2150,7 +2150,7 @@ async function startAutoAvg(){
   const trim=document.getElementById('aa-qtrim-on')&&document.getElementById('aa-qtrim-on').checked;
   const qmin=aaVal('aa-qmin'), qmax=aaVal('aa-qmax');
   const body={
-    frames_per_average: +aaVal('aa-n')||30,
+    frames_per_average: +aaVal('aa-n')||{{ default_frames }},
     interval:           +aaVal('aa-interval')||10,
     saxs_folder:        sx,
     waxs_folder:        wx,

@@ -72,7 +72,8 @@ The left bar has three modes: **2D Viewer**, **1D Viewer**, **Auto-Average**.
 1. Set the SAXS/WAXS **Reduction folders** and optionally an **Output folder**
    (blank = each detector's `Averaged/`; prefer blank, because one shared folder
    gets SAXS and WAXS batches with the same filename).
-2. **Averaging options**: **Frames per average (N)** (default 30), **Check
+2. **Averaging options**: **Frames per average (N)** (default: the reactor's `spec.frames`,
+   10 as shipped; a larger N never completes in the loop), **Check
    interval (seconds)** (default 3), **Keywords** (comma-separated, blank = all
    samples), **I0 filter %** (0 = off).
 3. Optional **Truncate saved q-range**.

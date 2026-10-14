@@ -138,3 +138,50 @@ def test_tool_manage_corrections_actions(tmp_path):
 def test_token_meter_and_threshold():
     assert _estimate_tokens("x" * 4000) == 1000
     assert _estimate_tokens("y" * (4 * _STATIC_PREFIX_WARN_TOKENS)) >= _STATIC_PREFIX_WARN_TOKENS
+
+
+# ── Chat corrections must not land in corrections.json (shared-path bug) ──────
+
+def _isolated(tmp_path, monkeypatch):
+    import src.ai.memory as memmod
+    monkeypatch.setattr(memmod, "_USER_ROOT_DIR", tmp_path / "users")
+    return LayeredMemory(ai_knowledge_dir=str(tmp_path / "kb"), user_id="anj")
+
+
+def test_chat_correction_does_not_touch_authoritative_store(tmp_path, monkeypatch):
+    import json
+    m = _isolated(tmp_path, monkeypatch)
+    m.add_correction("old", "new", scope="global")
+    m.save_correction(turn=3, original="a", corrected="b")
+    store = tmp_path / "kb" / "corrections.json"
+    rows = json.loads(store.read_text())            # still one valid JSON array
+    assert [r["right"] for r in rows] == ["new"]
+    jl = tmp_path / "users" / "anj" / "corrections.jsonl"
+    assert json.loads(jl.read_text().splitlines()[0])["corrected"] == "b"
+    assert m.load_context()["recent_corrections"][0]["corrected"] == "b"
+    assert len(m.load_authoritative_corrections()) == 1
+
+
+def test_already_corrupted_store_is_repaired_not_lost(tmp_path, monkeypatch):
+    import json
+    m = _isolated(tmp_path, monkeypatch)
+    m.add_correction("w1", "r1")
+    m.add_correction("w2", "r2")
+    store = tmp_path / "kb" / "corrections.json"
+    with store.open("a") as fh:                     # what the old bug wrote
+        fh.write(json.dumps({"turn": 1, "original": "x", "corrected": "y"}) + "\n")
+    assert len(m.load_authoritative_corrections()) == 2
+    assert len(json.loads(store.read_text())) == 2  # rewritten clean
+    jl = tmp_path / "users" / "anj" / "corrections.jsonl"
+    assert "\"corrected\": \"y\"" in jl.read_text()
+    m.add_correction("w3", "r3")                    # no deadlock, nothing lost
+    assert {r["right"] for r in m.load_authoritative_corrections()} == {"r1", "r2", "r3"}
+
+
+def test_unparseable_store_is_left_alone(tmp_path, monkeypatch):
+    m = _isolated(tmp_path, monkeypatch)
+    store = tmp_path / "kb" / "corrections.json"
+    store.parent.mkdir(parents=True, exist_ok=True)
+    store.write_text("{not json")
+    assert m.load_authoritative_corrections() == []
+    assert store.read_text() == "{not json"
