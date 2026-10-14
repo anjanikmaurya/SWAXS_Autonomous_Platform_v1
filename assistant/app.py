@@ -297,7 +297,7 @@ def _ingest_app_knowledge(assistant: SWAXSAssistant) -> None:
     if kb is None:
         return
     # Ingest beamline YAML
-    bl_path = _ROOT / "ai_knowledge" / "beamline" / f"{BEAMLINE_ID}.yml"
+    bl_path = _ROOT / "ai_knowledge" / "reference" / "beamline" / f"{BEAMLINE_ID}.yml"
     if bl_path.exists():
         try:
             kb.ingest_yaml(str(bl_path), collection="beamline")
@@ -732,7 +732,7 @@ def api_ingest_pdf():
     if not safe_name.lower().endswith(".pdf") or "/" in safe_name or "\\" in safe_name:
         return jsonify({"error": "Invalid filename"}), 400
 
-    save_dir  = _ROOT / "ai_knowledge" / collection
+    save_dir  = _ROOT / "ai_knowledge" / "reference" / collection
     save_dir.mkdir(parents=True, exist_ok=True)
     save_path = (save_dir / safe_name).resolve()
     # Defence in depth: the resolved path must stay inside save_dir.

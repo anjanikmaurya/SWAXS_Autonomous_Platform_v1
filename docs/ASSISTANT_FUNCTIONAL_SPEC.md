@@ -80,8 +80,8 @@ differently and contradicted §5.
 |---|---|---|---|
 | **Layer 1 — User** | `~/.swaxs/memory/users/<user_id>/` | cross-project, per user | learned corrections (`corrections.jsonl`), preferences (`preferences.yml`), session summaries |
 | **Layer 2 — Project** | `<project_root>/.swaxs/memory/` | per experiment, travels with the data | processing history, quality log, per-project chat history |
-| **Layer 3 — Facility** | `ai_knowledge/beamline/<beamline_id>.yml` | all users at a facility | instrument quirks, detector artifacts, calibration notes |
-| **Group** (unnumbered) | `ai_knowledge/group/sops.json` | cross-project, cross-user | naming schemes, default models, buffer-matching rules |
+| **Layer 3 — Facility** | `ai_knowledge/reference/beamline/<beamline_id>.yml` | all users at a facility | instrument quirks, detector artifacts, calibration notes |
+| **Group** (unnumbered) | `ai_knowledge/rules/sops.json` | cross-project, cross-user | naming schemes, default models, buffer-matching rules |
 
 **Fundamentals are not a memory layer.** Core SAXS/WAXS theory, the model
 catalog, QC heuristics and the WAXS d-spacing/crystallinity steps live in the
@@ -171,7 +171,7 @@ What Phase 3 includes:
    numbered and the model is told to cite `[n]` and end with a References list.
 3. **Auto-ingest a papers folder** — ✅ on-demand via `ingest_folder`; with no
    path it scans BOTH the per-project `<project>/papers/` and the global
-   `ai_knowledge/user_papers/`. Background watching was de-scoped (interview:
+   `ai_knowledge/reference/user_papers/`. Background watching was de-scoped (interview:
    on-demand only).
 4. **Live web search** — ✅ `web_search` tool via Crossref (free, no key):
    returns title/authors/year/venue/DOI. Online-only with a clear offline
@@ -180,12 +180,11 @@ What Phase 3 includes:
    panel: lists every indexed paper/note, remove (✕) per item, add-note box,
    add-PDF upload, refresh. Backed by `/api/knowledge/{list,note,remove}`.
 6. **Group methods/SOPs** — ✅ a shared Group memory layer
-   (`ai_knowledge/group/sops.json`) that's ALWAYS loaded into context when it
+   (`ai_knowledge/rules/sops.json`) that's ALWAYS loaded into context when it
    exists. The `group_sops` tool lists/adds/removes conventions (naming schemes,
    default models, buffer-matching rules) that apply across all projects and
-   users. The file is **not** shipped — `ai_knowledge/group/` is an empty
-   directory until the first `group_sops` add, which creates it
-   (`src/ai/memory.py:234`). Until then nothing is loaded.
+   users. Since October 2026 the file **is** shipped in git, so every user's
+   assistant follows the same conventions (layout: `ai_knowledge/README.md`).
 
 **Phase 4 — Guarded code execution** — ✅ COMPLETE
 - `run_python` tool + `src/ai/code_exec.py` sandbox. Guard layers: (1) static
@@ -223,7 +222,7 @@ Carried out of the phase list above because they are not done.
 - **The interactive path has never been checked in a browser.** The fallback to
   PNG is unconditional on error, so a broken Plotly render degrades silently
   rather than failing loudly — which is why this has not surfaced as a bug.
-- `ai_knowledge/group/sops.json` does not exist on disk, so the "always loaded"
+- `ai_knowledge/rules/sops.json` does not exist on disk, so the "always loaded"
   group layer is currently a no-op for a fresh checkout.
 - Vector **retrieval/ingestion** needs `chromadb` + `sentence-transformers` in
   the platform venv (`requirements-ai.txt`; sentence-transformers pulls torch,

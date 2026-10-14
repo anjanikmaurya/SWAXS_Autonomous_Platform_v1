@@ -20,7 +20,7 @@ folder it writes to is `<project>/assistant_outputs/`.
   manifest-contract section are injected directly into the system prompt, read
   from disk on every turn (`src/ai/assistant.py`, `_resolve_app_knowledge`). Edits
   to a `knowledge.md` take effect on the next turn, with no re-ingestion.
-- RAG collections in ChromaDB (`ai_knowledge/vector_db/`): `literature`,
+- RAG collections in ChromaDB (`ai_knowledge/index/vector_db/`): `literature`,
   `user_papers`, and `beamline`. The top 6 hits are added to each prompt.
 
 **Writes**
@@ -32,9 +32,9 @@ folder it writes to is `<project>/assistant_outputs/`.
   history and quality log for this project.
 - `~/.swaxs/memory/users/<user_id>/`: personal preferences and session
   summaries, which follow the user across projects.
-- `ai_knowledge/group/sops.json`: group SOPs (shared by all users and projects).
-- `ai_knowledge/corrections.json`: authoritative operator corrections.
-- `ai_knowledge/ingestion_log.json`: what has been added to the knowledge base.
+- `ai_knowledge/rules/sops.json`: group SOPs (shared by all users and projects).
+- `ai_knowledge/rules/corrections.json`: authoritative operator corrections.
+- `ai_knowledge/index/ingestion_log.json`: what has been added to the knowledge base.
 
 **Event bus**: subscribes to the hub bus and turns events into live hints
 (the **Live hints** panel, fed by `/api/events/stream`). See the hub doc for
@@ -154,10 +154,10 @@ Up to 8 tool rounds per turn.
 - **Project** (`<project>/.swaxs/memory/`): `chat_history.jsonl`,
   `experiment_history.jsonl`, `quality_log.jsonl`. The last 20 turns of the
   project's chat are reloaded when a new session starts in that project.
-- **Facility** (`ai_knowledge/beamline/<id>.yml`, id from `SWAXS_BEAMLINE`,
+- **Facility** (`ai_knowledge/reference/beamline/<id>.yml`, id from `SWAXS_BEAMLINE`,
   default `ssrl_1-5`): instrument notes, also indexed in the `beamline` collection.
-- **Group** (`ai_knowledge/group/sops.json`): shared SOPs, always in context.
-- **Corrections** (`ai_knowledge/corrections.json`): authoritative corrections,
+- **Group** (`ai_knowledge/rules/sops.json`): shared SOPs, always in context.
+- **Corrections** (`ai_knowledge/rules/corrections.json`): authoritative corrections,
   always in context. If one conflicts with a `knowledge.md`, the assistant
   surfaces the conflict rather than applying it silently.
 

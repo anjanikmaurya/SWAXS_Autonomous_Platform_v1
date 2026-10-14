@@ -1,0 +1,26 @@
+[
+  {
+    "id": "dd9a535b",
+    "title": "Default data stage for analysis = subtracted",
+    "text": "For ALL analysis (Guinier, Kratky, Porod/power-law, P(r), tier-1 ladder passes, form-factor/sasmodels fitting, and curve overlays intended for interpretation), always read curves from the SUBTRACTED folder (stage='subtracted', files ending '_sub.dat') by default. Do NOT analyse averaged (un-subtracted) curves unless the user explicitly names a different stage/folder for that specific request. Exceptions that legitimately use the averaged stage: per-frame acquisition metadata (I0/bstop/transmission/temperature) via plot_metadata, frame-outlier QC via assess_quality, and background-vs-sample contrast checks. If the requested sample has no subtracted counterpart, say so and ask rather than silently falling back to the averaged file.",
+    "added": "2026-09-07T05:49:12.636836+00:00"
+  },
+  {
+    "id": "05c10697",
+    "title": "Beamline geometry source of truth",
+    "text": "The beamline 1-5 knowledge YAML (ssrl_1-5.yml) is OUTDATED and must NOT be used as the source of truth for detector geometry, sample-detector distance, beam centre, or q-range. Always read actual geometry from: (1) the .poni calibration file(s) in the project, and (2) the Reduction app's current configuration. If neither is available for a given session, ask the user before assuming any detector parameter. Do not quote q-ranges, pixel sizes, or SDD values from the YAML without first verifying against the poni/Reduction app.",
+    "added": "2026-09-07T06:19:09.841154+00:00"
+  },
+  {
+    "id": "401efeac",
+    "title": "Always verify q-units before any operation",
+    "text": "Before ANY plotting, analysis, feedback, or numerical statement about a curve, explicitly verify the q-axis units of the loaded .dat file. Units may be \u00c5\u207b\u00b9 or nm\u207b\u00b9 depending on the reduction configuration; NEVER assume. Check the file header or reduction config for the unit declaration. If uncertain, flag it and ask the user. All internal analysis and reporting must use consistent units \u2014 state which unit is in use at the top of every analysis summary. Mixing \u00c5\u207b\u00b9 and nm\u207b\u00b9 (factor of 10 difference) produces completely wrong Rg, d-spacing, and power-law results.",
+    "added": "2026-09-07T06:19:09.842890+00:00"
+  },
+  {
+    "id": "84d10bec",
+    "title": "No Bragg peak claims without WAXS confirmation",
+    "text": "Do NOT report, count, or build any interpretation on putative Bragg peaks found in the SAXS high-q tail (typically q > ~2 nm\u207b\u00b9 / 0.2 \u00c5\u207b\u00b9) without independent confirmation from the WAXS detector. Reasons: (a) SAXS SNR degrades rapidly at high q and peak-finders will trigger on noise; (b) the q_usable_max boundary itself is noise-limited and wanders run-to-run; (c) a real crystalline reflection must appear at the SAME q in both SAXS and WAXS and must be reproducible across frames. The required check is: overlay the SAXS and WAXS subtracted curves for the same sample and confirm peak positions match. Until that check passes, classify any high-q SAXS feature as 'unconfirmed / likely noise'.",
+    "added": "2026-09-07T06:19:09.843544+00:00"
+  }
+]

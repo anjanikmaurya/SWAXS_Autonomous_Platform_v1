@@ -98,6 +98,7 @@ SWAXS_Autonomous_Platform_v1/
 │   │                           #   · expectations.py · probes.py · diagnose.py
 │   └── ai/                     # assistant.py · knowledge.py · memory.py · hints.py
 │                               #   · plots.py · code_exec.py · loop_advice.py
+│                               #   · layout.py (every knowledge path) · traces.py (answer traces)
 │
 ├── apps.yml                # THE app registry — ports, entries, knowledge, manifest keys
 ├── start_platform.sh       # macOS / Linux launcher
@@ -108,7 +109,9 @@ SWAXS_Autonomous_Platform_v1/
 ├── requirements-hardware.txt   # pyserial, pyepics — real rig only
 ├── requirements-ai.txt     # anthropic, chromadb, … — AI assistant extras
 ├── check_imports.py · conftest.py · pytest.ini
-├── tests/ · tools/ · docs/ · ai_knowledge/ · logs/
+├── ai_knowledge/           # the assistant's knowledge: rules/ · reference/ · cases/ · evals/
+│                           #   · index/ (rebuilt, not in git); see ai_knowledge/README.md
+├── tests/ · tools/ · docs/ · logs/
 └── CLAUDE.md               # This file
 ```
 

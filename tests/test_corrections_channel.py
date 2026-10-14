@@ -153,7 +153,7 @@ def test_chat_correction_does_not_touch_authoritative_store(tmp_path, monkeypatc
     m = _isolated(tmp_path, monkeypatch)
     m.add_correction("old", "new", scope="global")
     m.save_correction(turn=3, original="a", corrected="b")
-    store = tmp_path / "kb" / "corrections.json"
+    store = tmp_path / "kb" / "rules" / "corrections.json"
     rows = json.loads(store.read_text())            # still one valid JSON array
     assert [r["right"] for r in rows] == ["new"]
     jl = tmp_path / "users" / "anj" / "corrections.jsonl"
@@ -167,7 +167,7 @@ def test_already_corrupted_store_is_repaired_not_lost(tmp_path, monkeypatch):
     m = _isolated(tmp_path, monkeypatch)
     m.add_correction("w1", "r1")
     m.add_correction("w2", "r2")
-    store = tmp_path / "kb" / "corrections.json"
+    store = tmp_path / "kb" / "rules" / "corrections.json"
     with store.open("a") as fh:                     # what the old bug wrote
         fh.write(json.dumps({"turn": 1, "original": "x", "corrected": "y"}) + "\n")
     assert len(m.load_authoritative_corrections()) == 2
@@ -180,7 +180,7 @@ def test_already_corrupted_store_is_repaired_not_lost(tmp_path, monkeypatch):
 
 def test_unparseable_store_is_left_alone(tmp_path, monkeypatch):
     m = _isolated(tmp_path, monkeypatch)
-    store = tmp_path / "kb" / "corrections.json"
+    store = tmp_path / "kb" / "rules" / "corrections.json"
     store.parent.mkdir(parents=True, exist_ok=True)
     store.write_text("{not json")
     assert m.load_authoritative_corrections() == []

@@ -37,6 +37,12 @@ os.environ.setdefault("SWAXS_NO_BUS", "1")
 # the auto-start for the suite; explicit /api/monitor/start still works.
 os.environ.setdefault("SWAXS_NO_WATCH", "1")
 
+# Assistant answer traces (src/ai/traces.py) go to a throwaway folder during
+# tests, never into the repo's logs/assistant_traces/.
+import tempfile as _tempfile  # noqa: E402
+os.environ.setdefault("SWAXS_TRACES_DIR",
+                      os.path.join(_tempfile.gettempdir(), "swaxs_test_traces"))
+
 # Preload the REAL scipy before any test module is collected, so the numpy-only
 # tests (which stub scipy only "if scipy not in sys.modules") leave the real
 # library in place. Keeps src.analysis.nanoparticle (scipy.signal/ndimage/...)

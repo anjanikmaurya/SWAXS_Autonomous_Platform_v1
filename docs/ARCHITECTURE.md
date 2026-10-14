@@ -227,16 +227,20 @@ The assistant app (`assistant/app.py`, logic in `src/ai/`) combines:
 
 | Source | Location |
 |---|---|
-| Literature and user papers | `ai_knowledge/literature/`, `ai_knowledge/user_papers/` (ChromaDB in `ai_knowledge/vector_db/`) |
+| Literature and user papers | `ai_knowledge/reference/literature/`, `ai_knowledge/reference/user_papers/` (ChromaDB in `ai_knowledge/index/vector_db/`) |
 | Per-app knowledge | every `knowledge.md` named in `apps.yml`, plus `hub/knowledge.md` |
-| Facility notes | `ai_knowledge/beamline/<beamline_id>.yml` |
-| Group SOPs | `ai_knowledge/group/` |
+| Facility notes | `ai_knowledge/reference/beamline/<beamline_id>.yml` |
+| Group SOPs and operator corrections | `ai_knowledge/rules/` (`sops.json`, `corrections.json`, plus the base prompt `system_prompt.md`) |
+| Answer traces | `logs/assistant_traces/` (`src/ai/traces.py`) |
+
+The full layout, and the order in which the model sees each part, is in
+`ai_knowledge/README.md`; every path is defined once in `src/ai/layout.py`.
 | The experiment | the project manifest |
 
 Layered memory (`src/ai/memory.py`): **Layer 1** user, `~/.swaxs/memory/users/<user>/`
 (corrections, preferences, session summaries); **Layer 2** project,
 `<project>/.swaxs/memory/` (history, quality log, chat history); **Layer 3**
-facility, `ai_knowledge/beamline/`; plus the group layer.
+facility, `ai_knowledge/reference/beamline/`; plus the group layer.
 
 The chat loop exposes 18 tools (`src/ai/assistant.py`): `generate_plot`,
 `plot_metadata`, `overlay_curves`, `fit_model`, `list_saxs_models`,

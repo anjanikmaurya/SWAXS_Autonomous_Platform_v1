@@ -1,0 +1,74 @@
+# Every source of the assistant's knowledge. Checked by
+# tests/test_assistant_knowledge_layout.py against src/ai/layout.py.
+#   role:   injected (every turn) | searched (by meaning) | memory | examples | exam | index
+#   shared: true = in git, travels to every user
+sources:
+  - id: system_prompt
+    path: ai_knowledge/rules/system_prompt.md
+    role: injected
+    order: 1
+    shared: true
+  - id: corrections
+    path: ai_knowledge/rules/corrections.json
+    role: injected
+    order: 2
+    shared: true
+  - id: app_knowledge
+    path: "*/knowledge.md"
+    role: injected
+    order: 3
+    shared: true
+  - id: analysis_guidelines
+    path: analysis/saxs_knowledge.yaml
+    also: [analysis/waxs_knowledge.yaml, src/analysis/guidelines.py]
+    role: injected
+    order: 4
+    shared: true
+  - id: sops
+    path: ai_knowledge/rules/sops.json
+    role: memory
+    order: 5
+    shared: true
+  - id: beamline
+    path: ai_knowledge/reference/beamline
+    role: searched
+    order: 6
+    shared: true
+  - id: literature
+    path: ai_knowledge/reference/literature
+    role: searched
+    order: 6
+    shared: true
+  - id: user_papers
+    path: ai_knowledge/reference/user_papers
+    role: searched
+    order: 6
+    shared: false
+  - id: hints
+    path: src/ai/hints.py
+    role: injected
+    order: 0          # proactive hints, outside the chat prompt
+    shared: true
+  - id: cases
+    path: ai_knowledge/cases
+    role: examples
+    shared: true
+  - id: evals
+    path: ai_knowledge/evals
+    role: exam
+    shared: true
+  - id: index
+    path: ai_knowledge/index
+    role: index
+    shared: false
+  - id: personal_memory
+    path: "~/.swaxs/memory/users/<user>"
+    role: memory
+    order: 5
+    shared: false
+  - id: project_memory
+    path: "<project>/.swaxs/memory"
+    also_note: "<project>/manifest.db (ai_memory)"
+    role: memory
+    order: 5
+    shared: false

@@ -7,6 +7,22 @@ this file is the running summary. Dates are when the work landed on `main`.
 
 ## October 2026
 
+### Assistant knowledge organised; every answer traced
+
+- **One layout** for everything the assistant knows (`ai_knowledge/README.md`,
+  paths defined once in `src/ai/layout.py`, every source listed in
+  `ai_knowledge/sources.yml`): `rules/` (corrections, group SOPs, and the base
+  prompt, moved out of `assistant.py` into `system_prompt.md` unchanged),
+  `reference/` (literature, user papers, beamline), `cases/` and `evals/` (to be
+  filled), `index/` (search index, not in git). Group SOPs are now shared in git.
+- Older clones migrate automatically on the assistant's first start; the index
+  log's paths are rewritten so no paper is indexed twice.
+- **Traces:** every answer writes one line to `logs/assistant_traces/` with the
+  prompt parts used, passages retrieved, tool calls, token use and any error
+  (`src/ai/traces.py`; local only, no credentials; `SWAXS_ASSISTANT_TRACES=0`
+  turns it off). Groundwork for scoring and improving the assistant, after
+  Meta-Harness (arXiv 2603.28052). Test: `tests/test_assistant_knowledge_layout.py`.
+
 ### Platform quick audit: 37 fixes (Q1 to Q37)
 
 - **Security:** the assistant binds to localhost only; `run_python` runs under an

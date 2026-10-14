@@ -18,7 +18,9 @@ Demo_Data/
 venv/
 .git-old-backup/
 
-# AI-knowledge vector database - generated locally, rebuilt per machine.
+# AI-knowledge search index - generated locally, rebuilt per machine
+# (ai_knowledge/index/; the old root locations are kept for older clones).
+ai_knowledge/index/
 ai_knowledge/vector_db/
 
 # Per-app runtime logs written by the hub
@@ -31,8 +33,8 @@ logs/
 tests/ui/node_modules/
 ai_knowledge/ingestion_log*.json
 
-# Assistant "group layer" SOPs — runtime state created by the group_sops tool
-# on first add, per docs/ASSISTANT_FUNCTIONAL_SPEC.md; deliberately not shipped.
+# Group SOPs now live in ai_knowledge/rules/sops.json and ARE shared, so every
+# user's assistant follows the same conventions. The old folder stays ignored.
 ai_knowledge/group/
 
 # Claude Code per-machine settings

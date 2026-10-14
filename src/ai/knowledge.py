@@ -81,8 +81,8 @@ class KnowledgeBase:
     ----------
     base_dir : str | Path
         Root of the ``ai_knowledge/`` folder.  The ChromaDB store is kept at
-        ``base_dir/vector_db/`` and the ingestion log at
-        ``base_dir/ingestion_log.json``.
+        ``base_dir/index/vector_db/`` and the ingestion log at
+        ``base_dir/index/ingestion_log.json`` (see src/ai/layout.py).
     embedding_model : str
         Sentence-transformers model used for embedding.  Default is
         ``all-MiniLM-L6-v2`` — fast and runs on CPU.
@@ -94,8 +94,10 @@ class KnowledgeBase:
         embedding_model: str = "all-MiniLM-L6-v2",
     ) -> None:
         self._base      = Path(base_dir)
-        self._db_path   = self._base / "vector_db"
-        self._log_path  = self._base / "ingestion_log.json"
+        from src.ai.layout import KnowledgeLayout  # noqa: PLC0415
+        _L = KnowledgeLayout(self._base)
+        self._db_path   = _L.vector_db
+        self._log_path  = _L.ingestion_log
         self._em_model  = embedding_model
         self._client    = None   # lazy — created on first use
         self._ef        = None   # embedding function, lazy

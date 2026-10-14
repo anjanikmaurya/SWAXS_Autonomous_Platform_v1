@@ -26,7 +26,8 @@ from src.ai.knowledge import KnowledgeBase  # noqa: E402
 
 def _kb_with_log(entries: dict) -> KnowledgeBase:
     d = Path(tempfile.mkdtemp())
-    (d / "ingestion_log.json").write_text(json.dumps(entries))
+    (d / "index").mkdir()                       # src/ai/layout.py: index/
+    (d / "index" / "ingestion_log.json").write_text(json.dumps(entries))
     return KnowledgeBase(d)
 
 

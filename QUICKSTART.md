@@ -445,7 +445,7 @@ Seen only when installing a leftover requirements.txt: old `chromadb` caps
 `requirements-core.txt`. Install the core first, then, if you want the AI
 knowledge base, `pip install -r requirements-ai.txt` on its own. If the
 assistant later complains about its vector database, delete
-`ai_knowledge/vector_db/`; it is rebuilt locally.
+`ai_knowledge/index/vector_db/`; it is rebuilt locally.
 
 ### pyopencl fails to build
 Nothing imports it and it is not in `requirements-core.txt`. Do not install it;

@@ -11,7 +11,7 @@ Layer 2 — Project layer  (<project_root>/.swaxs/memory/)
     Per-experiment processing history, quality logs, and context.
     Travels with the data.
 
-Layer 3 — Facility layer  (ai_knowledge/beamline/<beamline_id>.yml)
+Layer 3 — Facility layer  (ai_knowledge/reference/beamline/<beamline_id>.yml)
     Instrument-specific know-how, detector quirks, calibration notes.
     Shared across all users at the same facility.
 
@@ -88,13 +88,15 @@ class LayeredMemory:
         self._session_summary_dir.mkdir(exist_ok=True)
 
         # ── Layer 3: facility dir ────────────────────────────────────────────
-        self._beamline_dir = self._kb_dir / "beamline"
+        from src.ai.layout import KnowledgeLayout  # noqa: PLC0415
+        self._layout = KnowledgeLayout(self._kb_dir)
+        self._beamline_dir = self._layout.reference("beamline")
         self._beamline_dir.mkdir(parents=True, exist_ok=True)
 
         # ── Group layer: shared SOPs / conventions (cross-project, cross-user) ─
-        self._group_dir = self._kb_dir / "group"
+        self._group_dir = self._layout.rules_dir
         self._group_dir.mkdir(parents=True, exist_ok=True)
-        self._group_sops_path = self._group_dir / "sops.json"
+        self._group_sops_path = self._layout.sops
         # Change 4: durable, AUTHORITATIVE operator corrections. Repo-level (git-
         # visible, like group SOPs), injected into the STATIC cached prefix, and
         # ranked above package `documented` knowledge and any knowledge.md.
@@ -102,7 +104,7 @@ class LayeredMemory:
         # save_correction() append chat JSONL lines into this JSON file, after
         # which the file no longer parsed and every authoritative correction
         # silently dropped out (and the next add_correction overwrote them).
-        self._authoritative_path = self._kb_dir / "corrections.json"
+        self._authoritative_path = self._layout.corrections
 
     # ── Context assembly ───────────────────────────────────────────────────────
 
@@ -546,7 +548,7 @@ class LayeredMemory:
     # ── Facility layer (Layer 3) ───────────────────────────────────────────────
 
     def list_beamlines(self) -> list[str]:
-        """Return available beamline IDs (YAML stems in ai_knowledge/beamline/)."""
+        """Return available beamline IDs (YAML stems in ai_knowledge/reference/beamline/)."""
         return [p.stem for p in self._beamline_dir.glob("*.yml")]
 
     # ── Internal loaders ───────────────────────────────────────────────────────
