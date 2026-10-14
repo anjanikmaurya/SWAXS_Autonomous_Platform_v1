@@ -3,7 +3,8 @@
 ## Purpose
 The Hub (port 5100) is the central launcher and monitor for the SWAXS platform.
 It starts every sub-app as an independent subprocess, monitors their health,
-provides the project-folder selector, and serves the WebSocket event bus at `/ws`.
+provides the project-folder selector and the **Operator** box (top bar; the only
+place the operator's name is entered), and serves the WebSocket event bus at `/ws`.
 The hub port is overridable with the `SWAXS_HUB_PORT` environment variable
 (default 5100 — chosen because macOS AirPlay Receiver holds 5000).
 
@@ -12,10 +13,11 @@ The hub port is overridable with the `SWAXS_HUB_PORT` environment variable
 ```
 Browser → hub:5100
   │
-  ├── Launches one subprocess per apps.yml entry (currently 9):
+  ├── Launches one subprocess per apps.yml entry (currently 10):
   │     calibration :5101    reduction :5102    average  :5103
   │     background  :5104    analysis  :5106    assistant:5109
   │     quality     :5105    reactor   :5108    analyzer :5107
+  │     watchdog    :5110
   │
   ├── WebSocket broker (/ws):
   │     any sub-app publishes → hub → all other connected apps
@@ -41,6 +43,7 @@ contains.
 | GET  | `/api/ports` | who is holding each app's port (answers "why won't it start?") |
 | POST | `/api/set_project` | set the project folder — body `{"path": "/abs/path"}` |
 | GET  | `/api/browse` | directory browser for the project picker |
+| GET/POST | `/api/operator` | read / set the operator (body `{"operator": "..."}`); saved to `logs/hub_operator.txt`, exported as `SWAXS_USER_ID` to apps started afterwards, and written to the project manifest as `project_meta.current_operator` |
 | POST | `/api/apps/reload` | hot-reload `apps.yml` without restarting the hub |
 
 There is no `POST /api/project` — the project-folder endpoint is
@@ -70,6 +73,7 @@ process group, with stdout+stderr redirected to `logs/<app_id>.log` (the previou
 log is rotated, not truncated). The child environment gets:
 
 - `SWAXS_PROJECT` = the current project root (only if one is selected)
+- `SWAXS_USER_ID` = the operator set in the hub (only if one is set)
 - `PYTHONUTF8=1` and `PYTHONIOENCODING=utf-8`
 
 Live PIDs are snapshotted to `logs/hub_children.json` on every start/stop, so a
@@ -141,11 +145,14 @@ When a sub-app sends a message to `/ws`, the hub:
 3. Broadcasts it to all other connected clients (the sender is excluded)
 
 `add_event` keeps a ROLLING window of only the last `_EVENTS_MAX` = 100 events
-(`src/manifest.py:119`); older events are dropped from `manifest.json`. Events
+(`src/manifest.py`); older events are dropped from the manifest. Events
 are only persisted while a project folder is selected.
 
 ## manifest.json — Cross-App Contract
-`src/manifest.py` owns a single `manifest.json` at the project root. Each app
+`src/manifest.py` owns the manifest at the project root. By default it is stored
+in SQLite, `manifest.db` (`src/manifest_store.py`, with rotating snapshots in
+`.manifest_snapshots/`), and a `manifest.json` export is written on every save
+(`SWAXS_MANIFEST_BACKEND=json` restores the old single-file store). Each app
 reads and writes ONLY its own section (declared as `manifest_key` in `apps.yml`)
 and must never overwrite another app's keys: reduction/average → `files`,
 background → `background`, quality → `quality`, analysis/analyzer → `analyses`,

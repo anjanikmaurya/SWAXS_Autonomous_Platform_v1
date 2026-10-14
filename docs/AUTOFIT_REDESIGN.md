@@ -1,4 +1,4 @@
-# Auto-Fit & Optimiser — full redesign (3-tab, pluggable methods)
+# Autonomous Analyser (formerly "Auto-Fit & Optimiser") — full redesign (3-tab, pluggable methods)
 
 Status: **design only — no code written yet.** This supersedes the earlier
 `AUTOFIT_METHODS_REFACTOR.md` with a complete rethink: a three-tab app whose

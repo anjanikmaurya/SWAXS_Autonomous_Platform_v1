@@ -1,7 +1,7 @@
 # Simulated 2D SAXS Data — Full-Pipeline Testing Without Beam
 
 Generates **real `.raw` detector frames** whenever a collection is triggered in
-mock mode, so the entire chain — reduction → averaging → subtraction → quality →
+mock mode (backend `mock`, "Simulation" in the reactor app), so the entire chain — reduction → averaging → subtraction → quality →
 analyzer → optimizer — can be exercised off-rig against a **known ground truth**.
 
 > **Why not an LLM?** An LLM cannot produce a physically consistent 2D intensity

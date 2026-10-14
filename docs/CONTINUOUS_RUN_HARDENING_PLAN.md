@@ -273,7 +273,7 @@ Shipped:
 
 - `src/plot_reduction.py::read_folder(..., skip_names=None)` — filters by
   filename ahead of the stat loop. `average/app.py::_consumed_for(det)` feeds
-  it; `todo`, and therefore the averaging gate Auto Watch reads, is byte
+  it; `todo`, and therefore the averaging gate Autonomous Watch reads, is byte
   identical, because those files were filtered out one line later anyway.
 - The parse cache is keyed by **path**, valued `((mtime_ns, size), entry)`, so
   a rewritten file replaces its own entry. Keying the whole signature — the

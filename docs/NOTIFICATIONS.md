@@ -1,6 +1,6 @@
-# Notifications — Auto Watch App
+# Notifications — Autonomous Watch App
 
-**The Auto Watch app (port 5110) is the sole place the platform sends notifications.** It subscribes to the event bus, applies policy (quiet hours, snooze, throttle), and sends to Slack via a Workflow Builder webhook.
+**The Autonomous Watch app (port 5110) is the sole place the platform sends notifications.** It subscribes to the event bus, applies policy (quiet hours, snooze, throttle), and sends to Slack via a Workflow Builder webhook.
 
 No other app has a notification setting, a Slack link, or a sentence about
 alerts. That is enforced, not just intended —
@@ -12,7 +12,7 @@ the beamline" card stayed in the template: the boot call
 `api('/api/slack').then(renderSlack).catch(()=>{})` swallowed the 404, so the
 hard-coded button stayed on screen looking live and clicking it did nothing.
 An operator could arm alerts, read the reassuring text, and leave for the night
-with none armed. The card was then rewritten as a pointer to Auto Watch →
+with none armed. The card was then rewritten as a pointer to Autonomous Watch →
 Alerts, and in September 2026 deleted outright — a second place that talks
 about notifications is a second place that can go stale, contradict this one,
 or be read as a second switch that also needs arming.
@@ -50,7 +50,7 @@ If the URL is ever rotated, re-run the Workflow Builder and update `.env`.
 ### 3. Test it
 
 ```bash
-# From the Auto Watch UI at http://localhost:5110, click "Test"
+# From the Autonomous Watch UI at http://localhost:5110, click "Test"
 # Or from the command line:
 curl -X POST http://localhost:5110/api/test
 ```
@@ -61,7 +61,7 @@ You should see a test message in `#autoq`.
 
 ### Events from the Bus
 
-Auto Watch subscribes to platform events:
+Autonomous Watch subscribes to platform events:
 
 | Event | Category | Level | Meaning |
 |---|---|---|---|
@@ -119,7 +119,7 @@ All of this is resolved in one place — `should_send()` in `src/watchdog/policy
 
 ### Message Categories
 
-Every message is tagged with exactly one category. The Auto Watch UI's **Alerts** page has an independent checkbox per category — any combination, including all or none:
+Every message is tagged with exactly one category. The Autonomous Watch UI's **Alerts** page has an independent checkbox per category — any combination, including all or none:
 
 | Category | Covers |
 |---|---|
@@ -135,10 +135,10 @@ Bus events map to a category via `category_for_event()` in `src/watchdog/policy.
 
 ### Stall Detection
 
-Every 5 minutes, Auto Watch checks if any pipeline stage is overdue:
+Every 5 minutes, Autonomous Watch checks if any pipeline stage is overdue:
 - Expected events: `file.reduced`, `file.averaged`, `file.subtracted`, `fit.complete`
 - Timeout per stage: 1–3 hours depending on stage
-- If a stage is overdue, Auto Watch probes the next app (`/api/monitor/status`) and sends a fault message naming the dead stage
+- If a stage is overdue, Autonomous Watch probes the next app (`/api/monitor/status`) and sends a fault message naming the dead stage
 
 ## Configuration
 
@@ -164,7 +164,7 @@ The master switch and categories persist here, so they survive a restart. The
 webhook URL is never in this file — it's a secret and lives in `.env`
 (`SWAXS_SLACK_WEBHOOK_URL`).
 
-Both can also be changed live from the Auto Watch UI's **Alerts** page (or via
+Both can also be changed live from the Autonomous Watch UI's **Alerts** page (or via
 `POST /api/settings`), which writes straight back to this file.
 
 ## Routes
@@ -183,14 +183,14 @@ Both can also be changed live from the Auto Watch UI's **Alerts** page (or via
 1. Check the **Alerts** page — sending must be **ON**, and the category the message belongs to must be checked
 2. Check `SWAXS_SLACK_WEBHOOK_URL` is set in `.env` and the platform is restarted
 3. Test with `curl -X POST http://localhost:5110/api/test` — this bypasses the master switch and category filter entirely (it's a webhook wiring check, not a policy check), so it succeeding doesn't mean real messages will send too
-4. Check that `#autoq` exists and the Auto Watch app has permission to post there
-5. Look at the Auto Watch console for errors
+4. Check that `#autoq` exists and the Autonomous Watch app has permission to post there
+5. Look at the Autonomous Watch console for errors
 
 ### Messages are being snoozed
 
-Check the Auto Watch UI (`http://localhost:5110`). If **Snoozed** is on, progress messages won't send. Click **Snooze** again with `0` to clear it.
+Check the Autonomous Watch UI (`http://localhost:5110`). If **Snoozed** is on, progress messages won't send. Click **Snooze** again with `0` to clear it.
 
-### Platform stalls but Auto Watch doesn't send a stall message
+### Platform stalls but Autonomous Watch doesn't send a stall message
 
 Stall detection looks for missing events. If no events have arrived at all (idle platform), no stall is detected. Only active campaigns generate stall alerts.
 

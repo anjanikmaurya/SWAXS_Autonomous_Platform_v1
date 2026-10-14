@@ -37,9 +37,9 @@ table to tell the difference between shipped code and planned work.
 | Word (`.docx`) export | **Never built** | No `python-docx`/`reportlab` dependency and no `.docx` writer anywhere in the tree |
 | SAXS+WAXS auto-stitching | **Never built** | No `src/reduction/stitch.py`, no `auto_stitch()`. The average app's "Stitch SAXS+WAXS" is a display-only checkbox (`average/templates/index.html:1182`, `2338-2345`): it co-plots the two curves, computes no scale factor and writes no merged file |
 
-Four apps shipped after this document was written and are not described
+Five apps shipped after this document was written and are not described
 anywhere below: **calibration** (:5101), **quality** (:5105), **reactor**
-(:5108), **analyzer** (:5107). See `apps.yml` for the live registry and
+(:5108), **analyzer** (:5107), **watchdog** (Autonomous Watch, :5110). See `apps.yml` for the live registry and
 `README.md` for what each one does.
 
 > Note: the section 5 module map has been regenerated from the tree. Earlier
@@ -73,6 +73,7 @@ anywhere below: **calibration** (:5101), **quality** (:5105), **reactor**
         │  :5107  Analyzer         auto-fit size/PDI + Bayesian optimizer   │
         │  :5108  Reactor          5-pump flow synthesis + SPEC control     │
         │  :5109  AI Assistant     interpretation, hints, inline plots      │
+        │  :5110  Watchdog         Autonomous Watch: loop liveness, Slack   │
         └─────────────────────────────────┬─────────────────────────────────┘
                                           │
               closed loop: reactor → SPEC collect → reduction → averaging
@@ -135,7 +136,7 @@ never appear. Conversely `file.classified` **is** published but is missing from
 the hub's `_TYPE_CLASS` map, so it renders unstyled.
 
 The hub appends each event to `manifest["events"]` (rolling last 100,
-`_EVENTS_MAX` in `src/manifest.py:119`). After any `file.*` or `analysis.*`
+`_EVENTS_MAX` in `src/manifest.py`). After any `file.*` or `analysis.*`
 event, the AI assistant is notified and may emit an `ai.hint` back.
 
 ---
@@ -162,25 +163,32 @@ Shipped entries, in registry order:
 
 | id | port | entry | manifest_key | knowledge |
 |---|---|---|---|---|
-| calibration | 5101 | `calibration/app.py` | — | **none** |
+| calibration | 5101 | `calibration/app.py` | — | yes |
 | reduction | 5102 | `reduction/app.py` | `files` | yes |
 | average | 5103 | `average/app.py` | `files` | yes |
 | background | 5104 | `background/app.py` | `background` | yes |
 | quality | 5105 | `quality/app.py` | `quality` | yes |
 | analysis | 5106 | `analysis/app.py` | `analyses` | yes |
+| analyzer | 5107 | `analyzer/app.py` | `analyses` | yes |
 | reactor | 5108 | `reactor/app.py` | `reactor` | yes |
-| analyzer | 5107 | `analyzer/app.py` | `analyses` | **none** |
 | assistant | 5109 | `assistant/app.py` | `ai_memory` | yes |
+| watchdog | 5110 | `watchdog/app.py` | — | yes |
 
-calibration and analyzer carry no `knowledge:` key, so the assistant has no
-indexed description of either — questions about `.poni` generation or the
-nanoparticle fit fall back to the manifest and the system prompt.
+Every app now carries a `knowledge:` key (`tests/test_docs_integrity.py`
+checks it), and `hub/knowledge.md` is indexed as well.
 
 **Adding a new app:** add an entry to `apps.yml`. The hub discovers it on next start (no code changes). The AI automatically indexes `knowledge.md`.
 
 ---
 
 ### 3. Manifest Schema v2
+
+**Storage.** By default the manifest is persisted in SQLite, `manifest.db` at the
+project root (`src/manifest_store.py`): transactional writes, indexed search,
+rotating snapshots in `.manifest_snapshots/`. A `manifest.json` export is still
+written on every save, so anything that reads the JSON keeps working;
+`SWAXS_MANIFEST_BACKEND=json` restores the old single-file store. The schema
+below is the same in-memory dict either way.
 
 Full backwards-compatible extension of v1. New keys marked with `# NEW`.
 
@@ -303,10 +311,10 @@ Full backwards-compatible extension of v1. New keys marked with `# NEW`.
 }
 ```
 
-`_empty_manifest` (`src/manifest.py:709-746`) seeds `project_meta`, `files`,
+`_empty_manifest` (`src/manifest.py`) seeds `project_meta`, `files`,
 `analyses`, `background`, `ai_memory`, and `events`. `quality` and `reactor` are
 **not** seeded — they are created on first write via `setdefault`
-(`add_quality_record` at `:515`, `add_reactor_run` at `:561`), so a project that
+(`add_quality_entry`, `add_reactor_run`), so a project that
 has never run the Quality Gate or the reactor simply has no such key. Readers
 must tolerate their absence.
 
@@ -412,7 +420,13 @@ Regenerated from the tree, not from the original design.
 
 ```
 src/
-├── manifest.py              Manifest v2 read/write/provenance
+├── manifest.py              Manifest v2 read/write/provenance (public API)
+├── manifest_store.py        SQLite backend: manifest.db, snapshots; manifest.json is exported
+├── operator_id.py           current operator (entered once in the hub)
+├── folder_browse.py         folder listing behind the Browse… buttons (/api/browse)
+├── backlog.py               "has this already been done?" on a fresh start
+├── favicon.py               per-app browser-tab icon, from apps.yml
+├── plot_lock.py             one process-wide lock for server-side plotting
 ├── events.py                Event bus WebSocket client (pub/sub)
 ├── plot_reduction.py        read_folder, average_and_save
 ├── loop_naming.py           recipe_id ↔ filename conventions, match_recipe_id
@@ -439,9 +453,18 @@ src/
 ├── quality/
 │   └── core.py              grade_profile, score_metrics — good/bad grading
 │
+├── background/
+│   └── core.py              _subtract, _interpolate_onto, _auto_scale, _qc_metrics, truncate_rebin
+│
+├── fitting/                 pluggable per-profile fitters: ls_sphere, ml_regressor, llm_assisted
+│
 ├── reactor/
 │   ├── config.py            load/validate reactor/config.yml
-│   ├── controller.py        arm → run → flush state machine, run records
+│   ├── controller.py        ReactorController: public API, E-stop, loop, status, shutdown
+│   ├── sequence.py          run order (begin, arm, run, flush, idle); mixin, split Oct 2026
+│   ├── supervisor.py        safety checks during the run and the flush; mixin
+│   ├── collection.py        SPEC settings, collect_now, sample/background shots; mixin
+│   ├── checks.py            read-only "Run all checks" hardware checklist
 │   ├── hardware.py          pump abstraction, flow calibration, limits
 │   ├── recipe.py            Recipe model, param file read/write
 │   ├── intake.py            decide_intake — "skip"|"wait"|"go" on a growing file
@@ -450,12 +473,20 @@ src/
 ├── beamline/
 │   └── driver.py            SPEC bServer HTTP driver (shutter, counters, 2D collect)
 │
+├── synthesis/               instrument contract, phase 0 (not used by the reactor yet):
+│                            types · instrument (gated InstrumentSession) · registry · toy
+│
+├── watchdog/                policy · settings · transport · messages · expectations
+│                            · probes · diagnose (the watchdog app's logic)
+│
 ├── optimizer/
 │   ├── campaign.py          CampaignController — ask/tell, GP surrogate, stop rule
 │   ├── space.py             5-parameter recipe space, bounds, constraints, Sobol pool
 │   ├── gp.py                Gaussian-process surrogate
 │   ├── diagnostics.py       convergence / replicate / ablation statistics
 │   ├── io.py                Conditions/ file contract (to_param_file / parse_param_file)
+│   ├── study.py             in-silico method-comparison runner
+│   ├── methods/             bax · gp_ucb · pareto_ehvi · random · turbo
 │   └── plots.py             parameter-space figures (analyzer panel + docs/figures)
 │
 ├── simulator/
@@ -464,7 +495,7 @@ src/
 │   ├── writer.py            .raw + CSV/PDI metadata, beamline filename convention
 │   └── collector.py         SimulatedCollector — orchestration behind MockBeamline
 │
-├── notify/
+├── notify/                  legacy: no app imports it since notifications moved to watchdog
 │   ├── slack.py             SlackNotifier — threaded per-recipe run notifications
 │   ├── email_notify.py      EmailNotifier + smtp_probe
 │   └── multi.py             fan one notification out to every configured channel
@@ -484,11 +515,11 @@ src/
 ```
 
 Note what is **not** here, contrary to earlier revisions of this document:
-no `src/export/`, no `src/pipeline/`, no `src/background/`, no
+no `src/export/`, no `src/pipeline/`, no
 `src/reduction/stitch.py`, and no per-method files under `src/analysis/`.
-Subtraction math still lives in `background/app.py`, which is the one live
-violation of the "all logic in `src/`" rule
-(see `docs/design/AUTOPILOT_PIPELINE_DESIGN.md` §4).
+The subtraction maths moved out of `background/app.py` into
+`src/background/core.py` in September 2026 (defect D3); only `_write_dat`
+stays in the app, because it depends on the app's truncation state.
 
 ---
 

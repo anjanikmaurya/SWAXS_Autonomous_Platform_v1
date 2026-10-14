@@ -5,7 +5,7 @@ FCC, so the app corrects water→fluid flow itself. There are **two ways**, per 
 
 | Method | What | Where | Model | Use when |
 |---|---|---|---|---|
-| **A — `cal ×` factor** | one number | **live in the app** (Pump-limits card) | linear: `true = raw × cf` | response is ~proportional; quick |
+| **A — `cal ×` factor** | one number | **live in the app** (Hardware test, step 2 Pump limits) | linear: `true = raw × cf` | response is ~proportional; quick |
 | **B — flowrate table** | `[setpoint, measured]` pairs | `reactor/config.yml` (edit + restart) | power law: `true = raw^a` | response is nonlinear across the range |
 
 Precedence: **if a `flowrate_table` is present it wins and `cal ×` is ignored.** Both
@@ -32,7 +32,7 @@ Command a flow and measure what's actually delivered, one of:
 
 Best for a quick proportional correction; no restart.
 
-1. In the reactor app, open the **🎚 Pump flow limits (µL/min) & calibration** card.
+1. In the reactor app, open **Hardware test → 2 · Pump limits (µL/min) and calibration**.
 2. For the pump, at one fixed setpoint, get two numbers **at the same pressure/flow**:
    - `app_water` = the flow the app shows (water units, `cal ×` = 1.0), and
    - `true` = the measured true flow (gravimetric or FCC-Hexadecane).
@@ -126,4 +126,4 @@ pump and reports `raw^a` back — so the app's setpoints and live flow are true 
 - To fall back from table → factor, remove/comment the `flowrate_table` **and
   restart** — while the table is loaded, `cal ×` is silently ignored.
 - `cal ×` is live in the app; the table is config + restart. If you want the table
-  editable live too (in the Pump-limits card), ask and it can be added.
+  editable live too (in the Pump limits step), ask and it can be added.

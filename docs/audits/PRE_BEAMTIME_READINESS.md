@@ -27,12 +27,12 @@ Test suite: `python -m pytest -q` — run it and expect zero failures.
 
 | Decision | Implemented | Test |
 |---|---|---|
-| Arming: temperature / timed / ramp | `_arm_mode`; `ramp_wait_seconds(T_final, rate, 25°C)` | ramp math + `test_reactor_fires…` (timed) |
+| Arming: temperature / timed (no ramp mode; `ramp` is rejected at intake) | `_arm_mode` | `test_reactor_fires…` (timed) |
 | Temperature set before pumps, gates start | arming sends `csettemp`, waits | code-verified |
 | Sample shot at run_end − lead; background at flush_end − lead | run loop `_spec_fired`/`_bkg_fired` | `test_reactor_fires_sample_then_background_tagged` |
 | recipe_id filename tagging (`<id>_sample` / `<id>_bkg`) | `_fire_spec_collection` | same test |
 | Manual "Collect now" (idle only, refuses during run) | `collect_now()` | `test_collect_now_manual_and_guarded` |
-| Mock/Real toggle covers pumps AND beamline | `switch_backend` rebuilds both + rewires temp | `test_backend_switch_covers_pumps_and_beamline` |
+| Simulation \| Hardware toggle (API `mock`/`real`) covers pumps AND beamline | `switch_backend` rebuilds both + rewires temp | `test_backend_switch_covers_pumps_and_beamline` |
 | SPEC can be disabled | `spec.enabled` | `test_spec_can_be_disabled` |
 | Flat macro streamed as action commands (commands mode) | `macro_command_lines` + wait between lines | `test_commands_mode_streams_lines_no_file`, `test_commands_mode_splits_macro_into_spec_lines` |
 | data_dir defaults from hub folder; editable in UI | `default_data_dir` + Data-collection field | code-verified |
@@ -46,11 +46,12 @@ Test suite: `python -m pytest -q` — run it and expect zero failures.
 
 ## Before you press "Run autonomously"
 
-0. **The Mock/Real pill toggles PUMPS only.** The beamline (SPEC) backend is set
-   separately in `reactor/config.yml → spec.backend`. For a real run set **both**
-   the pill to Real **and** `spec.backend: real`. Checking one and assuming the
-   other is the single most common pre-run mistake.
-1. Backend toggle = **Real** (pumps + beamline).
+0. **The Simulation | Hardware toggle covers pumps AND beamline.** Switching it
+   rebuilds both (`switch_backend` forces `spec.backend` to the same value, also
+   at startup, where `SWAXS_REACTOR_BACKEND` decides, default `mock`). The switch
+   is session-only, so after an app restart check the toggle again.
+1. Backend toggle = **Hardware** (pumps + beamline), then **Run all checks** on the
+   Hardware test tab (read only) and fix any line marked ✗.
 2. `reactor/config.yml` spec: `temp_counter: CTEMP`, `read_refresh_cmd: "ct 0.1"`,
    `collect_mode: commands`, `macro_file: …flat.template.txt`, `data_dir` = the SPEC
    `/msd_data/...` folder.
@@ -77,7 +78,7 @@ Test suite: `python -m pytest -q` — run it and expect zero failures.
    floors in `reactor/config.yml`, do not zero them to get past it. (Audit R14.)
 5. **Arming mode matches the rig.** `arming.default_mode: temperature` needs a
    live thermocouple; the app now warns at the START of arming if the reading is
-   not trustworthy, but check the Timing card before you leave. (Audit R13.)
+   not trustworthy, but check Autonomous setup, step 2 Timing before you leave. (Audit R13.)
 6. One SPEC client only — no standalone test tool running alongside the app.
 7. Do one **📷 Collect now** from the app to confirm the app path (not just the CLI).
 8. Confirm the reduction pipeline sees the new `.raw` under `data_dir/2D/SAXS` via `X:\`.
@@ -112,7 +113,7 @@ Test suite: `python -m pytest -q` — run it and expect zero failures.
    `config.yml` on every restart (audit R7).
 5. **Flush pump.** The shipped `flush.pump` is `ode_dilution` (a reagent pump,
    capped at 50 µL/min), not `ode_flush`. Confirm that is what you want.
-6. **A calibration edited on disk needs an app restart.** Flipping the Mock↔Real
+6. **A calibration edited on disk needs an app restart.** Flipping the Simulation | Hardware
    toggle does *not* reload `reactor/config.yml`.
 
 ## Data-path checks — where a run silently goes nowhere

@@ -21,10 +21,10 @@ The platform is organized as ten small web apps, launched from one central hub. 
 | ➖ | **Background Subtraction** | 5104 | Subtract buffer/background by keyword, scan-matching, or manual selection |
 | 🚦 | **Quality Gate** | 5105 | AI good/bad grading of subtracted profiles — scoring, auto-sort into Good/NeedsReview, frame selection |
 | 📈 | **Data Analysis** | 5106 | Guinier, Porod, Kratky, pair-distance, peak fitting |
-| 🧭 | **Auto-Fit & Optimiser** | 5107 | Fits nanoparticle size / PDI / phase from subtracted SAXS and proposes the next synthesis conditions (Bayesian optimization) — the brain of the autonomous loop |
+| 🧭 | **Autonomous Analyser** | 5107 | Fits nanoparticle size / PDI / phase from subtracted SAXS and proposes the next synthesis conditions (Bayesian optimization) — the brain of the autonomous loop |
 | 🔁 | **Autonomous Synthesis (reactor)** | 5108 | 5-pump flow reactor **and** beamline control: sets temperature (SPEC `csettemp`) and triggers 2D collection (shutter + a configurable collect command, default `ct`) through the SPEC bServer, plus auto-flush |
 | 🤖 | **Guinier** (AI assistant) | 5109 | Ask questions about your data, generate plots, get proactive quality hints |
-| 🐕 | **Auto Watch** | 5110 | Loop-stall detection and the sole gateway for all platform notifications (Slack) |
+| 📡 | **Autonomous Watch** | 5110 | Loop-stall detection and the sole gateway for all platform notifications (Slack) |
 
 A typical **data** session: **reduce → view & average → subtract background → quality-gate (optional) → analyze**, with the assistant available throughout.
 
@@ -34,7 +34,7 @@ For self-driving nanoparticle synthesis at the beamline, the reactor and analyze
 
 **Autonomous Synthesis** sets the temperature and flows for a recipe → triggers a SPEC 2D collection of the reacting sample (and a background during flush), tagged by `recipe_id` → the data pipeline reduces/averages/subtracts it → the **Analyzer** fits size/PDI/phase and the **optimizer** (`src/optimizer`) proposes the next conditions → the reactor runs them. Temperature and beamline actions go through the SPEC bServer; Stop/E-stop act on pumps only and never interrupt an in-progress X-ray collection. See the reactor doc set under `docs/` before a run.
 
-**Run vs. pause vs. stop.** *Run autonomously* arms the loop. *Stopping* it **pauses** rather than aborting: the current condition finishes and its line flushes, then the loop waits at *ready* with the queue kept — and that paused window is when the beamline settings (exposure, frames, trigger-before-end) unlock for editing, applied when you re-arm. New condition files keep queuing while paused; their files stay in the watched folder until the reactor has actually run them, and a restart starts from a clean queue. Run and beamline settings both persist across a restart. Notifications are Auto Watch's alone (port 5110). Full history: `docs/CHANGELOG.md`; correctness/safety detail: `docs/audits/REACTOR_AUDIT.md`.
+**Run vs. pause vs. stop.** *Run autonomously* arms the loop. *Stopping* it **pauses** rather than aborting: the current condition finishes and its line flushes, then the loop waits at *ready* with the queue kept — and that paused window is when the beamline settings (exposure, frames, trigger-before-end) unlock for editing, applied when you re-arm. New condition files keep queuing while paused; their files stay in the watched folder until the reactor has actually run them, and a reactor restart resumes that queue (startup order of reactor and optimizer does not matter). Run and beamline settings both persist across a restart. Notifications are Autonomous Watch's alone (port 5110). Full history: `docs/CHANGELOG.md`; correctness/safety detail: `docs/audits/REACTOR_AUDIT.md`.
 
 ---
 
@@ -185,7 +185,9 @@ looks like `ModuleNotFoundError: No module named 'flask'` — activate, then ret
 
 1. **Pick your project folder** — top-right of the hub page. Any folder with the
    `2D/SAXS` layout [shown below](#organizing-your-experiment-data) works; the
-   apps create the `1D/` tree themselves.
+   apps create the `1D/` tree themselves. Put your name or initials in the
+   **Operator** box in the same top bar: it is entered only there, and every app
+   records it with its results.
 2. **Start an app** with ▶, wait for the green dot, then **↗ Open**. Work left to
    right through the app table above.
 3. **Stop** one app with ■, or press `Ctrl-C` in the terminal to close the hub —
@@ -204,7 +206,7 @@ says what is missing and keeps working.
 | The real reactor (pumps + EPICS temperature) | `pip install -r requirements-hardware.txt` |
 | AI Assistant chat | `pip install anthropic` + a token (below) |
 | AI searchable knowledge base | `pip install -r requirements-ai.txt` — **pulls torch, ~2 GB** |
-| Model fitting in the analysis app | `pip install sasmodels` |
+| Model fitting in the analysis app | nothing extra: `sasmodels` is in `requirements-core.txt` |
 | The test suite | `pip install pytest` then `pytest -q` |
 
 **AI Assistant token.** The assistant reaches SLAC-managed AI services through the
@@ -234,11 +236,12 @@ Apps read and write inside a single project folder. The expected layout:
 │   │   └── Results/           # everything kept after the fact
 │   │       ├── Fit/               # per-fit PNG + .dat, every analyzed profile (cross-check after beamtime)
 │   │       ├── QualityReports/    # Quality Gate CSV reports + accepted lists
-│   │       └── campaign_<id>/     # Auto-Fit & Optimiser: final figures, written when a campaign ends
+│   │       └── campaign_<id>/     # Autonomous Analyser: final figures, written when a campaign ends
 │   ├── WAXS/
 │   │   ├── {Reduction,Averaged}/
 │   │   └── Subtracted/{Good,NeedsReview}/
-└── manifest.json             # Auto-managed shared state across apps
+├── manifest.db               # Auto-managed shared state across apps (SQLite)
+└── manifest.json             # JSON export of the same, rewritten on every save
 ```
 
 CSV metadata (one `*.csv` per scan at the `2D/` level) is also supported instead of `.raw.pdi` — set `metadata_format` accordingly in `config.yml`.
@@ -323,7 +326,7 @@ You are not limited to the ten built-in apps. Every stage hands off through a
 language — can read one stage's output and write the next stage's input,
 without touching this codebase and with no plugin API to learn.
 
-The common case is **your own ML model in place of Auto-Fit & Optimiser**: it
+The common case is **your own ML model in place of the Autonomous Analyser**: it
 watches `1D/SAXS/Subtracted/Good/` for newly subtracted profiles, predicts the
 structure, and drops the next conditions into `1D/SAXS/Conditions/`, which the
 Autonomous Synthesis app already polls. Leave app 5107 stopped and the loop closes

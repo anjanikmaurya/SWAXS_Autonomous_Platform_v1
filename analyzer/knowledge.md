@@ -137,8 +137,8 @@ default set by the reduction `unit` key (`q_nm^-1`). The `size.unit` field says 
 explicitly: `"same as 1/q (nm if q in nm^-1)"`.
 
 The analyzer additionally detects an Å⁻¹ q column from the `.dat` header (a header
-mentioning `q_A-1`, `a^-1` or `å`, as written by the background app's
-ML-truncated files) and multiplies q by 10 before fitting, so sizes are not 10×
+mentioning `q_A-1`, `a^-1` or `å`, as written by the background app's "Output
+q-range & rebinning" when Å⁻¹ is picked; the default is nm⁻¹) and multiplies q by 10 before fitting, so sizes are not 10×
 wrong and the campaign optimises toward the right target.
 
 ## Graceful degradation

@@ -139,7 +139,7 @@ A full batch arrived and no average came out. The message names the reason
 `.dat` files are static on disk, so a retry would fail identically every poll
 forever — but it does mean that condition will never produce an averaged, and
 therefore never a subtracted, profile. An `average.skipped` event goes on the
-bus so the background app is not left waiting and Auto Watch can report the
+bus so the background app is not left waiting and Autonomous Watch can report the
 reason (Pattern H) instead of "go read the average app's log".
 
 A frame that fails the validity check is excluded from the batch, not averaged

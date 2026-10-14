@@ -100,7 +100,7 @@ Three ways in:
 2. `POST /api/recipe` — JSON, for the BO/SAXS side.
 3. The manual form in the UI.
 
-An **Auto-run** toggle arms the autonomous loop. Recipes that arrive while busy
+An **Auto-run** toggle (**Run autonomously** in Autonomous setup, step 4) arms the autonomous loop. Recipes that arrive while busy
 are **queued (FIFO)**; `POST /api/queue/clear` empties the queue (and retires
 those files — see above).
 
@@ -310,7 +310,7 @@ measurement), so the optimizer can never train on a synthesis that did not happe
 ## Notifications
 
 The reactor sends none, and has no endpoint for them. Every platform
-notification is Auto Watch's (port 5110) — it subscribes to the same bus events
+notification is Autonomous Watch's (port 5110) — it subscribes to the same bus events
 and applies one policy for the whole loop, so a stall in reduction or fitting
 reaches the operator as well as a reactor fault. See docs/NOTIFICATIONS.md.
 
@@ -326,7 +326,8 @@ were deleted.
 `POST /api/estop`, `POST /api/reset`, `POST /api/vent`, `POST /api/flush`,
 `POST /api/auto_run`, `POST /api/queue/clear`, `POST /api/collect_now`,
 `POST /api/spec_settings`, `POST /api/run_settings`, `POST /api/tare`,
-`POST /api/backend`.
+`POST /api/backend`, `GET /api/checks`, `POST /api/checks/run` (the read-only
+hardware checklist, `src/reactor/checks.py`).
 
 `POST /api/tare` triggers a pump tare; `POST /api/backend` switches between
 Simulation and Hardware mode at runtime (the UI toggle; API values `mock`/`real`).

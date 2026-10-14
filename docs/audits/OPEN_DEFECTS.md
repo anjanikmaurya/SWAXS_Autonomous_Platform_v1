@@ -491,7 +491,7 @@ of the folder it is skipping: the silence was what made this indistinguishable
 from a hang. Tests: `tests/test_fresh_start_no_backlog.py`,
 `tests/test_analyzer_fresh_run_backlog.py`.
 
-### Auto Watch (watchdog, 5110)
+### Autonomous Watch (watchdog, 5110; formerly "Auto Watch")
 
 Audited 2026-09-11; full write-up with line references and the reasoning in
 [AUTO_WATCH_AUDIT.md](AUTO_WATCH_AUDIT.md). W1–W9, W13 and W24 are **fixed**;

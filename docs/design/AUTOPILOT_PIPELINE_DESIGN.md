@@ -11,6 +11,12 @@
 > `_qc_metrics` (`:319`) and `_process_one` (`:1169`) — exactly the functions
 > §4 says must move.
 >
+> **Update, September 2026:** that part of Phase 1 has since happened by another
+> route (defect D3): `_subtract`, `_interpolate_onto`, `_auto_scale`, `_qc_metrics`
+> and `truncate_rebin` now live in `src/background/core.py`; only `_write_dat`
+> (and `_process_one`) remain in `background/app.py`. The line numbers above are
+> the August 2026 ones. The orchestrator itself is still unbuilt.
+>
 > **Port 5101 is taken.** §5 proposes 5101 for the autopilot UI shell; the
 > calibration app has since claimed it (`apps.yml`). Whoever builds this must
 > pick another port.
@@ -155,9 +161,10 @@ For each shot (or sample↔bkg pair):
 2. **Average** its group by `recipe_id`+role keyword → `1D/<DET>/Averaged`
    (`average_and_save`).
 3. **Pair + subtract** sample vs bkg by `recipe_id` (nearest-index fallback), scale
-   method from config → `1D/<DET>/Subtracted` (+ optional ML truncate/rebin —
-   this already exists: `truncate_rebin` at `background/app.py:155`, configured
-   via `/api/truncation` at `:532`).
+   method from config → `1D/<DET>/Subtracted` (+ optional output q-range &
+   rebinning, already shipped: `truncate_rebin` in `src/background/core.py`,
+   configured via `/api/truncation` in `background/app.py`; UI panel "Output
+   q-range & rebinning", default 0.3 to 6.0 nm⁻¹, 549 points).
 4. Write one **pipeline record** (per-stage status, timings, files, QC) to the
    manifest; emit `ProfileReady`.
 
@@ -183,7 +190,7 @@ autopilot:
   bkg_keyword:    "bkg"
   scale_method:   "auto_highq"   # or "fixed" + scale
   scale:          1.0
-  truncate:                      # ML output (reuse background truncation)
+  truncate:                      # output q-range & rebinning (reuse background truncation)
     enabled: true
     q_min: 0.03
     q_max: 0.6

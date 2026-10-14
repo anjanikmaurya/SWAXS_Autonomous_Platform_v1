@@ -59,7 +59,7 @@ toggle covers both.
 - **At runtime:** the Simulation/Hardware toggle in the app UI (`/api/backend`) switches both
   pumps and beamline live and re-wires everything.
 
-Start in **mock** to learn the UI; switch to **real** only on the rig.
+Start in **Simulation** (`mock`) to learn the UI; switch to **Hardware** (`real`) only on the rig.
 
 ## 5. Configure `reactor/config.yml`
 
@@ -82,7 +82,7 @@ Everything rig-specific lives here; no code changes needed. Key sections:
   accepted values**; `src/reactor/recipe.py` rejects anything else, so a condition
   file carrying `arm_mode: ramp` fails at intake and the queue stalls) and
   `default_wait_s` (the timed wait when a recipe omits `arm_wait_s`). The shipped
-  default is `timed`, 120 s — the temperature gate is OFF as delivered.
+  default is `temperature`; `default_wait_s` (120 s) applies only in timed mode.
 - **flush** — flush pump rate, duration, and `pump` (which pump flushes; the
   shipped value is `ode_dilution`, a reagent pump, not `ode_flush`).
 - **spec** (beamline) — the block you validated on the rig:
@@ -128,12 +128,13 @@ environment — use `python` here too.
 ## 7. First-run checklist
 
 1. `pip install -r requirements-core.txt` succeeds; add `requirements-hardware.txt` for real.
-2. App opens at `http://localhost:5108`, backend pill shows the expected mode.
+2. App opens at `http://localhost:5108`, the Simulation | Hardware toggle shows the expected mode.
+   On the Hardware test tab, **Run all checks** (read only) lists anything not connected or not answering.
 3. **Simulation:** submit a recipe, Start — with the shipped `background_when: "before"`
    the sequence is **flush → background shot → arm → run → sample shot → flush**.
    The first thing you see is a flush (20 min at the shipped `flush.duration`), not
    arming; that is correct, the app has not hung. Live plot animates throughout.
-4. **Real (on the rig):** bench-test the beamline in isolation FIRST with the app
+4. **Hardware (on the rig):** bench-test the beamline in isolation FIRST with the app
    stopped — `tools/beamline_read_test.py`, `…_epics_test.py`, `…_temp_test.py`,
    `…_shutter_test.py`, `…_collect_test.py` (see `tools/BEAMLINE_TESTING.md`), then
    run one **📷 Collect now** from the app before an autonomous run.
@@ -143,10 +144,10 @@ environment — use `python` here too.
 
 hub 5100 · reduction 5102 · average 5103 · background 5104 · analysis 5106 ·
 assistant 5109 · quality 5105 · **reactor 5108** · analyzer 5107 ·
-calibration 5101.
+calibration 5101 · watchdog (Autonomous Watch) 5110.
 Closing an app frees its port; closing the hub stops all its sub-apps.
 
-## 9. Safety notes (real mode)
+## 9. Safety notes (Hardware mode)
 
 - Stop / E-stop act on **pumps only** and never interrupt an in-progress X-ray
   collection.
@@ -164,11 +165,11 @@ Closing an app frees its port; closing the hub stops all its sub-apps.
   `tools/beamline_epics_test.py`, needs `pyepics` from
   `requirements-hardware.txt`), or `read_during_collect: true` if the bServer
   tolerates counter reads mid-scan.
-- With `read_source: "spec"`, while the reactor app is open in Real mode it
+- With `read_source: "spec"`, while the reactor app is open in Hardware mode it
   **holds SPEC remote control** (for the `ct` live-plot refresh); close the app or
   switch to Simulation to hand control back. `read_source: "epics"` never takes SPEC
   control for reads.
 - Run **one SPEC client at a time** — don't run the bench tools and the app against
-  Real simultaneously.
+  the real hardware simultaneously.
 - Full safety review: `docs/audits/BEAMLINE_SAFETY_AUDIT.md`; readiness checklist:
   `docs/audits/PRE_BEAMTIME_READINESS.md`.

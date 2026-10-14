@@ -12,7 +12,7 @@ contract described here.
 
 ---
 
-## 1. The worked example: replacing Auto-Fit & Optimiser with your own ML
+## 1. The worked example: replacing the Autonomous Analyser with your own ML
 
 This is the case that motivated the doc. You want:
 
@@ -23,7 +23,7 @@ Background Subtraction (5104)          your ML program            Autonomous Syn
                                        the next conditions
 ```
 
-and you do **not** want to run the Auto-Fit & Optimiser app (5107) at all.
+and you do **not** want to run the Autonomous Analyser app (5107) at all.
 
 You need exactly three things: where to read, what the files look like, and
 where to write. Nothing else — not a plugin API, not a registration step.
@@ -224,7 +224,7 @@ Two practical points:
 ### 1.4 Turning the built-in analyzer off
 
 Just don't start it. The hub starts nothing on its own — apps run only when you
-press **▶ Start** on their card. Leave Auto-Fit & Optimiser (5107) stopped and
+press **▶ Start** on their card. Leave the Autonomous Analyser (5107) stopped and
 nothing will write competing conditions.
 
 If you would rather it were not in the hub at all, delete its entry from
@@ -276,20 +276,27 @@ That is the whole integration. Everything below is optional polish.
 
 ## 2. Optional: record your results in `manifest.json`
 
-`manifest.json` at the project root is the shared provenance record. Writing to
+The manifest at the project root is the shared provenance record. By default it
+is stored in SQLite, `manifest.db` (`src/manifest_store.py`); `manifest.json` is
+an export of it, rewritten on every save. Writing to
 it means the AI assistant, the hub event log and anyone reading the experiment
 afterwards can see what your model did and why a given condition was chosen.
 
 Each app owns one top-level key and must not write another's. `analyses` is the
 natural home for your predictions — note it is shared by both the Data Analysis
-and Auto-Fit & Optimiser apps, so merge into it rather than overwriting it.
+and Autonomous Analyser apps, so merge into it rather than overwriting it.
 
 ```python
 from src.manifest import update_manifest, add_analysis_entry, make_provenance
 ```
 
-Not in Python? It is ordinary JSON — read, modify your own key, write back. Use
-a lock or an atomic replace: several apps write this file concurrently.
+Not in Python? **Read** `manifest.json` freely, it is ordinary JSON. Do not
+**write** it directly: with the default SQLite store, `manifest.db` is the source
+of truth and the next save by any app overwrites the JSON export, so a hand edit
+is lost. Write through `src.manifest` (`update_manifest`), or write your own JSON
+file and fold it in with `src.manifest.merge_manifest_file` (append only). Only
+with `SWAXS_MANIFEST_BACKEND=json` is the JSON file itself the store; then use a
+lock or an atomic replace, since several apps write it concurrently.
 
 ---
 
@@ -344,7 +351,7 @@ rest work but are more exposed to refactoring.
 |---|---|---|
 | **Watched folders** (§1) | reading a stage's output, injecting the next stage's input | **stable** — the whole pipeline is built on it |
 | **`.dat` format** (§1.2) | producing data the pipeline accepts as if it were reduced here | **stable** |
-| **`manifest.json`** (§2) | provenance, cross-app state | **stable** — declared contract, one key per app |
+| **`manifest.json`** (§2) | provenance, cross-app state (read the JSON; write through `src.manifest`) | **stable** — declared contract, one key per app |
 | **Event bus** (§3) | live triggers | **stable** — event names are documented |
 | **Import `src/`** | reusing the science directly (`from src.analysis.core import guinier_fit`) | stable-ish; it is a normal Python package, but internal signatures can change |
 | **Hub control API** `:5100` | `/api/status`, `/api/start/<id>`, `/api/stop/<id>`, `/api/stop_all`, `/api/ports`, `/api/set_project`, `/api/apps/reload` | stable, small, and the only cross-app HTTP API that is meant to be called from outside |
@@ -352,7 +359,7 @@ rest work but are more exposed to refactoring.
 | **SSE log streams** `/api/stream` | mirroring live progress into your own UI | as above |
 | **Register a new app** in `apps.yml` | shipping your program *as* a hub app, with a card and start/stop | stable — see [CLAUDE.md](../CLAUDE.md) § Adding a New App |
 | **Env vars** | headless runs: `SWAXS_PROJECT`, `SWAXS_HUB_PORT`, `SWAXS_USER_ID`, `SWAXS_REACTOR_BACKEND`, `SWAXS_NO_RESUME` | stable |
-| **`src/notify/`** | your own Slack/email alerts | stable |
+| **`src/notify/`** | your own Slack/email alerts | legacy: no app imports it since notifications moved to the watchdog app (Autonomous Watch, 5110); kept for `tools/notify_test.py` |
 | **`src/beamline/driver.py`** | SPEC bServer / EPICS, for hardware rather than software integration | read [BEAMLINE_SAFETY_AUDIT.md](audits/BEAMLINE_SAFETY_AUDIT.md) first |
 
 ---

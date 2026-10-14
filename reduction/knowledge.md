@@ -38,7 +38,7 @@ decides to redo the folder.
 **↻ Retry failed** (`POST /api/retry-failed`, formerly `/api/reset`) is a
 different thing and is easy to confuse with it. A frame that raises three times
 is given up on for the rest of the session (`_MAX_FAILURES`, `_fail_counts`),
-and `file.skipped` is emitted so Auto Watch stops waiting for it. This button
+and `file.skipped` is emitted so Autonomous Watch stops waiting for it. This button
 clears those counts, nothing else. It does **not** re-reduce frames that
 succeeded.
 
@@ -160,7 +160,9 @@ After reduction, each `.dat` file is registered in `manifest.json` under
 and `provenance` — which records the **operator/user**, run_id, timestamp, input
 files, and a config snapshot. Each run also stamps `project_meta` with the unique
 `users` list plus `last_run_by`, `last_run_at`, `last_run_app`, and
-`last_run_mode`. The operator is resolved as: UI Operator field →
+`last_run_mode`. The operator is entered once, in the hub top bar (the
+reduction app has no field of its own), and resolved by `src/operator_id.py` as:
+hub operator in the manifest (`project_meta.current_operator`) →
 `SWAXS_USER_ID` env → OS login → `unknown`.
 
 ## Why the Normalization Math Is Correct (canonical formula + references)
@@ -300,7 +302,7 @@ Note that `npt_radial` and `error_model` are read with `config["..."]`, not
 `dark_files`/`flat_files` are 2D frames subtracted/divided pixel-by-pixel and are
 a different thing from the scalar `i0_offset`/`bstop_offset` diode corrections.
 
-The **operator/user** is captured automatically (UI Operator field →
+The **operator/user** is captured automatically (hub top-bar Operator box →
 `SWAXS_USER_ID` → OS login) and recorded in provenance — no config field needed.
 
 ## Uncertainty σ(q) — how it is determined here

@@ -92,7 +92,7 @@ pressure reading (air supply disconnected) and `R1` zeroes the flow sensor (no
 flow through it) — `Py_P_Pump.tare` / `tare_flow`, exposed as
 `PumpBank.tare(name, kind="pressure"|"flow"|"both")`.
 
-Do it **from the reactor app**: the **🔧 Tare pumps** card has per-pump
+Do it **from the reactor app**: **Hardware test → 1 · Tare pumps** has per-pump
 **Pressure / Flow / Both** buttons, which POST `/api/tare` →
 `controller.tare_pump` and are accepted only in idle / ready / estop, so a tare
 can never land mid-run. One pump at a time; wait for it to return to IDLE.
@@ -241,7 +241,7 @@ app stopped, then come back here.
 6. Detectors calibrated — `poni` files + masks present for the reduction step.
 7. Beamline runbook passed (`tools/BEAMLINE_TESTING.md`), including `read_source`
    decided and verified.
-8. Then: reactor app → **Real** → one **📷 Collect now** → confirm the pipeline sees it.
+8. Then: reactor app → **Hardware** → **Run all checks** (Hardware test tab) → one **📷 Collect now** → confirm the pipeline sees it.
 
 Safety review: `docs/audits/BEAMLINE_SAFETY_AUDIT.md`. Readiness:
 `docs/audits/PRE_BEAMTIME_READINESS.md`. Bench runbook: `tools/BEAMLINE_TESTING.md`.

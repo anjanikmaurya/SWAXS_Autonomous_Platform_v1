@@ -26,6 +26,7 @@ across edits) — search the file for the name.
 | Simulation/Hardware toggle issues | `controller.switch_backend`; `app.py /api/backend` |
 | SPEC still "held" after quitting | `controller.shutdown` + `atexit` in `app.py` |
 | Pump on wrong COM / not found | `src/reactor/hardware.py RealPump`, `PumpBank`; serial matching |
+| A "Run all checks" line fails | `src/reactor/checks.py` (`_pumps_present`, `_pumps_healthy`, `_pressure`, `_temperature`, `_beamline`); each failure carries its fix hint |
 | UI field not applying | `templates/index.html` `pushSpec()` / `pushRun()` → matching `/api/*` route |
 
 ---
@@ -88,7 +89,10 @@ Abort-during-flush. They are behaviourally distinct, but only by the resulting
   - `/api/recipes_folder` (GET+POST) → the watched conditions folder (persists in
     `reactor_settings.json`); `/api/project` → current project root
   - `/api/config` → bounds / pump names / flush defaults for the UI form
-  - `/api/slack` (GET+POST) → notification settings; `/api/slack/test` → send a test message
+  - `/api/checks` (GET) and `/api/checks/run` (POST) → the read-only hardware checklist
+    (`src/reactor/checks.py`, "Run all checks" on the Hardware test tab; sends nothing to
+    the pumps or SPEC). There are no `/api/slack*` routes: notifications are the
+    watchdog app's (Autonomous Watch, port 5110).
   - `/api/health` → hub health probe (state, queue length, runs completed)
   - `/api/status`, `/api/stream` (SSE, calls `_ctrl.status()` every 0.5 s)
 - Persistence helpers: `_limits_path`/`_save_limits`/`_load_limits`
@@ -97,7 +101,7 @@ Abort-during-flush. They are behaviourally distinct, but only by the resulting
 
 ## reactor/templates/index.html — UI (one file: HTML + JS)
 
-- `pushSpec()` → POSTs the Data-collection card (exposure/frames/tags/lead/**data_dir**).
+- `pushSpec()` → POSTs Autonomous setup, step 3 Data collection (exposure/frames/tags/lead/**data_dir**).
 - `pushRun()` / run-settings inputs → `/api/run_settings` (arm mode, durations, flush).
 - `collectNow()` → `/api/collect_now`. Arming UI: `armModeChange()`.
 - Live plot: `BL` buffer, `drawBeamline()`, `blLegendHTML()` (temp 2 dp, bstop/I0 4 dp),
@@ -147,7 +151,7 @@ arm (see the lifecycle below).
 - **Live settings:** `set_run_settings`, `set_spec_settings`, `default_data_dir`,
   `set_pump_limits`, `tare_pump`.
 - **Backend:** `switch_backend` (rebuilds pumps + beamline, rewires temperature).
-- **Exit:** `shutdown` (idle pumps, close shutter, release SPEC control).
+- **Exit:** `shutdown` (idle pumps, stop the loop, idle again, close the pump serial ports, then close shutter and release SPEC control).
 - **UI feed:** `status()` — the dict the app streams (state, pumps, temperature{current,
   bstop,i0}, spec{…}, last_collect).
 
@@ -179,7 +183,7 @@ arm (see the lifecycle below).
 ## Config & macros
 
 - `reactor/config.yml` — pumps, `arming`, `flush`, `safety`, `temperature`, `run`,
-  `folders`, `notify`, `spec`. Key-by-key reference: `docs/REACTOR_SETUP.md` §5.
+  `folders`, `spec`. Key-by-key reference: `docs/REACTOR_SETUP.md` §5.
 - `reactor/macros/Singlesnapshot.flat.template.txt` — used by **commands** mode
   (plain action commands, values inlined).
 - `reactor/macros/Singlesnapshot.template.txt` — **qdo mode only** (SPEC variable

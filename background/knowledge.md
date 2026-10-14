@@ -6,19 +6,30 @@ sample scattering curves.  Input is averaged/reduced `.dat` files.
 Output is background-subtracted curves ready for analysis.
 
 ## UI Workflow (v2)
-Four tabs (left nav): **Setup**, **BG-Sub 1D SAXS**, **BG-Sub 1D WAXS**,
-**Average Metadata**. An active-detector toggle (SAXS/WAXS) tags output and
-routes results to the matching tab; folder defaults auto-fill from the hub
-project root.
+The left column picks the **mode**: **Individual**, **Scan**, **Suggested**
+(auto-suggest) or **Auto-Subtract** (the folder monitor). Four tabs: **Setup**,
+**BG-Sub 1D SAXS**, **BG-Sub 1D WAXS**, **Averaged metadata**. An active-detector
+toggle (SAXS/WAXS) tags output and routes results to the matching tab; folder
+defaults auto-fill from the hub project root, and every folder field has a
+**Browse…** button. Setup is a numbered sequence (manual modes: 1 Detector ·
+2 Folders · 3 Match & review · 4 Subtraction method · 5 Output q-range &
+rebinning; Auto-Subtract: folders to watch, keywords, scale, schedule, output
+q-range & rebinning, monitor).
 
-Setup offers three matching modes:
+**Output q-range & rebinning** (optional, on by default, shared by the manual and automated
+modes): each subtracted curve is trimmed to `[q_min, q_max]` and resampled onto
+a fixed number of points, and the `.dat` is overwritten with it. Default 0.3 to
+6.0 nm⁻¹, 549 points, linear (`truncate_rebin` in `src/background/core.py`);
+pick Å⁻¹ to write Å⁻¹.
+
+Three matching modes for manual subtraction:
 - **Individual** — list the Averaged folder, mark **one file as BG (background)**
   and check the rest as **samples** (roles shown with badges/colors).
 - **Scan** — pair sample and background files by the **number that follows a
   token** in each filename: the user gives a token for the sample name and one
   for the background name (e.g. both `ctr`), and files with the same number are
   paired (`…ctr0…` ↔ `…ctr0…`). Matches appear in an editable review table.
-- **Auto-suggest** — each sample is matched to a background by filename/keyword
+- **Suggested** (auto-suggest) — each sample is matched to a background by filename/keyword
   token overlap (preferring buffer/blank/empty/solvent tokens); shown in the same
   editable review table.
 

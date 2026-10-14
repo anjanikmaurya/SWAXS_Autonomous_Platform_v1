@@ -37,7 +37,8 @@ Reduction still reads `.raw` directly — the CBF conversion exists for
 calibration (pyFAI-calib2 wants a standard image format) and for quick QA.
 
 ### 3. Generate the `.poni`
-`POST /api/calibrate/launch` with `{cbf, calibrant, energy_keV, pixel_um}`.
+`POST /api/calibrate/launch` with `{cbf, calibrant, energy_keV, detector}` (`detector`
+defaults to `auto`; an optional `pixel_um` is still accepted).
 See "Calibration route" below.
 
 `GET /api/poni` lists the `.poni` files already in the project's poni folder as
@@ -88,7 +89,7 @@ detector's higher q range.
 
 ## Calibration route — interactive pyFAI-calib2
 `launch_calib2` spawns the standard pyFAI-calib2 GUI preloaded with the CBF, the
-calibrant, the energy and (optionally) the pixel size and a starting geometry.
+calibrant, the energy and (optionally) the detector model and a starting geometry.
 The user picks rings, refines, and saves the `.poni` themselves.
 
 Command construction (`build_calib2_command`):
@@ -104,7 +105,8 @@ chosen model is checked against the image first (`check_detector`): a mismatch
 is started; a binned image is accepted. With **Auto** (the default) the
 detector model is chosen from the image shape (`detector_for_image`):
 1043 × 981 → `pilatus1m` (SAXS), 195 × 487 → `pilatus100k` (WAXS), and other
-Pilatus sizes; the model must also match the Pixel (µm) field (172 µm). A bare
+Pilatus sizes. The UI has no pixel field any more; an API caller may still
+send `pixel_um`, and the auto-chosen model must then agree with it. A bare
 `--pixel` is never sent: on pyFAI 2024 it builds a detector with no shape and the
 GUI crashes on start (`detector.max_shape[1] … 'NoneType' object is not
 subscriptable`). With no matching model the GUI opens without a detector and asks

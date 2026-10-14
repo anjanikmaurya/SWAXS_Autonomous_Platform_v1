@@ -283,8 +283,11 @@ holding your experiment data, and it must look like this:
 └── config.yml         reduction settings
 ```
 
-The apps create `1D/` and `manifest.json` themselves. No data yet? Point it at
+The apps create `1D/` and the manifest (`manifest.db`, plus a `manifest.json` export) themselves. No data yet? Point it at
 the bundled `Demo_Data/` folder to click around safely.
+
+Put your name or initials in the **Operator** box in the same top bar. It is
+entered only there; every app records it with its results.
 
 **2. Start an app.** Press **▶ Start** on a card, wait for the dot to turn
 green, then **↗ Open**. Work left to right:
@@ -297,10 +300,10 @@ green, then **↗ Open**. Work left to right:
 | 4 | Background Subtraction | 5104 | subtract the blank |
 | 5 | Quality Gate | 5105 | sort good vs needs-review (optional) |
 | 6 | Data Analysis | 5106 | Guinier, Porod, Kratky, model fits |
-| 7 | Auto-Fit & Optimiser | 5107 | automatic size + PDI, closed-loop optimiser |
-| 8 | Autonomous Synthesis | 5108 | the 5-pump reactor (mock by default) |
+| 7 | Autonomous Analyser | 5107 | automatic size + PDI, closed-loop optimiser |
+| 8 | Autonomous Synthesis | 5108 | the 5-pump reactor (Simulation by default) |
 | 9 | Guinier | 5109 | the AI assistant — answers questions about the experiment |
-| 10 | Auto Watch | 5110 | loop monitoring + all platform notifications to Slack |
+| 10 | Autonomous Watch | 5110 | loop monitoring + all platform notifications to Slack |
 
 **3. Stop.** Press **■ Stop** on a card, or `Ctrl-C` in the terminal to close the
 hub — which closes every app with it.
@@ -381,8 +384,7 @@ them — the app says what's missing and keeps working.
 | The real reactor (pumps + EPICS temperature) | `pip install -r requirements-hardware.txt` |
 | AI assistant chat | `pip install anthropic` — plus a token, see `SECURITY.md` |
 | AI searchable knowledge base | `pip install -r requirements-ai.txt` — **pulls torch, ~2 GB** |
-| Model fitting in the analysis app | `pip install sasmodels` |
-| Slack alerts for stalls, faults, fit results (Auto Watch app) | no install — set `SWAXS_SLACK_WEBHOOK_URL` in `.env`, see `docs/NOTIFICATIONS.md` |
+| Slack alerts for stalls, faults, fit results (Autonomous Watch app) | no install — set `SWAXS_SLACK_WEBHOOK_URL` in `.env`, see `docs/NOTIFICATIONS.md` |
 | To run the test suite | `pip install pytest`, then `pytest -q` |
 
 ---
@@ -394,7 +396,7 @@ hands off through a **folder of files** plus `manifest.json`, a program of your
 own — in any language — can read one stage's output and write the next stage's
 input, with no change to this codebase and no plugin API to learn.
 
-The common case: **your own ML model instead of Auto-Fit & Optimiser.** It
+The common case: **your own ML model instead of the Autonomous Analyser.** It
 watches `1D/SAXS/Subtracted/Good/` for newly subtracted profiles, predicts the
 structure, and drops the next set of conditions into `1D/SAXS/Conditions/`,
 which the Autonomous Synthesis app already polls. You leave app 5107 stopped and the
@@ -422,17 +424,17 @@ changed — project folders, `config.yml` and `manifest.json` are all unaffected
 |---|---|---|
 | Hub on **5000**, apps 5001–5009 | Hub on **5100**, apps **5101–5110** | macOS AirPlay Receiver owns 5000, so the hub could not bind on a stock Mac |
 | **Data Viewer** (`viewer/`) | **Visualisation & Average** (`average/`) | the folder name said "viewer" while the app's main job is averaging |
-| **Nanoparticle Analyzer** | **Auto-Fit & Optimiser** | the old name hid the Bayesian optimizer half, and read like a sibling of Data Analysis |
+| **Nanoparticle Analyzer** | **Autonomous Analyser** (first renamed "Auto-Fit & Optimiser") | the old name hid the Bayesian optimizer half, and read like a sibling of Data Analysis |
 | the AI assistant (renamed twice before this) | **Guinier** | named for André Guinier, whose analysis every SAXS session starts with |
 | `start_platform.ps1` **and** `.bat` | **`start_platform.bat` only** | a `.bat` runs from PowerShell too and needs no execution-policy change, so the second launcher was upkeep for no gain |
 | **Flow Synthesis** | **Autonomous Synthesis** | the reactor is a fixture — flow rate is one setting, not the point; the point is that it runs the loop unattended |
 | `requirements.txt` present | **removed entirely** | it was a `pip freeze` of one Mac that made numpy try to compile from source on Windows — the single most common install failure |
-| Reactor sent its own Slack messages (`/api/slack*` routes, `src/notify/`) | **Auto Watch** app, its own card, port **5110** | one app now owns every platform notification — loop-stall detection, safety faults, fit results — instead of the logic living inside the reactor; see `docs/NOTIFICATIONS.md` |
+| Reactor sent its own Slack messages (`/api/slack*` routes, `src/notify/`) | **Autonomous Watch** app (first named "Auto Watch"), its own card, port **5110** | one app now owns every platform notification — loop-stall detection, safety faults, fit results — instead of the logic living inside the reactor; see `docs/NOTIFICATIONS.md` |
 
 The app order also now follows the pipeline everywhere — hub cards, launcher
 banner and docs all read calibration → reduction → average → background →
 quality → analysis → auto-fit → autonomous synthesis → assistant, with
-**Auto Watch** last since it watches the others rather than sitting in the
+**Autonomous Watch** last since it watches the others rather than sitting in the
 pipeline itself.
 
 What to do:
@@ -599,7 +601,7 @@ python -m pip list
 - **Don't** commit your `.env` file. It holds tokens and is git-ignored for that
   reason.
 - **Don't** run two hubs against the same project folder. They'd both write to
-  `manifest.json`.
+  the manifest (`manifest.db` / `manifest.json`).
 
 ---
 
@@ -612,5 +614,5 @@ python -m pip list
 | `docs/AUTONOMOUS_RUN_STEPS.md` | running a full autonomous campaign |
 | `docs/REACTOR_SETUP.md` | wiring the real reactor, pump calibration |
 | `docs/PARAMETER_SPACE_AND_CONVERGENCE.md` | how the optimiser searches and converges |
-| `docs/NOTIFICATIONS.md` | setting up Slack alerts in the Auto Watch app — webhook, master switch, message categories |
+| `docs/NOTIFICATIONS.md` | setting up Slack alerts in the Autonomous Watch app — webhook, master switch, message categories |
 | `SECURITY.md` | tokens, the SLAC AI gateway, what never goes in git |

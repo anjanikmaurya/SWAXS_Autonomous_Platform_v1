@@ -1,4 +1,4 @@
-# Auto-Fit & Optimiser — methods refactor (design / plan)
+# Autonomous Analyser (formerly "Auto-Fit & Optimiser") — methods refactor (design / plan)
 
 Status: **plan only — no code written yet.** This is the agreed design before any
 change. It turns the analyzer (port 5107) from a single hardcoded pipeline into a

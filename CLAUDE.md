@@ -59,7 +59,10 @@ SWAXS_Autonomous_Platform_v1/
 │       └── each of the above: app.py · templates/index.html · knowledge.md
 │
 ├── src/                    # Shared logic — all apps import from here
-│   ├── manifest.py             # Cross-app data contract (manifest.json)
+│   ├── manifest.py             # Cross-app data contract (public API)
+│   ├── manifest_store.py       # SQLite backend: manifest.db (default store)
+│   ├── operator_id.py          # Who is running: hub operator → SWAXS_USER_ID → OS login
+│   ├── folder_browse.py        # Folder listing behind the Browse… buttons (/api/browse)
 │   ├── events.py               # WebSocket event bus client + emit_* helpers
 │   ├── runstate.py             # Atomic monitor-state persistence; monitor_alive()
 │   ├── proc_lifecycle.py       # Port binding, process trees, log rotation (hub)
@@ -69,6 +72,7 @@ SWAXS_Autonomous_Platform_v1/
 │   ├── reduction/              # core.py (Experiment, pyFAI) · process_metadata.py
 │   │                           #   · read_raw_file.py
 │   ├── utils/read_dat_metadata.py   # .dat parser (q, I, sigma + metadata footer)
+│   ├── background/core.py      # subtraction maths, truncate_rebin
 │   ├── quality/core.py         # grade_profile, score_metrics
 │   ├── analysis/               # core.py · io.py · atsas.py · nanoparticle.py
 │   ├── optimizer/              # campaign.py · space.py · gp.py · io.py
@@ -186,7 +190,9 @@ Apps read and write data from a user-selected project folder:
 │   ├── WAXS/                       # same tree
 ├── config.yml                      # reduction configuration
 ├── reactor_limits.json             # persisted pump limits / calibration
-├── manifest.json                   # cross-app provenance
+├── manifest.db                     # cross-app provenance (SQLite, source of truth)
+├── manifest.json                   # JSON export of the same, written on every save
+├── .manifest_snapshots/            # rotating manifest.db snapshots
 └── .swaxs_state/                   # monitor state (src/runstate.py)
 ```
 
@@ -259,8 +265,9 @@ PyFAI divides each pixel by one scalar `normalization_factor` before integration
 
 There is no exposure-time division — normalize by `i0`/`bstop` (which scale with flux × time).
 Frames with a non-positive corrected `i0`/`bstop` are skipped (no `.dat` written).
-The **operator/user** is captured automatically (UI Operator field → `SWAXS_USER_ID`
-→ OS login) and stored in each file's provenance plus `project_meta`.
+The **operator/user** is entered once, in the hub top bar (Operator box), and
+resolved by `src/operator_id.py` (hub operator in the manifest → `SWAXS_USER_ID`
+→ OS login); it is stored in each file's provenance plus `project_meta`.
 
 Combining terms is a physics error, not a preference:
 `["bstop","absolute"]` gives `NF = bstop²·d/K`, i.e. `I ∝ counts/(I0²T²·d)` —
@@ -291,7 +298,7 @@ under `# METADATA INFORMATION (YML FORMAT)` and nothing else.
 5. **Register it in `apps.yml`** — a new entry with a unique `id`, `port`, `entry`, and
    optionally `knowledge`, `manifest_key`, `description`, `icon`, `color`.
    No `hub/app.py` change is needed; `POST /api/apps/reload` re-reads the registry live.
-6. Add the port to all three launcher banners (`start_platform.sh`, `.ps1`, `.bat`)
+6. Add the port to both launcher banners (`start_platform.sh`, `start_platform.bat`)
 
 ---
 
@@ -314,15 +321,20 @@ under `# METADATA INFORMATION (YML FORMAT)` and nothing else.
 | `openpyxl` | .xlsx export from the analysis app |
 
 Optional: `requirements-hardware.txt` (pyserial, pyepics) for the real rig;
-`requirements-ai.txt` (anthropic, chromadb, …) for the assistant; `sasmodels` for
-the analysis app's model tab. Everything optional degrades gracefully — the app
+`requirements-ai.txt` (anthropic, chromadb, …) for the assistant. (`sasmodels`, for
+the analysis app's model tab, and `PySide6`, for the pyFAI-calib2 GUI, are in
+`requirements-core.txt`.) Everything optional degrades gracefully — the app
 says what is missing and keeps working.
 
 ---
 
 ## manifest.json — Cross-App Data Contract
 
-`src/manifest.py` manages a `manifest.json` at the project root. Each app reads
+`src/manifest.py` manages the manifest at the project root. By default
+it is stored in SQLite, `manifest.db` (`src/manifest_store.py`; transactional,
+with rotating snapshots in `.manifest_snapshots/`), and a `manifest.json` export
+is still written on every save, so readers of the JSON keep working.
+`SWAXS_MANIFEST_BACKEND=json` restores the old single-file store. Each app reads
 and writes only its own section, declared as `manifest_key` in `apps.yml`, and
 must never overwrite another app's keys.
 
@@ -370,13 +382,13 @@ Encoding failures drop the single event, not the connection.
 | `docs/audits/OPEN_DEFECTS.md` | **The register of known open defects** |
 | `docs/audits/REACTOR_AUDIT.md` | Deep audit of the reactor app + `src/reactor/` + `src/beamline/` (R1–R25): hardware safety, unattended stability, campaign integrity, every control traced |
 | `docs/audits/ASSISTANT_AUDIT.md` | Audit of the assistant app + `src/ai/` (tools, secrets, run_python sandbox, P(r) fix) |
-| `docs/design/SYNTHESIS_PLATFORM_PLAN.md` | Plan for the modular Synthesis app: one instrument contract, simulated twins, chained workflows, gated Test → Setup → Run, generic telemetry, migration phases. Only the page layout is built so far (Oct 2026) |
+| `docs/design/SYNTHESIS_PLATFORM_PLAN.md` | Plan for the modular Synthesis app: one instrument contract, simulated twins, chained workflows, gated Test → Setup → Run, generic telemetry, migration phases. Built so far (Oct 2026): the page layout and phase 0, the `src/synthesis/` contract (not used by the reactor yet) |
 | `docs/CONTINUOUS_RUN_HARDENING_PLAN.md` | Plan (not yet implemented) for the defects that threaten a multi-day autonomous run — what to fix, in what order, and the test that proves each |
 | `docs/audits/PRE_BEAMTIME_READINESS.md` | Go/no-go checklist |
 | `docs/audits/BEAMLINE_SAFETY_AUDIT.md` | Every SPEC command the platform issues |
 | `docs/REACTOR_SETUP.md`, `_HARDWARE_SETUP.md`, `_MAP.md` | Reactor software, rig, code map |
 | `tools/BEAMLINE_TESTING.md` | Bench-test the beamline before a run |
-| `docs/NOTIFICATIONS.md` | Auto Watch notifications — Slack setup, master switch, message categories |
+| `docs/NOTIFICATIONS.md` | Autonomous Watch notifications — Slack setup, master switch, message categories |
 | `docs/DESIGN_SYSTEM.md` | Shared UI tokens and per-app conformance |
 | `docs/PARAMETER_SPACE_AND_CONVERGENCE.md` | Optimizer parameter space and convergence |
 | `docs/ERROR_PROPAGATION.md` | How σ(q) is estimated and propagated through reduction, averaging, subtraction and fitting, checked against the SAXS literature |

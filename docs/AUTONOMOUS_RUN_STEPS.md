@@ -28,11 +28,12 @@ optimizer campaign do not. If any one is off, the loop stalls at that stage.
 2. **Pick the project folder** in the hub (the experiment root that holds `2D/`,
    `poni/`, `config.yml`). This pushes the folder to every app.
 3. Start each app from the hub: **Calibration, Reduction, Visualisation & Average, Background,
-   Quality, Analyzer, Autonomous Synthesis (reactor)** (Assistant optional).
+   Quality, Analyzer, Autonomous Synthesis (reactor), Autonomous Watch (watchdog)**
+   (Assistant optional).
    Calibration (:5101) is what generates the `.poni` files step 2 checks for —
    start it first if the calibration has not been done yet.
 4. Open each app and confirm it shows the right folder. The hub injects
-   `SWAXS_PROJECT` into every subprocess at launch (`hub/app.py:292`) and each
+   `SWAXS_PROJECT` into every subprocess at launch (`hub/app.py`, `_start_app`) and each
    app reads it on boot, so a re-select is not normally needed — but re-select
    if any app shows a blank or wrong root (this happens when the path was not
    yet mounted at launch; background and analysis both guard on `is_dir()`).
@@ -50,19 +51,22 @@ optimizer campaign do not. If any one is off, the loop stalls at that stage.
 
 ## 3. Reactor / beamline setup (Autonomous Synthesis app, :5108)
 
-1. Backend pill → **Real** (covers pumps + beamline).
+1. Simulation | Hardware toggle (top bar) → **Hardware** (covers pumps + beamline).
+   Then, on the **Hardware test** tab, press **Run all checks** (read only: pumps
+   connected and answering, pressure, live temperature, I₀/bstop arriving) and fix
+   any line marked ✗.
 2. Confirm the log shows `📁 SPEC data_dir → /msd_data/…` matching where SPEC saves
    (the `2D/SAXS` under your project, via the `hub_path_map`). If the
    `hub_path_map` prefixes are wrong the translation silently fails and
    `spec.data_dir` stays at the hardcoded `/msd_data/.../Auto_Test` — SPEC then
    writes where nothing is reduced.
-3. Live plot reads temperature / bstop / I₀ (EPICS if configured, else `ct`).
-4. **Timing:** arming mode (temperature or timed) + wait, run duration, flush
-   rate/duration. Flush pump = **ode_dilution** (current workaround).
-5. **Data collection card:** exposure, frames, sample keyword (`sample`),
+3. Live plot (Hardware test, step 3, or the Live plots tab) reads temperature / bstop / I₀ (EPICS if configured, else `ct`).
+4. **Autonomous setup, step 2 Timing:** arming mode (temperature or timed) + wait,
+   synthesis duration, flush rate/duration. Flush pump = **ode_dilution** (current workaround).
+5. **Autonomous setup, step 3 Data collection:** exposure, frames, sample keyword (`sample`),
    background keyword (`bkg`), trigger-before-end (`spec_lead`) longer than
    frames×exposure. `data_dir` should already be filled from the hub.
-6. **Pump limits & calibration:** per-pump min/max and `cal ×` (water→fluid
+6. **Hardware test, step 2 Pump limits and calibration:** per-pump min/max and `cal ×` (water→fluid
    factor) set if you have them.
 
 ### `reactor/config.yml` settings that change how the run behaves
@@ -71,9 +75,9 @@ These are not in the UI. Check them before the first cycle.
 
 | Key | Shipped default | Why you care |
 |---|---|---|
-| `spec.read_source` (`:300`) | `"spec"` | With `"spec"` a collection holds the SPEC lock for its whole duration and temperature / I₀ / bstop reads **stop** — with `exposure_s: 10` and `frames: 10` that is ~100 s per acquisition with no fresh temperature, so the over-temperature interlock has nothing to compare against for that window. The app warns once per run instead of raising a sensor fault. Set `"epics"` (verify PVs with `tools/beamline_epics_test.py`) to keep reading during a collection. |
-| `spec.background_when` (`:284`) | `"before"` | Sets the physical order of the cycle — see step 7. `"after"` is the legacy order. |
-| `reactor.resume_auto_run` (`:379`) | `false` | Deliberately false: auto-run does **not** resume after an app restart, because resuming moves pumps unattended. After any restart you must turn Auto-run back on by hand. |
+| `spec.read_source` (`:280`) | `"spec"` | With `"spec"` a collection holds the SPEC lock for its whole duration and temperature / I₀ / bstop reads **stop** — with `exposure_s: 10` and `frames: 10` that is ~100 s per acquisition with no fresh temperature, so the over-temperature interlock has nothing to compare against for that window. The app warns once per run instead of raising a sensor fault. Set `"epics"` (verify PVs with `tools/beamline_epics_test.py`) to keep reading during a collection. |
+| `spec.background_when` (`:264`) | `"before"` | Sets the physical order of the cycle — see step 7. `"after"` is the legacy order. |
+| `run.resume_auto_run` (`:386`) | `false` | Deliberately false: auto-run does **not** resume after an app restart, because resuming moves pumps unattended. After any restart you must turn Auto-run back on by hand. |
 
 **Fresh start (Sept 2026).** Every app now comes up **fresh** after a stop or a
 hub restart: monitors do not auto-resume, the reduction/average/background memos
@@ -112,8 +116,8 @@ QC plot attached when the fit is suspect.
    (watches `2D` for new `.raw`; the interval box next to it defaults to 10 s).
 2. **Visualisation & Average app** → *▶ Start auto-averaging* (Reduction → Averaged).
 3. **Background app** → *▶ Start auto-subtraction* (Averaged → Subtracted).
-   - Confirm sample/background keywords + scale method; ML truncate/rebin panel
-     as needed (default 0.3 to 6.0 nm⁻¹, 549 pts).
+   - Confirm sample/background keywords + scale method; "Output q-range &
+     rebinning" panel as needed (default 0.3 to 6.0 nm⁻¹, 549 pts).
 4. (Optional) **Quality app** for review — not required by the loop.
 
 ## 6. Start the optimizer campaign (Analyzer app, :5107)
@@ -133,12 +137,12 @@ QC plot attached when the fit is suspect.
 
 ## 7. Launch the autonomous run (reactor)
 
-1. Turn **Auto-run ON** so the reactor pulls each new condition from
+1. Turn **▶ Run autonomously** ON (Autonomous setup, step 4) so the reactor pulls each new condition from
    `1D/SAXS/Conditions` and runs it.
 2. Seed the loop: either submit one starting recipe manually, or let the campaign
    propose the first condition.
 3. Watch the **first full cycle** end-to-end before leaving it. With the shipped
-   `background_when: "before"` (`reactor/config.yml:284`) the physical order is:
+   `background_when: "before"` (`reactor/config.yml:264`) the physical order is:
 
    ```
    flush → background shot (clean capillary, tagged with the UPCOMING recipe_id)
@@ -178,7 +182,7 @@ every beamtime, in this order.
    the root is blank).
 2. `<root>/config.yml` `data_directory` = `<root>/2D`; `poni/` present with the
    `.poni` and mask files `config.yml` names.
-3. Reactor: backend = **Real**; the `📁 SPEC data_dir → …` log line shows the
+3. Reactor: backend = **Hardware**, **Run all checks** all ✓; the `📁 SPEC data_dir → …` log line shows the
    right `/msd_data/...` path; EPICS reads live (or `read_source: "spec"` with
    `ct`, accepting the blind window in §3); flush pump + per-pump calibration
    set.
