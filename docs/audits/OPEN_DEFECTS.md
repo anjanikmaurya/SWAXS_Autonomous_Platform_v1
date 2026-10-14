@@ -3,7 +3,7 @@
 > **Status, re-checked against the code on 2026-10-14.** Open: N5, N6 (mostly
 > fixed), N8 to N16, O3, O4, O7, O9, O10, O15, O18, C4, C5, U3, U5, U6, D1, D4,
 > W11, W12, W14, W15, W17 to W23, assistant A9, analyzer L1 and L2, R12
-> (reactor audit). Fixed since the last pass: O12 (SQLite store), O14, O16,
+> (reactor audit), and Q1 to Q37 (platform quick audit, 2026-10-14). Fixed since the last pass: O12 (SQLite store), O14, O16,
 > W10, assistant A1 to A3. The manifest rows (O3, O4, O12,
 > O18) describe the current SQLite store (`src/manifest_store.py`).
 
@@ -524,6 +524,51 @@ defect lives.
 | W22 | LOW | `should_send`'s snooze check is `isinstance(snooze_until, float)` with a `0.0` fallback, so an int silently disables the snooze. Unreachable today (`_state` is memory-only); a trap if snooze is ever persisted. |
 | W23 | LOW | `/api/test` bypasses `should_send`, so the Test button still sends with the master switch off. Defensible, undocumented. |
 | W25 | ~~LOW~~ **FIXED 2026-09-14** | Auto Watch now has a generated scattering icon (`tools/make_watchdog_icon.py`): the monodisperse SAXS profile every other icon uses, ending in a large dot at the newest point — the curve is the loop's output, the dot is the frame being watched. Tuned by inspecting the downscaled result: a dashed "expected but not arrived" tail and a thin white ring around the dot were both tried and rejected as invisible at 16 px. Also closed a related gap the favicon work exposed — `analyzer` and `reduction` both shipped `#1565C0`, so they were distinguishable only by emoji; analyzer is now `#4527A0`. `tests/test_favicons.py` asserts no two apps share a colour or an icon, that every declared `icon_image` exists, and that `hub/static/` carries a copy of each (the hub serves its own static folder). |
+
+### Platform quick audit, October 2026 (`Q`)
+
+Audited 2026-10-14, every app and the shared code; file, line and fix for each in
+[PLATFORM_QUICK_AUDIT_2026_10.md](PLATFORM_QUICK_AUDIT_2026_10.md). All open.
+
+| ID | Sev | Finding |
+|---|---|---|
+| Q1 | HIGH | Assistant: Listens on every network interface (`0.0.0.0`) |
+| Q2 | HIGH | Assistant: `run_python` sandbox can read files, reach the network, run shell commands |
+| Q3 | HIGH | Reduction: A SAXS frame counts as reduced when its WAXS twin's `.dat` exists |
+| Q4 | HIGH | Reduction: CSV metadata matched by substring: `scan10` can take `scan1`'s i0/bstop |
+| Q5 | HIGH | Reduction: Stop then Start within one interval runs two monitor loops |
+| Q6 | HIGH | Reduction: Run now and Watch can run together (docs say they cannot) |
+| Q7 | HIGH | Analysis: q unit in the file header is ignored: Å⁻¹ files give results 10× off |
+| Q8 | HIGH | Background: One q-window and rebin grid applied to both SAXS and WAXS |
+| Q9 | HIGH | Analyser: An expired condition stays queued; its real result is discarded |
+| Q10 | HIGH | Analyser: ML regressor fitter gives confident sizes for noise |
+| Q11 | MEDIUM | Background: Stop then Start within one interval runs two monitor loops |
+| Q12 | MEDIUM | Average: Shared output folder: WAXS batches overwrite SAXS batches of the same name |
+| Q13 | MEDIUM | Average: Fresh start after changing N re-averages the whole folder |
+| Q14 | MEDIUM | Analysis: Saving an analysis rewrites the Subtracted `.dat` in place |
+| Q15 | MEDIUM | Analysis: Auto Guinier range does not converge to q·Rg ≤ 1.3 |
+| Q16 | MEDIUM | Quality: An LLM verdict on a borderline curve never expires after a threshold change |
+| Q17 | MEDIUM | Reactor: Abort or new campaign does not withdraw a recipe staged for its blank flush |
+| Q18 | MEDIUM | Analyser: Continue re-proposes seed conditions already issued |
+| Q19 | MEDIUM | Analyser: After a restart, a measurement that landed during downtime is never fitted |
+| Q20 | MEDIUM | Analyser: Analyser and reactor can watch different Conditions folders, silently |
+| Q21 | MEDIUM | Reactor: Sample/background tags are free text; the parsers know only fixed names |
+| Q22 | MEDIUM | Platform: `SWAXS_HUB_PORT` override cuts every app off the event bus |
+| Q23 | MEDIUM | Platform: Hub and assistant accept cross-site POSTs from any web page |
+| Q24 | MEDIUM | Watch: Losing the bus is never reported; a dead watchdog looks like a quiet run |
+| Q25 | MEDIUM | Watch: Messages show as "sent" when no webhook is configured |
+| Q26 | MEDIUM | Hub: App log handles never closed; on Windows a restart empties the crash log |
+| Q27 | LOW | Average: Batch `n_files` counts frames dropped by the I0 filter |
+| Q28 | LOW | Average: Placeholder and fallback defaults disagree with the backend |
+| Q29 | LOW | Average: Seed sorts by frame index across scans *(suspected impact)* |
+| Q30 | LOW | Quality: Manifest quality flags are only added, never cleared |
+| Q31 | LOW | Quality: Resume replays an old pass threshold over the saved one |
+| Q32 | LOW | Background: Auto high-q scale silently falls back to 1.0 with fewer than 3 points |
+| Q33 | LOW | Optimiser: Search space ignores per-pump `sensor_min` / `max_flow` |
+| Q34 | LOW | Optimiser: Pareto front includes low-confidence fits |
+| Q35 | LOW | Hub: Windows Stop kills only the top process |
+| Q36 | LOW | Launchers: `start_platform.bat` banner error (`&`), blank Project line; 5107 named "Auto-Fit" |
+| Q37 | LOW | Docs: Background "restart resumes" needs `SWAXS_RESUME=1`; p(r) `_fit.dat` columns are q, I |
 
 ---
 
