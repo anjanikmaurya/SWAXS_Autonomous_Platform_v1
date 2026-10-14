@@ -1,5 +1,11 @@
 # Auto-Fit & Optimiser (analyzer) — stability & correctness audit
 
+> **Audit status: complete.** Run in October 2026. 9 findings (A1 to A9, the
+> analyzer's own numbering): **all 9 fixed**. Two known limitations stay open,
+> both LOW (L1 one SSE thread per viewer, L2 no auto-chaining of campaigns); they
+> are tracked in [OPEN_DEFECTS.md](OPEN_DEFECTS.md). The text below is the
+> original audit and is not updated.
+
 Scope: `analyzer/app.py` and its deps (`src/optimizer/{gp,campaign,plots}.py`,
 `src/analysis/nanoparticle.py`, `src/manifest.py`). Focus: correctness,
 effectiveness, and efficiency over **days-to-weeks** of continuous running.

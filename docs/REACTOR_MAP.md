@@ -16,18 +16,18 @@ across edits) — search the file for the name.
 | Temperature wrong counter / value | `config.yml spec.temp_counter`; driver `_do_read_state` |
 | `csettemp` / any command does nothing (silently) | `SpecBeamline._ensure_control` (must hold remote control) |
 | Collection 500 error on a line | `driver._do_collect` (commands mode); use the FLAT macro (no `var=` lines) |
-| Collection writes to wrong folder | `config.yml spec.data_dir`; `controller._fire_spec_collection` (builds path) |
-| Files not named `<id>_sample`/`<id>_bkg` | `controller._fire_spec_collection`; `config.yml spec.sample_tag/bkg_tag` |
-| Sample/background shot fires at wrong time | `controller._tick_once` (uses `spec_lead`, `_spec_fired`/`_bkg_fired`); `config.yml spec.background_when`; `controller._enter_flush` (`_flush_kind`, `_bkg_recipe_id` — empty = no background collected) |
-| Pumps won't start / arming stuck | `controller._begin_next` → `_start_recipe`, `_tick_once` (arming block); `config.yml arming` (`temperature`\|`timed` only) |
+| Collection writes to wrong folder | `config.yml spec.data_dir`; `collection._fire_spec_collection` (builds path) |
+| Files not named `<id>_sample`/`<id>_bkg` | `collection._fire_spec_collection`; `config.yml spec.sample_tag/bkg_tag` |
+| Sample/background shot fires at wrong time | `controller._tick_once` (uses `spec_lead`, `_spec_fired`/`_bkg_fired`); `config.yml spec.background_when`; `sequence._enter_flush` (`_flush_kind`, `_bkg_recipe_id`: empty = no background collected) |
+| Pumps won't start / arming stuck | `sequence._begin_next` → `_start_recipe`, `controller._tick_once` (arming block); `config.yml arming` (`temperature`\|`timed` only) |
 | E-stop / Stop behaviour | `controller.estop` (pumps only; also sets `auto_run = False`), `abort` |
 | Nothing runs after an E-stop + Reset | `controller.estop` disabled auto-run — re-arm **▶ Run autonomously** |
-| Reactor won't cool after run | `controller._end_run` (cooldown); `config.yml temperature.cooldown_c` |
+| Reactor won't cool after run | `sequence._end_run` (cooldown); `config.yml temperature.cooldown_c` |
 | Simulation/Hardware toggle issues | `controller.switch_backend`; `app.py /api/backend` |
 | SPEC still "held" after quitting | `controller.shutdown` + `atexit` in `app.py` |
 | Pump on wrong COM / not found | `src/reactor/hardware.py RealPump`, `PumpBank`; serial matching |
 | A "Run all checks" line fails | `src/reactor/checks.py` (`_pumps_present`, `_pumps_healthy`, `_pressure`, `_temperature`, `_beamline`); each failure carries its fix hint |
-| UI field not applying | `templates/index.html` `pushSpec()` / `pushRun()` → matching `/api/*` route |
+| UI field not applying | `templates/index.html` `pushSpec()` / `pushRunSettings()` → matching `/api/*` route |
 
 ---
 
@@ -102,14 +102,14 @@ Abort-during-flush. They are behaviourally distinct, but only by the resulting
 ## reactor/templates/index.html — UI (one file: HTML + JS)
 
 - `pushSpec()` → POSTs Autonomous setup, step 3 Data collection (exposure/frames/tags/lead/**data_dir**).
-- `pushRun()` / run-settings inputs → `/api/run_settings` (arm mode, durations, flush).
+- `pushRunSettings()` / run-settings inputs → `/api/run_settings` (arm mode, durations, flush).
 - `collectNow()` → `/api/collect_now`. Arming UI: `armModeChange()`.
 - Live plot: `BL` buffer, `drawBeamline()`, `blLegendHTML()` (temp 2 dp, bstop/I0 4 dp),
   collection 📷 markers (`MARKS`, `updateCollectBadge()`).
 - Status sync: the SSE handler fills fields once (`window._specInit`) and updates readouts
   (`t-cur`, `t-bstop`, …).
 
-## src/reactor/controller.py — the brain (state machine + run loop)
+## src/reactor/controller.py + sequence/supervisor/collection: the brain (state machine + run loop)
 
 > **Split, October 2026.** `ReactorController` is now one class spread over four
 > files (methods moved verbatim; it inherits the three mixins):
@@ -117,8 +117,10 @@ Abort-during-flush. They are behaviourally distinct, but only by the resulting
 > `sequence.py` (`_begin_next`, `_start_recipe`, `_enter_running`, `_end_run`,
 > `_enter_flush`, `_end_flush`, `_to_idle`, `_abandon_condition`, `_arm_progress`) ·
 > `supervisor.py` (`_safety_check`, `_check_flush_safety`) ·
-> `collection.py` (SPEC settings, `collect_now`, `_fire_spec_collection`).
-> Line numbers below refer to the pre-split file; search by method name.
+> `collection.py` (`set_spec_settings`, `default_data_dir`, `collect_now`,
+> `_fire_spec_collection`). In the symptom table a method is named with its
+> file (`sequence._end_run`); everything not listed here is in `controller.py`.
+> A read-only hardware checklist sits beside them in `checks.py`.
 
 States: `idle`, `arming`, `running`, `flushing`, `ready`; `estop` from anywhere.
 With the shipped `spec.background_when: "before"` the **order is

@@ -1,232 +1,249 @@
-# AI Assistant App — Knowledge Base
+# Guinier: the AI assistant app (port 5109)
 
-## Purpose
-The Assistant app (port 5109) provides a conversational AI interface powered by
-Claude (Anthropic). It has access to the full experiment manifest, all processed
-data files, the living knowledge base (ChromaDB), and the layered memory system.
+## 1. What it is for
 
-## Architecture
+Guinier is the platform's conversational analysis assistant, powered by Claude.
+It answers questions about the current experiment, runs model-free SAXS/WAXS
+analysis (Guinier, Porod, Kratky, p(r)), fits sasmodels form factors, plots
+curves and beam metadata, checks data quality, and explains what the data does
+and does not support. It reads experiment data; it never modifies it. The only
+folder it writes to is `<project>/assistant_outputs/`.
 
-```
-User message
-  │
-  ▼
-SWAXSAssistant.chat()
-  │  builds system prompt from:
-  │    1. Static SAXS/WAXS expert prompt
-  │    2. Layered memory context (user + project + beamline + group SOPs)
-  │    3. KB retrieval (top-6 ChromaDB hits, _KB_TOP_K = 6)
-  │
-  ▼
-Claude API (default model us.anthropic.claude-sonnet-4-6 on the SLAC gateway, max_tokens 4096; UI-selectable per turn). Valid gateway model ids: us.anthropic.claude-{sonnet-4-6,sonnet-5,opus-4-8,opus-5,haiku-4-5-20251001-v1:0}. The bare 'claude-sonnet-4-6' is rejected by the gateway.
-  │  18 tools available; up to _MAX_TOOL_ROUNDS = 5 recursive tool-use loops
-  │  per chat turn
-  ▼
-Response (text + optional plot base64 + optional interactive Plotly figure)
-  │
-  ▼
-Proactive hints (HintChecker rules)
-  │
-  ▼
-History delta (append to conversation)
-```
+## 2. Where it sits in the platform
 
-Cost controls: only the `_MAX_HISTORY_USER_TURNS = 6` most recent user prompts
-(with their tool exchanges) are re-sent, and any single tool result is truncated
-at `_MAX_TOOL_RESULT_CHARS = 8000` characters.
+**Reads**
+- The project manifest (`manifest.db`, exported as `manifest.json`), through the
+  `query_manifest` tool. The project folder is the one selected in the hub.
+- Processed `.dat` files under `1D/` (reduced, averaged, subtracted).
+- `config.yml` (q units, energy) when checking the q convention.
+- Its own app knowledge: the in-scope app's `knowledge.md` plus the hub's
+  manifest-contract section are injected directly into the system prompt, read
+  from disk on every turn (`src/ai/assistant.py`, `_resolve_app_knowledge`). Edits
+  to a `knowledge.md` take effect on the next turn, with no re-ingestion.
+- RAG collections in ChromaDB (`ai_knowledge/vector_db/`): `literature`,
+  `user_papers`, and `beamline`. The top 6 hits are added to each prompt.
 
-See hub/knowledge.md for the event bus and manifest contract. This app subscribes
-to the bus for proactive hints (`/api/events/stream`) and reads the whole manifest
-via the `query_manifest` tool.
+**Writes**
+- Manifest: quality flags from `flag_quality` (on the file entry and mirrored
+  in the `ai_memory` section) and per-file notes from `add_note`. Nothing else
+  in the manifest is changed.
+- `<project>/assistant_outputs/`: exports, `run_python` figures.
+- `<project>/.swaxs/memory/`: chat history (`chat_history.jsonl`), experiment
+  history and quality log for this project.
+- `~/.swaxs/memory/users/<user_id>/`: personal preferences and session
+  summaries, which follow the user across projects.
+- `ai_knowledge/group/sops.json`: group SOPs (shared by all users and projects).
+- `ai_knowledge/corrections.json`: authoritative operator corrections.
+- `ai_knowledge/ingestion_log.json`: what has been added to the knowledge base.
 
-## Available Tools — all 18
+**Event bus**: subscribes to the hub bus and turns events into live hints
+(the **Live hints** panel, fed by `/api/events/stream`). See the hub doc for
+the bus and manifest contract.
 
-`_TOOLS` in `src/ai/assistant.py` defines eighteen tools.
+## 3. How to use it
 
-### Plotting and visualisation
-- **generate_plot** — a static base64 PNG for inline display. `plot_type` is one
-  of `curve`, `guinier`, `kratky`, `porod`, `pair_distance`, `multi`. Accepts
-  either a `file_path` (loads q/I/sigma automatically) or explicit arrays.
-  Note: the `porod` plot type here draws **q⁴·I(q) vs q⁴** — the classical Porod
-  plateau plot. That is NOT what the Analysis app's `/api/porod` route computes
-  (that one fits the log-log power-law exponent n in `ln I = a + n·ln q`). Two
-  different analyses share the word "Porod"; say which one you mean.
-- **plot_metadata** — plot per-frame acquisition metadata over time for each
-  averaged sample: `i0`, `bstop`, `transmission`, thickness, normalization factor,
-  sample temperature (CTEMP/TEMP). Reads the manifest and `.dat` footers
-  automatically; `stage` is `averaged` or `subtracted`, narrowed by `keyword`; the
-  x-axis is the beamline Timer clock. Use for beam-stability, dosing and
-  temperature-series checks.
-- **overlay_curves** — load and overlay multiple processed `.dat` curves on one
-  plot, matched by `keywords`. `stage` is `averaged` | `subtracted` | `reduced`,
-  `detector` is `SAXS` | `WAXS` | `both`, `axis` is `loglog` | `semilog` |
-  `linear`. Optional `q_min`/`q_max` truncate every curve first. SAXS and WAXS are
-  rendered in separate panels.
+1. Start the platform from the hub and open Guinier (port 5109). The badge at
+   the top shows whether AI credentials were found.
+2. **Project** card (sidebar): the hub's project is used automatically. To
+   change it, type a path or click **Browse…**, then **Set project**.
+3. Type in the box at the bottom ("Ask about your scattering data…"), Enter to
+   send, Shift+Enter for a new line. The microphone button dictates (offline
+   Whisper, needs `faster-whisper`).
+4. Under the input box choose **Effort** (Low, Medium default, High) and
+   optionally a **Model** (blank means the configured default).
+5. Name samples by keyword, for example `Run7` for a series or `Run7_r001` for
+   one recipe. Structural analysis runs on the subtracted curve; beam metadata
+   (i0, bstop) comes from averaged data.
+6. **Quick prompts** (sidebar) insert ready-made requests: plot i0/bstop vs
+   Timer, overlay subtracted curves, Guinier fit, p(r), full workup and model
+   recommendation.
+7. **Knowledge and literature** card: shows indexed items (⟳ refreshes, × removes
+   one). Pick a **Library** (My papers or Literature) and click **Add PDF**, or
+   type a fact and click **+ Add note**.
+8. Top bar: **Clear** starts a new chat in this tab; **Memory** shows what the
+   assistant currently remembers (preferences, SOPs, history, beamline notes).
 
-### Analysis
-- **run_analysis** — run one analysis on a `.dat` file and return numbers.
-  `analysis_type` enum: `guinier`, `kratky`, `porod`, **`pair_distance`**.
-  The result always carries `file` and `analysis`, plus:
-  - `guinier` → `Rg`, `I0`, `slope`, `intercept`, `R2`, `q_range` (a
-    `[q_lo, q_hi]` pair), `qRg_max`. **Note `R2` is capitalised**, and there is
-    no `chi2`, no separate `q_min`/`q_max`, no `qRg_lo`, and no `n_points`.
-  - `porod` → `n`, `K`, `R2`, `interpretation`, `q_range`.
-  - `kratky` → only `n_points` and a `description` telling you to call
-    `generate_plot(kratky, ...)`. It returns no fitted numbers.
-  - `pair_distance` → `Rg`, `Dmax`, `I0`, `chi2` plus a note pointing at
-    `compute_pr` for the inline plot.
-  The verbose `plot` sub-dict is stripped from every result to save context.
-- **compute_pr** — pair-distance distribution p(r) for ONE curve via a
-  regularized indirect Fourier transform; returns Rg, Dmax, I0 and an inline p(r)
-  plot. Locates the file by `keyword`; `dmax` is an optional hint (auto-estimated
-  if omitted).
-- **fit_model** — a sasmodels form-factor fit on ONE averaged sample. Returns
-  fitted parameters, reduced χ², and an inline data+fit plot with a residuals
-  panel. Takes `keyword`, `model_name`, numeric starting `params`, `free`
-  (parameters to optimise), `q_min`/`q_max`, `detector`, `axis`. Intended workflow
-  is recommend → confirm → fit → iterate; it is read-only on the data.
-- **list_saxs_models** — list the sasmodels catalog available for fitting,
-  optionally filtered by a `keyword` substring.
-- **assess_quality** — QC on ONE averaged sample: frame-outlier detection
-  (I0/intensity via a robust MAD) and beam/transmission sanity (transmission in
-  physical range, positive I0/bstop, beam stability). Returns a per-check verdict
-  and the indices of any outlier frames.
+Recommended analysis workflow: ask for the model-free workup first
+(`analysis_tier1`), then a model recommendation, confirm it, fit, iterate.
 
-### Manifest and annotation
-- **query_manifest** — inspect sections of `manifest.json`. `query_type` includes
-  `summary`, `files`, `averaged`, `background`, `analysis`, `quality_flags`,
-  `events`. Always start with `summary` (totals, per-stage and per-detector
-  counts, quality-flag counts) — a project can hold thousands of files, and list
-  queries are compacted and capped. Pass a `keyword` and/or `detector` filter for
-  the list types.
-- **add_note** — attach a plain-text note to a specific file entry in the
-  manifest. Persistent across sessions.
-- **flag_quality** — set a quality flag on a processed file: `good`, `marginal`,
-  `bad`, `radiation_damage`, `aggregated`, `low_snr`, `outlier`, `needs_review`.
+## Tools (19)
 
-### Memory and conventions
-- **set_preferences** — save the user's PERSISTENT preferences (across all
-  projects and sessions): `audience` (`expert`/`student`/`mixed`), `verbosity`
-  (`concise`/`detailed`), `default_model`, `units`, `citation_style`.
-- **group_sops** — view/add/remove the group's shared SOPs and conventions
-  (naming schemes, default models, analysis defaults, buffer-matching rules).
-  Actions `list`, `add` (title + text), `remove` (by id or title). These apply
-  across ALL projects and users and are always loaded into context.
+Defined in `_TOOLS` in `src/ai/assistant.py`. All are read-only on experiment
+data unless stated.
 
-### Knowledge base
-- **manage_knowledge** — visualise, add or remove knowledge-base items. Actions
-  `list`, `add_pdf`, `add_note`, `ingest_folder`, `remove`. `collection` is
-  `user_papers` or `literature`.
-- **ingest_pdf** — ingest one PDF (paper, manual, protocol) into the KB so it is
-  retrievable in future conversations. Skips if the file hash is unchanged.
-- **web_search** — search the scholarly literature online via Crossref; returns
-  title, authors, year, venue, DOI. Online only; it reports clearly when the
-  beamline network is offline.
+**Analysis**
+- `analysis_tier1`: the model-free ladder on ONE curve, located by `keyword`.
+  Routes the modality from the data (Bragg peaks: WAXS, smooth decay: SAXS, both:
+  SWAXS), computes Guinier Rg/I0 and linearity, qRg validity, dimensionless
+  Kratky, high-q power law, Porod volume, MW if the concentration is known, and
+  returns which higher-tier steps are allowed or refused (with the remedy). It
+  also runs the pre-flight gate (q convention, geometry, subtraction sanity,
+  damage, low/high-q artefacts, detector gaps, concentration, uncertainties).
+  Confirmation flags (`q_units_confirmed`, `geometry_confirmed`,
+  `known_isotropic`, `known_dilute`, `frames_stable`, `low_q_triaged`,
+  `detector_gaps_ok`) are set only after the operator confirms. Call this before
+  proposing any model or P(r) step.
+- `run_analysis`: one analysis on a `.dat` file. `analysis_type` is `guinier`,
+  `kratky`, `porod` or `pair_distance`. Results:
+  `guinier` gives `Rg`, `I0`, `slope`, `intercept`, `R2` (capital R), `q_range`
+  (`[q_lo, q_hi]`), `qRg_max`; there is no `chi2`. `porod` gives `n`, `K`, `R2`,
+  `interpretation`, `q_range`. `kratky` returns no fitted numbers (use
+  `generate_plot`). `pair_distance` gives `Rg`, `Dmax`, `I0`, `chi2`.
+- `compute_pr`: p(r) for ONE curve by regularised indirect Fourier transform;
+  returns Rg, Dmax, I0 and an inline plot. `dmax` is an optional hint in nm.
+- `fit_model`: sasmodels fit on ONE sample (`keyword`, `model_name`, starting
+  `params`, `free`, optional `q_min`/`q_max`, `detector`, `axis`). Returns fitted
+  parameters, reduced χ² and a data+fit plot with residuals.
+- `list_saxs_models`: the sasmodels catalogue, optionally filtered by keyword.
+- `assess_quality`: QC on ONE averaged sample: frame outliers (robust MAD on
+  I0/intensity) and beam/transmission sanity. Returns a verdict per check and
+  outlier frame indices.
 
-### Output and escape hatch
-- **export** — write a file to the project's dedicated `assistant_outputs/`
-  folder, the ONLY place the assistant may write. `kind` is `session_report`
-  (HTML/PDF summary of samples, stages, QC, analyses), `fit_results`
-  (CSV/XLSX of recorded analyses/fits) or `notes` (Markdown). It never touches
-  experiment data, and should be called only after the user confirms.
-- **run_python** — run a SHORT Python snippet in a guarded sandbox and show
-  stdout plus any matplotlib figure inline. Available: numpy (`np`), matplotlib
-  (`plt`), scipy, pandas, pathlib, and `load_dat(path) -> (q, I, sigma)`, which
-  accepts a BARE FILENAME and searches the project. The sandbox is read-only on
-  data (os/network/file-deletion blocked); the only writable folder is
-  `assistant_outputs/`. The code must be shown and explicitly confirmed by the
-  user first, and the dedicated tools are preferred where they already do the job.
+**Plots**
+- `generate_plot`: static PNG. `plot_type`: `curve`, `guinier`, `kratky`,
+  `porod`, `pair_distance`, `multi`. Easiest with a `keyword` (resolves the
+  subtracted curve and, for Guinier, auto-fits). Note: this `porod` plot is
+  q⁴·I(q) vs q⁴ (Porod plateau). The Analysis app's Porod fit is different: it
+  fits the power-law exponent n in ln I = a + n·ln q. Say which one you mean.
+- `plot_metadata`: per-frame i0, bstop, transmission, thickness, normalisation
+  factor, temperature (CTEMP/TEMP) vs the beamline Timer clock. `stage` is
+  `averaged` or `subtracted`, narrowed by `keyword`.
+- `overlay_curves`: overlay curves matched by `keywords`; `stage` `averaged` /
+  `subtracted` / `reduced`, `detector` `SAXS` / `WAXS` / `both` (separate panels),
+  `axis` `loglog` / `semilog` / `linear`, optional `q_min`/`q_max`.
 
-## Layered Memory
+**Manifest**
+- `query_manifest`: `query_type` `summary`, `files`, `averaged`, `background`,
+  `analysis`, `quality_flags`, `events`. Start with `summary`; list queries are
+  capped, so pass a `keyword` or `detector`.
+- `add_note`: attach a persistent note to a file entry. Writes the manifest.
+- `flag_quality`: `good`, `marginal`, `bad`, `radiation_damage`, `aggregated`,
+  `low_snr`, `outlier`, `needs_review`. Writes the manifest.
 
-### Layer 1 — User (`~/.swaxs/memory/users/<user_id>/`)
-`_USER_ROOT_DIR = Path.home() / ".swaxs" / "memory" / "users"`.
-- `corrections.jsonl` — JSONL log of AI mistakes the user corrected
-- `preferences.yml` — units, display, analysis preferences (written by
-  `set_preferences`)
-- `session_summaries/` — digests of past conversations
+**Memory and knowledge**
+- `set_preferences`: persistent per-user `audience` (expert/student/mixed),
+  `verbosity` (concise/detailed), `default_model`, `units`, `citation_style`.
+- `group_sops`: `list`, `add` (title + text), `remove` group conventions.
+- `manage_corrections`: authoritative operator corrections that outrank any
+  `knowledge.md`. `add` and `confirm` only on the operator's explicit
+  instruction; `propose` records an unconfirmed suggestion; also `list`,
+  `remove`. Scope `global`, `app:<id>`, `entry:<id>` or `doc:<name>`.
+- `manage_knowledge`: `list`, `add_pdf`, `add_note`, `ingest_folder`, `remove`,
+  in `user_papers` (default) or `literature`. Re-adding an unchanged PDF is skipped.
+- `web_search`: literature search via Crossref (title, authors, year, venue,
+  DOI). Needs internet; says so when offline.
 
-### Layer 2 — Project (`<project_root>/.swaxs/memory/`)
-- `experiment_history.jsonl` — log of processing actions
-- `quality_log.jsonl` — quality events per file
+**Output**
+- `export`: writes to `assistant_outputs/` only, after the user confirms.
+  `kind` `session_report` (html or pdf), `fit_results` (csv or xlsx), `notes` (md).
+- `run_python`: short snippet in a guarded sandbox with `np`, `plt`, scipy,
+  pandas, pathlib and `load_dat(name) -> (q, I, sigma)` (accepts a bare
+  filename). Read-only on data; os, network and deletion are blocked. Disabled
+  unless the assistant was started with `SWAXS_ALLOW_CODE_EXEC=1`. The code must
+  be shown and confirmed by the user first; prefer the dedicated tools.
 
-### Layer 3 — Facility (`ai_knowledge/beamline/<id>.yml`)
-- Instrument-specific notes (detector geometry, common artefacts, calibration tips)
-- Shared across all users at the same facility. The id comes from
-  `SWAXS_BEAMLINE` (default `ssrl_1-5`).
+Up to 8 tool rounds per turn.
 
-### Group layer — shared SOPs (`ai_knowledge/group/sops.json`)
-Cross-project, cross-user conventions, managed by the `group_sops` tool and always
-loaded into the system prompt alongside the three layers above.
+## Memory
 
-`load_context()` assembles all of these, taking the most recent
-`max_corrections` (10) corrections and `max_summaries` (3) session summaries by
-default.
+- **User** (`~/.swaxs/memory/users/<user_id>/`): `preferences.yml`,
+  `session_summaries/`. User id: `SWAXS_USER_ID`, else the OS login.
+- **Project** (`<project>/.swaxs/memory/`): `chat_history.jsonl`,
+  `experiment_history.jsonl`, `quality_log.jsonl`. The last 20 turns of the
+  project's chat are reloaded when a new session starts in that project.
+- **Facility** (`ai_knowledge/beamline/<id>.yml`, id from `SWAXS_BEAMLINE`,
+  default `ssrl_1-5`): instrument notes, also indexed in the `beamline` collection.
+- **Group** (`ai_knowledge/group/sops.json`): shared SOPs, always in context.
+- **Corrections** (`ai_knowledge/corrections.json`): authoritative corrections,
+  always in context. If one conflicts with a `knowledge.md`, the assistant
+  surfaces the conflict rather than applying it silently.
 
-## Knowledge Base Collections
+## Proactive hints
 
-| Collection    | Contents                                        |
-|---------------|-------------------------------------------------|
-| `literature`  | SAXS textbooks, review papers, instrument docs  |
-| `apps`        | Per-app `knowledge.md` files, ingested from the `knowledge:` entries in `apps.yml` — all nine apps plus the hub |
-| `user_papers` | User-uploaded sample-specific PDFs              |
-| `beamline`    | Facility YAML configs (`ssrl_1-5.yml`, etc.)    |
+`HintChecker` (`src/ai/hints.py`) rules:
+- `check_guinier_range`: q_min·Rg < 0.25 (0.3 recommended), q_max·Rg > 1.3, or
+  χ² > 2.0. The Analysis app's own gate is shape-dependent (1.3 globular, 1.0 rod,
+  1.7 disc); this hint is a simpler approximation.
+- `check_aggregation`: low-q slope (first 10% of q) exceeds the global slope by 20%.
+- `check_radiation_damage`: rising trend (over 10%) in a time-ordered I0 or
+  low-angle intensity series, at least 3 points.
+- `check_snr`: σ/I above 0.5 in the top 15% of q.
+- `check_i0_stability`: frames whose I0 deviates over 20% from the median.
+- `check_background_scale`: scale below 0.5 or above 1.5. This band is the
+  assistant's rule; the Background app only clamps to [0.1, 5].
+- `check_negative_intensities`: more than 5% negative points after subtraction.
+- `check_rg_dmax_ratio`: Rg/Dmax above 0.6 (compact sphere ≈ 0.385).
 
-Retrieval pulls the top 6 hits (`_KB_TOP_K = 6`) into the system prompt.
+## 4. Settings and defaults
 
-## Proactive Hints
-`HintChecker` (`src/ai/hints.py`) has EIGHT rules:
-- `check_guinier_range` — warns when `q_min·Rg < 0.25` (recommended ≥ 0.3) or
-  `q_max·Rg > 1.3`, and, when a χ² is supplied, when χ² > 2.0. Emits an `info`
-  hint when the range is fine. Note the Analysis app's own gate uses
-  shape-dependent upper bounds (1.3 globular / 1.0 rod / 1.7 disc) and a
-  `q_min·Rg > 0.65` lower gate, so this hint is the assistant's flatter
-  approximation of it.
-- `check_aggregation` — low-q upturn: compares the ln I vs ln q slope over the
-  first 10% of the q range to the global slope, flagging a 20% slope excess.
-- `check_radiation_damage` — an increasing trend in a time-ordered I₀ /
-  low-angle intensity series (threshold 10%), needs ≥3 points.
-- `check_snr` — σ/I above 0.5 over the top 15% of the q range.
-- `check_i0_stability` — individual frames whose I₀ deviates more than 20% from
-  the median.
-- `check_background_scale` — a background scale below 0.5 or above 1.5. This band
-  is the ASSISTANT's rule; the Background app itself only clamps to [0.1, 5] and
-  never flags 0.5/1.5.
-- `check_negative_intensities` — more than 5% negative points after subtraction.
-- `check_rg_dmax_ratio` — sanity-checks Rg/Dmax. For a compact globular particle
-  Rg ≈ 0.77·Dmax/2, i.e. a ratio of ≈0.385; a ratio above 0.6 is flagged.
+**Credentials** (see [SECURITY.md](../SECURITY.md)). Resolved in this order:
+- `ANTHROPIC_AUTH_TOKEN` + `ANTHROPIC_BASE_URL` (SLAC gateway,
+  `https://ai-api.slac.stanford.edu`), preferred.
+- Read automatically from `~/.claude/settings.json` (`env` block, including
+  `ANTHROPIC_DEFAULT_SONNET_MODEL`) if not already in the environment.
+- `ANTHROPIC_API_KEY` (direct Anthropic API), from the environment or `.env`.
+Never put the gateway token in `.env` or the repo.
 
-## API Endpoints (assistant/app.py)
-- `POST /api/chat` — send a message, receive `{text, plot, tool_calls, hints}`
-- `POST /api/chat/stream` — the streaming variant, and the one the UI actually uses
-- `GET  /api/history/<session_id>` — retrieve conversation history
-- `POST /api/ingest/pdf` — upload and ingest a PDF file
-- `GET  /api/events/stream` — SSE stream for real-time event-bus hints
-- `GET  /api/memory/context` — view the current memory layers (debug)
-- `POST /api/memory/clear` — clear transient session context for this user
-- `GET  /api/knowledge/stats` — document counts per KB collection
-- `GET  /api/knowledge/list` — every ingested paper/note (works without ChromaDB)
-- `POST /api/knowledge/note` — `{name, text, collection?}`, save a text note
-- `POST /api/knowledge/remove` — `{name}`, remove a source from the KB and its log
-- `GET  /api/health` — liveness plus resolved credential status
-- `GET  /api/project` — the project folder the hub currently has selected
+**Model**: `ANTHROPIC_MODEL`, else `ANTHROPIC_DEFAULT_SONNET_MODEL` from
+`~/.claude/settings.json`, else `us.anthropic.claude-sonnet-4-6`. The SLAC
+gateway needs the `us.anthropic.` prefix; the bare `claude-sonnet-4-6` is
+rejected. UI choices: `us.anthropic.claude-sonnet-4-6` (default),
+`us.anthropic.claude-sonnet-5`, `us.anthropic.claude-opus-4-8`,
+`us.anthropic.claude-opus-5`, `us.anthropic.claude-haiku-4-5-20251001-v1:0`.
 
-## Environment Variables
-- `ANTHROPIC_API_KEY` — required; set in the shell (or `.env`) before starting
-  the platform
-- `ANTHROPIC_MODEL` — optional; overrides the default `us.anthropic.claude-sonnet-4-6` (used
-  for gateway/proxy deployments)
-- `SWAXS_USER_ID` — optional; overrides the OS username for the memory layer
-- `SWAXS_BEAMLINE` — facility id for the Layer-3 memory file (default `ssrl_1-5`)
-- `SWAXS_HUB_URL` — hub WebSocket URL (default `ws://localhost:5100/ws`)
-- `SWAXS_HUB_API` — hub HTTP base URL (default `http://localhost:5100`)
+**Effort** (per turn): Low (3072 output tokens, short prose), Medium (6144,
+default), High (16000, more cross-checking, slower). This is not extended thinking.
 
-## Session Management
-Each browser tab gets a unique `session_id` (UUID). Conversation history is kept
-in memory in a server-side dict keyed by `session_id`. Sessions expire after
-`SESSION_TTL_S = 7200` seconds (2 hours) of inactivity — an expired session is
-simply popped from the dict. **Nothing is persisted at session end**: session
-history is lost when the session expires or the app restarts.
-(`save_session_summary` exists in `src/ai/memory.py` but has no callers, so no
-summary is written automatically. Use the `export` tool with
-`kind: "session_report"` if a record of a session is needed.)
+**Context limits**: the 6 most recent user turns (with their tool exchanges) are
+re-sent each turn. Browser sessions expire after 2 hours idle; the per-project
+chat history on disk remains.
+
+**Other environment variables**
+- `SWAXS_USER_ID`: overrides the user id for memory.
+- `SWAXS_BEAMLINE`: facility id (default `ssrl_1-5`).
+- `SWAXS_ALLOW_CODE_EXEC=1`: enables `run_python`.
+- `SWAXS_WHISPER_MODEL`: voice model (default `base.en`).
+- `SWAXS_HUB_URL` (default `ws://localhost:5100/ws`), `SWAXS_HUB_API` (default
+  `http://localhost:5100`).
+
+**Install**: `pip install -r requirements-ai.txt` (`anthropic`, `chromadb`,
+`sentence-transformers`, `faster-whisper`). Chat and manifest questions work with
+`anthropic` alone; the knowledge base needs `chromadb` and
+`sentence-transformers` (pulls torch, about 2 GB).
+
+## 5. Troubleshooting
+
+- **Badge says no credentials / "No AI credentials are configured"**: set the
+  token as above, then restart the assistant from the hub. `GET /api/health`
+  shows `credentials` (`gateway-token`, `api-key` or `none`), `base_url`, `model`.
+- **"Invalid model name"**: use a `us.anthropic.` model id on the SLAC gateway.
+- **Authentication error**: the token is invalid or expired, or you are off the
+  SLAC network/VPN.
+- **"[KB] chromadb or sentence-transformers not installed"**: install
+  `requirements-ai.txt`. Chat still works without the knowledge base.
+- **Assistant says the manifest is empty**: no project selected, or the wrong
+  one. Check the project path in the top bar and the hub.
+- **`run_python` refuses**: restart with `SWAXS_ALLOW_CODE_EXEC=1`.
+- **Microphone gives an error**: `pip install faster-whisper`; the first use
+  downloads the model (about 150 MB) and needs internet.
+- **`web_search` fails**: the beamline network is offline; everything else works.
+
+## 6. API routes
+
+| Method | Route | Purpose |
+|---|---|---|
+| GET | `/` | UI |
+| POST | `/api/chat` | One turn: `{message, session_id?, app_id?, project_root?, model?, effort?}` returns `{text, plot, tool_calls, hints, ...}` |
+| POST | `/api/chat/stream` | Same, as Server-Sent Events (used by the UI) |
+| GET | `/api/history/<session_id>` | Conversation history of a session |
+| POST | `/api/ingest/pdf` | Upload and index a PDF |
+| GET | `/api/events/stream` | SSE stream of live hints from the bus |
+| GET | `/api/memory/context` | Current memory layers |
+| POST | `/api/memory/clear` | Clear the transient user context |
+| GET | `/api/knowledge/stats` | Chunk counts per collection |
+| GET | `/api/knowledge/list` | Every indexed paper and note (works without ChromaDB) |
+| POST | `/api/knowledge/note` | `{name, text, collection?}` save a note |
+| POST | `/api/knowledge/remove` | `{name}` remove a source |
+| POST | `/api/transcribe` | WAV upload to text (local Whisper) |
+| GET | `/api/health` | Liveness and credential status |
+| GET | `/api/project` | Project folder selected in the hub |

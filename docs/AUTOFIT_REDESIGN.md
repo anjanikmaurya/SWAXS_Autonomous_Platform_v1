@@ -1,11 +1,21 @@
 # Autonomous Analyser (formerly "Auto-Fit & Optimiser") — full redesign (3-tab, pluggable methods)
 
-Status: **design only — no code written yet.** This supersedes the earlier
-`AUTOFIT_METHODS_REFACTOR.md` with a complete rethink: a three-tab app whose
-**fitting** and **optimising** steps are selectable, comparable methods, backed
-by a short literature survey of the best candidates. It is meant to double as a
-*method-comparison study* platform (run several methods against the hidden
-ground-truth simulator and report who wins).
+Status: **built (October 2026), except the optional arms of step 8.** What
+exists, checked against the code:
+
+- The three tabs Setup · Fitting · Report (`analyzer/templates/index.html`).
+- Fitting registry `src/fitting/` with `ls_sphere` (default), `ml_regressor` and
+  `llm_assisted`.
+- Optimiser registry `src/optimizer/methods/` with `gp_ei` (default,
+  `CampaignController`), `random`, `gp_ucb`, `turbo`, `bax` and `pareto_ehvi`
+  (the last was not in this plan).
+- Study runner `src/optimizer/study.py`, served by `/api/study` and
+  `/api/study/plot.png`; `/api/methods` lists and selects methods.
+- Tests: `tests/test_method_registry.py`, `tests/test_study_runner.py`.
+
+Not built: CMA-ES and the anisotropic-kernel GP (step 8). The survey and the
+build order below are kept as the design rationale. This supersedes
+[archive/AUTOFIT_METHODS_REFACTOR.md](archive/AUTOFIT_METHODS_REFACTOR.md).
 
 ---
 

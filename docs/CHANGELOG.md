@@ -7,6 +7,45 @@ this file is the running summary. Dates are when the work landed on `main`.
 
 ## October 2026
 
+### SQLite manifest store
+
+- The manifest is now stored in `manifest.db` (SQLite, WAL mode,
+  `src/manifest_store.py`) with indexed `files`, `analyses`, `background`,
+  `quality`, `reactor_runs` and `events` tables. `src/manifest.py` keeps the same
+  dict API, so no app changed.
+- Every save is one transaction; `manifest.json` is still exported after each save
+  for readers of the JSON.
+- Rotating snapshots in `.manifest_snapshots/` (throttled to one per 600 s per
+  process, plus a `preshrink-*` snapshot whenever a save would drop most of the
+  file index). A missing, empty or unreadable DB is restored from the newest
+  snapshot; an unreadable JSON with nothing to recover from raises
+  `ManifestUnreadableError` instead of starting an empty store.
+- `SWAXS_MANIFEST_BACKEND=json` restores the old single-file store. Tests:
+  `tests/test_manifest_sqlite.py`, `tests/test_manifest_snapshots.py`,
+  `tests/test_manifest_db.py`.
+
+### Operator entered once, in the hub
+
+The operator name moved from the reduction app to an **Operator** box in the hub
+top bar. The hub saves it (`logs/hub_operator.txt`), writes it to the project
+manifest as `project_meta.current_operator` and exports `SWAXS_USER_ID` to the
+apps it launches. `src/operator_id.py` resolves it for provenance: explicit value,
+then the manifest, then `SWAXS_USER_ID`, then the OS login.
+
+### Browse… on every folder field
+
+Folder fields across the apps open the shared folder picker (`swaxsBrowse` in
+`_icon_helpers.html`). `src/folder_browse.py` serves `GET /api/browse` for the
+apps that had no browser of their own; a relative path opens inside the project
+folder. Read only.
+
+### Docs refresh
+
+Developer docs checked against the code: `docs/ARCHITECTURE.md` describes the
+system as built, the hardening plan and the defect register carry a Done or Open
+status with evidence for each item, completed audits carry a status block, and
+the design docs state what is built.
+
 ### Reactor quick audit: four follow-up fixes
 
 - **Flush pump changed mid-flush** stopped the NEW pump at the end of the flush and
@@ -51,8 +90,8 @@ control loop and closes every pump serial port after idling (an open COM port
 blocked the next start on Windows); **R8** every run record and manifest entry
 carries `backend` (mock or real), so a campaign can tell simulated runs from real
 ones; **R4** `run.end_on_measurement` documented as a no-op (measurement-end is
-always on). R5 is by design. **R6 (volume and flow checks during the flush) is
-still open.** No setting in `reactor/config.yml` changed. Tests:
+always on). R5 is by design. R6 (volume and flow checks during the flush) was
+closed in the entry above. No setting in `reactor/config.yml` changed. Tests:
 `tests/test_reactor_open_defects_2026_10.py`.
 
 ### Synthesis instrument contract (phase 0)

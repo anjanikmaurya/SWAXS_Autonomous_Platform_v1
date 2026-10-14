@@ -1,234 +1,174 @@
-# Geometry Calibration — knowledge
+# Geometry Calibration: knowledge
 
-## Purpose and position in the pipeline
-The Geometry Calibration app (port 5101) is a **pre-reduction utility** — the
-step BEFORE the Reduction app (5102). Its job is to produce the `.poni` PyFAI
-calibration files that reduction consumes, and to pull raw data across from the
-beamline machine.
+## What this app is for
+Geometry Calibration (port 5101) is the pre-reduction utility. It does two jobs:
 
-It has **no `manifest_key`** in `apps.yml` and writes nothing to
-`manifest.json`. Its outputs are files on disk: `.cbf` conversions and `.poni`
-geometries. Nothing downstream reads its state; reduction simply picks up the
-`.poni` files by path.
+1. **Copy data**: pull raw data from the beamline machine to a local folder over SFTP.
+2. **Calibrate**: turn calibrant `.raw` images (AgBh, LaB6, ...) into CBF and open the
+   pyFAI-calib2 GUI so the user can produce the `.poni` geometry files that the
+   Reduction app (5102) needs.
 
-src/ imports: see CLAUDE.md.
+## Where it sits in the pipeline
+- **Reads:** calibrant `.raw` files from any folder you choose; the project
+  `config.yml` (`detector_shapes`, `energy_keV`, `poni_directory`).
+- **Writes:** CBF files to `<raw folder>/cbf_output/`; `.poni` files are saved by
+  you from the pyFAI-calib2 GUI, into the project poni folder (`poni_directory`
+  from `config.yml`, else `<project_root>/poni/`).
+- It has no `manifest_key` in `apps.yml` and writes nothing to the manifest.
+  Reduction picks the `.poni` files up by path through `poni_directory` plus
+  `poni_files.saxs` / `poni_files.waxs` in `config.yml`; detector masks
+  (`mask_files`, `.edf`) live in the same folder.
+- Reduction reads `.raw` directly. The CBF conversion exists only because
+  pyFAI-calib2 needs a standard image format, and for quick QA.
 
-## Three-stage workflow
+## How to use it
+The sidebar has two tabs: **Copy data** and **Calibrate**.
 
-### 1. Find calibrant `.raw` files by keyword
-`POST /api/list_raw` with `{raw_dir, keywords}`. `find_raw_files` lists every
-`*.raw` in the folder whose name contains ANY of the keywords
-(case-insensitive); an empty keyword list returns all of them. For each file the
-app divides the byte size by 4 (int32 pixels) and matches the pixel count against
-the known detector shapes, so the response carries
-`{name, path, pixels, detector}` with `detector` = `SAXS`, `WAXS` or `?`.
+### Copy data tab (SFTP to local)
+1. Fill in **Host**, **Port** (22), **Username**, and either **Password** or
+   **SSH key (optional)**.
+2. Set **Remote folder** and **Local folder** (use **Browse...**; the local folder
+   must already exist).
+3. Choose **Copy mode**:
+   - **Watch**: polls the remote folder every **Check interval (s)** (default 60)
+     and copies anything new or changed. Use during beamtime. Changing the
+     interval needs Stop, then Start again.
+   - **One time**: copies the whole remote tree once, then stops (post-beamtime).
+4. Set **Parallel transfers** (1 to 16, default 4). Use 8 for many small files on a
+   fast link, 1 or 2 if the server throttles.
+5. **Test connection** to check credentials, then **Start copy**. **Stop** ends it.
+   The progress bar shows files, data, speed, elapsed time, ETA and failures.
 
-### 2. Convert `.raw` → CBF
-`POST /api/convert` with `{raw_dir, keywords, preview}`. `convert_dir` writes a
-true CBF for each matching file via **fabio**
-(`fabio.cbfimage.CbfImage(...).write()`) into `<raw_dir>/cbf_output/`. It is
-fail-soft: a file that cannot be read is recorded with `ok: false` and an error
-message rather than aborting the batch.
+Behaviour: the remote sub-folder tree is preserved; a file already present locally
+with the same size is skipped. Settings persist to `~/.swaxs_sftp_sync.json`, but
+the **password is never saved**, so re-enter it each session (or use an SSH key).
+Transfers share one ssh connection with a large flow-control window and 32 KB
+packets, which is much faster than paramiko's defaults.
 
-Each result also carries QA stats from `frame_stats`: `min`, `max`,
-`total_counts`, `hot_pixels` (count of pixels above 1e6) and `shape`.
+### Calibrate tab
+**1 · Convert calibrant raw → CBF**
+1. **Raw folder**: the folder of calibrant `.raw` files.
+2. **Keywords**: comma separated, case insensitive, matches any; blank = all files.
+3. **List** shows the matching files with pixel count and detector (SAXS, WAXS or
+   `?`), and fills the Image menu with the `.raw` files.
+4. **Convert → CBF** writes one CBF per file to `<raw folder>/cbf_output/`, shows a
+   log-scale preview of each frame, and fills the Image menu with the CBFs. A file
+   that cannot be read is reported and the rest of the batch continues. Each
+   result carries QA stats: `min`, `max`, `total_counts`, `hot_pixels` (pixels
+   above 1e6) and `shape`.
 
-Reduction still reads `.raw` directly — the CBF conversion exists for
-calibration (pyFAI-calib2 wants a standard image format) and for quick QA.
+**2 · Generate .poni (pyFAI)**
+1. **Calibrant**: see the list below (default AgBh).
+2. **Energy (keV)**: prefilled from `energy_keV` in `config.yml`; must be positive.
+3. **Detector**: **Auto (from the image size)** by default, or any detector model
+   pyFAI knows, grouped by manufacturer with image size and pixel size. pyFAI
+   already knows each model's pixel size, image size and module gaps.
+4. **Image**: a CBF, or a `.raw` from the List step (a `.raw` is converted to CBF
+   into `cbf_output/` first, because pyFAI cannot read headerless `.raw`).
+5. **Open pyFAI-calib2**. In the GUI pick rings, refine, then **Save as...**; the
+   dialog starts in the project poni folder.
 
-### 3. Generate the `.poni`
-`POST /api/calibrate/launch` with `{cbf, calibrant, energy_keV, detector}` (`detector`
-defaults to `auto`; an optional `pixel_um` is still accepted).
-See "Calibration route" below.
+**3 · PONI files in project**: **Refresh** lists the `.poni` files in the poni folder.
 
-`GET /api/poni` lists the `.poni` files already in the project's poni folder as
-`{name, path}`.
+## Settings and defaults
 
-## Raw file format and detector shapes
-The SSRL BL1-5 `.raw` files are headerless little-endian **int32**, row-major.
-The detector is inferred from the pixel count.
+### Raw format and detector shapes
+SSRL BL1-5 `.raw` files are headerless little-endian **int32**, row-major. The
+detector is inferred from the pixel count (file size / 4):
 
 ```
 DEFAULT_SHAPES = {"SAXS": (1043, 981), "WAXS": (195, 487)}     # (rows, cols)
 ```
 
-These are the same values as `detector_shapes` in the project `config.yml`, and
-the project config WINS: `_shapes()` reads `detector_shapes` from
-`<project_root>/config.yml` and falls back to `DEFAULT_SHAPES` only when the
-config has no usable entry.
+`detector_shapes` in the project `config.yml` wins; the defaults apply only when
+the config has no usable entry. If the pixel count matches no shape, a filename
+containing `waxs`, `100k` or `si` is treated as WAXS; otherwise the file is
+rejected with `"<file>: unexpected size <N> (expected <M> or <M>)"`.
 
-`detect_shape(size, shapes, name)` matches the pixel count against the known
-shapes. If the count is unknown or ambiguous it falls back to a filename hint —
-a name containing `waxs`, `100k` or `si` is treated as WAXS — and otherwise
-returns no shape, which makes `read_raw` raise
-`"<file>: unexpected size <N> (expected <M> or <M>)"`.
+### Detector selection
+- **Auto** picks the Pilatus model whose shape matches the image:
+  1043 × 981 → `pilatus1m` (SAXS), 195 × 487 → `pilatus100k` (WAXS); other Pilatus
+  sizes (200k, 300k, 300kw, 900k, 2M, 6M) are also recognised. With no match the
+  GUI opens without a detector and asks for one.
+- A model chosen by hand is checked against the image first. A mismatch (e.g. a
+  Pilatus 2M for a 1043 × 981 image) is refused and nothing starts; a binned
+  image (integer fraction of the model) is accepted.
+- A `.poni` saved this way records `Detector: Pilatus1M` (or 100k), so pyFAI also
+  knows the Pilatus module gaps when it integrates.
+- A bare `--pixel` is never passed, because on current pyFAI it builds a detector
+  with no shape and the GUI crashes. API callers may still send `pixel_um`; the
+  auto-chosen model must then agree with it within 1 µm.
 
-## Energy and wavelength
-Energy in **keV** is the required input. The conversion is
-
+### Energy and wavelength
 ```
 λ[Å] = 12.39842 / E[keV]
 ```
+`energy_to_wavelength_m(energy_keV)` returns metres (`12.39842 / E * 1e-10`).
 
-`energy_to_wavelength_m(energy_keV)` returns the wavelength in **metres**
-(`12.39842 / E * 1e-10`). The default energy shown in the UI comes from
-`energy_keV` in the project `config.yml` (surfaced by `GET /api/project`).
-
-## Supported calibrants
-`CALIBRANTS` (pyFAI calibrant names, case sensitive):
-
+### Supported calibrants
+pyFAI names, case sensitive:
 ```
 AgBh, LaB6, CeO2, Si, Cr2O3, Au, Ni, alpha_Al2O3
 ```
+Silver behenate is **AgBh** in pyFAI; "AgBehenate" and "AgBeh" are mapped to AgBh.
+AgBh suits transmission SAXS; LaB6, CeO2 and Si suit the WAXS detector's higher q.
 
-Silver behenate is **AgBh** in pyFAI. "AgBehenate" is not a pyFAI name (passing it
-opened the GUI with no calibrant), so `resolve_calibrant` maps AgBehenate / AgBeh
-to AgBh. `GET /api/calibrants` returns this list plus display labels. AgBh is the
-default in the launch route and the usual choice for transmission SAXS; LaB6 / CeO2 / Si suit the WAXS
-detector's higher q range.
-
-## Calibration route — interactive pyFAI-calib2
-`launch_calib2` spawns the standard pyFAI-calib2 GUI preloaded with the CBF, the
-calibrant, the energy and (optionally) the detector model and a starting geometry.
-The user picks rings, refines, and saves the `.poni` themselves.
-
-Command construction (`build_calib2_command`):
+### How pyFAI-calib2 is launched
+Command:
 ```
-<launcher> --calibrant <name> --energy <keV> [--detector <model>] [--poni <init>] <image>
+<launcher> --calibrant <name> --energy <keV> [--detector <model>] <image>
 ```
-**Detector menu** (replaces the old Pixel field, October 2026): every detector
-model pyFAI knows (`GET /api/detectors`, from `list_detectors`), grouped by
-manufacturer, with its image size and pixel size. pyFAI already knows each
-model's pixel size, image size and module gaps, so nothing has to be typed. A
-chosen model is checked against the image first (`check_detector`): a mismatch
-(e.g. a Pilatus 2M for a 1043 × 981 image) is refused with a message and nothing
-is started; a binned image is accepted. With **Auto** (the default) the
-detector model is chosen from the image shape (`detector_for_image`):
-1043 × 981 → `pilatus1m` (SAXS), 195 × 487 → `pilatus100k` (WAXS), and other
-Pilatus sizes. The UI has no pixel field any more; an API caller may still
-send `pixel_um`, and the auto-chosen model must then agree with it. A bare
-`--pixel` is never sent: on pyFAI 2024 it builds a detector with no shape and the
-GUI crashes on start (`detector.max_shape[1] … 'NoneType' object is not
-subscriptable`). With no matching model the GUI opens without a detector and asks
-for one. A .poni saved this way records `Detector: Pilatus1M` (or 100k), so pyFAI
-also knows the module gaps of the Pilatus when it integrates.
+- Launcher: `python -m pyFAI.app.calib2` with the platform's own interpreter
+  (preferred, because a `pyFAI-calib2` script on PATH may belong to another
+  environment without Qt), else `pyFAI-calib2` from PATH.
+- The GUI runs detached in its own session: stopping or restarting this app or
+  the hub does not close a calibration in progress. The launch writes no `.poni`,
+  config or manifest entry.
+- Its working directory is the project poni folder. `MPLBACKEND` and
+  `QT_QPA_PLATFORM` are removed from its environment so it does not inherit the
+  app's `Agg` backend or an `offscreen` Qt platform.
+- The launch is verified: the GUI is watched for 6 s and, if it closes, the app
+  reports its stderr tail ("pyFAI-calib2 closed right after starting (rc=...)").
+  The response always includes the full `command`, so it can be run by hand.
+- pyFAI-calib2 needs a Qt binding. **PySide6** is in `requirements-core.txt`
+  (PyQt6 or PyQt5 also work) and needs a display to open the window.
 
-How the launcher is resolved (`_calib2_launcher`):
-1. `[sys.executable, "-m", "pyFAI.app.calib2"]`: the CURRENT interpreter, i.e. the
-   environment with the platform's pyFAI and PySide6. Preferred, because a
-   `pyFAI-calib2` script on PATH may belong to another environment without Qt.
-2. Otherwise `shutil.which("pyFAI-calib2")`, the console script on PATH.
-
-**Image.** Pick a CBF, or a `.raw` straight from the List step: a `.raw` is
-converted to CBF (into `cbf_output/` next to it) before the GUI opens, because
-pyFAI cannot read the headerless `.raw`. Energy must be a positive keV value.
-
-**Isolated from the rest of the platform.** The launch writes no `.poni`, config
-or manifest entry and touches no other app. The GUI is started through a short
-helper process in its own session, so it is not a child of the calibration app:
-stopping or restarting the app (or the hub) does not close a calibration in
-progress.
-
-The GUI's working directory is set to the project's poni folder, so its
-"Save as…" dialog already points there. The environment passed to the GUI has
-`MPLBACKEND` and `QT_QPA_PLATFORM` REMOVED, so the GUI does not inherit the
-app's forced `Agg` backend or an `offscreen` Qt platform.
-
-The launch is verified: the helper watches the GUI for 6 s (a cold silx + Qt
-import can take several seconds) and, if it closed, the app reports its stderr
-tail instead of falsely claiming success ("pyFAI-calib2 closed right after
-starting (rc=…)"). The response always includes the full
-`command` string, so the user can run it by hand in a terminal with the platform
-environment active.
-
-**Qt binding required.** pyFAI-calib2 is a Qt GUI (via silx.gui). The Qt binding
-**PySide6** now ships in `requirements-core.txt`, so a normal install has it. If it
-still exits with `ImportError: No Qt wrapper found` (a stale/partial environment),
-reinstall into the SAME environment that runs the platform:
-`pip install -r requirements-core.txt` (or `pip install PySide6`; PyQt6 / PyQt5
-also work). The launcher says exactly this when it detects the Qt-wrapper error.
-PySide6 installs from binary wheels everywhere; it only needs a display to open the
-window (a headless box installs it fine and simply never launches the GUI).
-
-## Poni folder
-The output folder is `poni_directory` from the project `config.yml`, falling back
-to `<project_root>/poni/` (or `./poni` with no project). Reduction then references
-these files through `poni_directory` plus `poni_files.saxs` / `poni_files.waxs`
-in its own `config.yml`, and the detector masks (`mask_files`, `.edf`) live
-alongside them.
-
-## 2D preview
-Every converted frame can be rendered as a **log-scale** PNG thumbnail
-(matplotlib `LogNorm`, `hot` colormap, base64 data URI) so ring quality can be
-checked before refining. `vmin` is clamped to at least 1.0 so zero/negative
-pixels do not break the log scale. Set `preview: false` in the convert request to
-skip it.
-
-Look for: continuous, concentric, evenly spaced rings. Discontinuous or
-elliptical rings mean a tilted or badly centred detector; missing rings mean the
-exposure was too short.
-
-## SFTP data sync (left panel)
-`src/preprocess/sftp_sync.py` pulls raw data from the beamline machine into a
-local folder (for example a Google-Drive-synced directory), preserving the remote
-sub-directory tree.
-
-Endpoints:
-- `GET  /api/sftp/config` — the saved configuration and whether a sync is running
-- `POST /api/sftp/test` — test the connection, returns `{ok, message}`
-- `POST /api/sftp/start` — start a sync. `host`, `username`, `remote_dir` and
-  `local_dir` are all required, and `local_dir` must already exist.
-- `POST /api/sftp/stop` — stop it (waits up to 3 s for the poll loop to exit
-  before releasing the handle, so two syncs can never overlap)
-- `GET  /api/sftp/status?since=<seq>` — running flag, status text, new log lines
-  since a sequence number, and transfer progress
-
-Two modes via `cfg["mode"]`:
-- **watch** — keep polling every `interval` seconds and copy anything new (use
-  during beamtime; the ssh connection is reused across polls)
-- **once** — walk the whole remote tree a single time, then stop (post-beamtime)
-
-Credentials persist to `~/.swaxs_sftp_sync.json`. The **password is never
-written to disk** — `save_config` strips it — so it must be re-entered after a
-restart.
-
-Throughput is tuned deliberately: a large SFTP flow-control window
-(`2**31 - 1`) and 32 KB packets (paramiko's defaults are tiny and are the usual
-reason "python sftp" feels ~10× slower than a real client), `workers` parallel
-transfers (default 4) on channels of ONE ssh connection, and file sizes taken
-from the directory listing so there is no extra `stat()` per file. paramiko is
-imported lazily, so the module loads without it installed.
-
-## Other endpoints
-- `GET  /api/health` — `{"status": "ok", "app": "calibration"}`
-- `POST /api/set_project` — accepts `{path}` pushed by the hub; also sets
-  `SWAXS_PROJECT` in this process
-- `GET  /api/project` — `{project_root, poni_dir, shapes, energy_keV}`
-- `GET  /api/browse?path=` — directory browser (dirs and files), defaulting to
-  the project root then the user's home
+### 2D preview
+Log-scale PNG (matplotlib `LogNorm`, `hot` colormap), `vmin` clamped to at least 1
+so zero or negative pixels do not break the scale. Send `preview: false` to
+`/api/convert` to skip it. Good rings are continuous, concentric and evenly
+spaced; broken or elliptical rings mean a tilted or off-centre detector; missing
+rings mean too short an exposure.
 
 ## Troubleshooting
 
-### Garbled or striped preview
-The detector shape is wrong. The `.raw` is headerless int32, so a shape mismatch
-reshapes the data into nonsense rather than failing. Check `detector_shapes` in
-the project `config.yml` against the actual detector, and check the reported
-`pixels` count in `/api/list_raw` — it must equal rows × cols.
+| Symptom | Cause and fix |
+|---|---|
+| Garbled or striped preview | Wrong detector shape: the headerless int32 data is reshaped into nonsense instead of failing. Check `detector_shapes` in `config.yml`; the `pixels` count from List must equal rows × cols. |
+| "unexpected size N" | The pixel count matches no configured shape and the filename gives no WAXS hint. The file is truncated or not a `.raw`, or `detector_shapes` does not describe this detector. |
+| Detector refused ("the image is ... pixels but a ... is ...") | The chosen model does not fit the image. Pick the detector the image came from, or Auto. |
+| pyFAI-calib2 closes right after starting, "No Qt wrapper found" | The environment that runs the platform lacks Qt: `pip install -r requirements-core.txt` (or `pip install PySide6`) in that same environment. |
+| pyFAI-calib2 fails with a display or `xcb` error | No display (headless or remote session). Run the returned `command` in a terminal on a machine with a display and the platform environment active. |
+| Fitted sample-to-detector distance is systematically off | Wrong energy: distance and wavelength are coupled in the refinement, so a wrong `energy_keV` shifts the distance while the rings still appear to fit. Confirm the energy with the beamline. |
+| SFTP will not start | Host, Username, Remote folder and Local folder are required, and the local folder must exist. Only one copy runs at a time. |
+| SFTP fails after restarting the app | The password is never saved; re-enter it, or use an SSH key. |
 
-### Systematically wrong sample-to-detector distance
-The energy is wrong. Distance and wavelength are coupled in the refinement, so an
-incorrect `energy_keV` is absorbed into a shifted distance while the rings still
-appear to fit. Confirm the energy with the beamline before refining.
+## API routes
 
-### pyFAI-calib2 will not launch
-Usually PATH: the hub spawns each app with `sys.executable`, so the
-virtualenv's `bin/` may not be on PATH and the `pyFAI-calib2` console script is
-not found. That is exactly why the `python -m pyFAI.app.calib2` fallback exists.
-If it still fails, the reported stderr almost always says missing Qt or no
-display — run the returned `command` string manually in a terminal with the
-platform environment active.
-
-### "unexpected size N"
-`read_raw` could not match the pixel count to any configured detector shape and
-the filename gave no WAXS hint. Either the file is truncated/not a `.raw`, or
-`detector_shapes` does not describe this detector.
+| Route | Purpose |
+|---|---|
+| `GET /api/health` | `{"status": "ok", "app": "calibration"}` |
+| `POST /api/set_project` | `{path}` pushed by the hub; also sets `SWAXS_PROJECT` |
+| `GET /api/project` | `{project_root, poni_dir, shapes, energy_keV}` |
+| `GET /api/calibrants` | Calibrant list and display labels |
+| `POST /api/list_raw` | `{raw_dir, keywords}` → `{files: [{name, path, pixels, detector}], count}` |
+| `POST /api/convert` | `{raw_dir, keywords, preview}` → per-file results with QA stats and preview PNG |
+| `GET /api/detectors` | Every pyFAI detector model (id, name, manufacturer, shape, pixel) |
+| `POST /api/calibrate/launch` | `{cbf, calibrant, energy_keV, detector}` (`detector` defaults to `auto`; optional `pixel_um`) → `{ok, message, command, image, poni_dir}` |
+| `GET /api/poni` | `.poni` files in the poni folder |
+| `GET /api/browse?path=` | Folder browser; defaults to the project root, then home |
+| `GET /api/sftp/config` | Saved SFTP settings and whether a copy is running |
+| `POST /api/sftp/test` | Test the connection → `{ok, message}` |
+| `POST /api/sftp/start` | Start a copy (`host`, `username`, `remote_dir`, `local_dir` required) |
+| `POST /api/sftp/stop` | Stop it (waits up to 3 s for the loop to exit, so two copies never overlap) |
+| `GET /api/sftp/status?since=<seq>` | Running flag, status, new log lines, progress |

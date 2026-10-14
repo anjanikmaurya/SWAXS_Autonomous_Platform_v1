@@ -1,7 +1,10 @@
 # Pump flow calibration (per pump)
 
-The Mitos LG16 sensors are water-calibrated and the reactor app bypasses the Dolomite
-FCC, so the app corrects water→fluid flow itself. There are **two ways**, per pump:
+**What this is for.** The Mitos LG16 flow sensors are water-calibrated, and the
+Autonomous Synthesis app drives the pumps directly (not through the Dolomite Flow
+Control Center), so every pump reports water-equivalent flow until you calibrate
+it. Do this before a run where the true ODE flow (and so the recipe composition)
+matters. There are **two ways**, per pump:
 
 | Method | What | Where | Model | Use when |
 |---|---|---|---|---|
@@ -32,27 +35,23 @@ Command a flow and measure what's actually delivered, one of:
 
 Best for a quick proportional correction; no restart.
 
-1. In the reactor app, open **Hardware test → 2 · Pump limits (µL/min) and calibration**.
+1. In the Autonomous Synthesis app, open **Hardware test → 2 · Pump limits (µL/min) and calibration**.
 2. For the pump, at one fixed setpoint, get two numbers **at the same pressure/flow**:
    - `app_water` = the flow the app shows (water units, `cal ×` = 1.0), and
    - `true` = the measured true flow (gravimetric or FCC-Hexadecane).
 3. Compute `cal × = true / app_water`.
-4. Enter it in that pump's **`cal ×`** field and click **Apply limits**.
-   - Applies immediately on the serial link.
-   - ⚠ **`cal ×` does nothing while that pump has a `flowrate_table`.** The value
-     is accepted, stored and logged as applied (`controller.set_pump_limits`), but
-     the conversion checks the table first (`hardware.py _to_setpt`/`_to_true`:
-     `if self.flow_power:`) and never reaches the factor. There is no warning.
-     Remove/comment the table and restart if you want the factor to take effect.
-   - ⚠ **Persistence needs a project folder.** The value is saved to
-     `<project_root>/reactor_limits.json` only if a project root is selected;
-     without one `_limits_path()` returns `None` and the save is skipped silently
-     (`reactor/app.py`), so "persists across restarts" quietly fails. Select the
-     project folder in the hub (or set `SWAXS_PROJECT`) before calibrating.
-   - ⚠ **A saved `reactor_limits.json` outranks `config.yml`.** On every
-     `/api/set_project` the app replays it through `set_pump_limits`, overwriting
-     the `calibration_factor` (and min/max) you edited in `config.yml`. If a config
-     edit appears to be ignored, delete or edit that file.
+4. Enter it in that pump's **Cal ×** field and click **Apply limits**. It applies
+   immediately.
+   - ⚠ **Cal × does nothing while that pump has a `flowrate_table`**, and there is
+     no warning. Remove or comment out the table and restart the app if you want
+     the factor to take effect.
+   - ⚠ **Select the project folder in the hub first.** The value is saved to
+     `<project>/reactor_limits.json`; with no project folder selected it is not
+     saved and is lost on restart.
+   - ⚠ **A saved `reactor_limits.json` overrides `config.yml`.** It is re-applied
+     whenever the project folder is set, replacing the `calibration_factor` and
+     min/max in `config.yml`. If a config edit seems to be ignored, edit or delete
+     that file.
 5. **Verify** (below).
 
 Example: app shows 40 µL/min, gravimetric true = 34 µL/min → `cal × = 34/40 = 0.85`.
@@ -83,7 +82,7 @@ Best when the setpoint→true-flow curve bends across the range.
      ode_dilution:
        serial: "4902276A"
        sensor: "LG16-0480"
-       sensor_min: 0.0
+       sensor_min: 1.0                # the installed sensor's real floor (0 is refused on Hardware)
        max_flow: 50.0
        max_pressure: 10000.0
        calibration_factor: 1.0        # ignored while a table is present
@@ -94,12 +93,9 @@ Best when the setpoint→true-flow curve bends across the range.
          - [40, 38.8]
    ```
    Repeat per pump (each LG16 differs).
-4. **Apply: restart the reactor app.** Nothing else picks the table up. In
-   particular the Simulation↔Hardware toggle does **not**: `controller.switch_backend`
-   rebuilds the pump bank from the config already in memory, which was read once by
-   `load_config()` at import (`reactor/app.py`), and never re-reads the file. You
-   get no error — the UI keeps showing calibrated-looking numbers while the pumps
-   run uncalibrated. The table is fitted to a power-law exponent at startup.
+4. **Apply: restart the reactor app.** Nothing else picks the table up; in
+   particular the Simulation | Hardware toggle does **not** re-read `config.yml`, and
+   gives no error. The table is fitted to a power-law exponent at startup.
 5. **Verify** (below).
 
 After this, when you command a **true** flow `Q` the driver sends `Q^(1/a)` to the
@@ -119,11 +115,10 @@ pump and reports `raw^a` back — so the app's setpoints and live flow are true 
 ---
 
 ## Notes
-- Units: all flows are µL/min. The subtraction q-unit (Å⁻¹ vs nm⁻¹) is unrelated to
-  flow calibration.
-- Where applied: `src/reactor/hardware.py` — `_fit_flow_power`, `_to_setpt`, `_to_true`.
-  The flow-OK safety check compares the **true** flow to the **true** setpoint.
-- To fall back from table → factor, remove/comment the `flowrate_table` **and
-  restart** — while the table is loaded, `cal ×` is silently ignored.
-- `cal ×` is live in the app; the table is config + restart. If you want the table
-  editable live too (in the Pump limits step), ask and it can be added.
+- All flows are µL/min.
+- The flow-OK safety check compares the **true** (calibrated) flow to the **true**
+  setpoint. A pump commanded to flow but delivering 10 % of its setpoint or less is
+  a flow fault at any setpoint.
+- To go back from a table to the factor, remove or comment out the
+  `flowrate_table` **and restart**.
+- The code is in `src/reactor/hardware.py`.

@@ -1,358 +1,267 @@
-# Autonomous Synthesis — knowledge
+# Autonomous Synthesis: knowledge
 
-The Autonomous Synthesis app (port 5108) is the **execution layer** for the 5-pump
-continuous-flow nanoparticle reactor (Fong et al., J. Chem. Phys. 154, 224201,
-2021 — Dolomite Mitos P-pumps + LG16 flow sensors). It receives an
-already-predicted recipe and drives the pumps. It does **not** run the Bayesian
-optimization / SAXS analysis — those push recipes to it (the Analyzer app on
-port 5107 owns the optimizer).
+## 1. What the app is for
 
-## Page layout (October 2026)
+The Autonomous Synthesis app (port 5108) is the **execution layer** for the
+5-pump continuous-flow nanoparticle reactor (Fong et al., J. Chem. Phys. 154,
+224201, 2021: Dolomite Mitos P-pumps with LG16 flow sensors). It takes an
+already-chosen recipe, sets the reactor temperature through SPEC, drives the
+pumps, triggers the 2D SAXS acquisitions (sample and background), and flushes
+the line between conditions. It does **not** choose recipes or analyse data:
+the Analyzer app (port 5107) owns the Bayesian optimizer and writes the
+conditions this app runs.
 
-- **Left column**: the synthesis route (Flow reactor; Liquid handling robot and
-  Syringe well plate are placeholders for later), and at its foot the **pump
-  controls**: Start (becomes "Start pumps now" while arming, with the arming
-  progress above it; it asks for confirmation, because it skips the
-  temperature wait), Stop → flush, Flush now, Vent all pumps, Reset, then
-  EMERGENCY STOP. They are visible from every tab.
-- **Hardware test** tab starts with **Run all checks**: a read-only checklist
-  (pumps connected, pumps answering, pressure under each ceiling, temperature
-  is a live reading, I₀/bstop arriving) with ✓/✗ and what to fix. It sends
-  nothing to the pumps or SPEC. Then, in order: 1 Tare pumps · 2 Pump limits and calibration ·
-  3 Probe: SAXS/WAXS beamline (live bstop and I₀, Collect now test shot) ·
-  4 Reactor temperature. UV Vis is a placeholder probe.
-- **Autonomous setup** tab, in order: 1 Recipe source (conditions folder) ·
-  2 Timing (start the pumps; synthesis duration, flush pump, rate, duration) ·
-  3 Data collection (SPEC exposure, frames, keywords, trigger, save folder) ·
-  4 Run (manual recipe, Add to queue, Run autonomously).
-- **Live plots** tab: flow rate, chamber pressure, beamline (temperature, bstop,
-  I₀), then Run status with the queue.
+## 2. Where it sits in the pipeline
+
+- **Reads** condition files from the conditions folder
+  (`folders.recipes`, default `1D/SAXS/Conditions` under the project root,
+  a sibling of `1D/SAXS/Subtracted`). Accepts `*.dat` / `*.txt` from the
+  optimizer and `*.json`, oldest first (filename breaks a tie). Recipes can
+  also arrive by `POST /api/recipe` or the manual form.
+- **Writes** 2D frames via SPEC (or the simulator) into the 2D tree, named
+  `{recipe_id}_{sample_tag}` and `{recipe_id}_{bkg_tag}` (defaults `sample`,
+  `bkg`). The shared `recipe_id` is how the Background app pairs them.
+- **Listens** for the `file.averaged` bus event (with a folder watch on
+  `folders.averaged_watch`, `1D/SAXS/Averaged`, as backstop) to know the
+  measurement for the current recipe is done.
+- **Records** each finished run in the manifest under `reactor.runs.<recipe_id>`,
+  writes `<project_root>/reactor/feedback/<recipe_id>.done.json` (full record
+  plus a `flow_series` delivered-flow trace, sampled every `run.log_interval_s`,
+  default 2 s), and emits `reactor.run_complete` (recipe_id, recipe, setpoints,
+  measured_flows, started, ended, duration_s, reason, status) for the optimizer.
+  A run that never left `arming` produces no record, so the optimizer never
+  trains on a synthesis that did not happen.
+- A condition file is moved to `folders.processed` (`1D/SAXS/Conditions/done`)
+  only when the reactor is **finished** with it (ran, abandoned, or cleared from
+  the queue), so a restart re-reads anything still waiting.
+- **Notifications**: the reactor sends none. All platform notifications come
+  from Autonomous Watch (port 5110); see [NOTIFICATIONS.md](../docs/NOTIFICATIONS.md).
+
+## 3. How to use it
+
+### Page layout
+
+- **Top bar**: **Simulation | Hardware** toggle (switches pumps AND beamline
+  together; allowed only when idle, ready or in E-stop, and not during a
+  collection), the project folder, and a link back to the hub.
+- **Left column**: synthesis route (Flow reactor; Liquid handling robot and
+  Syringe well plate are placeholders) and the **Pump controls**, visible from
+  every tab: **Start**, **Stop → flush**, **Flush now**, **Vent all pumps**,
+  **Reset**, **EMERGENCY STOP**. While arming, Start becomes "Start pumps now"
+  (skips the wait, asks for confirmation) with the arming progress above it.
+- **Tabs**: **Hardware test**, **Autonomous setup**, **Live plots**.
 - **Activity log**: docked under the tabs, always visible.
-- "Synthesis duration" in the UI is the `run_duration` setting
-  (`run.default_duration`).
 
-- **The flush is supervised** like the run: a flow fault warns (or E-stops when
-  `safety.flow_fault_estop` is true); a pump that should be idle but measures more
-  than a few µL/min for `safety.bad_flow_s` warns (same E-stop rule); a pump that
-  keeps delivering past its `volume_limit` while it should be idle E-stops.
-- **Changing the flush pump during a flush** applies from the NEXT flush; the
-  running flush finishes on, and stops, the pump it started with.
+### Step by step
 
-## Pumps & setpoints
+1. **Pick the backend.** Simulation (the default) runs simulated pumps,
+   temperature and synthetic 2D data. Hardware opens the pump serial ports and
+   connects to the SPEC bServer (close the Dolomite GUI first).
+2. **Hardware test tab.**
+   - **Run all checks**: read-only checklist (pumps connected, pumps answering,
+     pressure under each ceiling, temperature is a live reading, I0/bstop
+     arriving), each with a fix hint. Sends nothing to pumps or SPEC
+     (`src/reactor/checks.py`).
+   - **1 · Tare pumps**: pressure tare (air disconnected) and flow tare (no flow).
+     Idle only.
+   - **2 · Pump limits (µL/min) and calibration**: Min, Max and **Cal ×**
+     (water-to-fluid factor) per pump, then **Apply limits**. Saved to
+     `reactor_limits.json` in the project root.
+   - **3 · Probe: SAXS/WAXS beamline (SPEC)**: live bstop and I0, and
+     **Collect now** (one test shot as sample or background, idle only).
+   - **4 · Reactor temperature**: current vs target, with a badge showing
+     whether the value is a live reading, a simulated ramp, or a placeholder.
+3. **Autonomous setup tab.**
+   - **1 · Recipe source: conditions folder**: set the watched folder (must
+     exist). Persisted in `reactor_settings.json` and reloaded on start.
+   - **2 · Timing**: start the pumps "after a fixed wait of N s" (timed) or
+     when "reactor reaches temperature"; **Synthesis duration (s)**,
+     **Flush rate (µL/min)**, **Flush duration (s)**, **Flush pump**.
+   - **3 · Data collection**: Exposure (s per frame), Number of frames,
+     Sample keyword, Background keyword, Trigger before end (s), Save folder (SPEC).
+   - **4 · Run**: manual recipe (T_reac, F_tot, x_ODE, x_TOP, x_oley) with
+     **Add to queue**, and **Run autonomously** (the auto-run toggle).
+4. **Live plots tab**: flow rate, chamber pressure, beamline (temperature,
+   bstop, I0 with collection markers), and Run status (state, recipe, elapsed,
+   flush remaining, delivered volume, queue with a clear button).
 
-Five pumps: `pd_top_precursor`, `oleylamine`, `top`, `ode_dilution`, `ode_flush`.
-A recipe (`T_reac`, `F_tot`, `x_ODE`, `x_TOP`, `x_oley`) converts to flows (µL/min):
+### Run lifecycle
 
-- `ode_dilution = x_ODE · F_tot`
-- `top = x_TOP · F_tot`
-- `oleylamine = x_oley · F_tot`
-- `pd_top_precursor = (1 − x_ODE − x_TOP − x_oley) · F_tot`
-- `ode_flush = 0` during synthesis
-
-Each pump's `[sensor_min, max_flow]` is a **hard limit**: a recipe whose computed
-setpoint for any pump is nonzero-but-below its minimum, or above its maximum, is
-**rejected** (nothing is clamped or sent to hardware); a true 0 is always allowed.
-Recipes are also validated against config bounds and **hard safety caps**
-(`safety.T_max`, default 320 °C; `safety.per_pump_max`); a runtime breach trips
-the emergency stop.
-
-## Intake
-
-Three ways in:
-1. **A watched conditions folder.** The default is `1D/SAXS/Conditions`
-   (`folders.recipes` in `reactor/config.yml`) — a sibling of
-   `1D/SAXS/Subtracted`, resolved relative to the PROJECT ROOT unless absolute.
-   It accepts `*.dat` and `*.txt` files written by the ML/optimizer pipeline as
-   well as `*.json`, oldest first (filename breaks a tie).
-
-   **A file is moved to `folders.processed` (`1D/SAXS/Conditions/done`) only
-   when the reactor is FINISHED with that condition** — it ran, it was
-   abandoned, or the operator cleared it from the queue. It is *not* moved when
-   the watcher parses it. That matters in two ways:
-
-   * the watcher runs regardless of the Auto-run toggle (the toggle decides
-     whether a recipe STARTS, not whether it is read), so with auto-run off
-     conditions still queue — but the folder is no longer quietly emptied
-     behind the operator's back;
-   * a queued-but-not-yet-run condition still exists on disk, so restarting
-     the app re-reads it instead of losing it. Before September 2026 the file
-     was moved at parse time and the queue lived only in memory, so a restart
-     lost every waiting condition from both places, silently.
-
-   **The reactor is a pure consumer — startup order does not matter.** As of
-   late September 2026 the reactor no longer clears its queue on boot (shipped
-   `run.clear_queue_on_restart: false`). It reads and runs whatever is queued,
-   in order, whenever it comes up, so you can start the reactor and the
-   optimizer in either order: a cold-start condition the optimizer writes before
-   the reactor boots is simply picked up when the watcher goes live, and a
-   mid-campaign reactor restart resumes the queue where it left off. Staleness is
-   now the optimizer's job — when it starts a NEW campaign it sets aside any
-   leftover conditions from a previous run (they would otherwise be dosed against
-   the new target). Nothing is deleted; a set-aside file lands in `done/` with a
-   note and can be moved back to run it. Setting `run.clear_queue_on_restart:
-   true` restores the old "every start begins with an empty queue" behaviour, but
-   do NOT combine it with starting the optimizer first — it would sweep away the
-   first cold-start condition.
-
-   The folder can be changed live in Autonomous setup, step 1 "Recipe source: conditions folder"
-   (the path must already exist); the override is persisted in
-   `reactor_settings.json` at the project root and reloaded on the next start.
-2. `POST /api/recipe` — JSON, for the BO/SAXS side.
-3. The manual form in the UI.
-
-An **Auto-run** toggle (**Run autonomously** in Autonomous setup, step 4) arms the autonomous loop. Recipes that arrive while busy
-are **queued (FIFO)**; `POST /api/queue/clear` empties the queue (and retires
-those files — see above).
-
-### Stopping autonomous mode = PAUSE, not abort
-
-Turning Auto-run **off** never interrupts anything. The current condition
-finishes, its line flushes, and *then* the loop stops at `ready` with the pumps
-idle and the queue kept. Three states, and `status()` distinguishes all three:
-
-| | `auto_run` | `pausing` | `paused_with_queue` |
-|---|---|---|---|
-| running the campaign | true | false | false |
-| stopping after this one | false | **true** | false |
-| stopped, work waiting | false | false | **true** |
-
-That middle row is the one worth having: "off" on its own reads as "stopping
-now" while the rig may have ten more minutes of synthesis ahead of it.
-
-**Why pause at all:** the data-collection settings (`exposure_s`, `frames`,
-`spec_lead_s`, tags, `data_dir`) are frozen while a campaign is live — they
-define what an acquisition *is*, so changing one mid-campaign makes the
-conditions either side incomparable. Pausing is the supported way to change
-them: stop autonomous, let the condition finish, edit the fields (they unlock
-the moment the loop is genuinely stopped), then re-arm. The resumed run uses
-the new values and the log says so.
-
-A paused flush is a plain clean-out — it does **not** stage the next
-condition's blank. Staging it would pair a sample with a background taken
-before the exposure changed, which is exactly what the pause exists to avoid.
-
-Before September 2026 none of this worked: `auto_run` was read at intake and
-on the re-arm, and never by the loop, so `_end_flush` chained straight into the
-next queued condition whatever the toggle said.
-
-Folder polling interval is `poll_interval` (default 3.0 s).
-
-## Run lifecycle
-
-`STATES = ["idle", "arming", "running", "flushing", "ready", "estop"]` — `estop`
-is a real state, not just an action.
-
+States: `idle`, `arming`, `running`, `flushing`, `ready`, `estop`.
 Normal path: `idle → arming → running → flushing → ready`.
 
-Temperature is **commanded through SPEC** (`set_temp_cmd`, default
-`csettemp {T}`) and read back from the `CTEMP` counter (`temp_counter`) or from
-EPICS when `spec.read_source: "epics"` — the app is not gate-only.
+- **Arming**: temperature is commanded through SPEC (`spec.set_temp_cmd`,
+  `csettemp {T}`) and read back from the `CTEMP` counter, or from EPICS when
+  `spec.read_source: "epics"`.
+- **Running**: pumps flow at the recipe setpoints. The sample acquisition fires
+  `spec.spec_lead_s` (180 s) before the run end.
+- **Ending a run**: the run ends when a new SAXS averaged file for the current
+  recipe appears. This is always on: `run.end_on_measurement` is NOT read by the code
+  (a no-op kept for old configs), so setting it `false` does not disable it.
+  `run.default_duration` (600 s) is the fallback if no measurement arrives;
+  Stop also ends the run. With `run.advance_on_new_file: true` the condition
+  keeps flowing until the next condition is queued, then flushes and advances,
+  but not before `run.min_dwell_s` (60 s) and not before its 2D collection has
+  fired.
+- **Background timing** (`spec.background_when`): `"before"` (default) flushes,
+  collects the blank on the clean capillary tagged with the **upcoming**
+  recipe_id, then runs the synthesis. If the line is already clean from the
+  previous post-run flush, the blank uses a short rinse (`flush.blank_rinse_s`,
+  30 s) instead of a full flush; cold start or post-abort does a full flush.
+  `"after"` collects the blank during the post-run flush.
+- **Flush**: the 4 reagent pumps zero and the flush pump runs at `flush.rate`
+  for `flush.duration`; new recipes wait until it is done. On completion it
+  advances to the next queued recipe **only while auto-run is on**. When a
+  synthesis run ends the temperature is set to `temperature.cooldown_c` (25 °C).
 
-### Arming — TWO modes only
-`arming.default_mode` accepts exactly `"temperature"` or `"timed"`:
-- **temperature** — wait for `CTEMP` to reach and hold `T_reac`. Needs a wired
-  temperature reading.
-- **timed** — wait a fixed number of seconds (`arming.default_wait_s`), then start
-  the pumps regardless of temperature. Use this when no thermocouple is connected
-  to this machine.
+### Stopping autonomous mode is a pause, not an abort
 
-The **shipped default is `temperature`** (`arming.default_mode` in
-`reactor/config.yml`); `arming.default_wait_s` (120 s) applies only in timed
-mode. This file used to say the opposite, which mattered: temperature arming
-cannot succeed without a live reading, so on a machine whose thermocouple is
-not reporting every condition waits out `temperature.timeout` (900 s) and is
-then abandoned. Since September 2026 the app says so at the START of arming
-rather than at the end of the wait — if `arm_mode` is `temperature` and the
-temperature is not a trustworthy live reading, it warns immediately and names
-the remedy.
+Turning **Run autonomously** off never interrupts anything: the current
+condition finishes, flushes, and the loop stops at `ready` with the queue kept.
+`/api/status` shows `pausing` (stopping after this one) and `paused_with_queue`
+(stopped, work waiting). Pausing is the way to change data-collection settings
+(see below). A paused flush is a plain clean-out and does not stage the next
+blank.
 
-A recipe may override with `arm_mode` / `arm_wait_s`. Anything other than
-`temperature` or `timed` — including `"ramp"` — is REJECTED at intake and will
-stall the queue. There is no ramp arming mode.
+## 4. Settings and defaults (`reactor/config.yml`)
 
-### Ending a run
-The PRIMARY end condition is the measurement signal: the run ends when a new SAXS
-averaged file for the current recipe appears. This is always on. The config key
-`run.end_on_measurement` is NOT read by the code (a no-op kept for old configs):
-setting it to `false` does not disable measurement-end. That is detected from the `file.averaged` bus
-event, with a folder watch on `folders.averaged_watch` (`1D/SAXS/Averaged`) as a
-backstop. `run.default_duration` (600 s = 10 min) is only the FALLBACK if no
-measurement signal arrives; a manual Stop also ends the run.
+All flows are µL/min, all times real seconds, temperatures °C, pressure mbar.
+There is no time compression on any backend, Simulation included: shorten the
+durations themselves for a quick test.
 
-`run.advance_on_new_file: true` adds the autonomous hold-until-next-file
-behaviour: the current condition keeps flowing until the next parameter file is
-queued, then flushes and advances. `run.min_dwell_s` (60 s) is the minimum time a
-condition runs before it may advance, and advancing is additionally blocked until
-the 2D collection has fired, so a run can never finish with no data.
+### Recipe to setpoints
 
-### 2D collection and background timing
-`spec.background_when: "before"` is the DEFAULT and the current behaviour:
-flush the line, collect the blank on the CLEAN capillary tagged with the
-**upcoming** recipe_id, then run the synthesis. The background is therefore
-already on disk when the sample frames land, so subtraction can start immediately
-and the sample/background pairing is unambiguous. `"after"` is the legacy mode
-(blank collected during the post-synthesis flush, tagged with the run that just
-finished). Either way the pair shares one `recipe_id`, which is how the
-Background app matches them.
+A recipe (`T_reac`, `F_tot`, `x_ODE`, `x_TOP`, `x_oley`) becomes:
+`ode_dilution = x_ODE·F_tot`, `top = x_TOP·F_tot`, `oleylamine = x_oley·F_tot`,
+`pd_top_precursor = (1 − x_ODE − x_TOP − x_oley)·F_tot`, `ode_flush = 0`.
 
-In a closed loop the next condition is not queued when a synthesis ends (it
-depends on that run's result), so the reactor does a full post-synthesis flush to
-clear the product, goes `ready`, and runs the pre-synthesis blank only once the
-optimizer proposes the next condition. Because the line is still clean from that
-post-synthesis flush (nothing flowed while waiting), the blank does **not** repeat
-a full flush — it does a short solvent refresh (`flush.blank_rinse_s`, default
-30 s) while the clean-capillary background is collected, and arming afterwards
-gives the collection time to finish before any reagent flows. This avoids ~one
-full flush duration of wasted time per cycle. When the line is *not* clean (cold
-start, or after an abort) the blank does a full flush. Set `flush.blank_rinse_s:
-0` to always do a full flush.
+| Key | Default | Meaning |
+|---|---|---|
+| `pumps.<name>.sensor_min` / `max_flow` | 0 / 1000 (pd_top_precursor, ode_flush), 0 / 50 (oleylamine, top, ode_dilution) | Hard limits per pump |
+| `pumps.<name>.max_pressure` | 10000 mbar | Pressure ceiling per pump |
+| `pumps.<name>.calibration_factor` | 1.0 | Water-to-fluid correction (live-editable) |
+| `pumps.<name>.flowrate_table` / `volume_limit` | unset | Optional calibration table / µL cap per run |
+| `bounds` | T_reac 180–300, F_tot 40–120, each x 0–0.3, x_sum_max 0.9 | Recipe validation |
+| `safety.T_max` / `F_tot_max` / `per_pump_max` / `max_pressure` | 320 / 150 / 1000 / 10000 | Hard caps |
+| `safety.flow_tol` / `bad_flow_s` / `flow_settle_s` | 0.2 / 12 s / 10 s | Flow-health band, hold time, settle grace |
+| `safety.flow_fault_estop` / `temp_stale_estop` | false / false | Warn only (true = E-stop) |
+| `temperature.tolerance` / `stable_hold` / `timeout` | 2 °C / 5 s / 900 s | Temperature arming gate |
+| `temperature.read_interval_s` | 1.0 s | Read rate for temperature, bstop, I0 |
+| `temperature.cooldown_c` | 25 °C | Set when a run ends (blank = leave as is) |
+| `arming.default_mode` / `default_wait_s` | temperature / 120 s | See below |
+| `run.default_duration` / `min_dwell_s` | 600 s / 60 s | Fallback run time, minimum dwell |
+| `run.advance_on_new_file` | true | Hold condition until the next file arrives |
+| `run.resume_auto_run` / `clear_queue_on_restart` | false / false | Restart policy |
+| `flush.pump` / `rate` / `duration` / `blank_rinse_s` | ode_dilution / 50 / 1200 s / 30 s | Flush |
+| `spec.backend` | mock | Startup backend (UI: Simulation) |
+| `spec.exposure_s` / `frames` / `spec_lead_s` | 10 s / 10 / 180 s | 2D acquisition |
+| `spec.background_when` | before | Blank before or after its synthesis |
+| `spec.read_source` | spec | `spec` counters or `epics` PVs |
+| `spec.read_refresh_cmd` / `refresh_min_interval_s` | `ct 0.1` / 0 | Counter refresh before each read |
+| `spec.data_dir_from_hub` / `hub_path_map` | true | Follow the hub folder, Windows to Linux prefix swap |
+| `spec.mock_data_dir` | blank | Simulation save folder (blank = hub folder) |
+| `spec.simulator.*` | enabled | Synthetic 2D frames, Simulation only |
+| `poll_interval` | 3.0 s | Conditions folder polling |
 
-Filenames carry role tags: `{recipe_id}_{spec.sample_tag}` (default `sample`) and
-`{recipe_id}_{spec.bkg_tag}` (default `bkg`). The sample acquisition fires
-`spec.spec_lead_s` before the run end.
+### Arming modes
 
-`POST /api/collect_now` triggers a 2D collection on demand.
+`arming.default_mode` accepts only `"temperature"` or `"timed"`:
 
-#### The settings freeze while the loop is collecting
+- **temperature**: wait until the reactor reaches and holds `T_reac`. Needs a
+  live temperature reading; without one every condition waits out
+  `temperature.timeout` (900 s) and is abandoned. The app warns at the start of
+  arming if the reading is not live.
+- **timed**: wait `arming.default_wait_s` (120 s), then start the pumps
+  regardless of temperature. Use when no thermocouple is wired to this machine.
 
-`exposure_s`, `frames`, `sample_tag`, `bkg_tag`, `spec_lead_s` and `data_dir`
-cannot be changed while **auto-run is ON**, or while the state is `arming`,
-`running` or `flushing`. `POST /api/spec_settings` answers `409` with the
-reason, `status().spec.locked` / `.lock_reason` carry it, and the UI greys the
-fields. To change them: turn auto-run off (or let the run finish), edit, start
-again.
+The shipped default is `temperature`. A recipe may override with `arm_mode` /
+`arm_wait_s`. Any other value (including `"ramp"`) is rejected at intake.
 
-Two reasons, and the second is the one that is easy to miss:
+### Flush pump
 
-1. **A bad value collects nothing.** `exposure_s` had no lower bound while
-   `frames` beside it was clamped with `max(1, …)`. A zero exposure makes
-   `simulate_frame` multiply its intensity map to nothing, writing blank `.raw`
-   files that reduce to structurally perfect `.dat` files full of zeros. Run20
-   lost condition r006 — twenty frames, both lanes — this way, and the first
-   complaint came from the average app two stages later. `exposure_s <= 0` is
-   now refused outright, on top of the freeze.
-2. **A good value is still wrong mid-campaign.** These settings define what an
-   acquisition *is*. Change the exposure between r005 and r006 and the two
-   conditions are no longer comparable, but the optimizer treats every point as
-   a measurement of one experiment and has no way to know.
+The configured flush pump is `ode_dilution` (same ODE line) while `ode_flush` is
+down; switch it in Timing. A reagent pump used for flushing is capped at its own
+`max_flow` (50 µL/min for ode_dilution). Changing the flush pump during a flush
+applies from the next flush.
 
-### Where the reactor's log goes
+### Which value is in force
 
-The operator log in the UI is streamed over SSE from a 500-entry in-memory
-deque — it exists only while a browser is watching. Since September 2026 it is
-**also** written to `logs/reactor.log` (the hub captures each app's stderr),
-with the message tag mapped to the log level, so `grep -E 'WARNING|ERROR'` over
-an overnight run finds the faults.
+- Conditions folder: `reactor_settings.json` (project root) wins over YAML.
+- Pump limits and calibration: `reactor_limits.json` (project root) wins over YAML.
+- Run settings (arm mode, wait, synthesis duration, flush rate/duration/pump)
+  and data-collection settings (exposure, frames, trigger, keywords, save
+  folder) are saved in `.swaxs_state/` and restored on restart if under 48 h
+  old. A banner says whether they were restored or lost (back on config
+  defaults). A blank field is ignored, not reset.
+- The backend toggle is session-only; set `SWAXS_REACTOR_BACKEND=real` to start
+  in Hardware mode.
 
-The same change put the 2D simulator's lines in that file. Each acquisition
-records its prefix, frame count, exposure, the TRUE R/PDI being generated, and
-what actually landed:
+## 5. Safety notes
 
-```
-simulator: sample acquisition 'Run21_r001_sample' (10×10s, poni atT_SAXS.poni)
-           — TRUE R=4.11 nm, PDI=0.012
-simulator: wrote 10 frame(s), 41 MB, peak 251 counts, 71% of pixels non-zero
-```
+- **Hard limits are not clamped.** A recipe whose setpoint for any pump is above
+  `max_flow`, or nonzero but below `sensor_min`, is rejected and nothing is sent.
+  Bounds and safety caps are checked at submit; a runtime breach (temperature,
+  pressure, flow caps, `volume_limit`) trips the E-stop.
+- **The flush is supervised** too: flow faults warn (or E-stop with
+  `safety.flow_fault_estop`), a pump that should be idle but keeps flowing for
+  `bad_flow_s` warns, and one that exceeds its `volume_limit` while idle E-stops.
+- **EMERGENCY STOP** idles every pump at once and latches state `estop`;
+  only **Reset** clears it. **Vent all pumps** releases pressure from any state
+  but does not clear an E-stop. **Stop → flush** ends the run and flushes.
+- **Auto-run is not resumed after a restart** (`run.resume_auto_run: false`): a
+  power blip must not start reagents into a hot reactor unattended. The app
+  reports that auto-run was on and waits for a deliberate Start.
+- **Data-collection settings are frozen** while auto-run is on or the state is
+  arming, running or flushing (`POST /api/spec_settings` returns 409 and the
+  fields grey out). Changing them mid-campaign would make conditions
+  incomparable. `exposure_s <= 0` is always refused (it writes blank frames).
+- **`ct 0.1` may open the fast shutter.** With `read_source: "spec"` it runs on
+  every read. Before an unattended run, run `sauto off` in SPEC, use
+  `read_source: "epics"`, or blank `read_refresh_cmd`. With `"spec"`, reads also
+  pause during each collection.
+- The simulator exists only in the mock backend: Hardware mode can never write
+  synthetic data.
+- When the hub stops the app it first calls `/api/shutdown` to idle the pumps
+  and release SPEC.
 
-That last line is the quickest answer to "did this condition actually collect
-anything?". Before, every one of these was discarded: the app configured no
-logging, so INFO fell through to Python's WARNING-level last-resort handler and
-`logs/reactor.log` held only HTTP access lines.
+## 6. Troubleshooting
 
-Root stays at WARNING so pyFAI/matplotlib/urllib3 do not bury the file; only
-`src.beamline`, `src.simulator`, `src.reactor` and `reactor` are raised to INFO.
+| Symptom | Likely cause and fix |
+|---|---|
+| Condition sits in arming, then abandoned after 900 s | Temperature arming with no live reading. Check the temperature badge and **Run all checks**; use timed arming if no thermocouple is wired. |
+| Recipe rejected at intake | A pump setpoint outside `[sensor_min, max_flow]`, out-of-bounds recipe, or a bad `arm_mode`. The log names the field. |
+| Data-collection fields greyed out | Auto-run is on or a run is active. Turn **Run autonomously** off, let the condition finish, edit, re-arm. |
+| Queue not advancing after flush | Auto-run is off (paused with queue). Press **Run autonomously** or **Start**. |
+| Can't switch Simulation/Hardware | Only allowed when idle, ready or estop and no collection is running. |
+| Temperature / bstop frozen during a collection | Expected with `read_source: "spec"`; use `"epics"` (test PVs with `tools/beamline_epics_test.py`). |
+| Wrong save folder on the rig | Check `spec.hub_path_map` prefixes, or set **Save folder (SPEC)**. |
+| Did a condition actually collect? | `logs/reactor.log` has a simulator line per acquisition (frames written, peak counts, non-zero pixels) and all warnings/errors from the run. |
 
-### Abort, E-stop, cooldown
-**Abort** goes straight to flush. **E-stop** idles everything immediately (state
-`estop`; `/api/reset` clears it). `temperature.cooldown_c` (25.0 °C in the shipped
-config) is commanded the moment a synthesis run ends; unset/None leaves the
-temperature as-is. `POST /api/vent` vents all pumps.
+More: [REACTOR_SETUP.md](../docs/REACTOR_SETUP.md),
+[REACTOR_HARDWARE_SETUP.md](../docs/REACTOR_HARDWARE_SETUP.md),
+[BEAMLINE_TESTING.md](../tools/BEAMLINE_TESTING.md),
+[PRE_BEAMTIME_READINESS.md](../docs/audits/PRE_BEAMTIME_READINESS.md).
+Hardware mode needs `pip install -r requirements-hardware.txt` (pyserial,
+pyepics). The real pump call sites are marked `⟵ REAL DRIVER` in
+`src/reactor/hardware.py`; pumps are matched by serial number, COM port is the
+fallback.
 
-### Restart recovery — auto-run is NOT resumed
-`run.resume_auto_run: false` is the shipped default and is a deliberate safety
-choice: the data-processing apps resume their loops after a restart because they
-only read and write files, but auto-run MOVES PUMPS. A power blip must not start
-reagents flowing into a hot reactor with nobody in the hutch. After a restart the
-app reports that auto-run had been on and waits for a deliberate Start. Set it
-true only for fully unattended recovery.
+## 7. API routes
 
-## Flush & feedback
-
-After every run the 4 reagent pumps zero and the flush pump runs at
-`flush.rate` (50 µL/min) for `flush.duration` (1200 s = 20 min); new recipes are
-blocked until it is done. A manual **Flush now** (`POST /api/flush`) is also
-available.
-
-The configured flush pump is **`ode_dilution`**, not `ode_flush`
-(`flush.pump: "ode_dilution"`) — the same ODE line, used while `ode_flush` is
-down; switch back to `ode_flush` in the app once it is fixed. A reagent pump used
-for flushing is capped at its own `max_flow` (`ode_dilution` ≤ 50 µL/min,
-auto-clamped), so a flush rate above that is not honoured.
-
-After flushing it **auto-advances to the next queued recipe only while
-Auto-run is on** — otherwise it stops there (see "Stopping autonomous mode"
-above). On completion it:
-- records the run in `manifest.json` under the `reactor` key
-  (`reactor.runs.<recipe_id>`),
-- writes `<feedback folder>/<recipe_id>.done.json`. `folders.feedback` is
-  `reactor/feedback`, resolved **relative to the PROJECT ROOT** — so the file
-  lands in `<project_root>/reactor/feedback/`, not in the repo's `reactor/`
-  folder. The done file carries the full run record plus a `flow_series`
-  delivered-flow trace (sampled every `run.log_interval_s`), which is kept out of
-  `manifest.json` and the bus to avoid bloat.
-- emits a `reactor.run_complete` bus event carrying `recipe_id`, `recipe`,
-  `setpoints`, `measured_flows`, `started`, `ended`, `duration_s`, `reason` and
-  `status`, so the optimizer can predict the next recipe.
-
-A run that never left `arming` produces no record at all (no flow, no
-measurement), so the optimizer can never train on a synthesis that did not happen.
-
-## Notifications
-
-The reactor sends none, and has no endpoint for them. Every platform
-notification is Autonomous Watch's (port 5110) — it subscribes to the same bus events
-and applies one policy for the whole loop, so a stall in reduction or fitting
-reaches the operator as well as a reactor fault. See docs/NOTIFICATIONS.md.
-
-`/api/slack` and `/api/slack/test` were documented here long after the routes
-were deleted.
-
-## Other endpoints
-
-`GET /api/health`, `GET /api/status`, `GET /api/stream` (SSE log),
-`GET /api/config`, `GET/POST /api/pumps` (pump flow limits, persisted in
-`reactor_limits.json`), `GET/POST /api/recipes_folder`, `POST /api/set_project`,
-`GET /api/project`, `POST /api/start`, `POST /api/start_now`, `POST /api/abort`,
-`POST /api/estop`, `POST /api/reset`, `POST /api/vent`, `POST /api/flush`,
-`POST /api/auto_run`, `POST /api/queue/clear`, `POST /api/collect_now`,
-`POST /api/spec_settings`, `POST /api/run_settings`, `POST /api/tare`,
-`POST /api/backend`, `GET /api/checks`, `POST /api/checks/run` (the read-only
-hardware checklist, `src/reactor/checks.py`).
-
-`POST /api/tare` triggers a pump tare; `POST /api/backend` switches between
-Simulation and Hardware mode at runtime (the UI toggle; API values `mock`/`real`).
-
-## Hardware swap
-
-Simulation mode (`backend=mock`, the default) uses in-memory pumps so everything runs with no
-hardware. Set `SWAXS_REACTOR_BACKEND=real` to use the vendored `Py_P_Pump` SDK
-(`src/reactor/drivers/`). The real call points are marked `⟵ REAL DRIVER` in
-`src/reactor/hardware.py`. The same switch also selects the beamline backend, so
-one setting covers pumps and SPEC. Pumps are assumed **pre-tared** (the SDK tare
-is interactive and is done from a console).
-
-There is deliberately **no time compression anywhere**, Simulation included: every
-duration is real seconds on every backend, so a Simulation rehearsal is timed exactly
-like the beamline run it stands in for. Shorten the durations themselves for a
-short test.
-
-## Configuration precedence
-
-Defaults live in `reactor/config.yml`, but **live overrides made in the app
-persist to `reactor_settings.json`/`reactor_limits.json` at the project root and
-WIN over the YAML** on the next start. If a value in the app disagrees with
-`config.yml`, the settings file is the one in force. `run_settings` values set
-from the app (`arm_mode`, `arm_wait_s`, `flush_rate`, `flush_duration`,
-`flush_pump`, `run_duration`) apply for the life of the process; a blank field is
-ignored rather than reset, and they fall back to the config defaults only after a
-restart.
+| Route | Purpose |
+|---|---|
+| `GET /api/health`, `GET /api/status`, `GET /api/stream` | Health, full status, SSE log + status |
+| `GET /api/config`, `GET /api/project`, `POST /api/set_project` | Config and project folder |
+| `GET /api/restart_notice` | Whether settings were restored or lost on restart |
+| `GET/POST /api/recipes_folder` | Conditions folder |
+| `GET/POST /api/pumps` | Pump limits and calibration |
+| `POST /api/recipe` | Submit a recipe (JSON) |
+| `POST /api/start`, `/api/start_now`, `/api/abort` | Start, skip arming wait, stop and flush |
+| `POST /api/estop`, `/api/reset`, `/api/vent` | E-stop, clear, vent all pumps |
+| `POST /api/flush` | Flush now (idle or ready only) |
+| `POST /api/auto_run`, `/api/queue/clear` | Auto-run on/off, clear queue (files go to `done/`) |
+| `POST /api/spec_settings`, `/api/run_settings` | Data-collection and run settings |
+| `POST /api/collect_now`, `/api/tare` | Test acquisition, tare pumps |
+| `POST /api/backend` | `{"backend": "mock"}` (Simulation) or `"real"` (Hardware) |
+| `GET /api/checks`, `POST /api/checks/run` | Read-only hardware checklist |
+| `POST /api/shutdown` | Make safe before exit (local only, called by the hub) |

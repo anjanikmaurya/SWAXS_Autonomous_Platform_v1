@@ -1,6 +1,10 @@
-# Developing on Two Laptops (Windows + Mac)
+# Working on two computers (Windows + Mac)
 
-GitHub is the sync hub. Both laptops push to and pull from the same repo:
+**What this is for.** Keeping the platform code in step between two machines (for
+example a Mac laptop and the Windows beamline PC) with git. Your experiment data is
+not in git; copy it separately.
+
+GitHub is the sync hub. Both machines push to and pull from the same repo:
 `https://github.com/anjanikmaurya/SWAXS_Autonomous_Platform_v1.git`
 
 ## The one habit that avoids all problems
@@ -18,16 +22,12 @@ git push                              # send it up
 As long as you never edit both laptops at the same time without pushing in
 between, you will never hit a merge conflict.
 
-## First-time setup (already done once, keep for reference)
+## Line endings (nothing to do day to day)
 
-Line endings are normalized by `.gitattributes`: everything is stored as LF in
-the repo, and **Windows scripts (`.bat`, `.ps1`, `.cmd`) are checked out as
-CRLF** because `cmd.exe` mishandles LF-only batch files. This prevents both the
-"every file looks modified" problem when switching between macOS and Windows,
-and a launcher that fails for reasons invisible in the file. No action needed
-day to day — but if you have an old clone from before September 2026, run
-`git rm --cached start_platform.bat && git checkout -- start_platform.bat` once
-to pick the new setting up.
+`.gitattributes` stores everything as LF and checks Windows scripts such as
+`start_platform.bat` out as CRLF, so files do not all look modified when you switch
+between macOS and Windows. On a clone from before September 2026, run
+`git rm --cached start_platform.bat && git checkout -- start_platform.bat` once.
 
 ## If you forgot to push and edited both laptops
 
@@ -46,15 +46,15 @@ git push
 - `.env` — local, machine-specific overrides only. The AI token is **not** kept
   here: it lives in `~/.claude/settings.json` (see `SECURITY.md`) and must
   **never** be put in `.env`.
-- data folders (`Demo_Data/`, `atT/`, etc.)
+- data folders (`Demo_Data/`, `1D/`, `atT/`, etc.) and `logs/`
 
 After a fresh clone or pull on a new machine:
 
 ```bash
 python -m venv venv                   # recreate the environment
-source venv/bin/activate              # Windows: venv\Scripts\Activate.ps1
-pip install -r requirements-core.txt  # there is no requirements.txt - see QUICKSTART.md
-# AI token: configure it once in ~/.claude/settings.json (see SECURITY.md) —
+source venv/bin/activate              # Windows PowerShell: .\venv\Scripts\Activate.ps1
+pip install -r requirements-core.txt  # see QUICKSTART.md
+# AI token: configure it once per machine in ~/.claude/settings.json (see SECURITY.md),
 # never in .env
 ```
 

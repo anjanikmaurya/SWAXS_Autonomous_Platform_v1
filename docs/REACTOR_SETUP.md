@@ -1,175 +1,162 @@
-# Reactor app — software setup
+# Autonomous Synthesis (reactor app): software setup
 
-How to install, configure, and run the Flow-Synthesis reactor app (port **5108**).
-For the physical rig (pumps, temperature, beamline components + wiring) see
-`docs/REACTOR_HARDWARE_SETUP.md`; for "where is what" while troubleshooting,
-`docs/REACTOR_MAP.md`; for the beamline bench tests, `tools/BEAMLINE_TESTING.md`.
+**What this is for.** Installing, configuring and first-running the Autonomous
+Synthesis app (port **5108**), which drives the five-pump flow reactor and the SPEC
+beamline (temperature, shutter, 2D collection). Related docs:
+
+- the physical rig (pumps, temperature, beamline wiring):
+  [REACTOR_HARDWARE_SETUP.md](REACTOR_HARDWARE_SETUP.md)
+- pump flow calibration: [PUMP_FLOW_CALIBRATION.md](PUMP_FLOW_CALIBRATION.md)
+- bench tests for the beamline link: [tools/BEAMLINE_TESTING.md](../tools/BEAMLINE_TESTING.md)
+- running a campaign: [AUTONOMOUS_RUN_STEPS.md](AUTONOMOUS_RUN_STEPS.md)
+- where things are in the code: [REACTOR_MAP.md](REACTOR_MAP.md)
 
 ---
 
-## 1. Prerequisites
+## 1. Install
 
-- **Python 3.10 or newer** (3.11 / 3.12 recommended) — see
-  [QUICKSTART.md](../QUICKSTART.md).
-- **git**.
-- For **real hardware only** (see §5): USB access to the Mitos pumps and network
-  access to the SPEC bServer (default `http://127.0.0.1:18085`).
+Install the platform as in [QUICKSTART.md](../QUICKSTART.md) (Python 3.10 or newer,
+`pip install -r requirements-core.txt`). That is enough for **Simulation**, which
+needs no hardware at all.
 
-The app runs on Windows, macOS, or Linux. Simulation mode needs no hardware at all.
-
-## 2. Get the code and a Python environment
+For the **real rig** also install:
 
 ```bash
-git clone https://github.com/anjanikmaurya/SWAXS_Autonomous_Platform_v1.git
-cd SWAXS_Autonomous_Platform_v1
-
-# conda (used on the beamtime PC)
-conda create -n swaxs python=3.12 -y
-conda activate swaxs
-# — or venv —
-python -m venv venv && source venv/bin/activate        # Windows: venv\Scripts\activate
+pip install -r requirements-hardware.txt   # pyserial (pumps) + pyepics (EPICS reads)
 ```
 
-## 3. Install dependencies
+Real hardware also needs USB access to the Mitos pumps and network access to the
+SPEC bServer (default `http://127.0.0.1:18085/SIS/`).
 
-```bash
-pip install -r requirements-core.txt
-```
+## 2. Simulation and Hardware
 
-(Use `requirements-core.txt` — see [QUICKSTART.md](../QUICKSTART.md). There is
-no `requirements.txt`; it was a `pip freeze` of a Mac that failed to install on
-Windows and was removed.)
+The app talks to two layers, **pumps** and **beamline**, and one toggle in its top
+bar covers both:
 
-**Extra packages for REAL hardware** (not in `requirements-core.txt`, imported
-lazily so Simulation mode works without them):
+- **Simulation** (backend `mock`): simulated pumps, temperature and synthetic 2D
+  frames ([SIMULATED_2D_DATA.md](SIMULATED_2D_DATA.md)). The default.
+- **Hardware** (backend `real`): the real pumps and SPEC.
 
-```bash
-pip install -r requirements-hardware.txt   # pyserial (pumps) + pyepics (temperature)
-```
+The toggle is locked while a run is in progress. The startup backend comes from the
+environment variable `SWAXS_REACTOR_BACKEND` (`mock`, the default, or `real`); the
+toggle choice does not survive an app restart, so check it after every restart.
+Every run record notes which backend produced it.
 
-Simulation mode (default) needs neither — good for developing the loop off the rig.
+Switching the toggle does **not** re-read `reactor/config.yml`. After editing that
+file, restart the app.
 
-## 4. Backends: Simulation vs Hardware
+## 3. Configure `reactor/config.yml`
 
-The reactor talks to two hardware layers — **pumps** and **beamline** — and one
-toggle covers both.
+Everything rig-specific lives in this file, each key with a comment. The parts to
+check:
 
-- **Startup default:** environment variable `SWAXS_REACTOR_BACKEND` = `mock`
-  (default) or `real`. e.g. `SWAXS_REACTOR_BACKEND=real`.
-- **At runtime:** the Simulation/Hardware toggle in the app UI (`/api/backend`) switches both
-  pumps and beamline live and re-wires everything.
-
-Start in **Simulation** (`mock`) to learn the UI; switch to **Hardware** (`real`) only on the rig.
-
-## 5. Configure `reactor/config.yml`
-
-Everything rig-specific lives here; no code changes needed. Key sections:
-
-- **pumps** — one entry per Mitos pump. Matched by `serial` first (portable across
-  PCs — COM numbers can differ), `address` (COM/tty) is a fallback. `sensor_min` /
-  `max_flow` are HARD limits from the installed LG16 flow sensor: a nonzero
-  setpoint outside that window rejects the whole recipe. **The shipped config sets
-  `sensor_min: 0.0` on all five pumps, which disables the lower half of that
-  check** — set each pump's real sensor minimum or a below-range setpoint is
-  accepted and the delivered flow is unknown. Map serials↔ports with
-  `tools/map_pumps.py`.
-- **bounds** / **safety** — recipe validation ranges and absolute caps (`T_max`,
-  `F_tot_max`, `per_pump_max`, `max_pressure`). A breach is rejected at submit and
-  trips E-stop at runtime.
-- **temperature** — `tolerance`, `read_interval_s`, and `cooldown_c` (°C the reactor
-  is set to the moment a synthesis run ends; `null` = leave as-is).
-- **arming** — `default_mode` (`temperature` or `timed` — **those are the only two
-  accepted values**; `src/reactor/recipe.py` rejects anything else, so a condition
-  file carrying `arm_mode: ramp` fails at intake and the queue stalls) and
-  `default_wait_s` (the timed wait when a recipe omits `arm_wait_s`). The shipped
-  default is `temperature`; `default_wait_s` (120 s) applies only in timed mode.
-- **flush** — flush pump rate, duration, and `pump` (which pump flushes; the
-  shipped value is `ode_dilution`, a reagent pump, not `ode_flush`).
-- **spec** (beamline) — the block you validated on the rig:
-  - `backend`, `base_url` (bServer, `http://127.0.0.1:18085/SIS/`), `enabled`
-    (false = run the loop with no 2D collection at all)
-  - `read_source` — `"epics"` (caget; keeps reading during a collection) or
-    `"spec"` (counters; shipped default). See §9.
-  - `epics_pvs` (temperature / i0 / bstop PV names), `epics_ca_addr_list` +
-    `epics_ca_auto_addr_list` (CA gateway) — used only by `read_source: "epics"`
-  - `read_during_collect` — `true` = keep polling SPEC counters during an
-    acquisition (only if the bServer allows counter reads mid-scan)
-  - `temp_counter: CTEMP`, `bstop_counter`, `i0_counter` — `read_source: "spec"` only
-  - `read_refresh_cmd: "ct 0.1"` (makes the live plot live; blank = stale last-count)
+- **`pumps`**: one entry per pump. Matched by `serial` first (portable across PCs,
+  COM numbers change), with `address` (COM/tty) as fallback; map them with
+  `tools/map_pumps.py`. `sensor_min` / `max_flow` are hard limits from the installed
+  LG16 sensor: a recipe whose setpoint for a pump is nonzero but below `sensor_min`,
+  or above `max_flow`, is rejected, never clamped.
+  **The shipped config has `sensor_min: 0.0` on every pump, and on Hardware the app
+  refuses to open the pump ports until each one is set to the sensor's real
+  minimum.** Optional per pump: `calibration_factor`, `flowrate_table`,
+  `volume_limit`, `max_pressure` (mbar).
+- **`bounds`** / **`safety`**: allowed recipe ranges and absolute caps (`T_max`,
+  `F_tot_max`, `per_pump_max`, `max_pressure`). A breach is rejected when the recipe
+  is submitted and trips the E-stop during a run. `safety.flow_fault_estop: false`
+  (shipped) means a pump that stays off its setpoint warns instead of E-stopping.
+- **`temperature`**: `tolerance` (2 °C), `read_interval_s` (1 s) and `cooldown_c`
+  (25 °C: the temperature set when a synthesis ends; `null` leaves it as is).
+- **`arming`**: `default_mode` is `temperature` (shipped: wait until the reactor is
+  at temperature) or `timed` (wait `default_wait_s`, 120 s). These are the only two
+  modes; a condition file with any other `arm_mode` is rejected.
+- **`flush`**: `rate` (50 µL/min), `duration` (1200 s = 20 min), `blank_rinse_s`
+  (30 s) and `pump` (shipped: `ode_dilution`, a reagent pump capped at 50 µL/min;
+  switch to `ode_flush` when the dedicated line works). All but `blank_rinse_s` can
+  be changed in the app.
+- **`spec`** (beamline):
+  - `base_url` (bServer), `enabled` (false = run the loop with no 2D collection)
+  - `read_source`: `"spec"` (shipped; counters, refreshed with `read_refresh_cmd:
+    "ct 0.1"`) or `"epics"` (recommended; keeps reading during a collection, uses
+    `epics_pvs` and `epics_ca_addr_list`). See §6.
+  - `temp_counter: CTEMP`, `i0_counter`, `bstop_counter` (only for `"spec"`);
+    `read_during_collect` (keep polling counters during a collection, only if the
+    bServer allows it); `refresh_min_interval_s` (minimum gap between `ct` refreshes)
   - `set_temp_cmd: "csettemp {T}"`, `open_shutter_cmd`, `close_shutter_cmd`
-  - `macro_file: reactor/macros/Singlesnapshot.flat.template.txt`, `collect_mode: commands`
-  - `data_dir` — the SPEC (Linux) folder shots are saved to = the pipeline's 2D base
-  - `data_dir_from_hub` + `hub_path_map` — follow the hub's project folder into
-    `data_dir`, translating the Windows prefix to the Linux one SPEC writes to
-  - `mock_data_dir` — where Simulation mode writes instead (blank = the hub folder)
-  - `background_when` — `"before"` (shipped) or `"after"`; see §7 step 3
-  - `spec_lead_s`, `exposure_s`, `frames`, `sample_tag`, `bkg_tag`
-  - `simulator.*` — mock-only synthetic 2D data generator (poni/mask, brightness,
-    `truth.*` ground truth). Cannot produce data on the real backend.
+  - `macro_file` (the **flat** `reactor/macros/Singlesnapshot.flat.template.txt`) and
+    `collect_mode: commands`
+  - `data_dir`: the Linux folder SPEC saves to (the pipeline's 2D base);
+    `data_dir_from_hub` + `hub_path_map` translate the hub's Windows project path
+    (`X:\bl1-5`) to the Linux one (`/msd_data/checkout/bl1-5`). Confirm both prefixes
+    on the rig.
+  - `spec_lead_s`, `exposure_s`, `frames`, `sample_tag`, `bkg_tag` (the app's Data
+    collection fields)
+  - `background_when`: `"before"` (shipped: blank on the clean capillary before each
+    synthesis) or `"after"`
+  - `mock_data_dir` and `simulator.*`: Simulation only
+- **`run`**: `default_duration`, `resume_auto_run: false` (Run autonomously is not
+  switched back on after a restart), `clear_queue_on_restart: false` (the queue in
+  the conditions folder is kept across restarts, so the reactor and the analyser can
+  be started in either order).
+- **`folders`**: `recipes: 1D/SAXS/Conditions` (the watched conditions folder; it
+  can also be changed in the app), relative to the project folder.
 
-## 6. Run
+Pump limits and `Cal ×` set in the app are saved to
+`<project>/reactor_limits.json` (only when a project folder is selected) and
+override the values in `config.yml` from then on.
 
-**Via the hub (recommended):**
+## 4. Run
+
+Start the platform with the launcher (`./start_platform.sh` or
+`start_platform.bat`), choose the project folder in the hub, then press **Start**
+and **Open** on the **Autonomous Synthesis** card. The hub passes the project folder
+to the app and stops it when the hub closes.
+
+For development you can start it alone, with the environment activated:
+
 ```bash
-python hub/app.py          # http://localhost:5100 — launch "Autonomous Synthesis" from the hub
+python reactor/app.py                              # http://localhost:5108
+SWAXS_REACTOR_BACKEND=real python reactor/app.py   # start on Hardware
 ```
-The hub passes the selected project folder to the reactor and manages its process
-(and frees the port on hub exit).
 
-**Standalone (development):**
-```bash
-python reactor/app.py      # http://localhost:5108
-# real hardware:
-SWAXS_REACTOR_BACKEND=real python reactor/app.py
-```
-The hub launches apps with the plain interpreter so they share the installed
-environment — use `python` here too.
+## 5. First-run checklist
 
-## 7. First-run checklist
+1. The app opens at http://localhost:5108 and the top-bar toggle shows the mode you
+   expect.
+2. **Hardware test** tab → **Run all checks**. It only reads (pumps connected and
+   answering, pressure, temperature live, I₀/bstop arriving) and gives a fix hint for
+   each failure.
+3. **In Simulation:** queue a recipe (**Autonomous setup**, step 4, **Add to
+   queue**) and press **Start** in the left column. With `background_when:
+   "before"` the sequence is flush → background shot → arm → synthesis → sample
+   shot → flush. The first thing you see is a full flush (20 min at the shipped
+   duration), not arming: the app has not hung. Shorten **Flush duration** for a
+   quick test.
+4. **On the rig:** bench-test the beamline first with the app stopped
+   ([tools/BEAMLINE_TESTING.md](../tools/BEAMLINE_TESTING.md)), then press **Collect
+   now** once from the app (Hardware test, step 3).
+5. The reduction app sees the new `.raw` under `<project>/2D/SAXS`.
 
-1. `pip install -r requirements-core.txt` succeeds; add `requirements-hardware.txt` for real.
-2. App opens at `http://localhost:5108`, the Simulation | Hardware toggle shows the expected mode.
-   On the Hardware test tab, **Run all checks** (read only) lists anything not connected or not answering.
-3. **Simulation:** submit a recipe, Start — with the shipped `background_when: "before"`
-   the sequence is **flush → background shot → arm → run → sample shot → flush**.
-   The first thing you see is a flush (20 min at the shipped `flush.duration`), not
-   arming; that is correct, the app has not hung. Live plot animates throughout.
-4. **Hardware (on the rig):** bench-test the beamline in isolation FIRST with the app
-   stopped — `tools/beamline_read_test.py`, `…_epics_test.py`, `…_temp_test.py`,
-   `…_shutter_test.py`, `…_collect_test.py` (see `tools/BEAMLINE_TESTING.md`), then
-   run one **📷 Collect now** from the app before an autonomous run.
-5. Confirm the reduction pipeline sees new `.raw` under `<data_dir>/2D/SAXS`.
+## 6. Safety notes (Hardware)
 
-## 8. Ports
-
-hub 5100 · reduction 5102 · average 5103 · background 5104 · analysis 5106 ·
-assistant 5109 · quality 5105 · **reactor 5108** · analyzer 5107 ·
-calibration 5101 · watchdog (Autonomous Watch) 5110.
-Closing an app frees its port; closing the hub stops all its sub-apps.
-
-## 9. Safety notes (Hardware mode)
-
-- Stop / E-stop act on **pumps only** and never interrupt an in-progress X-ray
-  collection.
-- **E-stop also turns auto-run OFF** (`controller.estop`), so the folder watcher
-  cannot restart the rig into an unresolved fault. After clearing the fault and
-  pressing **Reset** you must re-arm **▶ Run autonomously** deliberately —
-  otherwise queued conditions sit there and nothing runs.
-- **The over-temperature interlock goes blind during every acquisition when
-  `spec.read_source: "spec"`** (the shipped value). A collection holds the SPEC
-  lock and counter reads are non-blocking, so temperature / i0 / bstop stop
-  updating for the whole shot — `exposure_s: 10 × frames: 10` = **100 s per
-  acquisition with no fresh temperature**, and the live plot freezes for exactly
-  that window. The app logs it once per run. Fixes, in order of preference:
-  `read_source: "epics"` (caget, independent of SPEC — verify the PVs with
-  `tools/beamline_epics_test.py`, needs `pyepics` from
-  `requirements-hardware.txt`), or `read_during_collect: true` if the bServer
-  tolerates counter reads mid-scan.
-- With `read_source: "spec"`, while the reactor app is open in Hardware mode it
-  **holds SPEC remote control** (for the `ct` live-plot refresh); close the app or
-  switch to Simulation to hand control back. `read_source: "epics"` never takes SPEC
-  control for reads.
-- Run **one SPEC client at a time** — don't run the bench tools and the app against
-  the real hardware simultaneously.
-- Full safety review: `docs/audits/BEAMLINE_SAFETY_AUDIT.md`; readiness checklist:
-  `docs/audits/PRE_BEAMTIME_READINESS.md`.
+- **Stop** and **EMERGENCY STOP** act on the **pumps only** and never interrupt an
+  X-ray collection in progress.
+- **E-stop also turns Run autonomously off**, so the folder watcher cannot restart
+  the rig into an unresolved fault. Clear the fault, press **Reset**, then switch
+  **Run autonomously** on again deliberately.
+- **Start pumps now** (skipping the arming wait) asks for confirmation and shows the
+  current and target temperature.
+- **With `read_source: "spec"` the over-temperature interlock has no fresh reading
+  during every acquisition.** A collection holds the SPEC link, so temperature, I₀
+  and bstop stop updating for the whole shot (10 s × 10 frames = 100 s) and the live
+  plot freezes for that window; the app logs it once per run. Fix: `read_source:
+  "epics"` (verify the PVs with `tools/beamline_epics_test.py`), or
+  `read_during_collect: true` if the bServer tolerates counter reads mid-scan.
+- `ct 0.1` obeys SPEC's `sauto` and may open the shutter. Run `sauto off` in SPEC,
+  or use `read_source: "epics"`, which never counts. See
+  [audits/PRE_BEAMTIME_READINESS.md](audits/PRE_BEAMTIME_READINESS.md).
+- With `read_source: "spec"`, the app holds SPEC remote control while it is open on
+  Hardware. Stop the app or switch to Simulation to hand control back. Stopping the
+  app idles the pumps, closes the shutter and releases SPEC control.
+- Run **one SPEC client at a time**: do not run the bench tools against the real
+  beamline while the app is on Hardware.
+- Every SPEC command the platform sends:
+  [audits/BEAMLINE_SAFETY_AUDIT.md](audits/BEAMLINE_SAFETY_AUDIT.md).

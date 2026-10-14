@@ -65,18 +65,22 @@ SWAXS_Autonomous_Platform_v1/
 │   ├── folder_browse.py        # Folder listing behind the Browse… buttons (/api/browse)
 │   ├── events.py               # WebSocket event bus client + emit_* helpers
 │   ├── runstate.py             # Atomic monitor-state persistence; monitor_alive()
+│   ├── backlog.py              # Fresh start: what is already done vs new
+│   ├── favicon.py · plot_lock.py   # per-app tab icon · one lock for server-side matplotlib
 │   ├── proc_lifecycle.py       # Port binding, process trees, log rotation (hub)
 │   ├── loop_naming.py          # {recipe_id}_{role} condition keywords
 │   ├── plot_reduction.py       # Data loading, averaging, plotting utilities
 │   ├── preprocess/             # calib.py · raw_convert.py · sftp_sync.py
 │   ├── reduction/              # core.py (Experiment, pyFAI) · process_metadata.py
-│   │                           #   · read_raw_file.py
+│   │                           #   · read_raw_file.py · csv_wait.py
 │   ├── utils/read_dat_metadata.py   # .dat parser (q, I, sigma + metadata footer)
 │   ├── background/core.py      # subtraction maths, truncate_rebin
 │   ├── quality/core.py         # grade_profile, score_metrics
-│   ├── analysis/               # core.py · io.py · atsas.py · nanoparticle.py
-│   ├── optimizer/              # campaign.py · space.py · gp.py · io.py
-│   │                           #   · diagnostics.py · plots.py
+│   ├── analysis/               # core.py · io.py · atsas.py · nanoparticle.py · guidelines.py
+│   ├── fitting/                # fitter registry: ls_sphere · ml_regressor · llm_assisted
+│   ├── optimizer/              # campaign.py · space.py · gp.py · io.py · study.py
+│   │                           #   · diagnostics.py · plots.py · methods/ (random,
+│   │                           #   gp_ucb, turbo, bax, pareto_ehvi)
 │   ├── reactor/                # controller.py (API, loop, status) + its parts split out
 │   │                           #   Oct 2026: sequence.py (run order) · supervisor.py (safety)
 │   │                           #   · collection.py (SPEC shots) · checks.py (read-only
@@ -121,22 +125,23 @@ use" for the Windows equivalent (Hyper-V/WSL2 reserves ~100-port blocks).
 
 ## What Each App Imports from src/
 
-Every app also imports `src.events` (bus) and, if it runs a monitor loop,
-`src.runstate`.
+Every app also imports `src.events` (bus), `src.favicon` and, if it runs a
+monitor loop, `src.runstate`. Apps without their own folder browser import
+`src.folder_browse`.
 
 | App | Imports |
 |---|---|
 | `calibration` | `src.preprocess` (calib, raw_convert, sftp_sync) |
-| `reduction` | `src.reduction.core` (Experiment, run_pipeline, find_new_raw_files), `src.manifest` |
+| `reduction` | `src.reduction.core` (Experiment, run_pipeline, find_new_raw_files), `src.reduction.csv_wait`, `src.backlog`, `src.operator_id`, `src.manifest` |
 | `average` | `src.plot_reduction` (read_folder, average_and_save, average_batch), `src.utils.read_dat_metadata`, `src.loop_naming`, `src.manifest`, `src.reactor.load_config` |
-| `background` | `src.background.core` (subtraction maths), `src.manifest`, `src.utils.read_dat_metadata`, `src.reactor.intake` (decide_intake), `src.loop_naming` |
+| `background` | `src.background.core` (subtraction maths), `src.backlog`, `src.manifest`, `src.utils.read_dat_metadata`, `src.reactor.intake` (decide_intake), `src.loop_naming` |
 | `quality` | `src.quality` (grade_profile, score_metrics), `src.manifest`, `src.utils.read_dat_metadata` |
 | `analysis` | `src.analysis.core`, `src.analysis.io`, `src.analysis.atsas`, `src.manifest`, `src.utils.read_dat_metadata` |
-| `analyzer` | `src.analysis.nanoparticle`, `src.optimizer` (campaign, io, diagnostics, plots), `src.ai.loop_advice`, `src.reactor.intake`, `src.simulator.ground_truth`, `src.manifest` |
-| `reactor` | `src.reactor` (ReactorController, Recipe, load_config, intake), `src.manifest` — `src.beamline` only indirectly, via `src/reactor/controller.py`; no longer imports `src.notify` (moved to watchdog) |
+| `analyzer` | `src.analysis.nanoparticle`, `src.fitting`, `src.optimizer` (campaign, methods, study, io, diagnostics, plots), `src.ai.loop_advice`, `src.reactor` (load_config, intake, recipe), `src.simulator.ground_truth`, `src.plot_lock`, `src.operator_id`, `src.manifest` |
+| `reactor` | `src.reactor` (ReactorController, load_config, checks, config, recipe, intake), `src.loop_naming`, `src.manifest`; `src.beamline` only indirectly, via `src/reactor/controller.py`; no longer imports `src.notify` (moved to watchdog) |
 | `assistant` | `src.ai.assistant`, `src.ai.hints` |
-| `watchdog` | `src.watchdog` (policy, settings, transport, messages, expectations, probes, diagnose), `src.manifest` |
-| `hub` | `src.proc_lifecycle`, `src.manifest`, `yaml`, Flask, optional `flask_sock` |
+| `watchdog` | `src.watchdog` (policy, settings, transport, messages, expectations, probes, diagnose), `src.loop_naming` |
+| `hub` | `src.proc_lifecycle`, `src.operator_id`, `src.manifest`, `yaml`, Flask, optional `flask_sock` |
 
 ---
 
@@ -376,14 +381,14 @@ Encoding failures drop the single event, not the connection.
 | `docs/CHANGELOG.md` | Running summary of notable changes — start here to catch up |
 | [SECURITY.md](SECURITY.md) | AI token handling |
 | [SYNC.md](SYNC.md) | Working across two laptops |
-| `docs/ARCHITECTURE.md` | System design, event bus, manifest v2 |
+| `docs/ARCHITECTURE.md` | System as built: hub, event bus (every event type), manifest storage and schema, `src/` map |
 | `docs/INTEGRATING_YOUR_OWN_CODE.md` | Plugging an external program (e.g. your own ML) into the pipeline: watched folders, the condition-file contract, event bus, every surface ranked by stability |
 | `docs/AUTONOMOUS_RUN_STEPS.md` | Operator runbook for a closed-loop run |
-| `docs/audits/OPEN_DEFECTS.md` | **The register of known open defects** |
-| `docs/audits/REACTOR_AUDIT.md` | Deep audit of the reactor app + `src/reactor/` + `src/beamline/` (R1–R25): hardware safety, unattended stability, campaign integrity, every control traced |
+| `docs/audits/OPEN_DEFECTS.md` | **The register of known open defects** (index of all audits: `docs/audits/README.md`) |
+| `docs/audits/REACTOR_AUDIT.md` | Deep audit of the reactor app + `src/reactor/` + `src/beamline/` (R1 to R28; complete, R12 open): hardware safety, unattended stability, campaign integrity, every control traced |
 | `docs/audits/ASSISTANT_AUDIT.md` | Audit of the assistant app + `src/ai/` (tools, secrets, run_python sandbox, P(r) fix) |
 | `docs/design/SYNTHESIS_PLATFORM_PLAN.md` | Plan for the modular Synthesis app: one instrument contract, simulated twins, chained workflows, gated Test → Setup → Run, generic telemetry, migration phases. Built so far (Oct 2026): the page layout and phase 0, the `src/synthesis/` contract (not used by the reactor yet) |
-| `docs/CONTINUOUS_RUN_HARDENING_PLAN.md` | Plan (not yet implemented) for the defects that threaten a multi-day autonomous run — what to fix, in what order, and the test that proves each |
+| `docs/CONTINUOUS_RUN_HARDENING_PLAN.md` | The defects that threaten a multi-day autonomous run: Done/Open status with evidence (N1 to N4, N7 done; N5, N16, O3 open), the fix and the test for each |
 | `docs/audits/PRE_BEAMTIME_READINESS.md` | Go/no-go checklist |
 | `docs/audits/BEAMLINE_SAFETY_AUDIT.md` | Every SPEC command the platform issues |
 | `docs/REACTOR_SETUP.md`, `_HARDWARE_SETUP.md`, `_MAP.md` | Reactor software, rig, code map |

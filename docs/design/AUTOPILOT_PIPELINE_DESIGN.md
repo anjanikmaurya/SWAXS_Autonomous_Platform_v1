@@ -2,30 +2,24 @@
 
 > ## NEVER BUILT
 >
-> **Zero of the seven phases in §13 have been executed as of 2026-08.** None of
-> `src/pipeline/`, `src/background/core.py`, `autopilot.yml`, `autopilot/app.py`
-> or `AutopilotOrchestrator` exists. Phase 1 — the "low risk, high value"
-> refactor — is definitively unbuilt: `background/app.py` is 1531 lines and
-> still owns `_interpolate_onto` (`:100`), `_subtract` (`:122`),
-> `truncate_rebin` (`:155`), `_write_dat` (`:215`), `_auto_scale` (`:271`),
-> `_qc_metrics` (`:319`) and `_process_one` (`:1169`) — exactly the functions
-> §4 says must move.
+> **Status (checked 2026-10-14): plan, not built.** None of `src/pipeline/`,
+> `autopilot.yml`, `autopilot/app.py` or `AutopilotOrchestrator` exists. The
+> separate monitor loops in reduction, average, background, quality and the
+> analyzer still drive the pipeline.
 >
-> **Update, September 2026:** that part of Phase 1 has since happened by another
-> route (defect D3): `_subtract`, `_interpolate_onto`, `_auto_scale`, `_qc_metrics`
-> and `truncate_rebin` now live in `src/background/core.py`; only `_write_dat`
-> (and `_process_one`) remain in `background/app.py`. The line numbers above are
-> the August 2026 ones. The orchestrator itself is still unbuilt.
+> **Already done by other routes:** the subtraction science that §4 says must
+> move now lives in `src/background/core.py` (`_subtract`, `_interpolate_onto`,
+> `_auto_scale`, `_qc_metrics`, `truncate_rebin`; defect D3, September 2026).
+> Only `_write_dat` and `_process_one` remain in `background/app.py`. Restart
+> recovery (`src/runstate.py`, `src/backlog.py`) and the 3 s polls after N7
+> also cover part of §1's motivation. Line references below are from August
+> 2026 and are not maintained.
 >
-> **Port 5101 is taken.** §5 proposes 5101 for the autopilot UI shell; the
-> calibration app has since claimed it (`apps.yml`). Whoever builds this must
-> pick another port.
+> **Port 5101 is taken** by the calibration app. §5 proposes 5101 for the
+> autopilot UI shell; whoever builds this must pick another port.
 >
-> This file is kept because §4 identifies a live violation of the project's
-> "all logic in `src/`" rule that nothing else documents, and because §1's
-> analysis of why the three-monitor architecture is fragile is still accurate.
-> Read the rest as a proposal, and check §2/§6/§7 against the "already shipped"
-> notes — parts of the design have since arrived by other routes.
+> Kept because §1's analysis of why the separate-monitor architecture is
+> fragile is still accurate. Read the rest as a proposal.
 
 **Status:** proposal, unbuilt. No runtime code paths change until implemented.
 Goal: make autonomous runs user-friendly and low-failure by collapsing

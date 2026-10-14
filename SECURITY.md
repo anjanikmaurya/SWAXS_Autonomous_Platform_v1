@@ -1,9 +1,14 @@
-# API Key / Token Handling — SWAXS Platform
+# AI token handling
 
-The AI Assistant authenticates to **SLAC-managed AI services** through the
-enterprise gateway (see SLAC IT KB0015379). The token is a privileged credential
-— treat it like a password. **Never** put it in chat, email, tickets, scripts,
-or version control.
+**What this is for.** Setting up the token the Guinier AI assistant (port 5109)
+needs, and keeping it safe. The other optional AI features (the Quality Gate's LLM
+check, the AI stall reading in Autonomous Watch) use the same `ANTHROPIC_*`
+variables. Everything else in the platform works without a token.
+
+The AI features reach **SLAC-managed AI services** through the enterprise gateway
+(SLAC IT KB0015379). The token is a privileged credential: treat it like a
+password. **Never** put it in chat, email, tickets, scripts, `.env` or version
+control.
 
 ## What you need
 
@@ -58,9 +63,13 @@ Configure the token once here and the SWAXS app uses it too.
    ```bash
    chmod og-rwx ~/.claude/settings.json
    ```
-4. Run `./start_platform.sh` on the SLAC network/VPN. The banner shows
-   `AI auth: ~/.claude/settings.json (SLAC gateway)`, and
-   `GET http://localhost:5109/api/health` reports `credentials: gateway-token`.
+4. Start the platform on the SLAC network or VPN. On macOS/Linux the
+   `./start_platform.sh` banner shows `AI auth: ~/.claude/settings.json (SLAC
+   gateway)`. On any system, with the Guinier app running,
+   http://localhost:5109/api/health reports `"credentials": "gateway-token"`.
+
+On Windows the file is `%USERPROFILE%\.claude\settings.json`; create the folder and
+file with a text editor (the `chmod` steps do not apply).
 
 **Alternative / override:** export `ANTHROPIC_AUTH_TOKEN` yourself before running
 (e.g. from macOS Keychain: `export ANTHROPIC_AUTH_TOKEN="$(security

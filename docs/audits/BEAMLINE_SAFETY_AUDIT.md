@@ -1,5 +1,11 @@
 # Beamline safety audit — what the platform does (and does NOT) to SPEC/bServer
 
+> **Audit status: complete** (2026; the audit date was not recorded). One gap
+> found (`shutdown()` did not release SPEC remote control) and **fixed**;
+> nothing open. Any new beamline item goes to
+> [OPEN_DEFECTS.md](OPEN_DEFECTS.md). Re-check this list whenever
+> `src/beamline/driver.py` gains a SPEC command.
+
 Goal: confirm the reactor app and the data pipeline only **send commands and read**
 from the beamline, and never permanently reconfigure SPEC or the bServer — so
 beamline staff have nothing to undo after this beamtime.

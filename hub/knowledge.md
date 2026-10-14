@@ -1,223 +1,232 @@
-# Hub App — Knowledge Base
+# Hub: Knowledge Base
 
-## Purpose
-The Hub (port 5100) is the central launcher and monitor for the SWAXS platform.
-It starts every sub-app as an independent subprocess, monitors their health,
-provides the project-folder selector and the **Operator** box (top bar; the only
-place the operator's name is entered), and serves the WebSocket event bus at `/ws`.
-The hub port is overridable with the `SWAXS_HUB_PORT` environment variable
-(default 5100 — chosen because macOS AirPlay Receiver holds 5000).
+## What it is for
+The Hub (port 5100, http://localhost:5100) is the platform's front page and
+launcher. It:
 
-## Architecture
+- starts and stops every app as its own process and shows whether each is healthy;
+- holds the **project folder** and pushes it to every app;
+- holds the **Operator** name (the only place it is entered);
+- runs the WebSocket **event bus** at `ws://localhost:5100/ws` that the apps use
+  to tell each other what happened;
+- keeps the cross-app record (`manifest.db` / `manifest.json`) fed with bus events.
 
-```
-Browser → hub:5100
-  │
-  ├── Launches one subprocess per apps.yml entry (currently 10):
-  │     calibration :5101    reduction :5102    average  :5103
-  │     background  :5104    analysis  :5106    assistant:5109
-  │     quality     :5105    reactor   :5108    analyzer :5107
-  │     watchdog    :5110
-  │
-  ├── WebSocket broker (/ws):
-  │     any sub-app publishes → hub → all other connected apps
-  │
-  └── HTTP API (see the endpoint list below)
-```
+It does no science itself. The hub port can be changed with the `SWAXS_HUB_PORT`
+environment variable (default 5100).
+Port 5000 is avoided because macOS AirPlay Receiver holds it.
 
-The hub does not hardcode a list of apps. `_load_apps()` reads `apps.yml` and
-launches whatever it finds there, so the number of apps is whatever `apps.yml`
-contains.
+## The apps it launches
+The hub reads `apps.yml` and launches whatever is listed there (currently ten),
+in pipeline order:
 
-## Hub HTTP API
-
-| Method | Path | Purpose |
+| Port | App (id) | Name in the UI |
 |---|---|---|
-| GET  | `/` | main dashboard |
-| GET  | `/api/health` | hub liveness — `{"status": "ok", "app": "hub"}` |
-| GET  | `/api/status` | snapshot status of all apps (initial page load) |
-| GET  | `/api/status/stream` | Server-Sent Events, one status frame every 2 s |
-| POST | `/api/start/<app_id>` | launch one app → `{ok, message}` |
-| POST | `/api/stop/<app_id>` | stop one app (kills the whole process tree) |
-| POST | `/api/stop_all` | stop every app → `{ok, results, stuck}` |
-| GET  | `/api/ports` | who is holding each app's port (answers "why won't it start?") |
-| POST | `/api/set_project` | set the project folder — body `{"path": "/abs/path"}` |
-| GET  | `/api/browse` | directory browser for the project picker |
-| GET/POST | `/api/operator` | read / set the operator (body `{"operator": "..."}`); saved to `logs/hub_operator.txt`, exported as `SWAXS_USER_ID` to apps started afterwards, and written to the project manifest as `project_meta.current_operator` |
-| POST | `/api/apps/reload` | hot-reload `apps.yml` without restarting the hub |
+| 5101 | calibration | Geometry Calibration |
+| 5102 | reduction | Reduction & Correction |
+| 5103 | average | Visualisation & Average |
+| 5104 | background | Background Subtraction |
+| 5105 | quality | Quality Gate |
+| 5106 | analysis | Data Analysis |
+| 5107 | analyzer | Autonomous Analyser |
+| 5108 | reactor | Autonomous Synthesis |
+| 5109 | assistant | Guinier (AI assistant) |
+| 5110 | watchdog | Autonomous Watch |
 
-There is no `POST /api/project` — the project-folder endpoint is
-`POST /api/set_project`.
+Two workflows are shown on the page:
+- **STANDARD**: Calibration, Reduction, Visualisation & Average, Subtraction,
+  Analysis.
+- **AUTONOMOUS**: Autonomous Synthesis collects a sample, the pipeline reduces
+  it, the Autonomous Analyser proposes the next one, back to Autonomous Synthesis.
 
-## apps.yml Registry
-The hub reads `apps.yml` from the project root at startup. Each entry:
-```yaml
-- id: reduction
-  name: "Reduction & Correction"
-  port: 5102
-  entry: "reduction/app.py"
-  knowledge: "reduction/knowledge.md"
-  manifest_key: "files"
-  icon: "⚙️"
-  color: "#1565C0"
-```
-`id`, `name`, `port` and `entry` are required. `description`, `icon`,
-`icon_image`, `color`, `knowledge` and `manifest_key` are optional and get
-defaults (`icon` "🔧", `color` "#455A64", the rest empty/None). Hot-reload via
-`POST /api/apps/reload` (see the API table).
+## How to use it
+1. Start the platform: `./start_platform.sh` (macOS / Linux) or
+   `start_platform.bat` (Windows). This starts only the hub; open
+   http://localhost:5100.
+2. Type your name or initials in the **Operator** box (top bar). It is saved
+   with every reduced file and campaign.
+3. Click the project pill ("No project selected. Click to choose.", or
+   **Change**) and pick the experiment folder: browse, or paste a full path and
+   click **Go**, then **Select this folder**. The folder must already exist.
+4. Click **Start** on each app card you need; **Open** becomes active once the
+   app answers its health check. **Stop** stops one app; **Stop all** (Applications
+   header) stops every app.
+5. Watch the **Live event log** (bottom) and the **Bus** badge (top bar; the
+   number is the count of bus clients, including this browser tab). **Clear**
+   empties the log view only. The page shows a persistent warning if the event
+   bus is down or the project disk is filling up.
 
-## App launch details
-Each app is launched with the SAME Python interpreter that runs the hub
-(`sys.executable <entry>`), with `cwd` set to the project root, in its own
-process group, with stdout+stderr redirected to `logs/<app_id>.log` (the previous
-log is rotated, not truncated). The child environment gets:
+The hub remembers the project folder (in `.hub_state.json` at the repo root)
+and the operator (in `logs/hub_operator.txt`) across restarts. Apps are not
+started automatically.
 
-- `SWAXS_PROJECT` = the current project root (only if one is selected)
-- `SWAXS_USER_ID` = the operator set in the hub (only if one is set)
+## Troubleshooting
+
+| Symptom | What to do |
+|---|---|
+| An app card stays "Stopped" or shows a crash | Read `logs/<app_id>.log` (the card shows the last lines of a crash). The previous log is kept as a rotated copy. |
+| "Port ... already in use" | Click **Ports** to see which process holds each app's port. A stale copy of the same app is reclaimed automatically; anything else must be closed. On Windows, Hyper-V/WSL2 can reserve port blocks: see QUICKSTART.md. |
+| The hub itself will not start on 5100 | Run it on another port, e.g. `SWAXS_HUB_PORT=5200 ./start_platform.sh`. |
+| Open button greyed out after Start | The app is still importing (reduction and the analyser take a few seconds). Wait for the green status. |
+| Apps do not see the project | Set the project in the hub, not in the app. Running apps get it immediately; apps started later get it at launch. |
+| Bus badge shows false / no events | `flask-sock` is missing from the environment. Install `requirements-core.txt` and restart the hub. |
+| Apps left running after closing the terminal | Normally the hub stops them on exit (Ctrl-C, SIGTERM, SIGHUP). After a hard kill, the next hub start reaps the leftovers recorded in `logs/hub_children.json`. |
+
+## How apps are launched
+Each app runs with the same Python interpreter as the hub
+(`sys.executable <entry>`), with the repo root as working directory, in its own
+process group, and stdout and stderr going to `logs/<app_id>.log`. The child
+environment gets:
+
+- `SWAXS_PROJECT`: the current project folder (if one is set)
+- `SWAXS_USER_ID`: the operator (if one is set)
 - `PYTHONUTF8=1` and `PYTHONIOENCODING=utf-8`
 
-Live PIDs are snapshotted to `logs/hub_children.json` on every start/stop, so a
-hub that is SIGKILLed can reap its own orphans on the next startup. A held port
-that identifies as the same app is reclaimed automatically rather than reported
-as an unfixable error.
+Live PIDs are saved to `logs/hub_children.json` on every start and stop so a
+hub that was killed can clean up after itself on the next start.
 
-## WebSocket Event Bus
+## Project folder and operator
+The project path is pushed by the hub. On `POST /api/set_project` the hub checks
+the folder exists, saves it to `.hub_state.json`, records the operator in the
+project, POSTs `{"path": ...}` to `/api/set_project` on every running app, and
+emits `project.set`. Apps started later receive it through `SWAXS_PROJECT`.
 
-### Protocol
-Messages are UTF-8 JSON with exactly these five keys
-(`src/events.py::make_event`, and the same shape in `src/manifest.py::add_event`):
-```json
-{
-  "type": "file.reduced",
-  "source_app": "reduction",
-  "timestamp": "2025-01-15T10:00:00+00:00",
-  "data": { },
-  "ai_triggered": false
-}
-```
-There is no `event_type` key, no `run_id`, and no `ts`. Code that reads an event
-must use `event["type"]` and `event["timestamp"]`.
+The operator is set with `POST /api/operator`. It is saved to
+`logs/hub_operator.txt`, exported as `SWAXS_USER_ID` to apps started afterwards,
+written to the project manifest as `project_meta.current_operator` (so running
+apps see it), and announced with `operator.set`. `src/operator_id.py` resolves
+the operator: hub operator, then `SWAXS_USER_ID`, then the OS login.
 
-### Standard Event Types
-| Event type | Emitter | `data` fields |
-|---|---|---|
-| `file.reduced` | reduction | `file_path`, `keyword`, `scan_idx`, `detector` |
-| `file.averaged` | average | `file_path`, `keyword`, `n_files`, `detector` |
-| `file.subtracted` | background | `file_path`, `keyword`, `scale`, `mode` |
-| `file.classified` | quality | `file_path`, `score`, `verdict`, `detector`, `flags` |
-| `analysis.complete` | analysis | `analysis_type`, `file_path`, `results` |
-| `fit.complete` | analyzer | `recipe_id`, `file`, `size`, `pdi`, `confidence`, `distribution`, `phase`, `guinier_rg`, `suspect`, `plot_png`, `loss` — a different shape from `analysis.complete` on purpose (see analyzer/knowledge.md) |
-| `watch.new_raw` | reduction | `file_path`, `detector` |
-| `ai.hint` | assistant | `hint`, `file_path`, `severity` (`info`/`warning`/`error`) |
-| `reactor.run_complete` | reactor | the run record: `recipe_id`, `recipe`, `setpoints`, `measured_flows`, `started`, `ended`, `duration_s`, `reason`, `status` |
-| `app.connected` | any app | `app_id` (sent automatically on WS open) |
-| `app.started` | hub | `app_id`, `pid` |
-| `app.stopped` | hub | `app_id` only |
-| `app.crashed` | hub | `app`, `exit_code`, `reason`, `log` |
-| `app.reclaimed` | hub | `app_id`, `port`, `killed` (list of PIDs) |
-| `project.set` | hub | `path` |
+## Health and status
+Each running app is probed with `GET /api/health` (2 s timeout) on every status
+tick. An app that has answered once stays green through up to 2 missed probes;
+it turns red on the 3rd.
 
-`app.stopped` carries no exit code — an exit code only appears on `app.crashed`,
-which is emitted when a child exits without being asked to.
-
-`file.stitched` has a publisher helper (`EventBusClient.emit_file_stitched`,
-`src/events.py:255`, fields `file_path`, `keyword`, `scale_factor`) but **nothing
-in the platform ever calls it**. No `file.stitched` event is ever emitted; do not
-write code that waits for one.
-
-### Subscription (sub-apps)
-Sub-apps connect using `EventBusClient` from `src/events.py`. Register the
-callback BEFORE connecting, so no event can arrive while there is no handler:
-```python
-from src.events import EventBusClient
-
-bus = EventBusClient("reduction")
-bus.on_event(lambda event: handle(event))
-bus.connect(retry=True)      # non-blocking daemon thread, reconnects every 5 s
-```
-If the hub is down or `websocket-client` is not installed, `connect()` and
-`publish()` degrade silently — apps never crash because of a missing bus.
-
-### Hub Broadcast
-When a sub-app sends a message to `/ws`, the hub:
-1. Receives and parses the JSON message
-2. Appends it to `manifest["events"]` via `src.manifest.add_event()`
-3. Broadcasts it to all other connected clients (the sender is excluded)
-
-`add_event` keeps a ROLLING window of only the last `_EVENTS_MAX` = 100 events
-(`src/manifest.py`); older events are dropped from the manifest. Events
-are only persisted while a project folder is selected.
-
-## manifest.json — Cross-App Contract
-`src/manifest.py` owns the manifest at the project root. By default it is stored
-in SQLite, `manifest.db` (`src/manifest_store.py`, with rotating snapshots in
-`.manifest_snapshots/`), and a `manifest.json` export is written on every save
-(`SWAXS_MANIFEST_BACKEND=json` restores the old single-file store). Each app
-reads and writes ONLY its own section (declared as `manifest_key` in `apps.yml`)
-and must never overwrite another app's keys: reduction/average → `files`,
-background → `background`, quality → `quality`, analysis/analyzer → `analyses`,
-reactor → `reactor.runs`, assistant → `ai_memory`. The `events` key holds the
-rolling window of the last 100 bus events (above). The assistant reads the whole
-manifest to answer questions about the experiment.
-
-## Project Folder Management
-The hub holds a global `_project_root: str`. It is persisted to
-`.hub_state.json` at the repo root and restored on the next hub start (if the
-folder still exists), so a restart does not forget the project.
-
-The project path is PUSHED by the hub, not pulled by the apps. On
-`POST /api/set_project` the hub:
-1. Validates that the path is an existing directory
-2. Stores it and writes `.hub_state.json`
-3. POSTs `{"path": "<project_root>"}` to `http://localhost:<port>/api/set_project`
-   on every RUNNING sub-app
-4. Emits a `project.set` event with `data = {"path": "<project_root>"}`
-
-Apps launched later receive the path instead through the `SWAXS_PROJECT`
-environment variable injected at launch.
-
-## Health Monitoring
-Each app is probed once per status tick with a single `GET /api/health` request
-(1 s timeout). `/api/status` returns:
+`GET /api/status` returns:
 ```json
 {
   "apps": {
-    "reduction": {
-      "running": true,
-      "healthy": true,
-      "port": 5102,
-      "pid": 12345,
-      "summary": null,
-      "crashed": null
-    }
+    "reduction": {"running": true, "healthy": true, "port": 5102,
+                  "pid": 12345, "summary": null, "crashed": null}
   },
   "project_root": "/path/to/experiment",
   "event_bus": true,
   "ws_clients": 3
 }
 ```
-`apps` is a DICT keyed by `app_id` — not a list — and there is no top-level
-`"hub"` key and no `status` string. State is read from the booleans `running` and
-`healthy`. `summary` is non-null only when the app's `/api/health` returns
-`good`/`bad` counts (the Quality Gate does). `crashed` is `null` normally, or
-`{exit_code, reason, at, tail}` where `tail` is the last log lines.
+`apps` is a dict keyed by app id. `summary` is set only when an app's health
+reply carries counts (the Quality Gate's good/bad). `crashed` is `null`, or
+`{exit_code, reason, at, tail}` when an app exited without being asked to.
 
-`GET /api/status/stream` (SSE) pushes the same `apps`/`project_root`/`ws_clients`/
-`event_bus` payload every 2 s, plus `disk_free_gb` (free space on the project
-volume) and `hub_error`. A failing tick reports itself in `hub_error` and the
-stream continues with a back-off up to 15 s rather than freezing on a stale frame.
+`GET /api/status/stream` (Server-Sent Events) sends the same payload every 2 s,
+plus `disk_free_gb` (free space on the project volume) and `hub_error`. If a tick
+fails it reports the error and backs off (up to 15 s) instead of freezing.
 
-## Shutdown behaviour
-Closing the hub closes the apps. `_shutdown_all_apps()` is registered on
-`atexit` and also called from the `SIGTERM`/`SIGINT`/`SIGHUP` handlers, so
-Ctrl-C in the launching terminal does not leave sub-apps running and holding
-ports.
+## Event bus
+Every message is UTF-8 JSON with exactly five keys:
+```json
+{"type": "file.reduced", "source_app": "reduction",
+ "timestamp": "2026-01-15T10:00:00+00:00", "data": {}, "ai_triggered": false}
+```
+Use `event["type"]` and `event["timestamp"]`; there is no `event_type`, `ts` or
+`run_id` key.
 
-## Dependencies
-- `flask` — web framework
-- `flask-sock` — WebSocket support for the `/ws` event bus (optional; without it
-  `event_bus` reports `false` and the bus is unavailable)
-- `pyyaml` — `apps.yml` parsing
-- `subprocess`, `threading`, `signal` — process launching, health thread, cleanup
-- `src.proc_lifecycle` — port reclaim, process-tree kill, orphan reaping
-- `src.manifest` — event persistence (imported lazily, failures are non-fatal)
+When an app sends an event, the hub broadcasts it to every other connected app
+(not back to the sender) and then appends it to the manifest's `events` list.
+Only the last 100 events are kept there, and only while a project is set.
+
+Subscribing from an app (register the callback before connecting):
+```python
+from src.events import EventBusClient
+bus = EventBusClient("myapp")
+bus.on_event(lambda event: handle(event))
+bus.connect(retry=True)   # background thread, reconnects every 5 s
+```
+If the hub is down or `websocket-client` is missing, connecting and publishing
+fail quietly; apps keep working without the bus.
+
+### Event types
+| Event type | Emitter | `data` fields |
+|---|---|---|
+| `watch.new_raw` | reduction | `file_path`, `detector` |
+| `file.reduced` | reduction | `file_path`, `keyword`, `scan_idx`, `detector` |
+| `file.skipped` | reduction | `file_path`, `keyword`, `n_failures`, `detector` (reduction gave up on a frame) |
+| `file.averaged` | average | `file_path`, `keyword`, `n_files`, `detector` |
+| `average.skipped` | average | `keyword`, `detector`, `batch`, `n_files`, `reason`, `files` (a full batch gave no average) |
+| `file.subtracted` | background | `file_path`, `keyword`, `scale`, `mode` |
+| `file.classified` | quality | `file_path`, `score`, `verdict`, `detector`, `flags` |
+| `analysis.complete` | analysis | `analysis_type`, `file_path`, `results` |
+| `fit.complete` | analyzer | `recipe_id`, `file`, `size`, `pdi`, `confidence`, `distribution`, `phase`, `guinier_rg`, `suspect`, `plot_png`, `loss` |
+| `reactor.*` | reactor | `run_start`, `run_complete`, `run_abandoned`, `ready`, `spec_collect`, `safety`, `estop`, `backend`, `vent` (see reactor/knowledge.md) |
+| `ai.hint` | assistant | `hint`, `file_path`, `severity` (`info` / `warning` / `error`) |
+| `app.connected` | any app | `app_id` (sent on connect) |
+| `app.started` | hub | `app_id`, `pid`, `ready` |
+| `app.stopped` | hub | `app_id` |
+| `app.crashed` | hub | `app`, `exit_code`, `reason`, `log` |
+| `app.reclaimed` | hub | `app_id`, `port`, `killed` (PIDs) |
+| `project.set` | hub | `path` |
+| `operator.set` | hub | `operator` |
+
+`app.stopped` has no exit code; only `app.crashed` does. A `file.stitched`
+helper exists in `src/events.py` but nothing calls it, so that event is never
+emitted; do not wait for one.
+
+## manifest.json: cross-app contract
+`src/manifest.py` owns the project's manifest. It is stored in SQLite,
+`<project>/manifest.db` (`src/manifest_store.py`, with rotating snapshots in
+`.manifest_snapshots/`), and exported to `manifest.json` on every save
+(`SWAXS_MANIFEST_BACKEND=json` switches back to the single JSON file). Each app
+reads and writes only its own section (its `manifest_key` in `apps.yml`) and
+never overwrites another app's keys:
+
+| App | Section |
+|---|---|
+| reduction, average | `files` |
+| background | `background` |
+| quality | `quality` |
+| analysis, analyzer | `analyses` |
+| reactor | `reactor.runs` |
+| assistant | `ai_memory` |
+
+`events` holds the last 100 bus events and `project_meta` holds project-level
+facts such as `current_operator`. The assistant reads the whole manifest to
+answer questions about the experiment. Computed corrections from reduction
+(transmission, thickness, normalization factor) live only in the manifest, not
+in the `.dat` footer.
+
+## apps.yml registry
+```yaml
+- id: reduction                    # required, unique
+  name: "Reduction & Correction"   # required, shown on the card
+  port: 5102                       # required
+  entry: "reduction/app.py"        # required, relative to the repo root
+  knowledge: "reduction/knowledge.md"
+  manifest_key: "files"
+  description: "..."
+  icon_id: "swaxs-reduction"       # sprite icon; accent sets its colour
+  accent: "swaxs-reduction"
+  color: "#1565C0"                 # fallback colour
+```
+Optional fields default to: `icon` "🔧", `color` "#455A64", `description` "",
+`icon_image`, `knowledge` and `manifest_key` none. `POST /api/apps/reload`
+re-reads the file without restarting the hub (new apps are added; removed ones
+stay manageable until they exit). To add an app, see "Adding a New App" in
+CLAUDE.md.
+
+## Hub HTTP API
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/` | dashboard |
+| GET | `/api/health` | hub liveness, `{"status": "ok", "app": "hub"}` |
+| GET | `/api/status` | status of all apps (snapshot) |
+| GET | `/api/status/stream` | Server-Sent Events, a status frame every 2 s |
+| POST | `/api/start/<app_id>` | start one app, returns `{ok, message}` |
+| POST | `/api/stop/<app_id>` | stop one app (whole process tree) |
+| POST | `/api/stop_all` | stop every app, returns `{ok, results, stuck}` |
+| GET | `/api/ports` | which process holds each app's port |
+| POST | `/api/set_project` | set the project folder, body `{"path": "/abs/path"}` |
+| GET | `/api/browse` | folder browser for the project picker (`path=`; returns dirs and drives) |
+| GET / POST | `/api/operator` | read or set the operator, body `{"operator": "..."}` |
+| POST | `/api/apps/reload` | re-read `apps.yml` |
+| WS | `/ws` | event bus |
+
+There is no `POST /api/project`; use `POST /api/set_project`.

@@ -1,205 +1,166 @@
-# Notifications — Autonomous Watch App
+# Notifications: the Autonomous Watch app
 
-**The Autonomous Watch app (port 5110) is the sole place the platform sends notifications.** It subscribes to the event bus, applies policy (quiet hours, snooze, throttle), and sends to Slack via a Workflow Builder webhook.
+**What this is for.** Getting Slack messages during an unattended run: E-stops and
+safety trips, a stalled pipeline stage (with a diagnosis), fit results and run
+progress. **Autonomous Watch (port 5110) is the only app that sends
+notifications**; no other app has a notification setting. It listens to the
+platform's event bus, applies your settings (categories, quiet hours, throttle) and
+posts to Slack through a Workflow Builder webhook.
 
-No other app has a notification setting, a Slack link, or a sentence about
-alerts. That is enforced, not just intended —
-`tests/test_no_dead_ui_endpoints.py` checks it.
+Set this up before an overnight run.
 
-The reactor app used to arm notifications itself, and the removal took two
-goes. First `reactor/app.py` stopped serving `/api/slack` while the "Leaving
-the beamline" card stayed in the template: the boot call
-`api('/api/slack').then(renderSlack).catch(()=>{})` swallowed the 404, so the
-hard-coded button stayed on screen looking live and clicking it did nothing.
-An operator could arm alerts, read the reassuring text, and leave for the night
-with none armed. The card was then rewritten as a pointer to Autonomous Watch →
-Alerts, and in September 2026 deleted outright — a second place that talks
-about notifications is a second place that can go stale, contradict this one,
-or be read as a second switch that also needs arming.
+---
 
 ## Setup
 
-### 1. Create a Slack Workflow (one-time, by any workspace member)
+### 1. Create a Slack workflow (once, by any workspace member)
 
-1. Go to [Slack Workflow Builder](https://slack.com/intl/en-gb/features/workflow-automation)
-2. Click **Create New** → **From Scratch**
-3. Name it `auto-run`
-4. Select **Webhook** as the trigger
-5. Copy the webhook URL
-6. **Set up the posting step:**
-   - Add a **Send a message** action
-   - Post to channel: `#autoq` (create the channel if needed)
-   - Message text: 
-     ```
-     :title: {{trigger.title}}
-     {{trigger.text}}
-     [{{trigger.level}}]
-     ```
-7. **Publish** the workflow
-8. Save the webhook URL (looks like `https://hooks.slack.com/triggers/...`)
+1. Open [Slack Workflow Builder](https://slack.com/intl/en-gb/features/workflow-automation).
+2. **Create New** → **From Scratch**, name it (for example `auto-run`).
+3. Choose **Webhook** as the trigger and add three text variables: `title`, `text`,
+   `level`.
+4. Add a **Send a message** step to your channel (for example `#autoq`) with the
+   message:
+   ```
+   :title: {{trigger.title}}
+   {{trigger.text}}
+   [{{trigger.level}}]
+   ```
+5. **Publish** and copy the webhook URL (`https://hooks.slack.com/triggers/...`).
 
-### 2. Set the webhook URL in `.env`
+### 2. Put the webhook URL in `.env`
+
+Create or edit `.env` in the platform folder (it is git-ignored; never commit it):
 
 ```bash
-# .env in the project root (git-ignored, sourced by start_platform.sh)
 SWAXS_SLACK_WEBHOOK_URL=https://hooks.slack.com/triggers/T.../...
 ```
 
-If the URL is ever rotated, re-run the Workflow Builder and update `.env`.
+Restart the platform (or at least the Autonomous Watch app) so it is read. If the
+URL is ever rotated, update `.env` and restart.
 
-### 3. Test it
+### 3. Test the wiring
+
+With Autonomous Watch running:
 
 ```bash
-# From the Autonomous Watch UI at http://localhost:5110, click "Test"
-# Or from the command line:
 curl -X POST http://localhost:5110/api/test
 ```
 
-You should see a test message in `#autoq`.
+A `[TEST]` message should appear in your channel. This test ignores the sending
+switch and categories: it only proves the webhook works.
 
-## How It Works
+### 4. Choose what is sent
 
-### Events from the Bus
+Open Autonomous Watch (http://localhost:5110) → **Alerts** page:
 
-Autonomous Watch subscribes to platform events:
+- **Sending**: the master switch (**Stop sending** / **Start sending**). When off,
+  nothing is sent at all, safety included.
+- **Quiet hours**: type a window such as `23:00-07:00` and press **Set**; **Turn
+  off** removes it. During quiet hours progress messages are held back; faults
+  always go out.
+- **Categories**: one checkbox per category (**All** / **None**). `safety` stays
+  on while sending is on: the only way to silence safety messages is to stop
+  sending entirely.
+
+These settings are saved to `watchdog/config.yml`, so they survive a restart.
+
+The other pages: **The loop** shows the live state of the closed loop and run
+outcomes; **Messages** lists recent messages.
+
+---
+
+## What gets sent
 
 | Event | Category | Level | Meaning |
 |---|---|---|---|
 | `reactor.estop` | safety | fault | emergency stop triggered |
-| `reactor.safety` | safety | fault | safety violation (pump, temperature, …) |
-| `reactor.vent` | safety | fault if an E-stop was latched, else info | lines vented |
+| `reactor.safety` | safety | fault | safety violation (pump, temperature, pressure, ...) |
+| `reactor.vent` | safety | fault after an E-stop, else info | lines vented |
 | `reactor.run_start` | progress | info | recipe applied to the reactor |
-| `reactor.run_complete` | progress | info | synthesis run finished |
-| `reactor.backend` | progress | info | backend switched (mock ↔ real) |
-| `fit.complete` | results | fault if the fit is suspect | auto-fit result available |
-| `average.skipped` | campaign | fault | a full batch was consumed with no average written |
-| `file.skipped` | campaign | info | reduction gave up on a frame for good |
+| `reactor.run_complete` | progress | info | synthesis finished: "Ended: …" for a normal finish, "Stopped early: …" otherwise |
+| `reactor.run_abandoned` | progress | fault | a proposed condition was never synthesised |
+| `reactor.backend` | progress | info | switched between Simulation and Hardware |
+| `fit.complete` | results | fault if the fit is suspect, else info | analyser fit result for a recipe |
+| `average.skipped` | campaign | fault | a full batch was used up with no average written |
+| `file.skipped` | campaign | info | reduction gave up on a frame |
+| stall diagnosis | stalls | fault | a pipeline stage is overdue (below) |
 
-Each is translated to `{title, text, level}` and sent via webhook.
+High-frequency events (each reduced, averaged or subtracted file) are not sent;
+they appear on **The loop** page instead.
 
-`average.skipped` and `file.skipped` were published for months with no
-formatter, so `event_to_message()` returned `None` and **nothing was sent** —
-the pipeline could lose a whole condition (Run20 r006) without the operator
-hearing anything. They are the "campaign" category, which until then had no
-event mapped to it at all, making its toggle on the Alerts page a no-op
-(audit item W10).
-
-`file.skipped` is deliberately **info**, not fault. Faults bypass the
-transport's throttle, and one bad CSV can make reduction give up on frame after
-frame; a burst of un-throttled faults would be rate-limited by Slack and take
-genuinely urgent messages down with it. The *consequence* of those skips — the
-batch being dropped, or the stage stalling — is reported as a fault by
-`average.skipped` and by the stall diagnosis.
-
-`reactor.run_complete` says **"Ended: …"** for a normal finish and **"⚠ Stopped
-early: …"** otherwise. It used to say "Stopped by: …" for both, which in an
-autonomous campaign — where almost every run ends because the measurement
-finished — read as though something had interrupted the rig. The triggering
-file is shown by basename; the full absolute path pushed the reason off the
-edge of a phone screen.
-
-High-frequency progress events (`file.reduced`, `file.averaged`,
-`file.subtracted`, `analysis.complete`, `watch.new_raw`, …) are deliberately
-**not** notified — they appear on the dashboard instead. That list is asserted
-in `tests/test_watchdog_message_coverage.py`, so a newly published event is
-either given a formatter or explicitly recorded as silent; it cannot simply be
-forgotten.
-
-### Policy
-
-Before sending:
-- **Master switch** (`config.yml:notify.slack_enabled`) — when off, nothing is sent at all, checked before everything else below
-- **Category filter** (`config.yml:notify.categories`) — each message belongs to one of five categories (below); a category that's off is silently dropped
-- **Quiet hours** (`config.yml:notify.quiet_hours`, e.g. `23:00-07:00`) suppress progress messages, never faults
-- **Snooze** (`POST /api/snooze {minutes}`) silences progress messages
-- **Throttle** (`config.yml:notify.min_interval_s`) ensures Slack isn't rate-limited
-- **Faults always send** regardless of quiet hours/snooze, but still respect the master switch and category filter
-
-All of this is resolved in one place — `should_send()` in `src/watchdog/policy.py`, a pure function with no I/O — so the Flask routes never make policy decisions themselves.
-
-### Message Categories
-
-Every message is tagged with exactly one category. The Autonomous Watch UI's **Alerts** page has an independent checkbox per category — any combination, including all or none:
+### Categories
 
 | Category | Covers |
 |---|---|
-| `safety` | E-stop, safety trips, pump faults |
-| `stalls` | loop stalled, with the diagnosis |
-| `results` | fit results, low-confidence fits |
-| `progress` | recipe started, run complete |
-| `campaign` | converged, budget exhausted, hourly summary |
+| `safety` | E-stop, safety trips, venting |
+| `stalls` | a stage of the loop stalled, with the diagnosis |
+| `results` | fit results, suspect fits |
+| `progress` | recipe started, run finished, condition abandoned, backend switch |
+| `campaign` | pipeline losses (skipped frames, a batch with no average) |
 
-`safety` cannot be unchecked while the master switch is on — `should_send()` refuses to let the category filter block it. The only way to silence safety messages is to stop sending entirely, so nobody quietly disables the E-stop alert while trimming noise. Turning the master switch off silences `safety` too, along with everything else.
+### Rules applied before a message is sent
 
-Bus events map to a category via `category_for_event()` in `src/watchdog/policy.py`; anything not explicitly mapped defaults to `progress` rather than being unfilterable. Stall diagnoses (which aren't built from a bus event) are always tagged `stalls`.
+1. **Sending** off → nothing is sent.
+2. Category unchecked → dropped (never `safety` while sending is on).
+3. **Faults** always go out, even in quiet hours or while snoozed.
+4. **Quiet hours** and **snooze** hold back progress and info messages.
+   Snooze has no button; use `curl -X POST http://localhost:5110/api/snooze -H
+   "Content-Type: application/json" -d '{"minutes": 30}'`. It ends after that time,
+   or when the app restarts.
+5. A throttle (`min_interval_s`, 3 s) spaces out sends so Slack does not rate-limit.
 
-### Stall Detection
+### Stall detection
 
-Every 5 minutes, Autonomous Watch checks if any pipeline stage is overdue:
-- Expected events: `file.reduced`, `file.averaged`, `file.subtracted`, `fit.complete`
-- Timeout per stage: 1–3 hours depending on stage
-- If a stage is overdue, Autonomous Watch probes the next app (`/api/monitor/status`) and sends a fault message naming the dead stage
+Every 5 minutes Autonomous Watch checks whether the next stage of the loop is
+overdue: a reduced file within 1 hour of a run starting, then an average, a
+subtraction and a fit within 30 minutes each. If one is overdue it asks that app
+for its monitor status and sends a fault naming the stalled stage and the likely
+cause. An idle platform (no events at all) does not raise stalls.
 
-## Configuration
+---
 
-`watchdog/config.yml`:
+## `watchdog/config.yml`
 
 ```yaml
 notify:
-  quiet_hours: "23:00-07:00"    # suppress progress, never faults
-  summary: "off"                 # off | hourly (hourly for later)
-  snooze_default_min: 30         # default when you press Snooze
+  quiet_hours: null              # e.g. "23:00-07:00"; null = off
+  summary: "off"                 # "hourly" is a placeholder, not implemented
+  snooze_default_min: 30         # used when /api/snooze gets no minutes
   min_interval_s: 3              # throttle between sends
-
-  slack_enabled: true            # master switch — false sends nothing at all
-  categories:                    # independent per-category toggles
+  slack_enabled: true            # master switch
+  categories:
     safety: true
     stalls: true
     results: true
     progress: true
     campaign: true
+
+diagnosis:
+  ai_fallback_enabled: false     # true = add an AI reading of the stalled app's log
+                                 #   to stall messages (needs the AI token)
 ```
 
-The master switch and categories persist here, so they survive a restart. The
-webhook URL is never in this file — it's a secret and lives in `.env`
-(`SWAXS_SLACK_WEBHOOK_URL`).
+The webhook URL is a secret and is never in this file; it lives in `.env`.
 
-Both can also be changed live from the Autonomous Watch UI's **Alerts** page (or via
-`POST /api/settings`), which writes straight back to this file.
-
-## Routes
-
-- `GET /api/health` — status (always `{"status": "ok"}`)
-- `GET /api/settings` — current policy (including `slack_enabled` and `categories`) and recent messages
-- `POST /api/settings {slack_enabled?, categories?}` — update the master switch and/or one or more categories; either key is optional, `categories` may be a partial dict (only the keys you send change); the `safety` exception is enforced server-side regardless of what's sent
-- `POST /api/test` — send a test message to Slack
-- `POST /api/snooze {minutes}` — snooze progress messages
-- `POST /api/set_project {path}` — set project root
+---
 
 ## Troubleshooting
 
-### No messages appear in #autoq
+**No messages in the channel**
+1. **Alerts** page: **Sending** is on and the message's category is checked.
+2. `SWAXS_SLACK_WEBHOOK_URL` is in `.env` and the app was restarted after setting it.
+3. `curl -X POST http://localhost:5110/api/test`. If this fails, the webhook or the
+   workflow is wrong; if it works but real messages do not arrive, check step 1 and
+   quiet hours.
+4. Look at `logs/watchdog.log` for errors.
 
-1. Check the **Alerts** page — sending must be **ON**, and the category the message belongs to must be checked
-2. Check `SWAXS_SLACK_WEBHOOK_URL` is set in `.env` and the platform is restarted
-3. Test with `curl -X POST http://localhost:5110/api/test` — this bypasses the master switch and category filter entirely (it's a webhook wiring check, not a policy check), so it succeeding doesn't mean real messages will send too
-4. Check that `#autoq` exists and the Autonomous Watch app has permission to post there
-5. Look at the Autonomous Watch console for errors
+**A stall happened but no stall message came**
+Stall detection needs recent events from an active run. If nothing has happened
+for more than 2 hours, it treats the platform as idle.
 
-### Messages are being snoozed
-
-Check the Autonomous Watch UI (`http://localhost:5110`). If **Snoozed** is on, progress messages won't send. Click **Snooze** again with `0` to clear it.
-
-### Platform stalls but Autonomous Watch doesn't send a stall message
-
-Stall detection looks for missing events. If no events have arrived at all (idle platform), no stall is detected. Only active campaigns generate stall alerts.
-
-## Design Notes
-
-- **Fire-and-forget**: sends are on a background thread, never block the reactor or any app
-- **No secrets in git**: webhook URL lives in `.env` (git-ignored)
-- **Webhook only**: uses Slack Workflow Builder (zero setup, no app approval needed), not a bot token
-- **No file uploads**: PNG plots are mentioned in message text instead
-- **No email**: Slack-only for now (email support is out of scope)
-- **Category resolution is pure**: the master switch and category filter are both resolved inside `should_send()` (`src/watchdog/policy.py`), not in the Flask route — the same function the quiet-hours/snooze logic already lived in
-- **Defense in depth on the safety exception**: "safety cannot be silenced while sending is on" is enforced in three places — `load_settings()` and `save_notify_settings()` in `src/watchdog/settings.py` (load/save time), and `should_send()` itself (send time) — so no single code path can regress it
+**Design notes**
+- Sending happens on a background thread and never blocks the reactor or any app.
+- Webhook only (no Slack bot token, no app approval needed). No file uploads; no
+  email.
+- The rules above are decided in one place, `src/watchdog/policy.py`.

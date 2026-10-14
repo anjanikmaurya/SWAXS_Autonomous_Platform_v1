@@ -1,366 +1,386 @@
-# Analysis App — Knowledge Base
+# Data Analysis App: Knowledge Base
 
-## Purpose
-The Analysis app (port 5106) provides structural analysis for
-background-subtracted 1D scattering curves. It covers the classical SAXS
-analyses (Guinier, Kratky, dimensionless Kratky, power-law "Porod", p(r),
-classical invariants), WAXS peak fitting, `sasmodels`/SasView model fitting, and
-optional ATSAS command-line integration. Every analysis can be run on one file or
-batched over a folder, and each result is saved to disk and registered in
-`manifest.json`.
+## What it is for
+The Data Analysis app (port 5106) does structural analysis of 1D scattering
+curves, usually background-subtracted ones. It covers:
 
-Input files are usually `1D/<DET>/Subtracted/` (or `Subtracted/Good/` — the
-Quality Gate's accepted set). Addressable stages are `Reduction`, `Averaged`,
-`Subtracted`, `Good` (= `Subtracted/Good`), `NeedsReview`
-(= `Subtracted/NeedsReview`) and `Analysed`.
+- **Classical SAXS**: Guinier (Rg, I0), Kratky, dimensionless Kratky, power-law
+  ("Porod") exponent, pair distance distribution p(r) with Dmax, and the
+  invariant-based quantities (Q, Vp, Vc, MW, surface area).
+- **SASView**: model fitting with the `sasmodels` library (any catalog model,
+  optional structure factor and polydispersity).
+- **ATSAS**: the ATSAS command-line tools (autorg, datgnom, datporod, datvc,
+  datmw, dammif), if they are installed.
+- **WAXS peak fitting**: automatic peak detection and Gaussian, Lorentzian or
+  pseudo-Voigt fits, with d-spacings.
 
-## Guinier Analysis
+Each analysis can be run on one file (review, then save) or as a batch over all
+files whose name contains a keyword. Saved results go to `Analysed/` and are
+registered in the manifest.
 
-### Theory
-At very low q the scattering intensity follows:
+This app is for interactive analysis. The closed-loop nanoparticle size fit that
+feeds the optimiser is done by the Autonomous Analyser (port 5107), not here.
 
-```
-I(q) ≈ I(0) · exp(−q²Rg²/3)
-```
+## Where it sits in the pipeline
+- **Reads from:** `1D/<DET>/Subtracted/` by default. Peak fitting can also read
+  `1D/WAXS/Averaged/`. You can type or browse to any other folder in the
+  **Folder** box (for example `Subtracted/Good`, the Quality Gate's accepted set).
+- **Writes to:** `1D/<DET>/Analysed/<Type>/` (see Output files), a
+  `# ANALYSIS INFORMATION` block appended to the source `.dat`, and the
+  manifest's `analyses` section.
+- **Emits:** `analysis.complete` on the event bus after each single-file
+  Classical, SASView or peak fit (`analysis_type`, `file_path`, `results`).
+  Batch runs and ATSAS runs do not emit it.
 
-Linearised (Guinier plot): **ln I(q) vs q²** gives a straight line with:
-- Slope = −Rg²/3  →  Rg = sqrt(−3 · slope)
-- Intercept = ln I(0)  →  I(0) = exp(intercept)
+Points with q ≤ 0, I ≤ 0 or σ ≤ 0 are dropped when a file is loaded, so the
+negative points a subtraction can produce never enter a fit.
 
-### What `guinier_fit` returns
-`src/analysis/core.py::guinier_fit(q, I, sigma, q_min=None, q_max=None,
-auto_range=True)` returns:
+## How to use it
 
-```
-{ Rg, I0, slope, intercept, R2, q_range: [q_lo, q_hi], qRg_max, plot }
-```
-or `{"error": "..."}`. There is **no `chi2`** key and no `qRg_lo`/`n_points` key.
-`R2` is capitalised.
+### Layout
+- **Left nav** picks the analysis category. SAXS group: **Classical**,
+  **SASView**, **ATSAS**. WAXS group: **Peak fitting**.
+- **Top tabs:** **Setup** (choose the file and settings, run), **Result** (plot,
+  results table, QC badge, save), **Batch** (run over many files).
+- The **Detector** badge follows the category: SAXS for Classical, SASView and
+  ATSAS; WAXS for Peak fitting. It is not a separate control.
 
-Error returns: fewer than 5 points in the range →
-"Insufficient data points in Guinier range"; a non-negative slope →
-"Positive slope in Guinier plot — not a valid Guinier region".
+### Single file
+1. Set the project folder in the Hub. The **Folder** box then shows the project's
+   Subtracted folder for the current detector. Leave it blank for that default,
+   or type or **Browse…** to another folder. Clearing the box restores the default.
+2. Pick a category in the left nav. Optionally type a **Filter** keyword to
+   narrow the file list; the ↻ button refreshes it.
+3. Click a file in the list to select it.
+4. Fill in card **2** for the category and click **Run fit** (Classical,
+   SASView), **Run** (ATSAS) or **Fit peaks** (Peak fitting).
+5. The app switches to **Result**: plot, results table and a PASS / WARN badge
+   with any QC warnings.
+6. If the fit is good, click **Save to Analysed**. Nothing is written until you
+   do; fitting and saving are separate steps.
 
-### Auto-range Selection (`auto_range=True`)
-One refinement pass, not four:
-1. Fit `ln I` vs `q²` over the supplied `[q_min, q_max]` (either may be None).
-2. From that Rg, compute `q_max_ok = 1.3 / Rg` and re-fit with
-   `q ≤ q_max_ok` — but only if at least 5 points survive and the refit slope is
-   still negative.
+### Batch
+1. Choose the category in the left nav and set its card on **Setup** (model and
+   parameters for SASView, tool for ATSAS, shape and peak mode for Peak fitting).
+2. Open **Batch**, enter a **Keyword** (for example `12CE`) and click
+   **Run batch**. For Classical, choose the analysis in the Batch tab's **Type**
+   menu; for the other categories the Setup card's settings are used.
+3. Every matching file is fitted independently with the same settings and
+   **saved automatically**. A summary table is shown and written as CSV (plus
+   XLSX when `openpyxl` is installed) to `1D/<DET>/Analysed/<Type>/`.
 
-There is no q_min refinement, no `q ≥ 0.005 nm⁻¹` floor, and no iteration beyond
-this single pass. `1.3` is hardcoded in the refinement regardless of particle
-shape.
+Batch notes:
+- Batch always reads the project's `1D/<DET>/Subtracted/` folder (Peak fitting:
+  the selected **Source**, Subtracted or Averaged). It ignores the Folder box,
+  so a batch over `Subtracted/Good` is not possible from the UI.
+- DAMMIF cannot be run in batch (too slow).
+- Classical batch uses auto q-range unless q limits are sent through the API.
 
-### Validity Criterion (`guinier_quality`)
-`guinier_quality(result, shape="globular")` is the QC gate. The upper qRg bound is
-**shape-dependent**:
+## Classical analyses
 
-| `shape` | upper qRg limit |
+Card **2 · Classical analysis**: **Type** menu (Guinier, Kratky, Dimensionless
+Kratky, Porod (exponent), p(r) & Dmax, Invariant), **Auto q-range** checkbox
+(on by default; untick to type **q_min** / **q_max**), and **Dmax** (nm) for
+p(r). q is in the unit of the data, nm⁻¹ by default.
+
+Dimensionless Kratky and Invariant need Rg and I0. If they are not supplied the
+app runs an automatic Guinier fit first; if that fails the analysis reports
+"Need Rg/I0 (Guinier failed: ...)".
+
+### Guinier
+At low q, `I(q) ≈ I0 · exp(−q²Rg²/3)`. A straight-line fit of **ln I vs q²**
+gives slope = −Rg²/3 (Rg = sqrt(−3·slope)) and intercept = ln I0.
+
+- The fit is weighted by 1/σ(ln I)², with σ(ln I) ≈ σ(I)/I, so precise low-q
+  points count more than noisy ones. It falls back to an unweighted fit if σ is
+  unusable.
+- **Auto q-range** (one refinement pass): fit over the given range, then refit
+  with q ≤ 1.3/Rg if at least 5 points remain and the slope stays negative. There
+  is no q_min refinement. The 1.3 is used for every shape.
+- Returns `Rg`, `I0`, `slope`, `intercept`, `R2`, `q_range`, `qRg_max`. There is
+  no χ² for a Guinier fit.
+- Errors: fewer than 5 points ("Insufficient data points in Guinier range"), or
+  a non-negative slope ("Positive slope in Guinier plot").
+
+**QC** (`guinier_quality`, shape `globular` by default):
+
+| shape | upper q·Rg limit |
 |---|---|
-| `globular` (default) | 1.3 |
-| `rod` | 1.0 |
-| `disc` | 1.7 |
+| globular | 1.3 |
+| rod | 1.0 |
+| disc | 1.7 |
 
-Warnings raised:
-- `q_max·Rg` above the shape's limit → "exceeds ~<limit> for a <shape> particle"
-- `q_min·Rg > 0.65` → "q_min·Rg is high — extend to lower q if possible"
-  (the gate is **0.65**, not 0.3)
-- `R2 < 0.99` → "fit may be poor"
+Warnings: q_max·Rg above the limit; q_min·Rg > 0.65 ("extend to lower q");
+R² < 0.99. No warnings gives PASS, otherwise WARN; a failed fit is FAIL.
 
-Verdict is `PASS` when there are no warnings, otherwise `WARN` (or `FAIL` if the
-fit itself errored). There is **no χ² > 2 rule** anywhere in this app — the fit
-does not compute a χ².
+Rg is in the inverse of the q unit (nm for nm⁻¹ data). Rough guide: 1 to 2 nm
+small protein (~20 kDa), 2 to 4 nm medium protein, 4 to 8 nm large protein or
+complex, above 10 nm large complex or nanoparticle.
 
-Textbook context: qRg below ≈0.3 risks beamstop artefacts and beam-divergence
-effects; above the shape limit, higher-order terms make Rg underestimated. The
-code enforces the numbers in the table above, not a flat [0.3, 1.3].
+Reading the Guinier plot: an upturn at the lowest q means aggregation;
+downward curvature means interparticle repulsion or polydispersity.
 
-### Rg Interpretation
-Rg is reported in the same length unit as 1/q — nm when reduction wrote q in
-nm⁻¹ (the platform default).
-
-| Rg (nm) | Approximate particle |
-|---------|-------------------------------|
-| 1–2     | small globular protein (~20 kDa) |
-| 2–4     | medium protein (50–150 kDa)   |
-| 4–8     | large protein / small complex  |
-| > 10    | large complex, nanoparticle    |
-
-### Common Errors
-- **Upturn in Guinier plot**: aggregation or repulsion (check low q)
-- **Curvature downward**: polydispersity, multiple species
-- **R² < 0.99**: poor fit — adjust the range or discard the frame
-
-## Kratky Analysis
-
-### Standard Kratky
-`kratky_plot` returns display data only — `{q, Iq2}` with `Iq2 = I·q²`. No fit,
-no derived numbers.
-
-Plot: **q²·I(q) vs q**
-- Folded globular protein: bell-shaped peak, returns to zero
-- Partially unfolded: broad, elevated at high q
-- Fully unstructured (IDP): monotonically increasing plateau
+### Kratky
+Plot of **q²·I(q) vs q**. Display only, no fitted numbers. A folded globular
+particle gives a bell-shaped peak that returns toward zero; a partly unfolded
+one stays elevated at high q; a disordered chain rises to a plateau.
 
 ### Dimensionless Kratky
-`dimensionless_kratky(q, I, Rg, I0)` — requires Rg and I0 from a Guinier fit.
-Plot: **(qRg)²·I(q)/I(0) vs qRg**. Returns
-`{qRg, y, peak_qRg, peak_y, ideal_peak_qRg, ideal_peak_y}`.
+Plot of **(q·Rg)²·I(q)/I0 vs q·Rg**. Returns the observed peak (`peak_qRg`,
+`peak_y`) and the ideal compact-globule reference **(√3, 3/e) = (1.732, 1.104)**,
+drawn as a red cross. A peak near the reference means compact and folded; a peak
+shifted up and to the right means elongated or partly unfolded; no peak means
+flexible or disordered.
 
-The universal reference point for an ideal compact globule is
-**(√3, 3/e) = (1.732, 1.104)** — the code reports `ideal_peak_qRg = 1.732` and
-`ideal_peak_y = 1.104`.
+### Porod (power-law exponent)
+This is a **log-log power-law fit**, `ln I = a + n·ln q`, weighted like Guinier.
+It returns `n`, `K = exp(a)`, `R2`, `q_range` and an `interpretation`:
 
-- Peak above the reference: flatter than an ideal globule (possible unfolding)
-- Peak at the reference with a sharp descent: compact, folded
-- No peak: highly flexible / disordered
+| exponent n | interpretation |
+|---|---|
+| within 0.3 of −4 | smooth interface (Porod) |
+| within 0.5 of −2 | polymer / Gaussian chain |
+| within 0.4 of −1 | rigid rod |
+| otherwise | other (fractal, mixed, or a poor range) |
 
-## Porod / Power-law Analysis — what this app actually computes
+Choose the high-q range by unticking Auto q-range; the default fits the whole
+curve. Fewer than 4 points is an error.
 
-`porod_fit(q, I, sigma, q_min, q_max)` is a **LOG-LOG POWER-LAW FIT**, not a q⁴I
-plateau. It fits
+This is not the q⁴·I plateau construction (Porod constant Kp). That plateau is
+what the Invariant analysis uses internally and what the assistant's `porod`
+plot draws. When someone says "Porod", check which one they mean.
 
-```
-ln I = a + n·ln q
-```
+### p(r) and Dmax (built-in IFT)
+`I(q) = 4π ∫₀^Dmax p(r) · sin(qr)/(qr) dr`, solved by a Tikhonov-regularised
+indirect Fourier transform in numpy (no ATSAS needed):
 
-by linear regression and returns `{n, K, R2, interpretation, q_range, plot}`, with
-`K = exp(a)`. The plot data is `ln I vs ln q` (`lnq_data`, `lnI_data`,
-`lnq_fit`, `lnI_fit`). Nothing plateaus, and there is no `K_p` in this result.
+- 120 r points on [0, Dmax], rows weighted by 1/σ, second-difference smoothness
+  penalty (weight set automatically from the data), p(0) = p(Dmax) = 0 enforced,
+  p ≥ 0 after the solve.
+- Derived: `I0 = 4π∫p dr`, `Rg² = ∫p·r² dr / (2∫p dr)`, reduced
+  `chi2`. Returns `r`, `pr`, `Rg`, `I0`, `Dmax`, `chi2`.
+- **Dmax given** (the Dmax box, in nm): used exactly.
+- **Dmax blank**: the app scans Dmax (40 values from max(2π/q_max, (π/q_min)/60)
+  up to π/q_min, then 25 finer values around the best) and keeps the smallest
+  Dmax whose χ² is within max(1.03·χ²min, χ²min + 1) and whose solution is not
+  dominated by negative lobes. This is "the most compact p(r) that still fits".
+- Errors: fewer than 10 positive-q points; a non-positive solution ("try a
+  different Dmax").
 
-`interpretation` is assigned from the exponent:
+Reading p(r): bell-shaped and symmetric means globular; a long tail to high r
+means elongated; two peaks can mean a hollow or two-domain particle. For a solid
+sphere, Rg ≈ 0.77 × (Dmax/2). Compare the p(r) Rg with the Guinier Rg; a large
+mismatch points at a bad Dmax or a bad Guinier range.
 
-| exponent n | `interpretation` | meaning |
-|---|---|---|
-| within 0.3 of −4 | `smooth interface` | sharp-surface Porod scattering |
-| within 0.5 of −2 | `polymer / Gaussian chain` | Gaussian chain in solution |
-| within 0.4 of −1 | `rigid rod` | rod-like scatterer |
-| otherwise | `other` | mass/surface fractal, mixed, or bad range |
+### Invariant (Q, Vp, MW, Vc)
+Needs Rg and I0 and at least 10 positive points. The measured range is
+integrated and both ends are extrapolated: Guinier form `I0·exp(−Rg²q²/3)` from
+0 to q_min, and a Porod tail `I ≈ Kp/q⁴` above q_max (tails Kp/q_max for Q and
+Kp/(2·q_max²) for ∫qI). Kp is the median of q⁴·I over the top 15% of q.
 
-Fewer than 4 points in the range → "Insufficient data points for power-law fit".
-
-### Background theory: the q⁴I plateau (a DIFFERENT construction)
-Separately from what `porod_fit` computes, the classical Porod law says that at
-high q a particle with a sharp surface gives `I(q) → K_p / q⁴`, so a plot of
-**q⁴·I(q) vs q⁴** should plateau at the Porod constant K_p. Deviations:
-oscillating plateau ⇒ monodisperse particles; continuously rising ⇒ diffuse
-interface; never plateauing ⇒ need higher q (WAXS).
-
-That q⁴I plateau is what the **Assistant's** plotting helper
-(`src/ai/plots.py`, the `porod` plot type) draws, and it is what
-`classical_invariants` uses internally to get `porod_constant`. This app's
-`/api/porod` route does the log-log exponent fit instead. When someone says
-"Porod" on this platform, check which of the two they mean.
-
-## Classical Invariants (`/api/classical`, `/api/classical/batch`)
-
-`classical_invariants(q, I, Rg, I0)` needs Rg and I0 from a Guinier fit and ≥10
-positive points. It integrates over the measured range and extrapolates both
-ends — low q with the Guinier form `I0·exp(−Rg²q²/3)` from 0 to q_min, high q
-with a Porod tail `I ≈ Kp/q⁴` above q_max (giving analytic tails
-`Kp/q_max` and `Kp/(2q_max²)`). `Kp` is the median of `q⁴I` over the top 15% of q.
-
-Returns:
-| Key | Meaning |
+| key | meaning |
 |---|---|
 | `Q` | Porod invariant ∫q²I dq |
-| `porod_volume` | Vp = 2π²·I0/Q [nm³] |
-| `mw_porod_kda` | Vp / 1.66 (approximate protein rule) |
-| `Vc` | volume of correlation I0/∫qI dq [nm²] |
-| `Qr` | Vc²/Rg (Rambo–Tainer) |
-| `mw_vc_kda` | protein MW from Qr (Rambo–Tainer; constants applied in Å, converted internally) |
-| `porod_constant` | Kp = ⟨q⁴I⟩ at high q |
-| `surface_area` | specific surface S/V = π·Kp/Q [nm⁻¹] |
-| `porod_tail_reached` | bool — false means the Porod region was not reached and the estimates are unreliable |
+| `porod_volume` | Vp = 2π²·I0/Q (nm³) |
+| `mw_porod_kda` | Vp/1.66 (protein rule of thumb) |
+| `Vc` | volume of correlation I0/∫qI dq (nm²) |
+| `Qr` | Vc²/Rg (Rambo and Tainer) |
+| `mw_vc_kda` | protein MW from Qr (Rambo and Tainer; constants applied in Å) |
+| `porod_constant` | Kp |
+| `surface_area` | specific surface S/V = π·Kp/Q (nm⁻¹) |
+| `porod_tail_reached` | false means the Porod region was not reached; treat the numbers as unreliable |
 
-All of these are scale-independent ratios, so they are safe without absolute
-calibration, but they assume a globular two-phase particle.
+These are ratios, so absolute calibration is not needed, but they assume a
+globular two-phase particle and the MW values are protein estimates only. The
+Guinier fit itself does not give MW.
 
-The classical route accepts these `analysis` values: `guinier`, `kratky`,
-`porod`, `pair_distance`, `dimensionless_kratky`, `invariant`.
+## SASView (sasmodels) model fitting
 
-## Pair Distance Distribution p(r) — this app has its own IFT
+Card **2 · SASView model fit**:
+- **Model**: "Common" models first (sphere, core_shell_sphere, ellipsoid,
+  cylinder, core_shell_cylinder, flexible_cylinder, lamellar,
+  lamellar_stack_paracrystal, broad_peak, correlation_length, power_law,
+  guinier_porod, mass_fractal), then the full catalog.
+- **S(q)**: None, hardsphere, hayter_msa, stickyhardsphere, squarewell. The
+  model becomes `form@structure`, for example `sphere@hardsphere`.
+- **q_min / q_max** (optional) and **q unit** (nm⁻¹, the platform default, or Å⁻¹).
+- Parameter table: tick **Fit** to free a parameter (scale, background, radius,
+  length, thickness, sld and rg are ticked by default), set the start **Value**
+  and optional **Lower** / **Upper** bounds. Polydispersity parameters such as
+  `radius_pd`, `radius_pd_n`, `radius_pd_type` are in the same table.
 
-### Theory
-p(r) is the probability of finding two scattering centres a distance r apart, and
-is related to I(q) by
+How it fits:
+- Minimises χ² = Σ((I − I_model)/σ)². With any bounds set it uses L-BFGS-B and
+  reports parameters pinned at a bound (`at_bounds`); without bounds it uses
+  Nelder-Mead.
+- **Units:** sasmodels works in Å⁻¹, with lengths in Å and SLD in 1e-6 Å⁻².
+  nm⁻¹ data is converted (q_Å = q_nm/10) before fitting, so **fitted lengths
+  are in Å** (a radius of 50 is 5 nm). The fit curve is converted back to the
+  data's q unit for plotting.
+- Returns `model`, `params`, reduced `chi2`, `converged`, `at_bounds`,
+  `length_unit`, `sld_unit`, `q_unit`. `converged` and `at_bounds` are saved,
+  so a railed parameter can be told apart from a good fit.
+- The Result plot shows data, fit and a residual panel.
 
-```
-I(q) = 4π ∫₀^Dmax p(r) · sin(qr)/(qr) dr
-```
+QC warnings: optimiser did not converge; parameter(s) pinned at a bound;
+reduced χ² > 5.
 
-### What `pair_distance_ift` does
-`pair_distance_ift(q, I, sigma=None, dmax=None, n_r=120, alpha=None)` solves that
-equation directly with a **Tikhonov-regularized indirect Fourier transform**
-implemented in numpy — no external software required:
+Model comparison (`POST /api/sasview/compare`, API only) fits several models to
+one curve and ranks them by reduced χ².
 
-- Design matrix `A[i,j] = 4π · sin(q_i r_j)/(q_i r_j) · dr` on `r ∈ [0, Dmax]`
-  with `n_r` points (default 120).
-- Rows inverse-variance weighted by `1/σ` (σ = 1 if not supplied).
-- Smoothness penalty from a second-difference operator L, weight `alpha`; when
-  `alpha` is None it is set automatically to `1e-2·tr(AᵗA)/tr(LᵗL)`.
-- Boundary conditions `p(0) = p(Dmax) = 0` imposed by a strong penalty term.
-- Solved by `np.linalg.solve` (falling back to `lstsq`), then clipped to `p ≥ 0`.
+If `sasmodels` is not installed (it is in `requirements-core.txt`), the Model
+menu says so and the rest of the app still works.
 
-Derived quantities: `I0 = 4π∫p dr`, `Rg² = ∫p·r² dr / (2∫p dr)`, and
-`chi2 = Σ((I − I_fit)/σ)² / (N−1)`.
+## ATSAS
 
-Returns `{r, pr, Rg, I0, Dmax, chi2, q_fit, I_fit}`, or an error if there are
-fewer than 10 positive-q points, or if the solution comes out non-positive
-("try a different Dmax").
+Card **2 · ATSAS**. On opening, the app checks which binaries are on `PATH`
+and marks missing tools "(missing)". If none are found it says "ATSAS not found
+on PATH. Install or activate it, then restart this app."
 
-### Dmax
-`Dmax` does NOT have to be supplied. If `dmax` is None or ≤ 0 it is estimated as
-**π / q_min**. Supplying it explicitly is better when you know the particle, since
-Dmax shapes the whole solution.
+| Tool (menu) | Binary | Output | Extra input |
+|---|---|---|---|
+| AUTORG | `autorg` | Rg, I0, q·Rg range, quality | |
+| GNOM p(r) & Dmax | `datgnom` | p(r), Dmax, real-space Rg and I0, `.out` file | Rg hint (nm) |
+| DATPOROD | `datgnom` then `datporod` | Porod volume (plus Dmax, real-space Rg) | Rg hint |
+| DATVC | `datvc` | volume of correlation, MW | |
+| DATMW | `datmw` | MW | Method: vc (default), vp, bayes, shape |
+| DAMMIF | `datgnom` then `dammif` | ab-initio bead model(s) | Rg hint |
 
-Shape reading:
-- Globular: bell-shaped, symmetric
-- Elongated: asymmetric, long tail to high r
-- Hollow: two-peak distribution
-- Rule of thumb for spheres: Rg ≈ 0.77 × (Dmax/2)
+- Timeouts: 60 s per tool, 90 s for datgnom, 900 s for dammif (`fast` mode).
+- DAMMIF takes minutes, writes its models to
+  `1D/<DET>/Analysed/ATSAS/<stem>_dammif/`, and is single-file only. Its result
+  is not saved through **Save to Analysed**.
+- The raw tool output is shown under the results table when parsing found
+  nothing.
 
-ATSAS `datgnom` is available as an alternative through the ATSAS routes below,
-but it is optional — the built-in IFT is the default path.
+The built-in p(r) in Classical is the default; ATSAS is optional.
 
-## WAXS / Bragg Peak Fitting (`/api/peak`, `/api/waxs_peaks`, `/api/waxs_peaks/batch`)
+## WAXS peak fitting
 
-`peak_fit(q, I, sigma, q_min, q_max, n_peaks=None, shape="gaussian")` fits peaks
-on a **linear background** (`bg_a`, `bg_b`).
+Card **2 · WAXS peak fitting**:
+- **Shape**: Gaussian (default), Lorentzian, Voigt (pseudo-Voigt,
+  η·Lorentzian + (1−η)·Gaussian, 0 ≤ η ≤ 1).
+- **Peaks**: Auto-detect, or Fixed N (1 to 12, default 2).
+- **Source**: Subtracted (default) or Averaged.
+- **q_min / q_max** (optional).
 
-- `shape`: `gaussian` | `lorentzian` | `voigt` (pseudo-Voigt, mixing parameter η).
-  All components are parameterised by FWHM `f` and height `A` at centre `q0`.
-- `n_peaks`: if None, peaks are auto-detected (numpy local maxima above a crude
-  linear baseline, prominence ≥ 4% of the max, at most 6). If given, the
-  strongest `n_peaks` maxima are used as seeds.
-- Fewer than 6 points in the range → error.
+How it fits:
+- All peaks sit on a linear background `bg_a + bg_b·q` and are parameterised by
+  height, centre q0 and FWHM. The fit is σ-weighted.
+- Auto-detect finds local maxima above a straight line drawn between the end
+  points, at least 4% of the largest one, at most 6 peaks. Fixed N seeds the N
+  strongest maxima.
+- Per peak: `q0` (and `q0_err`), `fwhm`, `height`, `area`, `d_nm` and `d_A`
+  (d = 2π/q0), plus `eta` for Voigt. Overall: `shape`, `n_peaks`, `bg_a`, `bg_b`,
+  reduced `chi2`. The plot shows each peak as a dotted component.
+- Errors: fewer than 6 points; "No peaks detected, adjust the q-range".
 
-Per peak it returns `q0`, `fwhm`, `area`, `height`, `d_nm` and `d_A`
-(d-spacing from the peak position), plus η for pseudo-Voigt. Globally: `shape`,
-`n_peaks`, `bg_a`, `bg_b`, `chi2`, and plot data with per-peak components.
+QC warnings: reduced χ² > 5 ("check peak count/shape"); no peaks fitted; a peak
+as wide as the fit range ("may be background").
 
-`/api/waxs_peaks` adds a QC block: reduced χ² > 5 raises
-"check peak count/shape", and no fitted peaks raises "No peaks fitted".
-`/api/waxs_peaks/batch` fits every file matching a keyword in
-`1D/<DET>/<stage>/` and writes a combined summary table to
-`1D/<DET>/Analysed/Peaks/`. This app reports d-spacings; superlattice/phase
-indexing from a peak set is done by the Analyzer app.
+This app reports d-spacings only. Phase or superlattice indexing from a set of
+peaks is done in the Autonomous Analyser.
 
-## Model Fitting with sasmodels / SasView
+## Output files: the `Analysed/` tree
 
-Routes: `/api/model`, `/api/sasview`, `/api/sasview/batch`,
-`/api/sasview/compare`, `/api/sasmodels/list`, `/api/sasmodels/params`.
-
-`sasmodels_fit(q, I, sigma, model_name, params, free=None, bounds=None,
-q_unit="nm^-1")`:
-- `model_name` is any `sasmodels` model name. Product models are supported with
-  the `form@structure` syntax, e.g. `sphere@hardsphere`. Polydispersity is set
-  through the usual `*_pd`, `*_pd_n`, `*_pd_type` parameters.
-- `params` is `{name: value}` starting values; `free` names the parameters to
-  optimise (everything else is held fixed). `bounds` is `{param: [low, high]}`;
-  when bounds are given a bounded optimiser (L-BFGS-B) is used and any parameter
-  pinned at a bound is reported.
-- **Unit handling matters**: sasmodels is native in Å⁻¹ with lengths in Å and SLD
-  in 1e-6 Å⁻². Incoming q is converted from `q_unit` (default `nm^-1`) to Å⁻¹
-  before fitting, so **fitted lengths come out in Å**, and the returned fit-curve
-  q is converted back so it overlays the input data. `length_unit` is in the
-  result.
-- Returns `{model, params, chi2, plot, converged, at_bounds, length_unit}`, or
-  `{"error": ...}` if `sasmodels` is not installed
-  (`pip install sasmodels`) or the model name cannot be loaded.
-
-`converged` and `at_bounds` are persisted — a railed parameter is distinguishable
-from a good fit.
-
-`/api/sasmodels/list` returns the available model names;
-`/api/sasmodels/params?model=<name>` returns each parameter's name, default,
-units and limits (used to build the UI).
-`/api/sasview/compare` fits several candidate models to one curve and ranks them
-by reduced χ².
-
-## ATSAS Integration (`/api/atsas`, `/api/atsas/batch`, `/api/atsas/available`)
-
-Optional. `src/analysis/atsas.py` shells out to ATSAS binaries if they are on
-PATH; `GET /api/atsas/available` reports which are present (`{tools: {...}, any:
-bool}`) so the UI can disable the rest. Each tool returns
-`{"error": "<tool> not found in PATH..."}` when missing.
-
-| `tool` | Binary | Output |
-|---|---|---|
-| `autorg` | `autorg` | Rg, I(0), qRg range, quality |
-| `datgnom` / `gnom` | `datgnom` | GNOM p(r), Dmax, real-space Rg/I0, plus a `.out` file |
-| `datporod` | `datgnom` → `datporod` | Porod volume (runs datgnom first for the `.out`) |
-| `datvc` | `datvc` | volume of correlation + MW |
-| `datmw` | `datmw` | molecular weight (`method` defaults to `vc`) |
-| `dammif` | `datgnom` → `dammif` | ab-initio bead model (slow; `mode` defaults to `fast`) |
-
-Default tool is `autorg`. Results are saved under
-`1D/<DET>/Analysed/ATSAS/`; `dammif` gets its own subfolder
-`<stem>_dammif/`.
-
-## Output Files — the `Analysed/` tree
-
-Every saved analysis goes through `src/analysis/io.py::save_analysis`, which
-writes into a folder that is a SIBLING of `Subtracted/`/`Averaged/`:
+`Analysed/` is a sibling of `Subtracted/` and `Averaged/` under the detector
+folder:
 
 ```
-1D/<DET>/Analysed/<Type>/<source stem>_<type>.json      params + results + created_at + user
-                        /<source stem>_<type>_fit.dat   the fit curve (when there is one)
-                        /<source stem>_<type>.png       the figure (when one is supplied)
+1D/<DET>/Analysed/<Type>/<source stem>_<type>.json      params, results, source, detector, created_at, user
+                        /<source stem>_<type>_fit.dat   fit curve (when there is one)
+                        /<type>_batch_<timestamp>.csv   batch summary (+ .xlsx with openpyxl)
 ```
 
-`<Type>` folder names: `Guinier`, `Kratky`, `Porod`, `PairDistance`,
-`Invariant`, `Model` (both `model` and `sasview`), `Peaks`, `ATSAS`.
+- `<Type>` folders: `Guinier`, `Kratky`, `Porod`, `PairDistance`, `Invariant`,
+  `Model` (SASView), `Peaks`, `ATSAS`. Dimensionless Kratky is saved under its
+  own type name.
+- If the source is not inside a `Subtracted/`, `Averaged/` or `Reduction/`
+  folder, `Analysed/<Type>/` is created next to the source file.
+- `_fit.dat` has the header `# q_nm-1  I` and two columns (for p(r) results the
+  columns are r and p(r)).
+- The analysis app does not write PNG figures; the plots are interactive in the
+  browser (Plotly, bundled for offline use).
+- Only scalars, strings and booleans go into the saved results; arrays and plot
+  data are dropped. Short lists such as `at_bounds` are kept as text.
+- Saving with the same file and analysis type again overwrites the JSON and fit.
 
-The `_fit.dat` file has the header `# q_nm-1  I` and two columns.
+**Source `.dat` annotation:** the scalar results are appended to the fitted
+file's footer under `# ANALYSIS INFORMATION`, one `# <type>.<key>: <value>`
+line each. Re-running the same type replaces its previous lines.
 
-`save_analysis` also:
-- Appends the scalar results back into the SOURCE `.dat` footer under a
-  `# ANALYSIS INFORMATION` block as `# <type>.<key>: <value>` lines. Re-running
-  the same analysis type replaces its previous block, so this is idempotent.
-- Registers the analysis in `manifest.json`.
+## Manifest record
+Saved analyses go into the manifest's `analyses` section (only when a project is
+set). One record per (analysis type, file): re-saving the same type for the same
+file updates the record instead of adding a new one. The section is capped at
+the newest 3000 records (`SWAXS_MANIFEST_ANALYSES_CAP`, 0 disables the cap).
 
-Only finite scalars, strings and booleans are kept in the persisted results;
-arrays and plot data are dropped. Booleans are deliberately kept so `converged`
-and `at_bounds` survive.
-
-Batch routes additionally write a combined summary table via
-`write_batch_summary` — a CSV, plus an XLSX when `openpyxl` is available.
-
-## Manifest Registration
-Analysis results are saved in `manifest.json` under the top-level `analyses`
-section, keyed by a generated uuid (one entry per analysis run):
 ```json
 "analyses": {
-  "f4c2…uuid": {
-    "id": "f4c2…uuid",
+  "<uuid>": {
+    "id": "<uuid>",
     "type": "guinier",
-    "file_path": "/path/to/subtracted.dat",
-    "params": { "q_min": 0.012, "q_max": 0.045 },
-    "results": { "Rg": 3.14, "I0": 0.0142, "R2": 0.998 },
-    "fit_range": [0.012, 0.045],
-    "quality_score": 0.92,
-    "ai_assessment": "Rg = 3.14 nm, qRg range valid …",
-    "provenance": { "app": "analysis", "run_id": "…" },
-    "created_at": "2026-01-15T12:00:00Z"
+    "file_path": "/abs/path/to/sample.dat",
+    "params": {"q_min": null, "q_max": null, "auto_range": true},
+    "results": {"Rg": 3.14, "I0": 0.0142, "R2": 0.998},
+    "fit_range": [0.012, 0.041],
+    "quality_score": null,
+    "ai_assessment": "",
+    "provenance": {"app": "analysis", "...": "..."},
+    "created_at": "...",
+    "updated_at": "..."
   }
 }
 ```
-`fit_range` is taken from the result's `q_range`.
+`fit_range` is the result's `q_range`.
 
-## Other routes
-- `GET  /api/health` — `{"status": "ok", "app": "analysis"}`
-- `POST /api/set_project`, `GET /api/project` — project root (pushed by the hub)
-- `GET  /api/browse` — directory browser
-- `POST /api/load_dat` — load one file and return (q, I, sigma) for display
-- `GET  /api/list_subtracted` — list `.dat` files from an explicit `dir` or from
-  `1D/<detector>/<stage>/`, with an optional keyword filter
-- `POST /api/save` — persist a previously-run result to `Analysed/`. Fitting and
-  saving are separate steps: the UI calls this only once the user accepts the fit.
+## Troubleshooting
 
-Each analysis route also emits an `analysis.complete` bus event with
-`analysis_type`, `file_path` and `results`.
+| Symptom | Likely cause and fix |
+|---|---|
+| File list says "No Subtracted SAXS files (set the project in the Hub)" | No project set, or the folder is empty. Set the project in the Hub, or type a folder in **Folder**. |
+| Peak fitting shows no files | It reads `1D/WAXS/<Source>/`. Switch **Source** to Averaged if there is no WAXS subtraction. |
+| "Select a file first." | Click a file in the list before running. |
+| Guinier "Positive slope" or WARN on q·Rg | Range is outside the Guinier region. Untick Auto q-range and choose a lower q_max, or check for aggregation (upturn at low q). |
+| Guinier R² < 0.99 | Noisy or curved data. Narrow the range or check the subtraction. |
+| p(r) Dmax looks too large or too small | Type a Dmax you trust; the auto scan picks the most compact solution that fits. |
+| Invariant `porod_tail_reached` false or odd volumes | The curve does not reach the q⁻⁴ region. Use WAXS-extended data or treat the numbers as rough. |
+| SASView radius looks 10 times too large | Lengths are in Å. 50 Å is 5 nm. |
+| SASView WARN "pinned at a bound" | Widen the bounds or improve the start value. |
+| "sasmodels not installed" | `pip install -r requirements-core.txt` in the platform's environment, then restart the app. |
+| ATSAS tools marked missing | Put the ATSAS `bin` folder on `PATH` in the shell that starts the Hub, then restart this app. |
+| DAMMIF timed out | 900 s limit in `fast` mode. Run heavier modes outside the platform. |
+| Batch "No subtracted ... files match" | Batch reads only the project Subtracted folder (or the peak Source); check the keyword. |
 
-## src/ Imports
-src/ imports: see CLAUDE.md.
+## API routes
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/health` | `{"status": "ok", "app": "analysis"}` |
+| POST | `/api/set_project` | set project root (pushed by the Hub), body `{"path": ...}` |
+| GET | `/api/project` | current project root |
+| GET | `/api/browse` | folder listing for Browse… |
+| GET | `/api/list_subtracted` | list `.dat` files: `dir=` or `detector=` + `stage=` (Reduction, Averaged, Subtracted, Good, NeedsReview, Analysed), optional `keyword=` |
+| POST | `/api/load_dat` | load one file, returns q, I, σ (downsampled to 600 points) |
+| POST | `/api/classical` | one classical analysis: `path`, `analysis` (guinier, kratky, porod, pair_distance, dimensionless_kratky, invariant), `auto_range`, `q_min`, `q_max`, `dmax`, `Rg`, `I0`, `shape`, `save` |
+| POST | `/api/classical/batch` | same over Subtracted files matching `keyword` (always saves) |
+| POST | `/api/sasview` | one model fit: `path`, `model_name`, `structure_factor`, `params`, `free`, `bounds`, `q_min`, `q_max`, `q_unit`, `save` |
+| POST | `/api/sasview/batch` | same model over Subtracted files matching `keyword` |
+| POST | `/api/sasview/compare` | rank `models` (list) on one file by reduced χ² |
+| GET | `/api/sasmodels/list` | available model names |
+| GET | `/api/sasmodels/params?model=` | parameter names, defaults, units, limits |
+| GET | `/api/atsas/available` | `{tools: {...}, any: bool}` |
+| POST | `/api/atsas` | one ATSAS run: `path`, `tool`, `rg`, `method`, `mode`, `save` |
+| POST | `/api/atsas/batch` | ATSAS tool over Subtracted files matching `keyword` (not dammif) |
+| POST | `/api/waxs_peaks` | peak fit: `path`, `shape`, `n_peaks`, `q_min`, `q_max`, `save` |
+| POST | `/api/waxs_peaks/batch` | peak fit over `stage` files matching `keyword` |
+| POST | `/api/save` | save a reviewed result: `path`, `analysis_type`, `params`, `results`, `fit_curve` |
+
+Older single-purpose routes kept for scripts: `/api/guinier`, `/api/porod`,
+`/api/kratky`, `/api/peak`, `/api/model`. They write no `Analysed/` files
+(all but `/api/kratky` register the result in the manifest directly); the UI
+does not use them.
+
+Logic lives in `src/analysis/core.py` (fits), `src/analysis/io.py` (saving,
+annotation, manifest, batch tables) and `src/analysis/atsas.py` (ATSAS
+wrappers); `analysis/app.py` is routing only.

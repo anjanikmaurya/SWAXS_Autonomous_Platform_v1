@@ -1,342 +1,296 @@
-# Reduction App — Knowledge Base
+# Reduction & Correction: knowledge
 
-## Purpose
-The Reduction app (port 5102) converts raw 2D detector images (.raw files) into
-calibrated, corrected 1D scattering curves (.dat files).  It covers SAXS, WAXS,
-and simultaneous SWAXS modes.
+## What this app is for
+Reduction & Correction (port 5102) turns raw 2D detector frames (`.raw`) into
+calibrated, normalized 1D profiles (`.dat`: q, I, σ) with pyFAI azimuthal
+integration. It handles SAXS, WAXS, or both detectors (SWAXS). It can reduce a
+folder once (**Run now**) or watch it and reduce frames as they land
+(**Watch for new files**), which is how it runs during an autonomous loop.
 
-## Pipeline Steps
+## Where it sits in the pipeline
+- **Upstream:** Geometry Calibration (5101) provides the `.poni` files; the
+  beamline (or the calibration app's SFTP copy) provides the raw data.
+- **Reads:**
+  - frames: every `*.raw` under `<data_directory>/**/SAXS/**` and `**/WAXS/**`
+    (`._*` files and `.raw.pdi` are ignored);
+  - metadata: a CSV in `2D/` (CSV mode) or the `.raw.pdi` beside each frame (PDI mode);
+  - geometry: `poni_directory` + `poni_files`, optional masks, dark and flat frames.
+- **Writes:** `<output_dir>/<DET>/Reduction/<stem>_<DET>.dat`, e.g.
+  `1D/SAXS/Reduction/scan_0007_SAXS.dat`. `<output_dir>` is `output_directory`,
+  or by default a `1D/` folder beside the `2D/` data folder. `<stem>` is the raw
+  filename without the `.raw` suffix and without any configured
+  `saxs_filename_prefix` / `waxs_filename_prefix`.
+- **Manifest:** section `files` (shared with the average app).
+- **Events:** `watch.new_raw` when the watcher sees a frame, `file.reduced` per
+  `.dat`, `file.skipped` when a frame is given up on.
+- **Downstream:** Visualisation & Average (5103) reads `1D/<DET>/Reduction/`.
 
-### 1. Raw File Discovery
-- Scans `<project>/2D/SAXS/` and/or `<project>/2D/WAXS/` for `.raw` files
-- Reads paired `.raw.pdi` files (PDI metadata format) or a single CSV
-- Extracts per-frame: I₀, beamstop transmission, exposure time, timestamp
+## How to use it
+The sidebar has two tabs: **Setup** and **Run & monitor**.
 
-#### What happens to frames that are already in the folder
+### Setup tab
+When the hub sets a project, the folder fields fill in automatically
+(`<project>/2D`, `<project>/poni`, `<project>/1D`, `<project>/config.yml`). The
+cards, top to bottom:
 
-Pressing **Watch for new files** starts a *new run*. It does not re-reduce the
-folder. At the first poll the app claims everything already present as done,
-using the shared rule in `src/backlog.py`:
+1. **Directories**: **Data directory (2D)** (contains `SAXS/` and `WAXS/`),
+   **Output directory (1D)** (blank = `1D/` beside `2D/`), **PONI directory**.
+2. **Calibration & mask files**: filenames only, all inside the PONI directory:
+   SAXS/WAXS PONI, mask (`.edf`, blank = no mask), dark frame (blank = none),
+   flat-field (blank = none).
+3. **Detector size (pixels)**: SAXS 1043 × 981, WAXS 195 × 487 by default.
+4. **Sample & beam**: **Compound formula** (C2H4), **X-ray energy (keV)** (12),
+   **Density (g/cm³)** (0.92), **Thickness (m)** (blank = from transmission).
+5. **Processing options**: **Mode** (SWAXS / SAXS only / WAXS only), **Metadata
+   format** (CSV / PDI), **Radial bins (npt)** (1000), **Error model** (Poisson /
+   Azimuthal), **Normalise 1D by** (pills: None, Bstop, I₀, Absolute; pick one).
+   Absolute shows the **Absolute calibration constant K** field.
+6. **pyFAI integration**: **Output unit** (q nm⁻¹, q Å⁻¹, 2θ deg, 2θ rad),
+   **Solid angle correction** (on), **Polarization factor p** (the form starts at
+   0.99; **Clear (off)** skips it), **q range (min / max)**, **Azimuthal range χ
+   (min / max)**, **Dummy value** ± tolerance.
+7. **Advanced (keep defaults if unsure)**: I₀ and Bstop dark-current offsets, I₀
+   and Bstop air measurements, SAXS/WAXS prefix to strip.
+8. **Save or load config (YAML)**: **Config file path**, **Save as YAML**,
+   **Load from YAML**. The form is not loaded from `config.yml` automatically:
+   click **Load from YAML** to use the project's file.
+
+The form is the config: every Run or Watch sends the current form values, so
+edits apply without saving (save them to keep them).
+
+### Run & monitor tab
+- **Run now**: reduces, one at a time, every frame not yet reduced in this app
+  session (SAXS first, then WAXS). It does not check for an existing `.dat`, so
+  on a freshly started app it re-reduces the whole folder. **Stop** halts after
+  the current frame. Refused while the watcher is running.
+- **Watch for new files** (toggle) **every N seconds** (default 10): starts a
+  *new run*. At the first poll everything already in the folder is treated as
+  done (see below), and only new frames are reduced. A frame is reduced once its
+  file has been unchanged for 2 s.
+- **Reprocess existing frames** (checkbox, ticked before starting the watcher):
+  reduces every frame in the folder again, oldest first, overwriting existing
+  output; new frames queue behind it, so do not use it during a beamtime. It is
+  not saved with the config and is forced off when the watcher auto-resumes
+  after a restart.
+- **↻ Retry failed**: a frame that fails 3 times is skipped for the rest of the
+  session (and `file.skipped` tells Autonomous Watch to stop waiting for it).
+  This button clears those failure counts only; it does not re-reduce frames
+  that worked.
+- **Clear log**; the **Live log** streams progress and per-frame results.
+
+What the watcher counts as already done at the first poll (shared rule in
+`src/backlog.py`):
 
 | Frame | Verdict |
 |---|---|
-| has a `.dat` on disk | done — skipped |
-| no `.dat`, older than 10 min (`CRASH_GAP_WINDOW_S`) | history — skipped |
-| no `.dat`, newer than 10 min | reduced — it may have landed just before a crash |
+| has a `.dat` at least as new as the `.raw` | done, skipped |
+| no `.dat`, older than 10 min | history, skipped |
+| no `.dat`, newer than 10 min | reduced (it may have landed just before a crash) |
 
-It says so once in the log (`↪ N existing frames already processed — skipping`).
+The log says so once, as a line starting `↪ N existing frames already
+processed` ("this is a new run, not a re-run of the folder"). After
+that, a `.raw` that is newer than its `.dat` (a re-acquisition) is reduced again.
 
-**To reduce the back-catalogue again**, tick **Reprocess existing frames**
-before starting. That clears the processed set *and* bypasses the newer-`.dat`
-check, so existing output is overwritten, oldest frame first — new frames from
-the live run queue behind it, so do not use it during a beamtime.
+The operator name is entered once, in the hub top bar (this app has no field of
+its own).
 
-The checkbox is deliberately not saved with the config and is forced off when
-the app auto-resumes after a restart: a restart continues a run, it never
-decides to redo the folder.
+## Processing steps
 
-**↻ Retry failed** (`POST /api/retry-failed`, formerly `/api/reset`) is a
-different thing and is easy to confuse with it. A frame that raises three times
-is given up on for the rest of the session (`_MAX_FAILURES`, `_fail_counts`),
-and `file.skipped` is emitted so Autonomous Watch stops waiting for it. This button
-clears those counts, nothing else. It does **not** re-reduce frames that
-succeeded.
+### 1. Metadata
+- **CSV mode** (`metadata_format: csv`): the CSV lives in the folder one level
+  above `SAXS/`/`WAXS/` (i.e. in `2D/`). The CSV whose filename stem appears in
+  the raw name (with its `_NNNN` index removed) is used; the longest match wins.
+  The row read is the frame index from the filename (`run_0009.raw` → row 9;
+  4 or more digits).
+- **PDI mode** (`metadata_format: pdi`): reads `<frame>.raw.pdi`. If a WAXS PDI
+  has no counters, the matching SAXS PDI is used.
+- Required counters: an I₀ column (`i0`, `I0`, `Ion0`, `ion0`, `I0_diode`) and a
+  beamstop column (`bstop`, `Bstop`, `bstop_diode`, `Bstop_diode`, `bs`).
+- During a watch, a frame whose CSV has not appeared yet waits (no failure is
+  counted) while new frames with the same filename prefix are still arriving
+  (within 3 poll intervals), because the CSV is written when the acquisition ends.
 
-It used to be "↺ Reset files" and also cleared the processed set. That became
-wrong in both directions once Start seeds: harmless before a run (the next
-Start rebuilds the set from disk anyway) and actively dangerous during one —
-seeding happens once, at the first poll, so clearing the set mid-run dropped
-the loop back to the mtime check, which on a re-stamped folder is exactly the
-check that is fooled. A button that said "reset the list" would have re-reduced
-the whole experiment with no confirm, mid-beamtime.
+### 2. Corrections and normalization
+`*_corr = raw value − offset` (`i0_offset`, `bstop_offset`).
 
-Why a checkbox and not just the mtime check: `_already_reduced()` compares the
-`.raw` mtime with its `.dat`. Anything that re-stamps the raw files — the SFTP
-pull, a two-laptop sync (SYNC.md), a restore from backup, `cp` without `-p` —
-makes the entire back-catalogue look newer than its own output, and the folder
-was reduced from scratch with no way to say no. **↺ Reset files** only forgets
-the bookkeeping; it does not request a re-run.
-
-### 2. Metadata Extraction
-Two formats supported:
-- **PDI mode** (`metadata_format: pdi`): reads `*.raw.pdi` files alongside each
-  raw frame.  Each PDI file contains tab-separated key-value pairs.
-- **CSV mode** (`metadata_format: csv`): a single CSV at the project root maps
-  filename → metadata columns (I0, BStop, exposure, etc.)
-
-Key metadata fields: `i0`, `bstop`, `exposure`, `transmission`, `keyword`,
-`filename`, `timestamp`.
-
-### 3. Azimuthal Integration (PyFAI)
-- Uses PONI calibration file (`.poni`) per detector
-- Optional mask (`.edf` EDF format) to exclude bad pixels / beamstop shadow
-- Integration: `npt_radial` points along the q axis (a REQUIRED config key —
-  there is no default; 1000 is the value used in the example configs)
-- Error model: `error_model`, also REQUIRED; `poisson` (σ = √N from photon counts)
-  is the usual choice
-- Output: q (nm⁻¹), I(q), σ(q)
-
-### 4. Corrections & Normalization
-The beamstop diode measures the **transmitted** flux, so `bstop ∝ I0·T` and
-`i0 ∝ I0`; hence transmission `T = bstop_corr / i0_corr` (dark-current offsets
-subtracted from both). PyFAI divides every pixel by a single scalar
-`normalization_factor` *before* azimuthal averaging (correct Poisson error
-propagation). Exactly **one** normalization mode is used at a time — the modes
-overlap, so combinations are collapsed automatically with a warning:
-
-- **bstop** (default): `NF = bstop_corr` → `I = counts/(I0·T)` — flux- and
-  transmission-corrected (semi-absolute). Standard SSRL scheme.
-- **i0**: `NF = i0_corr` → `I = counts/I0` — incident-flux only; does **not**
-  correct for sample absorption/transmission.
-- **absolute**: `NF = (bstop·d_cm)/K` → `I = K·counts/(I0·T·d)` = dΣ/dΩ in cm⁻¹,
-  where `K` (`absolute_calibration_factor`) comes from a water / glassy-carbon
-  standard.
-
-Note: there is **no exposure-time division** in the current pipeline; normalize
-by `i0`/`bstop` (which scale with flux × time) instead.
-
-Air-path (empty-beam) correction: if `i0_air`/`bstop_air` are set, the true
-sample transmission `T = (bstop/i0)/(bstop_air/i0_air)` is used, and the
-air-corrected transmitted flux (`I0·T_sample`) is used for both the bstop and
-absolute modes.
-
-Thickness `d`: taken from `thickness` (metres) if set, otherwise derived from
-transmission via Beer–Lambert `d = −ln(T)/μ` (μ from xraydb for the configured
-compound/density — assumes that compound is the **bulk** absorber). Thickness
-only affects the **absolute** mode.
-
-Other PyFAI corrections: solid-angle (on by default) and polarization
-(`polarization_factor` ≈ 0.95–0.99 recommended for synchrotron; off by default).
-
-Robustness: frames whose corrected i0 or bstop is ≤ 0 are **skipped** (no `.dat`
-written) so corrupt normalization can't enter averaging/analysis.
-
-Output q unit defaults to **nm⁻¹** (`unit: q_nm^-1`) to match the rest of the
-platform (averaging, analysis, Rg/Dmax). Override with `unit` if needed;
-dimensionless qRg checks are unaffected by the choice.
-
-### 5. Output Format and Path
-Each reduced frame is written to:
-
+Transmission:
 ```
-<output_dir>/<DET>/Reduction/<stem>_<DET>.dat
+T = bstop_corr / i0_corr                                    (no air values)
+T = (bstop_corr / i0_corr) / (bstop_air_corr / i0_air_corr) (both air values > 0)
 ```
+T is clipped to [1e-6, 1]. With air values set, the air-corrected transmitted
+flux (`I0·T_sample`) replaces `bstop_corr` in the bstop and absolute modes.
 
-where `<DET>` is `SAXS` or `WAXS`, `<stem>` is the raw filename with the data-format
-suffix (and any configured `saxs_filename_prefix`/`waxs_filename_prefix`) stripped,
-and `<output_dir>` is `output_directory` from the config or, by default, a `1D`
-folder alongside `data_directory`. Example:
-`1D/SAXS/Reduction/scan_0007_SAXS.dat`.
+PyFAI divides every pixel by one scalar `normalization_factor` (NF) inside
+`integrate1d`, so Poisson variances scale correctly (by 1/NF²). Exactly one mode:
 
-The file is written atomically: pyFAI writes to `<path>.dat.part`, the metadata
-footer is appended to that same `.part`, and only then is it renamed to the final
-`.dat`. A folder watcher therefore never sees a footer-less half-written file.
+| Mode | NF | Result |
+|---|---|---|
+| `bstop` (default) | `bstop_corr` | `I = counts/(I0·T)`: flux and transmission corrected (semi-absolute), standard at SSRL |
+| `i0` | `i0_corr` | `I = counts/I0`: incident flux only, no absorption correction (the log warns) |
+| `absolute` | `(bstop·d_cm)/K` | `I = K·counts/(I0·T·d)` = dΣ/dΩ in cm⁻¹; K = `absolute_calibration_factor` from a water or glassy-carbon standard (K = 1 is semi-absolute) |
+| none (`[]`) | 1 | raw integrated counts |
 
-Body: three columns — q (in the configured `unit`, nm⁻¹ by default), I, and σ.
-The HEADER is written by pyFAI's own `integrate1d(filename=...)` writer: a
-multi-line `#` block listing the pyFAI version, the integration parameters and the
-detector geometry. There is **no** `# q(nm-1) I(a.u.) sigma(a.u.)` column line —
-do not parse for one.
+There is no exposure-time division: `i0` and `bstop` already scale with flux ×
+time.
 
-Footer: `_append_metadata_to_dat` appends
-```
-# METADATA INFORMATION (YML FORMAT)
-# <key>: <value>        ← one line per raw beamline metadata key
-```
-This block contains ONLY the raw PDI/CSV beamline metadata dict as read from the
-instrument (e.g. `I0`, `Bstop`, `CTEMP`, exposure, timestamps — whatever the
-beamline wrote).
+Thickness `d`: `thickness` in metres if set; otherwise Beer-Lambert
+`d = −ln(T)/μ`, with `μ_cm = xraydb.material_mu(compound, energy_eV, density)`
+in cm⁻¹ (`d_m = −ln(T)/(100·μ_cm)`). This assumes `compound`/`density` describe
+the bulk absorber in the beam (solvent or buffer); for dilute samples it is an
+approximation. Thickness only affects the absolute mode.
 
-The COMPUTED corrections are **not** in the `.dat` file. `transmission`,
-`thickness_m`, `normalization_factor`, `i0_corrected`, `bstop_corrected` and
-`calibration_factor` are returned by `_compute_corrections` and stored in
-`manifest.json` under `files.<path>.metadata` — that is the only place to read
-them. Reading transmission out of a `.dat` footer will not work unless the
-beamline itself recorded a transmission column.
+Other pyFAI corrections: solid angle (default on), polarization
+(`polarization_factor`, ≈0.95 to 0.99 for synchrotron; when unset the log warns),
+2D dark and flat frames, mask, dummy pixels.
 
-### 6. Manifest Registration
-After reduction, each `.dat` file is registered in `manifest.json` under
-`files.<path>` with `stage`, `keyword`, `detector`, `metadata` (the corrections),
-and `provenance` — which records the **operator/user**, run_id, timestamp, input
-files, and a config snapshot. Each run also stamps `project_meta` with the unique
-`users` list plus `last_run_by`, `last_run_at`, `last_run_app`, and
-`last_run_mode`. The operator is entered once, in the hub top bar (the
-reduction app has no field of its own), and resolved by `src/operator_id.py` as:
-hub operator in the manifest (`project_meta.current_operator`) →
-`SWAXS_USER_ID` env → OS login → `unknown`.
+Frames are **skipped** (no `.dat` written) when: the corrected i0 or bstop is ≤ 0;
+i0 or bstop is blank/NaN; or the integrated profile has fewer than 3 positive
+points (a blank frame).
 
-## Why the Normalization Math Is Correct (canonical formula + references)
+### 3. Output file
+- Written atomically: pyFAI writes `<name>.dat.part`, the footer is appended,
+  then it is renamed to `.dat`, so a watcher never sees a half-written file.
+- Header: pyFAI's own `#` block (version, integration parameters, geometry).
+  There is no `# q(nm-1) I(a.u.) sigma(a.u.)` column line; do not parse for one.
+- Body: three columns, q (in `unit`, nm⁻¹ by default), I, σ.
+- Footer: `# METADATA INFORMATION (YML FORMAT)` followed by `# <key>: <value>`
+  lines holding only the raw beamline metadata (I0, Bstop, CTEMP, ...).
+- The computed corrections (`transmission`, `thickness_m`,
+  `normalization_factor`, `i0_corrected`, `bstop_corrected`,
+  `calibration_factor`) are **not** in the `.dat`. They are only in the manifest
+  under `files.<path>.metadata`.
 
-The intensity recorded on the detector is
+### 4. Manifest
+Each `.dat` is registered under `files.<path>` with `stage: reduced`,
+`detector`, `keyword`, `scan_idx`, `metadata` (the corrections) and
+`provenance` (operator, run id, timestamp, input file, and a config snapshot of
+`npt_radial`, `error_model`, `mode`, `compound`). Each run also stamps
+`project_meta` (`users`, `last_run_by`, `last_run_at`, `last_run_app`,
+`last_run_mode`). The operator is resolved by `src/operator_id.py`: hub operator
+(`project_meta.current_operator`), then `SWAXS_USER_ID`, then the OS login.
 
+## Why the normalization is correct
+The detector records
 ```
 I_meas(q) = I0 · T · t · ΔΩ · ε · (dΣ/dΩ)(q)        (+ background)
 ```
+(`I0` incident flux, `T` transmission, `t` thickness, `ΔΩ` pixel solid angle,
+`ε` detector efficiency), so `dΣ/dΩ = I_meas / (I0 · T · t · ΔΩ · ε)`. The
+beamstop diode measures the transmitted flux, so `bstop ∝ I0·T` and `i0 ∝ I0`,
+which gives `T = bstop / i0`.
 
-with `I0` the incident flux, `T` the sample transmission, `t` the sample
-thickness, `ΔΩ` the pixel solid angle, `ε` the detector efficiency, and `dΣ/dΩ`
-the absolute differential cross-section per unit volume (cm⁻¹·sr⁻¹). Hence
-
-```
-dΣ/dΩ (q) = I_meas / (I0 · T · t · ΔΩ · ε)
-```
-
-A beamstop pin-diode measures the **transmitted** flux, so `bstop ∝ I0·T` and
-`i0 ∝ I0`, giving the identity `T = bstop / i0` that the pipeline uses.
+The modes overlap, so they are never multiplied. `["bstop", "absolute"]` would
+give `NF = bstop²·d/K`, i.e. `I ∝ counts/(I0²·T²·d)`, and `["i0", "bstop"]` would
+give `I ∝ counts/(I0²·T)`: both physically meaningless. `resolve_normalization`
+collapses combinations with a warning: `absolute` + anything → `absolute`;
+`i0` + `bstop` → `bstop`. Unknown terms are ignored with a warning.
 
 References:
-- Pauw, "Everything SAXS", J. Phys. Condens. Matter 25, 383201 (2013) —
-  https://iopscience.iop.org/article/10.1088/0953-8984/25/38/383201
-- BSRF absolute-intensity calibration, Nucl. Instrum. Methods A (2018) —
+- Pauw, "Everything SAXS", J. Phys. Condens. Matter 25, 383201 (2013),
+  https://doi.org/10.1088/0953-8984/25/38/383201
+- BSRF absolute-intensity calibration, Nucl. Instrum. Methods A (2018),
   https://www.sciencedirect.com/science/article/abs/pii/S0168900218306260
-- EMBL BioSAXS data-reduction notes (Kikhney) —
+- EMBL BioSAXS data-reduction notes (Kikhney),
   https://www.embl-hamburg.de/biosaxs/courses/embo2012/slides/data-reduction-processing-kikhney.pdf
-- USP SAXS/SANS normalization notes —
-  https://portal.if.usp.br/cristal/sites/portal.if.usp.br.cristal/files/Treatment_SAXS_crislpo.pdf
 
-Error propagation is correct because the factor is passed into
-`integrate1d(..., normalization_factor=NF, error_model="poisson")` rather than
-being divided out afterwards, so Poisson variances scale by 1/NF².
-
-Beer–Lambert thickness units check out: `μ_cm = xraydb.material_mu(energy_eV,
-density)` in cm⁻¹, `μ_m = μ_cm·100`, `d_m = −ln(T)/μ_m`, `d_cm = −ln(T)/μ_cm`.
-
-### Why normalization is a single mode, not a list
-The three terms are not independent — `absolute` already contains `bstop`. If the
-terms were multiplied, `normalization: ["bstop", "absolute"]` would give
-
-```
-NF = bstop · (bstop·d/K) = bstop²·d/K
-  ⟹  I ∝ counts/(I0²·T²·d)          — physically meaningless (divides by flux²)
-```
-
-and `["i0", "bstop"]` would give `NF = i0·bstop ⟹ I ∝ counts/(I0²·T)`, also
-wrong. Only `["bstop"]`, `["i0"]` or `["absolute"]` are meaningful, so
-`resolve_normalization` collapses any overlapping combination to a single mode and
-logs a warning. Unrecognised terms are ignored with a warning rather than silently
-dropped.
-
-### Known approximations
-- Thickness-from-transmission `d = −ln(T)/μ(compound, density)` is exact only if
-  `compound`/`density` describe the **bulk** absorber in the beam (solvent or
-  buffer), not a dilute solute. For dilute samples it is an approximation.
-- Polarization is off by default (`polarization_factor: null`). Synchrotron beams
-  are strongly horizontally polarized; the app logs a warning and ≈0.95–0.99 is
-  recommended for quantitative work.
-- `i0` mode normalizes to incident flux only and does not correct absorption; the
-  app logs a warning when that mode is selected alone.
-
-## Common Issues
-
-### Wrong q Range
-If q values look off, check:
-1. PONI file matches detector (SAXS ↔ SAXS, WAXS ↔ WAXS)
-2. `poni_files` keys in `config.yml` point to correct files
-3. Sample-to-detector distance in PONI is accurate
-
-### Transmission > 1
-Causes: `i0_offset` or `bstop_offset` wrong sign; beam drift between sample and
-air measurement; incorrect `i0_air`/`bstop_air` values.
-
-### Very Low Transmission (< 0.02)
-Sample too thick, beam not centred, or concentrating sample dried on window.
-
-### I(q) Negative at High q
-Normal after background subtraction of noisy data.  Apply q_max cut before
-analysis.  Do NOT apply background here — reduction output is raw sample.
-
-### Hot Pixels / Rings in 2D
-- Verify mask `.edf` file covers bad pixel regions
-- Check detector for persistent hot pixels using a flat-field or empty beam
-- PyFAI's `azimuthal_integrator.integrate1d` accepts a `mask` kwarg
-
-## Config Reference (key fields)
-```yaml
-mode: SWAXS          # SAXS | WAXS | SWAXS      (REQUIRED)
-metadata_format: csv # csv | pdi                (REQUIRED)
-energy_keV: 12                                # REQUIRED
-density_g_cm3: 0.92                           # REQUIRED
-compound: C2H4                                # REQUIRED
-data_directory: /path/to/2D                   # REQUIRED
-poni_directory: /path/to/poni                 # REQUIRED
-detector_shapes:                              # REQUIRED
-  saxs: [1043, 981]
-  waxs: [195, 487]
-thickness: null      # metres (0.001 = 1 mm); null = auto from transmission
-poni_files:          # REQUIRED
-  saxs: atT_SAXS.poni
-  waxs: atT_WAXS.poni
-mask_files:          # REQUIRED (values may be null)
-  saxs: RT_SAXS_mask_03.edf
-  waxs: null
-npt_radial: 1000     # REQUIRED — no default; a missing key raises KeyError
-error_model: poisson # REQUIRED — no default; a missing key raises KeyError
-
-# ── Optional, with defaults ──────────────────────────────────────────────
-i0_offset: 0.0
-bstop_offset: 0.0
-i0_air: 0.0
-bstop_air: 0.0
-normalization: [bstop]            # bstop | i0 | absolute  (one mode; default bstop)
-unit: q_nm^-1                     # output q unit (default nm⁻¹)
-absolute_calibration_factor: 1.0  # K for 'absolute' mode (water/GC standard)
-polarization_factor: null         # ~0.95–0.99 for synchrotron; null = skip
-correct_solid_angle: true         # cos³θ factor; default true
-radial_range_min: null            # q/2θ integration range in the chosen unit;
-radial_range_max: null            #   BOTH must be set or the range is ignored
-azimuth_range_min: null           # χ sector in degrees; BOTH must be set,
-azimuth_range_max: null           #   otherwise the full circle is integrated
-dummy: null                       # pixel value treated as masked
-delta_dummy: null                 # tolerance around `dummy`
-dark_files: {}                    # per-detector 2D dark frames (saxs:/waxs:)
-flat_files: {}                    # per-detector 2D flat fields (saxs:/waxs:)
-output_directory: ""              # "" = <data_directory>/../1D
-saxs_filename_prefix: ""          # stripped from output stems
-waxs_filename_prefix: ""
-beamline:
-  data_format: raw                # file extension of the 2D frames
-```
-
-Note that `npt_radial` and `error_model` are read with `config["..."]`, not
-`config.get(...)` — they are REQUIRED and there is no fallback value.
-`dark_files`/`flat_files` are 2D frames subtracted/divided pixel-by-pixel and are
-a different thing from the scalar `i0_offset`/`bstop_offset` diode corrections.
-
-The **operator/user** is captured automatically (hub top-bar Operator box →
-`SWAXS_USER_ID` → OS login) and recorded in provenance — no config field needed.
-
-## Uncertainty σ(q) — how it is determined here
-
-**One line:** σ comes from Poisson counting statistics — pyFAI computes
+## Uncertainty σ(q)
+σ comes from Poisson counting statistics: with `error_model: poisson` pyFAI uses
 `σᵢ² = max(1, signalᵢ)` per pixel and propagates it through dark, flat, mask and
-the scalar normalization *inside* the same `integrate1d` call
-(`src/reduction/core.py`, `error_model: "poisson"` in `config.yml`).
+the normalization factor inside the same `integrate1d` call
+(`src/reduction/core.py`), so σ is divided by the same scalar as I.
 
-Poisson is the right model for a photon-counting detector, and because
-`normalization_factor` is passed as pyFAI's own argument rather than applied
-afterwards, σ is divided by the same scalar as I automatically.
+Limits worth knowing before quoting error bars:
+1. Nothing checks that `.raw` holds unprocessed photon counts. If the detector
+   firmware applies gain, flat or dead-time corrections first, Poisson σ is wrong.
+2. With no WAXS mask (`mask_files.waxs: null`), dead pixels feed into I and σ.
+3. `dummy`/`delta_dummy` are unset by default, so a firmware sentinel value for
+   bad pixels would be integrated as signal.
+4. No azimuthal cross-check or blank-frame χ² check is run.
 
-Four things this app does **not** do, worth knowing before quoting error bars:
+Full treatment: `docs/ERROR_PROPAGATION.md` §2. Further reading: Sedlak, Bruetzel
+& Lipfert 2017, J. Appl. Cryst. 50, 621-630
+(https://doi.org/10.1107/S1600576717003077); Kieffer et al. 2025, J. Appl.
+Cryst. 58, 138-153, pyFAI's error-model citation
+(https://doi.org/10.1107/S1600576724011038).
 
-1. It never verifies that `.raw` really holds undecorated photon counts. If the
-   detector firmware applies gain/flat/dead-time correction first, `"poisson"`
-   silently produces a wrong σ with no warning.
-2. WAXS ships with `mask_files.waxs: null`, so dead pixels on that detector feed
-   into both I and σ.
-3. `dummy`/`delta_dummy` default to unset — a firmware sentinel value for
-   untrusted pixels would enter the integration as real signal.
-4. No `error_model: "azimuthal"` cross-check and no blank-frame χ² self-check are
-   run, so detector artefacts and flow-induced anisotropy go undetected.
+## config.yml reference
+```yaml
+# Required (missing keys raise KeyError)
+data_directory: /path/to/2D
+poni_directory: /path/to/poni
+poni_files:      {saxs: atT_SAXS.poni, waxs: atT_WAXS.poni}
+mask_files:      {saxs: RT_SAXS_mask_03.edf, waxs: null}   # null = no mask
+detector_shapes: {saxs: [1043, 981], waxs: [195, 487]}     # [rows, cols]
+compound: C2H4
+energy_keV: 12
+density_g_cm3: 0.92
+mode: SWAXS                 # SAXS | WAXS | SWAXS
+metadata_format: csv        # csv | pdi
+npt_radial: 1000            # no default
+error_model: poisson        # no default; poisson | azimuthal
 
-Full stage-by-stage treatment: **`docs/ERROR_PROPAGATION.md` §2**.
-Further reading: Sedlak, Bruetzel & Lipfert 2017, *J. Appl. Cryst.* **50**,
-621–630 (<https://doi.org/10.1107/S1600576717003077>); Pauw, "Everything SAXS",
-2013 (<https://doi.org/10.1088/0953-8984/25/38/383201>); Kieffer et al. 2025,
-*J. Appl. Cryst.* **58**, 138–153 — pyFAI's own error-model citation
-(<https://doi.org/10.1107/S1600576724011038>).
+# Optional (defaults shown)
+thickness: null             # METRES (0.001 = 1 mm); null = from transmission
+normalization: [bstop]      # bstop | i0 | absolute; one mode; [] = raw counts
+absolute_calibration_factor: 1.0   # K for absolute mode
+unit: q_nm^-1               # q_nm^-1 | q_A^-1 | 2th_deg | 2th_rad
+correct_solid_angle: true
+polarization_factor: null   # null = skip; ~0.95-0.99 for synchrotron
+radial_range_min: null      # in `unit`; applied only if BOTH are set
+radial_range_max: null
+azimuth_range_min: null     # χ in degrees; applied only if BOTH are set
+azimuth_range_max: null
+dummy: null                 # pixel value treated as masked
+delta_dummy: null           # tolerance around dummy
+dark_files: null            # {saxs: file, waxs: file}, 2D dark frames
+flat_files: null            # {saxs: file, waxs: file}, 2D flat fields
+i0_offset: 0.0              # scalar diode dark-current offsets
+bstop_offset: 0.0
+i0_air: 0.0                 # empty-beam readings; 0 = not measured
+bstop_air: 0.0
+output_directory: null      # null or "" = 1D/ beside data_directory
+saxs_filename_prefix: ""    # stripped from output names
+waxs_filename_prefix: ""
+beamline: {type: "1-5", data_format: raw}   # data_format = frame file extension
+```
+`dark_files`/`flat_files` are 2D frames applied pixel by pixel; they are
+unrelated to the scalar `i0_offset`/`bstop_offset` diode corrections.
 
-## Dependencies
-- `pyFAI` — azimuthal integration
-- `fabio` — `.raw` and `.edf` file I/O
-- `xraydb` — attenuation coefficients for thickness calculation
-- `periodictable` (as `pt`) — molecular formula parsing for density/μ
+## Troubleshooting
+
+| Symptom | Cause and fix |
+|---|---|
+| q range looks wrong | PONI does not match the detector (SAXS vs WAXS), `poni_files` points at the wrong file, or the distance in the PONI is off. Recalibrate in Geometry Calibration. |
+| Transmission > 1 (warned when thickness is auto) | Without air values T is only the raw bstop/I0 diode ratio, so > 1 can be normal; it is clipped to 1 and the derived thickness becomes 0. With air values: wrong offset sign, beam drift, or bad `i0_air`/`bstop_air`. Set an explicit `thickness` for absolute work. |
+| Very low transmission (< 0.02) | Sample too thick, beam off-centre, or sample dried on the window. |
+| Negative I at high q | Not expected here: reduction does no background subtraction. Negative values appear after subtraction of noisy data; cut q_max before analysis. |
+| Hot pixels or streaks | Check the mask `.edf` covers bad pixels and the beamstop; set `dummy` if the detector flags dead pixels with a value. |
+| "No CSV matching ..." | CSV mode: no CSV in `2D/` whose name is contained in the raw name. During a watch this waits while the acquisition is still producing frames. Check `metadata_format`. |
+| "'i0' (or 'bstop') not found in metadata" | Wrong `metadata_format`, or the CSV/PDI lacks an I0/Bstop column. |
+| "Could not parse frame index" | The raw name has no `_NNNN.` index (4+ digits), needed to pick the CSV row. |
+| "I0_corrected ≤ 0" / "Bstop_corrected ≤ 0" | The offset is larger than the reading; the frame is skipped. Offsets should be the shutter-closed reading. |
+| "integrates to no signal" | Blank frame (zero exposure, shutter closed, or a mask covering everything); skipped. |
+| "failed 3×, skipping until restart or Retry failed" | Fix the cause, then **↻ Retry failed**. |
+| Run now refused: "The file monitor is running" | Only one of Run now / Watch can run; the watcher is already reducing new files. |
+| Restart re-reduced old frames, or did not | Run now redoes frames not seen this session; use Watch (which skips existing output) unless you want a full redo. |
+| KeyError `npt_radial` / `error_model` | Both are required in `config.yml`. |
+
+## API routes
+
+| Route | Purpose |
+|---|---|
+| `GET /api/health` | `{"status": "ok", "app": "reduction"}` |
+| `POST /api/set_project` | `{path}` from the hub; sets `SWAXS_PROJECT` |
+| `GET /api/project` | `{project_root}` |
+| `GET /api/browse?path=` | Folder browser |
+| `POST /api/run` | One-shot run with the config in the body (409 if the watcher runs) |
+| `POST /api/run/stop` | Stop the one-shot run after the current frame |
+| `POST /api/monitor/start` | `{config, interval, reprocess_existing}` start the watcher |
+| `POST /api/monitor/stop` | Stop the watcher |
+| `GET /api/monitor/status` | `{monitoring}` |
+| `POST /api/retry-failed` | Clear failure counts (old name `/api/reset` still works) |
+| `GET /api/stream` | Server-sent log stream |
+| `POST /api/save-config` / `POST /api/load-config` | Write / read a YAML config at `path` |
+| `GET /api/list-dat?dir=` / `GET /api/dat-data?file=` | List `.dat` files / read one |
+| `GET /api/list-raw?dir=` / `GET /api/raw-image?file=` | List `.raw` files / render one as an image |

@@ -1,84 +1,118 @@
-# Simulated 2D SAXS Data — Full-Pipeline Testing Without Beam
+# Simulated 2D SAXS data: run the whole pipeline without beam
 
-Generates **real `.raw` detector frames** whenever a collection is triggered in
-mock mode (backend `mock`, "Simulation" in the reactor app), so the entire chain — reduction → averaging → subtraction → quality →
-analyzer → optimizer — can be exercised off-rig against a **known ground truth**.
+**What this is for.** When the Autonomous Synthesis app (port 5108) is in
+**Simulation** mode, every triggered collection writes real `.raw` detector frames
+plus their metadata. The particles in those frames come from a hidden recipe →
+size model with a known optimum, so you can run the complete loop (reduction →
+averaging → subtraction → analyser → optimiser → next recipe) on a laptop and check
+that it finds the right answer.
 
-> **Why not an LLM?** An LLM cannot produce a physically consistent 2D intensity
-> field, would be slow per frame, and would destroy the one property that makes a
-> mock valuable: knowing the right answer. This uses the actual scattering
-> physics instead — sphere form factor through your real `.poni` geometry — so
-> the reduction and analyzer can be checked against the radius that was injected.
+**When to use it.** Learning the platform, rehearsing an autonomous run before
+beamtime, or checking that a change to the pipeline still converges. Nothing here
+can produce data on real hardware: the simulator exists only inside the Simulation
+backend.
 
 ---
 
-## Quick start
+## Step by step
 
-In `reactor/config.yml`, under `spec:`:
+### 1. Make a scratch project folder
+
+Create an empty folder (for example `~/Desktop/sim_test`) and put in it:
+
+- `config.yml`, the reduction settings, and
+- `poni/` with the SAXS `.poni` and mask your `config.yml` names.
+
+Copy both from a previous experiment, or from `Demo_Data/` if your copy has it
+(that folder is not in the git repository). Do **not** put real `.raw` files in
+it: the simulator refuses to write into a `2D/SAXS` folder that already holds
+frames it did not write, so synthetic and real data never mix.
+
+The simulated q-scale comes from the same `.poni` the reduction uses, so the
+recovered particle size is directly comparable to the injected one. If no `.poni`
+can be found, the simulator falls back to a synthetic geometry and logs a warning;
+the frames still flow through the pipeline but the recovered size will not match.
+
+### 2. Start the apps
+
+1. Start the hub (`./start_platform.sh` or `start_platform.bat`), open
+   http://localhost:5100 and choose the scratch folder as the project folder.
+2. Start **Reduction & Correction**, **Visualisation & Average**, **Background
+   Subtraction**, **Autonomous Analyser** and **Autonomous Synthesis**.
+   **Autonomous Watch** is optional (it shows the loop and any stall).
+
+### 3. Check one frame
+
+1. In **Autonomous Synthesis**, confirm the top-bar toggle shows **Simulation**.
+2. On the **Hardware test** tab, step 3, press **Collect now** (as *sample*).
+3. A frame appears under `<project>/2D/SAXS/`, with its metadata `.csv` in
+   `<project>/2D/` (or a `.raw.pdi` beside the frame if your `config.yml` says
+   `metadata_format: "pdi"`). The folders are created if missing.
+
+### 4. Start the data monitors
+
+1. **Reduction & Correction** → **Run & monitor** tab → switch on **Watch for new
+   files**.
+2. **Visualisation & Average** → **Auto-Average** tab → set **Frames per average
+   (N)** to the reactor's **Number of frames** (10 by default) → **Start
+   auto-averaging**.
+3. **Background Subtraction** → **Auto-Subtract** tab → sample keyword `sample`,
+   background keyword `bkg` → **Start auto-subtraction**.
+
+### 5. Start a campaign
+
+In **Autonomous Analyser** → **Setup**, set **Target diameter (nm)** to **8** (the
+hidden optimum radius is 4.0 nm, and the app asks for a diameter), a tolerance,
+then press **Start campaign**. It writes the first condition into
+`1D/SAXS/Conditions/`.
+
+### 6. Run the reactor
+
+In **Autonomous Synthesis** → **Autonomous setup**:
+
+1. Step 2 Timing: shorten **Synthesis duration** and **Flush duration** for a quick
+   test. Reactor timing is real seconds in Simulation too (no time compression), so
+   the shipped 20 min flush really takes 20 min.
+2. Step 4 Run: press **Run autonomously**.
+
+Each cycle is flush → background shot → arm → synthesis → sample shot, both shots
+tagged with the same `recipe_id`; the data apps then reduce, average and subtract
+it, the analyser fits it and queues the next condition. The campaign should walk
+toward **240 °C, x_TOP = 0.15** (see below). If it does not, the problem is in the
+optimiser, not the data.
+
+---
+
+## Settings (`reactor/config.yml`, under `spec:`)
 
 ```yaml
 spec:
-  backend: "mock"
+  backend: "mock"          # startup default; the app's toggle switches it live
   simulator:
-    enabled: true          # already the committed default (config.yml:195)
-    speed_factor: 1.0      # 1.0 = real time; 10 = 10× faster; 0 = instant
+    enabled: true          # shipped default; false = collections are logged, nothing written
+    poni: ""               # blank = use the project folder's config.yml / poni/
+    speed_factor: 1.0      # 1.0 = a 10 × 10 s acquisition takes 100 s; 0 = write instantly
+  mock_data_dir: ""        # blank = write into the hub's project folder
 ```
 
-`enabled: true` ships as the default, so switching the backend to `mock` is
-enough to start generating frames.
+- **Save folder.** In Simulation the beamline path translation (`hub_path_map`) is
+  skipped and the hub project folder is used as is. Set `spec.mock_data_dir` to
+  write somewhere else; it is ignored on the Hardware backend.
+- **Where the 2D tree goes** (`simulator.two_d_subdir: "auto"`): a bare project
+  folder gets `<folder>/2D/SAXS/`; a folder that already has `2D/` or `SAXS/`, or is
+  itself named `2D`, is reused without nesting.
+- **Speed.** `speed_factor` only changes how fast frames are written. Use `0` when
+  iterating on the pipeline itself.
+- **Brightness.** `flux`, `scale`, `solvent_bkg` and `capillary` are counts per
+  second of exposure. The shipped values give detector-like counts and a fit
+  confidence above the campaign's 0.5 gate at 10 × 10 s. If frames look black,
+  check these first. Very short acquisitions give (correctly) low confidence.
+- Every other knob, including the hidden `truth:` block, is listed with a comment
+  in `reactor/config.yml`. A few `truth` defaults exist only in code
+  (`residence_gain`, `noise_pdi`, `seed`) in `src/simulator/ground_truth.py`.
 
-**One thing you must check:** `simulator.poni` is **not** blank in the committed
-config — it is a machine-specific absolute path
-(`/Users/akmaurya/Desktop/Data_local/Auto_Run/poni`, `reactor/config.yml:204`).
-On any other machine that path does not exist, so the documented "blank → fall
-back to the project `config.yml`" behaviour never fires. Set it to `""` or to
-your own path. This matters more than it looks: the simulated q-scale comes from
-this geometry and the reduction's comes from the project `.poni`. If they differ,
-the recovered particle size is **silently wrong** — no error, just a wrong
-number (`reactor/config.yml:200-202`).
-
-Then run the reactor normally. Every triggered acquisition writes:
-
-```
-<2D>/SAXS/{recipe_id}_sample_scan1_0000.raw   … int32, detector shape
-<2D>/SAXS/{recipe_id}_bkg_scan1_0000.raw      … particle-free background
-<2D>/{recipe_id}_sample.csv                   … i0 / bstop / temp per frame
-```
-
-Point the reduction app's `data_directory` at `<2D>` and it processes them
-like real data.
-
-### Save folder in mock mode
-
-On the rig the hub's Windows folder is translated to the beamline Linux path via
-`spec.hub_path_map`. **In mock mode that translation is skipped** — no SPEC is
-involved and the simulator writes with ordinary local file I/O, so a
-`/msd_data/...` path would be unwritable on a laptop. The hub project folder is
-used verbatim. Flipping the Simulation/Hardware toggle re-resolves it automatically.
-
-Pin mock output elsewhere with `spec.mock_data_dir` (blank = follow the hub;
-ignored when the backend is `real`, so a leftover override can never redirect
-real beamtime data).
-
-### The 2D tree is created for you
-
-**Missing folders are created at the start of each collection**, including
-intermediate ones. Where the tree lands is resolved by `two_d_subdir: "auto"`:
-
-| Save folder | Result |
-|---|---|
-| bare project root | creates `<folder>/2D/SAXS/` |
-| already contains `2D/` | reuses `<folder>/2D/SAXS/` |
-| already contains `SAXS/` (rig style) | uses `<folder>/SAXS/` as-is |
-| literally named `2D` | uses `<folder>/SAXS/` — no nested `2D/2D` |
-
-Set `two_d_subdir: ""` to always treat the save folder itself as the 2D base, or
-to a literal name to force one.
-
-**Turn `enabled` off before beamtime.** It is ignored when `backend: "real"`, but
-don't rely on that alone. Note that the committed default is `enabled: true`
-(`reactor/config.yml:195`), so this is a thing you have to *do*, not a thing you
-can assume.
+**Before beamtime** set `spec.simulator.enabled: false` as well. It is ignored on
+the Hardware backend, but do not rely on that alone.
 
 ---
 
@@ -86,169 +120,76 @@ can assume.
 
 | Aspect | Behaviour |
 |---|---|
-| Scattering | Schulz-polydisperse **sphere form factor**, `I(q) = scale·P(q) + background` |
-| Geometry | Your real `.poni` (per-pixel q map). Falls back to synthetic geometry if no `.poni` exists yet |
-| Mask | Your real `mask_files.saxs` `.edf`, zeroed |
-| Beamstop | Disc defined in q (`q_beamstop`, nm⁻¹), zeroed |
+| Scattering | Schulz-polydisperse sphere form factor, `I(q) = scale·P(q) + background` |
+| Geometry | Your real `.poni` (per-pixel q map); synthetic fallback if none is found |
+| Mask | Your real SAXS mask `.edf` |
+| Beamstop | Disc of radius `q_beamstop` (nm⁻¹), zeroed |
 | Noise | Poisson, per pixel |
-| Counters | `i0`, `bstop = i0 × transmission`, `temp`, with mild beam decay across frames |
-| Background | Solvent + capillary q⁻² upturn — **present in sample frames too**, so `sample − background` isolates the particle signal |
+| Counters | `i0`, `bstop = i0 × transmission` (0.62), `temp`, a per-frame `Timer`, mild beam decay |
+| Background | Solvent + capillary q⁻² upturn, present in sample frames too, so `sample − background` isolates the particles |
 
-Units are **nm⁻¹ / nm**, matching the platform default `unit: q_nm^-1`, so a fitted
-radius is directly comparable to the injected one.
+Units are nm⁻¹ / nm, matching the platform default `unit: q_nm^-1`. SAXS only.
+Only the counters reduction needs are written; if a downstream tool of yours reads
+extra CSV columns, add them in `src/simulator/writer.py`.
 
 ---
 
 ## The hidden ground truth
 
-The recipe → particle mapping lives in `src/simulator/ground_truth.py`. It is
-never shown to the optimizer — the campaign only sees what the analyzer reports,
-exactly as with real beam.
+The recipe → particle mapping (`src/simulator/ground_truth.py`) is never shown to
+the optimiser; the campaign only sees what the analyser fits, as with real beam.
 
 ```
 R(T, x_TOP)   = R_opt + dR_dT·(T − T_opt) + dR_dx·(x_TOP − x_opt) + residence(F_tot)
 PDI(T, x_TOP) = pdi_min + cT·((T − T_opt)/σ_T)² + cx·((x_TOP − x_opt)/σ_x)²
 ```
 
-`R` is locally linear, so it equals `R_opt` **exactly** at the optimum; `PDI` has a
-strict interior minimum at the same point. Defaults:
-
-| Knob | Value | Interior to bound |
+| Knob | Default | Note |
 |---|---|---|
-| `T_opt` | 240 °C | `T_reac: [180, 300]` ✅ |
-| `x_TOP_opt` | 0.15 | `x_each: [0.0, 0.3]` ✅ |
-| `F_ref` | 80 µL/min | `F_tot: [40, 120]` ✅ |
-| `R_opt` | 4.0 nm | radius produced at the optimum |
-| `pdi_min` | 0.02 | best achievable polydispersity |
+| `T_opt` | 240 °C | inside the `T_reac` bounds 180 to 300 |
+| `x_TOP_opt` | 0.15 | inside the `x_each` bounds 0 to 0.3 |
+| `F_ref` | 80 µL/min | inside the `F_tot` bounds 40 to 120 |
+| `R_opt` | 4.0 nm (radius) | enter **8 nm** as the analyser's target diameter |
+| `pdi_min` | 0.02 | best achievable PDI |
 
-Clamped to **R ∈ [1, 10] nm** and **PDI ∈ [0.001, 0.5]**.
+R is clamped to 1 to 10 nm and PDI to 0.001 to 0.5. Results are reproducible: the
+scatter is derived from the `recipe_id`, so the same recipe always gives the same
+particles.
 
-### Verifying the optimizer actually converges
-
-Set the campaign's `target_size` to `R_opt` (4.0 nm). The optimizer's loss
-
-```
-loss = ((size − target)/tolerance)² + w·(PDI/pdi_cap)
-```
-
-then has its minimum exactly at **(240 °C, x_TOP = 0.15)**. Run a campaign and
-check it walks there. If it doesn't, the problem is the optimizer, not the data.
-
-Reruns are reproducible: scatter is derived from the `recipe_id`, so the same
-recipe always yields the same particles, while different recipes differ.
-
----
-
-## Configuration reference
-
-**`reactor/config.yml:195-262` is the reference.** Every knob is there with an
-inline comment, including the ones a duplicated block here kept losing —
-`porod`, `two_d_subdir`, `mock_data_dir`, and under `truth:` `noise_R_frac`,
-`sigma_T` / `sigma_x`, `pdi_curv_T` / `pdi_curv_x`, `R_min` / `R_max`,
-`pdi_floor` / `pdi_ceil`. Read it there; a copy in this file can only drift.
-
-A few `truth` knobs exist only as code defaults and are not in the YAML at all —
-`residence_gain` (0.15 nm per unit `ln(F_ref/F_tot)`), `noise_pdi` (0.01), and
-`seed` (`None` → derived from `recipe_id`). They come from
-`ground_truth.DEFAULTS` (`src/simulator/ground_truth.py:36-60`); add them to the
-YAML if you need to change them.
-
-Two knobs worth calling out because their behaviour is not obvious from the name:
-
-- `speed_factor: 1.0` honours `exposure × frames` — a 10 × 10 s acquisition
-  really takes 100 s, so file watchers and the run-end logic are tested
-  faithfully. Use `0` when iterating on the pipeline itself.
-- **Brightness.** `scale: 20000.0`, `solvent_bkg: 50.0`, `capillary: 120.0` are
-  counts *per second of exposure*, and they were raised deliberately. The
-  earlier values (`scale: 800`, `solvent_bkg: 2`, `capillary: 5`) gave a peak of
-  ~900 counts in a 1 s frame, which renders as a black image on any linear
-  display — the "the file is empty" symptom. The current values put a 1 s frame
-  in the 10⁴ range, like real detector data. If you see black frames, check
-  these first.
-
----
-
-## Verified behaviour
-
-`tests/test_simulator_closed_loop.py` collects through the real `MockBeamline`,
-reads back with the real reduction reader, subtracts, and fits with the real
-analyzer. It asserts, rather than reports:
-
-| Test | Assertion |
-|---|---|
-| `test_injected_radius_is_recovered_by_the_real_analyzer` | recovered R within **10 %** of the injected R, parametrised over (240 °C, x=0.15), (250 °C, x=0.12), (230 °C, x=0.18) — three recipes straddling the optimum |
-| `test_recovered_pdi_tracks_the_injected_pdi` | at a deliberately off-optimum recipe (285 °C, x=0.05, high PDI), fitted PDI within **0.08** of injected |
-| `test_optimum_recipe_yields_the_target_size_and_lowest_pdi` | at (240 °C, x=0.15) R = 4.0 ± 0.3 nm — the campaign's `target_size` — and PDI lower than at (295 °C, x=0.15) or (240 °C, x=0.02) |
-
-Run the suite for the actual numbers; they depend on `truth` and on the `.poni`
-in use, so a table here goes stale the moment either changes. (An earlier
-revision of this document carried a table of five recipes at x = 0.30–0.35. Those
-figures came from when `x_TOP_opt` was 0.30; with the current 0.15 they are not
-reproducible.)
+If you change `truth`, keep `T_opt` and `x_TOP_opt` inside the `bounds:` block (an
+optimum on the edge proves nothing) and keep the PDI curvature gentle enough that
+PDI stays below `pdi_ceil` at the corners (otherwise the landscape goes flat).
 
 ### Known caveats
 
-- **A naive Guinier fit overestimates R at high PDI** (up to +100 % at PDI 0.5).
-  That is correct physics — Guinier returns a z-averaged Rg biased toward large
-  particles — not a simulator fault. The full analyzer fit handles it.
-- Without a beamstop the q→0 centre pixel saturates the count clip. The collector
-  always applies one, so this only shows up in hand-written harnesses.
-- Keep `truth.T_opt` / `x_TOP_opt` **interior to the `bounds:` block**. If the
-  optimum sits on an edge, a converging optimizer proves nothing.
-- Keep the PDI curvature gentle enough that PDI stays **below `pdi_ceil` at the
-  corners of the search box**. If it saturates, the landscape goes flat and the
-  optimizer has no gradient — the defaults reach ≈0.42 at the corners.
+- A plain Guinier fit overestimates R at high PDI (up to +100 % at PDI 0.5). That
+  is real physics (Guinier gives a z-averaged Rg), not a simulator fault; the
+  analyser's full fit handles it.
+- Hand-written test harnesses without a beamstop saturate the centre pixel. The
+  app always applies one.
 
 ---
 
-## Metadata: is it enough for the whole pipeline?
+## Checking it automatically
 
-Yes — verified by `tests/test_simulator_reduction_metadata.py`, which runs the
-**real `run_pipeline`** over simulated frames.
-
-| Stage | Needs | Provided by the simulator | Verified |
-|---|---|---|---|
-| **Reduction** | CSV one level above `SAXS/`, stem prefix-matching the raw stem, row per `_NNNN` | `<2D>/{prefix}.csv`, one row per frame | ✅ 4/4 frames reduced, no metadata errors |
-| | `i0`, `bstop` counters | written per frame, with mild beam decay | ✅ parsed into the `.dat` |
-| | temperature (`temp`/`CTEMP`) | `temp` column | ✅ `CTEMP=240.0 °C` in the log |
-| | transmission `bstop/i0` < 1 | `bstop = i0 × transmission` (0.62) | ✅ `T=0.6200`, no `T_sample > 1` warning |
-| **Averaging** | consistent naming across frames | `{prefix}_scan1_NNNN` | ✅ frames group correctly |
-| **Subtraction** | matched sample/background pair | flush writes `{recipe_id}_bkg`, sample writes `{recipe_id}_sample`; both share the background curve | ✅ subtraction positive across the Guinier band |
-| **Analyzer** | q in nm⁻¹, positive I | `unit: q_nm^-1` honoured | ✅ injected R recovered |
-| **Optimizer** | map result → recipe | `recipe_id` embedded in the filename | ✅ `match_recipe_id()` resolves it |
-| **Back to reactor** | new recipe from the campaign | `CampaignController.ask()` | ✅ converges near the true optimum |
-
-The test walks the full chain through the real pipeline — `.poni` geometry, pyFAI
-integration, CSV metadata, background subtraction, analyzer fit, optimizer ask —
-and prints per-stage output. Run it to see the current numbers:
+These tests run the real reduction, subtraction and analyser on simulated frames
+and assert the result (recovered R within 10 % of the injected R, PDI tracked, the
+optimum recipe gives 4.0 ± 0.3 nm and the lowest PDI):
 
 ```bash
-python -m pytest tests/test_simulator_reduction_metadata.py -s
+python -m pytest tests/test_simulator_closed_loop.py tests/test_simulator_reduction_metadata.py -s
 ```
 
-Analyzer confidence through the real reduction path sits well above the
-campaign's `confidence_min: 0.5`, so simulated results are not rejected. A crude
-hand-rolled radial average gives a much lower confidence; that is an artefact of
-the harness, not of the data.
-
-### What is *not* simulated
-
-Only `i0`, `bstop` and `temp` are written, because that is all reduction
-consumes. If your real CSVs carry extra columns that a downstream app reads,
-add them to `writer.counters()`.
+The `-s` flag prints the per-stage numbers.
 
 ---
 
-## Architecture
+## Where the code is
 
 ```
 src/simulator/
-├── ground_truth.py   recipe → (R, PDI), hidden landscape with interior optimum
-├── pattern.py        form factor, q map from .poni, mask/beamstop, Poisson
-├── writer.py         .raw + CSV/PDI metadata, beamline filename convention
-└── collector.py      orchestration; the object MockBeamline holds
+├── ground_truth.py   recipe → (R, PDI), hidden landscape with an interior optimum
+├── pattern.py        form factor, q map from .poni, mask/beamstop, Poisson noise
+├── writer.py         .raw + CSV/PDI metadata, beamline file naming
+└── collector.py      orchestration; held by the Simulation beamline
 ```
-
-Hook: `MockBeamline._do_collect()` calls `SimulatedCollector.collect()`. The
-controller pushes the live recipe via `beamline.set_recipe()` at `_begin_next()`
-— a no-op on real SPEC hardware.

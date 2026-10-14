@@ -99,25 +99,25 @@ own χ² validation — its own tutorial states this directly.
 ## 2. Stage 1 — 2D → 1D reduction
 
 **Code:** `src/reduction/core.py`, `Experiment.process_saxs_file` /
-`process_waxs_file` (lines 620–633, 666–679), calling
+`process_waxs_file`, calling
 `self.ai_saxs.integrate1d(...)` / `self.ai_waxs.integrate1d(...)`.
 
 **What ships:**
 
 - `error_model: "poisson"` is the shipped default in `config.yml`, passed
-  straight through to pyFAI (`core.py:631,677`) — the correct choice for a
+  straight through to pyFAI: the correct choice for a
   photon-counting detector, which this is.
-- `requirements-core.txt:37` pins `pyfai>=2024.9`, well past the v0.20
+- `requirements-core.txt` pins `pyfai>=2024.9,<2025`, well past the v0.20
   new-generation-integrator fix, and the call site uses plain `integrate1d`
   (not the deprecated `integrate1d_legacy`) — so normalization is applied
   inside the integration, correctly, automatically.
 - `dark`, `flat`, `mask`, `dummy`, `delta_dummy` are all threaded through to
-  `integrate1d` (`core.py:627-630, 673-676`) — dark-current and flat-field
+  `integrate1d`: dark-current and flat-field
   correction happen at the pixel level, before integration, which is where
   the literature says they belong.
 - The scalar `normalization_factor` (built from transmission/thickness/i0/
   bstop, see `CLAUDE.md` § config.yml Reference) is passed as pyFAI's own
-  `normalization_factor` argument (`core.py:633,679`), not applied by hand
+  `normalization_factor` argument, not applied by hand
   afterward — so σ is divided by the same scalar as I automatically, inside
   pyFAI's own bookkeeping. This is the correct behavior and it comes for
   free from using the argument rather than post-hoc division.
@@ -134,12 +134,12 @@ own χ² validation — its own tutorial states this directly.
   fact about the beamline hardware that has to be confirmed once, outside
   the code.
 - **WAXS has no mask.** `config.yml`: `mask_files: {saxs: "RT_SAXS_mask_03.edf",
-  waxs: null}` (`CLAUDE.md` line 193; loaded at `core.py:353-359`). A `null`
+  waxs: null}` (see `CLAUDE.md` § config.yml Reference). A `null`
   WAXS mask means dead pixels and module edges on that detector are neither
   excluded from the Poisson sum nor from any future azimuthal check. The
   WAXS detector (195×487) already has few pixels per q-bin at some q — an
   unmasked bad pixel there has an outsized effect on both I and σ.
-- **`dummy` / `delta_dummy` default to `None`** (`core.py:281-284`) unless
+- **`dummy` / `delta_dummy` default to `None`** (in `Experiment`) unless
   set explicitly in `config.yml`. If the beamline writes a sentinel value for
   untrusted pixels (a common firmware behavior), an unset `dummy` means that
   sentinel enters the integration as real signal.
@@ -162,11 +162,11 @@ own χ² validation — its own tutorial states this directly.
 
 ## 3. Stage 2 — averaging repeated frames
 
-**Code:** `src/plot_reduction.py`, `_average_group` (lines 91–204), the shared
+**Code:** `src/plot_reduction.py`, `_average_group`, the shared
 core behind both `average_and_save` (whole-folder averaging, the manual
 Visualisation & Average path) and `average_batch` (the reactor's rolling auto-average).
 
-**The formula** (lines 178–183):
+**The formula:**
 
 ```python
 I_stack   = np.vstack(I_rows)
@@ -181,12 +181,12 @@ measurements: `σ_out = √(Σσᵢ²)/n`, which for equal σ correctly collapse
 `σ/√n`. Two things are done right and are easy to get wrong:
 
 - **`n` is the number of frames that actually contributed**, not the number
-  passed in. Frames dropped by the I0-outlier filter (`_average_group:112-132`)
-  or with fewer than 3 valid points (`:154-159`) are excluded from *both* the
+  passed in. Frames dropped by the I0-outlier filter (in `_average_group`)
+  or with fewer than 3 valid points  are excluded from *both* the
   sum and the denominator — so a skipped frame cannot silently bias I low and
   σ artificially small, which is exactly the trap an inflated denominator
   would create.
-- **A single-frame "group" passes σ straight through** (`:137-140`) with no
+- **A single-frame "group" passes σ straight through**  with no
   spurious `/√1` division.
 
 **Where this diverges from the literature's exact recommendation:**
@@ -237,9 +237,9 @@ measurements: `σ_out = √(Σσᵢ²)/n`, which for equal σ correctly collapse
 
 ## 4. Stage 3 — background subtraction
 
-**Code:** `background/app.py`, `_subtract` (lines 122–133).
+**Code:** `src/background/core.py`, `_subtract` (moved from `background/app.py` in September 2026, defect D3).
 
-**The formula** (line 132):
+**The formula:**
 
 ```python
 sig_sub = np.sqrt(sig_sam**2 + (scale * sig_bkg)**2)
@@ -253,7 +253,7 @@ for sample-minus-buffer subtraction precisely. **This is correct as written.**
 Two caveats from the literature, both currently unaddressed:
 
 - **The uncertainty of the fitted `scale` itself is not propagated.**
-  `_auto_scale` (`background/app.py:271`) fits the background scale factor by
+  `_auto_scale` (`src/background/core.py`) fits the background scale factor by
   weighted least squares; that fit has its own uncertainty, and a rigorous
   treatment would add a term for it (roughly
   `(∂I_sub/∂scale)² · σ²(scale) = I_bkg² · σ²(scale)`) to the subtraction
@@ -261,7 +261,7 @@ Two caveats from the literature, both currently unaddressed:
   themselves in most cases, but it is a documented omission rather than a
   deliberate simplification.
 - **Sample and background are interpolated onto a common grid before
-  subtracting** (`_interpolate_onto`, `background/app.py:103-119`, same
+  subtracting** (`_interpolate_onto`, `src/background/core.py`, same
   log-space scheme as the averaging stage) whenever their native q-grids
   differ. The same Gardner correlation caveat from Stage 2 applies here: the
   literature's stronger recommendation is to avoid interpolation entirely by
@@ -286,14 +286,14 @@ audited, verified directly against `src/analysis/core.py` and
 | `pair_distance_ift` | yes | yes — weights + χ² |
 | `sasmodels_fit` | yes | yes |
 | `peak_fit` | yes | referenced once |
-| `guinier_fit` (`core.py:54`) | yes | **no — 0 references in the body** |
-| `porod_fit` (`core.py:140`) | yes | **no — 0 references in the body** |
-| nanoparticle form-factor fit (`nanoparticle.py:154-170`) | not accepted at all | minimized an **unweighted** log-residual |
+| `guinier_fit` (`src/analysis/core.py`) | yes | **no: 0 references in the body** |
+| `porod_fit` (`src/analysis/core.py`) | yes | **no: 0 references in the body** |
+| nanoparticle form-factor fit (`_fit_one`, `nanoparticle.py`) | not accepted at all | minimized an **unweighted** log-residual |
 
 `guinier_fit` and `porod_fit` both accepted a `sigma` parameter and never
 touched it — `linregress(q², ln I)` in the Guinier case was an ordinary
 unweighted regression. The nanoparticle fit that drives the autonomous-loop
-optimizer (`_fit_one`, `nanoparticle.py:154`) did not take `sigma` as an
+optimizer (`_fit_one`, `nanoparticle.py`) did not take `sigma` as an
 argument at all; its objective was `log10(model) − log10(I)` with every
 point weighted equally regardless of measurement precision.
 

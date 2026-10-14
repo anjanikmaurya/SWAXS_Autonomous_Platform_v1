@@ -1,97 +1,135 @@
-# Quality Gate — knowledge
+# Quality Gate: Knowledge Base
 
-The Quality Gate app (port 5105) sits between Background Subtraction (5104) and
-Analysis (5106). It grades background-subtracted 1-D scattering profiles and
-decides which are good enough for downstream analysis.
+## 1. What it is for
 
-## What it does
+The Quality Gate (port 5105) grades every background-subtracted 1D profile with a
+**0 to 100 score** and a **good / bad** verdict (good = score ≥ threshold, default
+60), and sorts the files so downstream analysis can use only the good ones.
+Scoring is rule-based and reproducible (`src/quality/core.py`). Optionally, an
+LLM adjudicates borderline scores; without `ANTHROPIC_API_KEY` the rules alone
+decide.
 
-- Watches the `Subtracted/` folder(s) (event-driven on `file.subtracted` with a
-  periodic folder-poll backstop) and grades each profile automatically.
-- Scores every profile **0–100** with a **good/bad** verdict (good ≥ threshold,
-  default 60). Scoring is rule-based and reproducible; borderline scores may be
-  adjudicated by an LLM (reusing the assistant's `ANTHROPIC_API_KEY`/model), which
-  degrades gracefully to rules-only when no key is present.
-- Sorts profiles into `Good/` (analysis-ready) and `NeedsReview/` subfolders
-  created BESIDE the graded file — so for the standard layout they are
-  `1D/<DET>/Subtracted/Good/` and `1D/<DET>/Subtracted/NeedsReview/`. The file is
-  **COPIED**, not moved: the original stays in the flat `Subtracted/` folder, and
-  a stale copy in the other verdict folder is deleted. The operation is
-  idempotent, so a re-grade that changes the verdict moves the copy across.
-  Downstream apps that must respect the gate therefore have to read `Good/`
-  explicitly — reading the flat folder sees rejected profiles too.
-- Records each verdict in the manifest under the `quality` key, mirroring
-  `quality_score` and `quality_flags` onto the file entry and `ai_memory`.
-- Emits a `file.classified` bus event; exposes good/bad counts on `/api/health`
-  for the Hub badge; the Assistant can read the `quality` manifest section.
+## 2. Where it sits in the pipeline
 
-## Quality signals (penalties subtracted from 100)
+Background (5104) → **Quality Gate (5105)** → Analysis (5106).
 
-There are SIX signals. The score is `100 − (p_neg + p_snr + p_cov + p_spike +
-p_feat + p_aggr)`, clamped to [0, 100].
+| Reads | Writes |
+|---|---|
+| `<project>/1D/<DET>/Subtracted/*.dat` | `Subtracted/Good/` and `Subtracted/NeedsReview/` (copies) |
+| | `<project>/1D/<DET>/Results/QualityReports/` (exported reports) |
+| | `<project>/quality_config.json` (your scoring parameters) |
 
-- **Over-subtraction** (flag `over_subtraction`, weight `w_neg` = 40) — fraction of
-  negative intensities (`pct_negative`). Ramps linearly from `neg_warn_pct` (5%)
-  to `neg_fail_pct` (25%).
-- **Low SNR** (flag `low_snr`, `w_snr` = 40) — median I/σ over the usable range
-  (`snr`). Ramps from `snr_good` (10, no penalty) down to `snr_floor` (2, full).
-- **Coverage** (flags `narrow_q` / `sparse`, `w_cov` = 15) — 60% of the weight for
-  fewer than `min_decades` (1.0) usable log₁₀(q) decades, 40% for fewer than
-  `min_points` (50) usable points.
-- **Smoothness** (flag `spikes`, `w_spike` = 15) — spike/outlier fraction from a
-  robust z-score (|z| > 5) on Δ²(log I); ramps from 0 to `spike_fail_frac` (0.10).
-  Flagged above 2%.
-- **Featureless** (flag `featureless`, `w_featureless` = 55) — fires on EITHER of
-  two conditions: `dyn_range < dyn_range_min` (0.5) **AND** `snr < snr_good` (10),
-  **OR** `dyn_range < dyn_range_hard` (0.2) on its own, regardless of SNR. A
-  hard-flat curve is therefore flagged even if its SNR is excellent. This is an
-  all-or-nothing 55-point penalty, so it alone flunks a profile that would
-  otherwise be clean (100 − 55 = 45 < the 60 cutoff).
-- **Low-q aggregation** (flag `aggregation`, `w_aggr` = 20) — the ln I vs ln q
-  slope over the lowest ~15% of positive points. If that slope is steeper (more
-  negative) than `aggr_slope` (−3.2), the full 20 points are removed.
+- Files are **copied**, not moved: the original stays in the flat `Subtracted/`
+  folder. A re-grade that changes the verdict moves the copy to the other folder.
+  Anything that must respect the gate has to read `Good/`; the flat folder still
+  contains rejected profiles.
+- Each verdict is stored in the manifest `quality` section; `quality_score` and
+  `quality_flags` are mirrored onto the file entry and into `ai_memory`, so the
+  Assistant can see them.
+- A `file.classified` bus event is emitted (`file_path`, `score`, `verdict`,
+  `detector`, `flags`). `/api/health` reports good/bad counts for the hub badge.
 
-All of the numbers above are `DEFAULT_THRESHOLDS` in `src/quality/core.py` and all
-are editable in the UI / `quality_config.json`.
+## 3. How to use it
 
-## Per-detector thresholds (SAXS vs WAXS are graded differently)
+1. **Watch & grade**: set **SAXS Subtracted** and/or **WAXS Subtracted** folders
+   (**Browse…**), and **Interval (s)** (default 10).
+2. **Start grading** watches the folders: it grades at once on each
+   `file.subtracted` event and also polls the folders every interval as a
+   backstop. **Grade now** grades the folders once without monitoring.
+   **Stop** ends monitoring.
+3. **Good ≥ threshold** slider: re-labels all profiles instantly (no re-read)
+   and re-sorts the copies.
+4. **LLM adjudication (borderline only)** checkbox and **Model** (default
+   `claude-sonnet-4-6`): only scores within ±10 of the threshold go to the LLM,
+   and its verdict then decides.
+5. Gallery: search by name or sample; filter by verdict, detector or flag; sort
+   by score, name or sample. Click a profile for its plot, metrics and reasons.
+6. In the detail pane: **Good** / **Bad** override (with an optional note) or
+   **Re-grade with AI** (forces a full LLM judgment, recorded as an override).
+   Overrides gently move the threshold toward your judgment: halfway to the
+   midpoint between your lowest "good" score and highest "bad" score, clamped to
+   20 to 90, and only if those do not overlap.
+7. **Scoring parameters** (**Show/hide**): edit any weight or threshold, then
+   **Apply**. All cached profiles are re-scored from stored metrics and the
+   values are saved to `quality_config.json`. **Reset defaults** clears them.
+   **Refine with AI** suggests changes from your overrides (needs an API key and
+   at least 3 overrides including both good and bad); review, then
+   **Apply suggestions**.
+8. **Export report** writes `quality_report_<timestamp>.csv` (name, detector,
+   sample, score, verdict, flags, overridden, reasons) and
+   `accepted_<timestamp>.txt` (good files) per detector to
+   `1D/<DET>/Results/QualityReports/`.
+9. **Activity log** shows each grade and override.
 
-WAXS profiles are peak-dominated: low dynamic range and lower SNR are normal, and
-a steep low-q rise is not aggregation. `thresholds_for(detector)` merges these
-WAXS overrides on top of the defaults:
+## 4. Scoring
 
-| Key | SAXS (default) | WAXS |
+`score = 100 − (p_neg + p_snr + p_cov + p_spike + p_feat + p_aggr)`, clamped to
+[0, 100]. Fewer than 3 usable points (or an unreadable file) gives score 0, bad
+(flags `empty` / `unreadable`).
+
+| Signal (flag) | Metric | Penalty | Default |
+|---|---|---|---|
+| Over-subtraction (`over_subtraction`) | % negative points | linear from `neg_warn_pct` to `neg_fail_pct` | 5% → 25%, `w_neg` = 40 |
+| Low SNR (`low_snr`) | median I/σ | linear from `snr_good` (none) down to `snr_floor` (full) | 10 → 2, `w_snr` = 40 |
+| Coverage (`narrow_q`, `sparse`) | usable log₁₀ q decades, point count | 60% of `w_cov` if < `min_decades`, 40% if < `min_points` | 1.0 decade, 50 points, `w_cov` = 15 |
+| Smoothness (`spikes`) | fraction with robust \|z\| > 5 on Δ²(ln I) | linear from 0 to `spike_fail_frac`; flagged above 2% | 0.10, `w_spike` = 15 |
+| Featureless (`featureless`) | dynamic range = log₁₀(I₉₅/I₅) in decades | all or nothing | `w_featureless` = 55 |
+| Low-q aggregation (`aggregation`) | ln I vs ln q slope, lowest ~15% of positive points | all or nothing if steeper than `aggr_slope` | −3.2, `w_aggr` = 20 |
+
+**Featureless** fires if `dyn_range < dyn_range_min` (0.5) **and**
+`snr < snr_good`, **or** `dyn_range < dyn_range_hard` (0.2) regardless of SNR.
+Its 55 points alone fail an otherwise clean profile (100 − 55 = 45 < 60).
+
+Other parameters: `score_pass` = 60 (verdict cutoff), `borderline` = 10 (LLM
+band ±).
+
+### SAXS vs WAXS
+The detector is taken from a `SAXS` / `WAXS` token in the filename, else from
+the `SAXS` / `WAXS` folder in the path, else SAXS. WAXS is peak-dominated, so
+these defaults change for WAXS:
+
+| Key | SAXS | WAXS |
 |---|---|---|
-| `snr_good` | 10.0 | **6.0** |
-| `dyn_range_min` | 0.5 | **0.3** |
-| `dyn_range_hard` | 0.2 | **0.12** |
-| `aggr_slope` | −3.2 | **−6.0** |
-| `w_aggr` | 20.0 | **0.0** |
+| `snr_good` | 10.0 | 6.0 |
+| `dyn_range_min` | 0.5 | 0.3 |
+| `dyn_range_hard` | 0.2 | 0.12 |
+| `aggr_slope` | −3.2 | −6.0 |
+| `w_aggr` | 20 | 0 |
 
-Because `w_aggr` is 0 for WAXS, the `aggregation` flag is disabled entirely on
-WAXS — it is never raised and never costs points. So the same curve can score
-differently on the two detectors, and a WAXS profile will never be marked as
-aggregating.
+With `w_aggr` = 0, WAXS profiles are never flagged for aggregation. Parameters
+you set in the UI apply to both detectors and replace these defaults.
 
-Everything else (`score_pass`, `w_neg`, `w_snr`, `w_cov`, `w_spike`,
-`w_featureless`, negatives, coverage and spike thresholds) is shared.
+### Verdict order
+A user override wins, then an LLM verdict for a borderline profile, then the
+threshold.
 
-## Tunable scoring + AI refine
+## 5. Troubleshooting
 
-Every scoring weight and threshold is editable in the UI (the "🎚 Scoring
-parameters" panel). Changes re-score all cached profiles instantly (from stored
-metrics, no file re-read) and are saved to `quality_config.json` in the project
-folder so they persist and are shareable. "Refine with AI" asks the model to
-suggest weight adjustments from the profiles you've overridden (labeled good/bad)
-and shows them for you to Apply. The detail pane also has "Re-grade this profile
-with AI" to force a full LLM judgment on a single profile.
+| Symptom | Cause and fix |
+|---|---|
+| Good-looking profile marked bad | Look at the flags. `featureless` (55 points) is the usual cause for weak or flat curves; `low_snr` for short exposures. Override, or tune the parameters. |
+| Every WAXS profile graded like SAXS | The path has no `WAXS` token or folder. Use the standard `1D/WAXS/Subtracted/` layout. |
+| Rejected profiles still analysed | The reader uses the flat `Subtracted/` folder; point it at `Subtracted/Good/`. |
+| LLM notes never appear | No `ANTHROPIC_API_KEY`, the checkbox is off, or no score is within ±10 of the threshold. |
+| "Refine with AI" returns nothing | Needs an API key and at least 3 overrides with both verdicts. |
+| Banner: saved parameters could not be read | `quality_config.json` is unreadable, so defaults are in use. Set the parameters again. |
 
-## Interaction
+## 6. API routes
 
-- Threshold slider re-labels instantly (no recompute). One-click overrides
-  (good/bad + note) are logged and gently **adapt the threshold** toward the
-  user's judgment.
-- Exports a QC summary CSV and an accepted-profiles list to
-  `1D/SAXS/Results/QualityReports/` — moved here (from a bare `1D/QualityReports/`)
-  so everything the platform keeps after the fact lives under `Results/`,
-  alongside the analyzer's `Fit/` records and campaign figures.
+| Route | Method | Purpose |
+|---|---|---|
+| `/api/health` | GET | Health and good/bad/graded counts |
+| `/api/set_project`, `/api/project` | POST / GET | Project root from the hub |
+| `/api/browse` | GET | Folder browser |
+| `/api/grade` | POST | Grade folders once |
+| `/api/results` | GET | All graded records |
+| `/api/profile` | GET | One profile's curve and record |
+| `/api/threshold` | POST | Set the pass threshold |
+| `/api/override` | POST | Manual good/bad override |
+| `/api/params`, `/api/params/reset` | GET, POST / POST | Scoring parameters |
+| `/api/llm_grade` | POST | Force an LLM re-grade of one profile |
+| `/api/refine_ai` | POST | LLM-suggested parameters (not applied) |
+| `/api/report` | GET | Write and return the QC report |
+| `/api/monitor/start`, `/api/monitor/stop` | POST | Watch the folders |
+| `/api/monitor/status`, `/api/monitor/stream` | GET | Monitor state, log (SSE) |
+| `/api/restart_notice` | GET | Restored/lost parameters banner |

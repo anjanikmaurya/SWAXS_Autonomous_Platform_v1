@@ -1,9 +1,10 @@
 # Beamline testing runbook (Windows / conda)
 
-Test the SPEC beamline link — temperature, counters, shutter, and 2D data
-collection — in isolation, **before** running the whole autonomous flow. Each
-tool uses the same driver the reactor app uses, so what you verify here is
-exactly what the app will do. All five are **safe by default**: reads send
+**What this is for.** Testing the SPEC beamline link (temperature, counters,
+shutter, 2D data collection) on its own, **before** running the autonomous loop,
+at the start of each beamtime or after anything on the beamline side changes. Each
+tool uses the same driver as the Autonomous Synthesis app, so what you verify here
+is what the app will do. All five are **safe by default**: reads send
 nothing, temperature / shutter / collection are confirmation-gated, and
 collection is dry-run unless you pass `--fire`.
 
@@ -37,18 +38,20 @@ cd C:\path\to\SWAXS_Autonomous_Platform_v1
 > remote control and fire `ct`. SPEC is single-threaded, so running a tool *and*
 > the reactor app against the **real** backend simultaneously makes them fight
 > over control and muddies the readings. While script-testing on real hardware,
-> **stop the reactor app** (or switch it to the **Simulation** mode) so the script is
-> the sole SPEC client. Reopen / switch back to Real when you're done.
+> **stop the reactor app** (or switch it to **Simulation**) so the script is the
+> sole SPEC client. Restart it, or switch back to **Hardware**, when you are done.
 > (`beamline_epics_test.py` is the exception — it never touches SPEC, so it can run
 > alongside the app.)
 
-Run every tool with `python` (not `uv`) and Windows backslash paths, e.g.:
+Run every tool with `python` from the activated environment, with Windows
+backslash paths, e.g.:
 ```bat
 python tools\beamline_read_test.py --mock
 ```
 
-Add `--mock` to any tool to dry-run against the simulator with no hardware —
-do this once first to confirm the tools launch in your env.
+Add `--mock` to dry-run against the simulator with no hardware (every tool except
+`beamline_epics_test.py`). Do this once first to confirm the tools launch in your
+environment.
 
 ### Point the tools at your SPEC bServer
 
@@ -121,8 +124,7 @@ python tools\beamline_read_test.py --count 1       :: single read then exit
     read_refresh_cmd: "ct 0.1"   # or your shutter-free query macro; "" = no refresh
   ```
 - **Check:** with the refresh, `CTEMP` matches the number on the temperature
-  controller and bstop/I₀ move. (This mirrors the group's own
-  `MSD.execute_and_read_count`, which also `ct`s before reading.)
+  controller and bstop/I₀ move.
 - **Shutter:** `ct` obeys `sauto`. To poll temperature during a long ramp WITHOUT
   exposing the sample, run `sauto off` first — the collection macro opens/closes
   the shutter itself (`sopen`/`sclose`), so collection still works with `sauto off`.
@@ -138,10 +140,8 @@ python tools\beamline_read_test.py --count 1       :: single read then exit
 ## 2. Reads from EPICS — the fix for the collection blackout (safe, sends nothing)
 
 With `read_source: "spec"` (the shipped default) the live monitors go dark for the
-whole of every acquisition. A collection holds the SPEC lock for its duration and
-counter reads are deliberately non-blocking (`src/beamline/driver.py`
-`read_state`/`read_counters`), so temperature / i0 / bstop stop updating from the
-first frame to the last: with `exposure_s: 10` and `frames: 10` that is **100 s
+whole of every acquisition. A collection holds the SPEC link for its duration, so
+temperature / i0 / bstop stop updating from the first frame to the last: with `exposure_s: 10` and `frames: 10` that is **100 s
 per acquisition with no fresh temperature**, and for that window the
 over-temperature interlock has nothing to compare against. The app logs this once
 per run instead of raising a sensor fault.
@@ -218,9 +218,8 @@ is fine.
 
 > ⚠ **Do not pass `Singlesnapshot.template.txt` in `commands` mode.** That is the
 > `qdo` variant: it sets SPEC variables (`sample = "…"`, `n_images = …`) and wraps
-> its real work in `eval(sprintf(...))`, and neither runs reliably through the
-> interactive `execute_command` path (`src/beamline/driver.py` `_do_collect`, and
-> the flat macro's own header). Streamed line by line, the plain commands `sopen`
+> its real work in `eval(sprintf(...))`, and neither runs reliably when the macro
+> is streamed through the bServer. Streamed line by line, the plain commands `sopen`
 > and `sclose` still fire while `newfile` / `pd savepath` / the `loopscan` inside
 > the `eval` may not — X-rays on the sample with the frames unsaved or written to
 > whatever path SPEC was last pointed at. Use the flat macro; `qdo` mode is the
@@ -262,10 +261,13 @@ SPEC creates the files.)
 ## 6. Once they all pass
 
 Set the confirmed values in `reactor\config.yml` → `spec:` (`read_source` and
-either `epics_pvs` or the counter names, `macro_file` — the **flat** one for
-`commands` mode, `data_dir`, exposure/frames), then start the reactor app and use
-the **Data collection** card + **📷 Collect now** button to repeat step 5 from the
-UI. After that you're ready to run the full loop.
+either `epics_pvs` or the counter names, `macro_file` (the **flat** one for
+`commands` mode), `data_dir`, exposure/frames). Then start the Autonomous Synthesis
+app on **Hardware**, press **Run all checks** on the **Hardware test** tab, and use
+**Collect now** (Hardware test, step 3) to repeat step 5 from the app. Exposure,
+frames and the save folder are on **Autonomous setup → 3 · Data collection**. After
+that you are ready to run the full loop
+([docs/AUTONOMOUS_RUN_STEPS.md](../docs/AUTONOMOUS_RUN_STEPS.md)).
 
 ## Safety recap
 - Reads never send commands (both the SPEC and the EPICS read tools).

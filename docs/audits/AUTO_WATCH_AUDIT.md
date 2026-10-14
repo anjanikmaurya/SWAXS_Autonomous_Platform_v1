@@ -1,5 +1,12 @@
 # Auto Watch (watchdog) — audit
 
+> **Audit status: complete.** Run 2026-09-11. 25 findings (W1 to W25):
+> **14 fixed** (W1 to W10, W13, W16, W24, W25; W10 later, by mapping
+> `average.skipped` / `file.skipped` to the `campaign` category), **11 open**
+> (W11, W12, W14, W15, W17 to W23; W19 half fixed). Open items are tracked in
+> [OPEN_DEFECTS.md](OPEN_DEFECTS.md). The text below is the original audit and
+> is not updated.
+
 Date: 2026-09-11. Scope: `watchdog/app.py`, `watchdog/config.yml`,
 `watchdog/templates/index.html`, `src/watchdog/{policy,settings,transport,messages,expectations,probes,diagnose}.py`,
 and the app's entry in `apps.yml`. Read at commit `0b9e772`, including the

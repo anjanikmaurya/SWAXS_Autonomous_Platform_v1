@@ -1,5 +1,11 @@
 # Assistant (Guinier) app — audit (September 2026)
 
+> **Audit status: complete.** Two passes, September 2026 (second pass
+> 2026-09-24). 10 findings (A1 to A10): **6 fixed** (A1, A2, A3, A6, A7, A8),
+> A4 accepted (run_python is a guard, human-gated), A10 by design, **A9 open**
+> (LOW). Open items are tracked in [OPEN_DEFECTS.md](OPEN_DEFECTS.md). The text
+> below is the original audit and is not updated.
+
 Scope: `assistant/app.py` (11 routes) and all of `src/ai/` — `assistant.py`
 (19 tools, the chat loop, secret loading), `code_exec.py` (run_python sandbox),
 `knowledge.py`, `memory.py`, `plots.py`, `hints.py`, `loop_advice.py`.

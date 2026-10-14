@@ -1,226 +1,171 @@
-# Visualisation & Average App — Knowledge Base
+# Visualisation & Average App: Knowledge Base
 
-Displayed in the hub as **Visualisation & Average**. Folder, app id and log name
-are all `average` (`average/app.py`, `apps.yml` id `average`). This app was
-called `viewer` before September 2026, so older logs and `.swaxs_state` files
-may still use that name.
+## 1. What it is for
 
-## Purpose
-The Visualisation & Average app (port 5103) displays, selects, and averages 1D scattering curves
-produced by the Reduction app. It groups frames by keyword, lets users pick which
-frames to include, and writes averaged curves as `.dat` files. It also previews
-raw 2D detector images and runs an auto-averaging monitor for unattended runs.
+The Visualisation & Average app (port 5103, folder and app id `average`) lets you:
 
-## Workflow
+- view raw 2D detector images (`.raw`), optionally on q axes;
+- plot reduced 1D curves, grouped by sample keyword, and their per-scan metadata;
+- average the 1D frames of each sample into one `.dat` per sample;
+- run **Auto-Average**, a folder monitor that averages rolling batches of N frames
+  for unattended and autonomous runs.
 
-### 1. Load Reduced Files
-- Reads `.dat` files from `<project>/1D/SAXS/Reduction/` and
-  `<project>/1D/WAXS/Reduction/` (any folder can be browsed).
-- Groups files by a keyword derived from the **FILENAME**, not from any metadata
-  field. `read_folder` (`src/plot_reduction.py`) takes the part of the name before
-  the trailing `_NNNN` scan index (with an optional `_DET` suffix), then strips any
-  `_<N>files` / `_Average` / `_Avg` label. Examples:
-  - `BSA_10mg_0007_SAXS.dat` → keyword `BSA_10mg`, scan_idx 7
-  - `BSA_10mg_12files_Average.dat` → keyword `BSA_10mg`, scan_idx 0
-  There is no `keyword` field in the `.dat` footer; grouping is purely filename-based.
-- When explicit keywords are supplied to `average_and_save`, files are grouped by
-  the LONGEST supplied keyword that appears in the filename, so a partial keyword
-  collects all its files into one group instead of one group per file.
+Older logs and `.swaxs_state` files may still call this app `viewer`.
 
-### 2. Display Curves
-- Plots all curves for a keyword on a shared log-log axis (axis mode selectable).
-- Colour-coded per frame, legend shows the filename.
-- Sigma (error) bars rendered as a shaded band, toggleable.
+## 2. Where it sits in the pipeline
 
-### 3. Frame Selection
-Users select which frames to average by clicking individual frames to toggle
-include/exclude. There are no `a` / `n` (select all / select none) keyboard
-shortcuts — the only keydown handlers in this app's UI are Enter in the
-keyword-entry box and Escape to close a popup.
+Reduction (5102) → **Visualisation & Average (5103)** → Background (5104).
 
-### 4. Averaging
-Frames in a group are interpolated onto a common **log-spaced** q grid
-(`np.geomspace` over the overlap of all files, `n_pts` points, default 1000) and
-the interpolation itself is done in LOG space in both q and I:
-
-```
-I_i(q_grid) = exp( interp( ln q_grid, ln q_i, ln I_i ) )
-```
-
-Points with q ≤ 0 or I ≤ 0 are dropped per file; a file with fewer than 3 valid
-points is skipped entirely. If two files have no overlapping q range at all, the
-group is skipped with a warning.
-
-The average and its uncertainty are:
-
-```
-I_avg(q) = mean(I_i(q))                       over the n files that CONTRIBUTED
-σ_avg(q) = sqrt( Σ σ_i(q)² ) / n
-```
-
-σ is the **propagation of the per-point errors** already present in each file, not
-the sample standard deviation of the frames. It does not measure frame-to-frame
-scatter, so it will not grow if the frames disagree. `n` counts only the files
-that actually contributed, so skipped frames never inflate the denominator (which
-would bias I low and σ small).
-
-There is no I₀-**weighted** averaging — every contributing frame gets equal
-weight.
-
-### 4b. I₀ Outlier Rejection
-What does exist is I₀-based frame REJECTION, controlled by `i0_filter_pct`
-(0 = off). Before averaging, the `i0` value is read from each frame's metadata,
-the group median is taken, and any frame deviating from that median by more than
-`i0_filter_pct` percent is discarded. Frames with no usable `i0` value are kept.
-
-In the UI this is the "🔬 I0 Frame Filter" card: a "Filter frames by I0
-stability" checkbox plus a percent threshold (default 20). It applies to both
-plotting and averaging.
-
-### 5. Stitch SAXS+WAXS checkbox
-The "Stitch SAXS+WAXS" checkbox on the Averaged tab is a **DISPLAY toggle only**:
-checked draws SAXS and WAXS averaged curves on one shared Plotly axis, unchecked
-draws them in two side-by-side panels. There is no overlap detection, no scale
-factor is computed, nothing is rescaled, and no merged file is written.
-
-### 6. Output
-Averaged files go to `output_dir`, defaulting to a sibling `Averaged/` folder next
-to the input folder (so `1D/SAXS/Reduction/` → `1D/SAXS/Averaged/`). The name is:
-
-```
-<keyword>_<N>files_<label_suffix>.dat
-```
-
-with `label_suffix` defaulting to `Average` and `N` the number of frames that
-actually contributed. Examples:
-- `<project>/1D/SAXS/Averaged/BSA_10mg_12files_Average.dat`
-- `<project>/1D/WAXS/Averaged/BSA_10mg_12files_Average.dat`
-
-The auto-averaging monitor uses a batch name instead:
-`<keyword>_batch<NNN>_<N>files_<label_suffix>.dat`.
-
-Writes are atomic — the file is written as `<name>.dat.part` and renamed — so a
-downstream watcher never consumes a truncated average.
-
-### 7. Auto-averaging monitor
-`/api/monitor/start` runs a background thread that polls the Reduction folders and
-averages rolling batches of `frames_per_average` consecutive frames per group via
-`average_batch`. It emits a `file.averaged` bus event
-(`file_path`, `keyword`, `n_files`, `detector`) and writes a
-`stage: "averaged"` entry to `manifest.json` for each batch. Progress and
-"waiting for N more frames" messages stream over `/api/monitor/stream` (SSE).
-`/api/monitor/status` reports the state of the THREAD, not just a flag, so a dead
-worker cannot read as healthy.
-
-## Common Issues
-
-### Frames Don't Overlay Well
-Causes:
-- Radiation damage — later frames drift upward at low q
-- Beam glitch — single-frame I₀ spike
-- Sample settling — first 1–2 frames differ before steady state
-
-Action: exclude outlier frames, or turn on the I₀ Frame Filter to reject frames
-whose I₀ deviates from the group median.
-
-### "batch N dropped — …" in the auto-averaging log
-
-A full batch arrived and no average came out. The message names the reason
-(`diagnose_unusable` in `src/plot_reduction.py`); the common ones are:
-
-| Reason | What it means |
+| Reads | Writes |
 |---|---|
-| `N× I ≤ 0 at every q` | the frames integrate to zero — the 2D input was blank/dark for this condition, or normalization drove I non-positive |
-| `N× sigma is NaN/inf` | intensity is fine, the error column is not — check `error_model` and the mask |
-| `N× the file has no data rows` | reduction wrote a `.dat` with no points at all |
-| `no overlapping q range` | two detectors or two `radial_range` settings mixed into one group |
+| `<project>/1D/SAXS/Reduction/*.dat`, `<project>/1D/WAXS/Reduction/*.dat` | `<project>/1D/<DET>/Averaged/*.dat` (sibling `Averaged/` of the input folder by default) |
+| `<project>/2D/SAXS/*.raw`, `<project>/2D/WAXS/*.raw` (2D Viewer) | `<raw folder>/Saved_2D/*.png` + `.svg` (2D image saves) |
 
-**The batch is consumed and will not be retried.** That is deliberate — the
-`.dat` files are static on disk, so a retry would fail identically every poll
-forever — but it does mean that condition will never produce an averaged, and
-therefore never a subtracted, profile. An `average.skipped` event goes on the
-bus so the background app is not left waiting and Autonomous Watch can report the
-reason (Pattern H) instead of "go read the average app's log".
+Every averaged file gets a `files` entry with `stage: "averaged"` in the manifest
+and a `file.averaged` bus event (`file_path`, `keyword`, `n_files`, `detector`).
+Folder fields auto-fill from the hub project and every one has a **Browse…** button.
 
-A frame that fails the validity check is excluded from the batch, not averaged
-in as zero: nine good frames plus one dark one give an average of the nine,
-with `Files averaged: 9` in the header. Before September 2026 the shared q grid
-was built *before* that check, so one empty `.dat` discarded the whole batch.
+## 3. How to use it
 
-### "No overlapping q range across files"
-Raised by `_common_q_grid` when the largest q_min is at or above the smallest
-q_max — usually a SAXS file mixed into a WAXS group, or a frame integrated with a
-different `radial_range`. The group is skipped rather than averaged.
+The left bar has three modes: **2D Viewer**, **1D Viewer**, **Auto-Average**.
 
-### Poor Statistics at High q
-Symptom: averaged curve becomes noisy (σ/I > 0.3) before the detector q_max.
-Action: truncate at a lower q_max before passing to the analysis app. The
-"✂ Truncate saved q-range" card applies `[q_min, q_max]` (nm⁻¹) to the saved file;
-if the range would keep fewer than 2 points it is ignored with a warning.
+### 2D Viewer (tabs: Setup, SAXS Image, WAXS Image)
+1. **Setup**: set the SAXS/WAXS raw folders, then **Load SAXS files**,
+   **Load WAXS files** or **Load both**. Check **Detector size (pixels)**
+   (defaults SAXS 1043 × 981, WAXS 195 × 487; files are read as int32).
+2. Optional **q-space calibration**: give a `.poni` per detector to show the image
+   on qx/qy axes (nm⁻¹); blank = pixel axes.
+3. **Display options**: Colormap (Viridis default), Intensity scale (Log₁₀ default
+   or Linear), Contrast clip % (default 2%, clips that % of darkest and brightest
+   pixels).
+4. On the image tabs: filter filenames, step with **Prev** / **Next**, then
+   **Save: Current image** or **Average all N filtered** (pixel-by-pixel mean of
+   the filtered frames). Both write PNG + SVG to `<raw folder>/Saved_2D/`.
 
-### Negative Averaged Intensities
-Happens if individual frames have negative I (noise floor). Normal at high q for
-well-background-subtracted data. Background subtraction is applied AFTER
-averaging, not before.
+### 1D Viewer (tabs: Setup, SAXS 1D, WAXS 1D, Metadata, Averaged)
+1. **Setup → Reduced data folders**: SAXS Reduction folder, WAXS Reduction folder
+   (leave one blank to skip that detector), Output folder (blank = sibling
+   `Averaged/` of each input folder).
+2. **Keywords (sample IDs)**: type one and **+ Add**, or **Paste list…**
+   (one per line). A keyword is any text in the filename. Reactor loop files are
+   `<recipe_id>_sample` / `<recipe_id>_bkg`; add a `…_sample` keyword to average
+   only samples. **Discover sample IDs** helps: **Trim start** / **Trim end**
+   drop tokens (default trim end 1, separator `_`), **Contains** filters, then
+   **Scan folders** and add the prefixes you want.
+3. **Display options**: q min / q max and unit (nm⁻¹ or Å⁻¹) for the plot,
+   Axis scale (Log-log, Semilog, Linear), Max scans per keyword (50),
+   Display points (300 per curve), Error bands.
+4. Optional **I0 frame filter** and **Truncate saved q-range** (section 4).
+5. **Actions**: **Scan files** (counts matching files), **Load & plot**, then
+   **∑ Average & save**. The app switches to the **Averaged** tab.
+6. **SAXS 1D / WAXS 1D**: individual scans per keyword. Clicking a curve offers
+   **Hide this curve**; **Restore all** brings hidden curves back. Hiding is
+   display only: hidden curves are still included in **Average & save**. To
+   exclude frames from an average, use the I0 filter or a narrower keyword.
+7. **Metadata**: one card per numeric metadata field vs scan index (or a time
+   field, chosen in **X-axis**).
+8. **Averaged**: the saved averages. **Combine SAXS + WAXS** is a display toggle
+   only: checked draws SAXS and WAXS on one shared axis, unchecked draws them
+   side by side. Nothing is fitted, rescaled or merged, and no file is written.
 
-## Data Format Reference
+### Auto-Average (the monitor)
+1. Set the SAXS/WAXS **Reduction folders** and optionally an **Output folder**
+   (blank = each detector's `Averaged/`; prefer blank, because one shared folder
+   gets SAXS and WAXS batches with the same filename).
+2. **Averaging options**: **Frames per average (N)** (default 30), **Check
+   interval (seconds)** (default 3), **Keywords** (comma-separated, blank = all
+   samples), **I0 filter %** (0 = off).
+3. Optional **Truncate saved q-range**.
+4. **Start auto-averaging** / **Stop**. The log below streams progress, e.g.
+   `kw [saxs]: 12/30 frames, waiting for 18 more`.
 
-### Input (reduction output)
-Reduction `.dat` files carry pyFAI's own multi-line `#` header, three numeric
-columns (q in the configured unit — nm⁻¹ by default, I, σ), and a
-`# METADATA INFORMATION (YML FORMAT)` footer holding the raw beamline metadata.
-There is no `keyword`, `detector` or `transmission` line in that footer;
-computed corrections live in `manifest.json`, not in the file.
+Each poll groups frames by keyword and averages every full block of N
+not-yet-used frames (ordered by scan index); each frame is used in exactly one
+batch. Reactor loop files are grouped by `{recipe_id}_{role}`
+(`src/loop_naming.py`), so sample and background of a condition are averaged
+separately and need no keywords. **Set N to at most the frames per acquisition**
+(`spec.frames` in the reactor config): a group never larger than N never
+completes. The app warns at start if N is larger.
 
-### Output (averaged files)
-Averaged files have a LEADING header, then the data, then a metadata footer:
-```
-# Averaged SAXS/WAXS data — keyword: BSA_10mg
-# Files averaged: 12
-# Columns: q_nm-1  I  sigma
-1.23400000e-02  1.23000000e-02  5.60000000e-04
-...
-# METADATA INFORMATION
-# i0: 123456.7
-# ...
-```
-The footer metadata is **aggregated across the contributing frames**: each
-numeric key is the MEDIAN of that key over those frames; non-numeric (string)
-values carry the first value seen. So a single `i0` line in an averaged file is
-the median I₀ of the batch, not any one frame's reading.
+Settings and progress persist in `.swaxs_state/`; after a restart the last
+settings are shown (with a banner) and, if the resume policy allows, the
+monitor resumes without re-averaging frames already used.
 
-`read_dat_data_metadata` in `src/utils/read_dat_metadata.py` parses both the
-numeric columns and the metadata block of either format.
+## 4. Settings, defaults and the maths
 
-## Uncertainty σ(q) — how averaging propagates it
+### Grouping (filename only)
+The keyword comes from the filename, not the footer (`keyword_and_index` in
+`src/plot_reduction.py`): the trailing `_NNNN` scan index (optional `_DET`
+suffix) is removed, then any `_<N>files_Average` / `_Average` / `_Avg` label.
+`BSA_10mg_0007_SAXS.dat` → keyword `BSA_10mg`, scan_idx 7. With explicit keywords,
+each file joins the LONGEST keyword it contains, so a partial keyword collects
+all its files into one group.
 
-**One line:** the averaged σ is the unweighted-mean rule
-`σ_out = √(Σσᵢ²) / n` (`src/plot_reduction.py::_average_group`), which for equal
-σ correctly collapses to `σ/√n`.
+### Averaging
+- Frames are interpolated onto a common log-spaced grid (`np.geomspace` over the
+  q overlap of all frames, 1000 points), in log space for both q and I:
+  `I_i(q) = exp(interp(ln q, ln q_i, ln I_i))`.
+- Points with q ≤ 0, I ≤ 0 or non-finite I/σ are dropped per frame; a frame with
+  fewer than 3 valid points is skipped. A one-frame group is written as is.
+- `I_avg = mean(I_i)`, `σ_avg = sqrt(Σ σ_i²) / n`, with n = frames that actually
+  contributed. Equal weight per frame (no I0 or inverse-variance weighting, see
+  **D4** in `docs/audits/OPEN_DEFECTS.md`). σ propagates the per-point errors; it
+  is not the frame-to-frame scatter.
 
-Two details this gets right and that are easy to get wrong: `n` counts only the
-frames that actually contributed — frames dropped by the I₀-outlier filter or for
-having <3 valid points are excluded from both the sum and the denominator, so a
-skipped frame cannot bias I low and σ artificially small — and a single-frame
-group passes σ straight through with no spurious `/√1`.
+### I0 frame filter
+`i0_filter_pct` (UI default 20% when enabled, 0 = off): frames whose `i0`
+deviates from the group (or batch) median by more than that percent are dropped
+before averaging, and from the plots. Frames without a usable `i0` are kept.
 
-Three approximations to know about:
+### Truncate saved q-range
+Cuts the saved average to `[q-min, q-max]` (nm⁻¹, either bound optional). If
+fewer than 2 points would remain, the cut is ignored with a warning.
 
-1. **The average is unweighted.** Frames with different σ (different exposure,
-   different I₀, partial radiation damage) all count equally, where
-   inverse-variance weighting `I = Σ(Iᵢ/σᵢ²) / Σ(1/σᵢ²)` would be optimal.
-   Tracked as **D4** in `docs/audits/OPEN_DEFECTS.md`.
-2. **σ is interpolated in log-space** onto the common q grid, an approximation to
-   the exact rule `σ_new² = (1−t)²σ₁² + t²σ₂²` — closer to correct than the two
-   usual shortcuts, but an approximation.
-3. **Interpolation correlates neighbouring q-points** and nothing downstream
-   accounts for it, so fitted uncertainties on Rg, size and the invariants are
-   probably tighter than they should be.
+### Output files
+- Manual: `<keyword>_<N>files_Average.dat`, N = frames that contributed.
+- Monitor: `<keyword>_batch<NNN>_<N>files_Average.dat`, N = batch size (the header
+  `# Files averaged:` gives the frames actually used).
+- Written atomically (`.part`, then rename), so watchers never read half a file.
+- Layout: header lines `# Averaged SAXS/WAXS data, keyword: …`,
+  `# Files averaged: N`, `# Columns: q_nm-1  I  sigma`, then data, then
+  `# METADATA INFORMATION` with each numeric key the MEDIAN over the contributing
+  frames (strings: first value). So `i0` in an average is the batch median.
+- Input reduction files: pyFAI header, q (configured unit, nm⁻¹ default), I, σ,
+  and a `# METADATA INFORMATION (YML FORMAT)` footer with raw beamline metadata.
+  Both formats are read by `src/utils/read_dat_metadata.py`.
 
-Full stage-by-stage treatment: **`docs/ERROR_PROPAGATION.md` §3**.
-Further reading: Gardner, *J. Res. NIST* **108**(1), 69–78, 2003 — σ through
-interpolation and the induced correlation (<https://doi.org/10.6028/jres.108.008>);
-Pauw, "Everything SAXS", 2013, § rebinning
-(<https://doi.org/10.1088/0953-8984/25/38/383201>).
+### Uncertainty caveats
+σ is log-interpolated onto the grid (an approximation), and interpolation
+correlates neighbouring q points, so downstream fit errors are probably slightly
+too small. Details: `docs/ERROR_PROPAGATION.md` §3.
 
-src/ imports: see CLAUDE.md.
+## 5. Troubleshooting
+
+| Symptom | Cause and fix |
+|---|---|
+| Frames do not overlay | Radiation damage (low-q drift), beam glitch, sample settling. Enable the I0 frame filter or use a narrower keyword. |
+| "No overlapping q range across files" | A SAXS file in a WAXS group, or frames reduced with different `radial_range`. The group is skipped. |
+| Auto-Average log stays at "x/N frames, waiting" | N is larger than the frames one acquisition produces. Lower N. |
+| `batch N dropped, …` in the log | The batch had no usable frames. Reasons: `I ≤ 0 at every q` (blank/dark input or bad normalization), `sigma is NaN/inf` (check `error_model`, mask), `the file has no data rows`, `no overlapping q range`. The batch is consumed and not retried, so that condition never gets an average (or a subtracted profile). An `average.skipped` bus event lets Autonomous Watch report the reason. |
+| One bad frame in a batch | It is excluded, not averaged as zero: 9 good + 1 dark gives the mean of 9 (`Files averaged: 9`). |
+| Noisy average at high q (σ/I > 0.3) | Use **Truncate saved q-range** with a lower q-max. |
+| Missing points at high q | Points with I ≤ 0 are dropped before averaging. Normal near the noise floor. |
+| Hidden curve still in the average | Hiding is display only (see 3.6). |
+
+## 6. API routes
+
+| Route | Method | Purpose |
+|---|---|---|
+| `/api/health` | GET | Health check |
+| `/api/set_project`, `/api/project` | POST / GET | Project root from the hub |
+| `/api/browse` | GET | Folder browser |
+| `/api/discover-keywords` | POST | Unique filename prefixes with counts |
+| `/api/scan` | POST | Count files per keyword |
+| `/api/load` | POST | Load curves for plotting (I0 filter applied) |
+| `/api/average` | POST | Average and save per keyword |
+| `/api/monitor/start`, `/api/monitor/stop` | POST | Auto-Average monitor |
+| `/api/monitor/status` | GET | Thread state, batches, waiting groups (`gate`) |
+| `/api/monitor/stream` | GET | Monitor log (SSE) |
+| `/api/restart_notice` | GET | Settings-restored banner |
+| `/api/list-raw`, `/api/raw-image` | GET | List and render `.raw` images |
+| `/api/save-image`, `/api/save-average` | POST | Save current / pixel-averaged 2D image |

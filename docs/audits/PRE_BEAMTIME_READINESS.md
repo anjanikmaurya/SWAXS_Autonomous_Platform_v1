@@ -1,139 +1,123 @@
-# Pre-beamtime readiness checklist — autonomous reactor + beamline
+# Pre-beamtime readiness: go / no-go checklist
 
-Verification that every decision made during development is implemented and covered.
-Test suite: `python -m pytest -q` — run it and expect zero failures.
+**What this is for.** The last check before an autonomous reactor run at the
+beamline. Work through it top to bottom at the start of every beamtime; every item
+is something that has, at some point, made a run silently go nowhere or put the rig
+in an unsafe state. The step-by-step procedure is in
+[../AUTONOMOUS_RUN_STEPS.md](../AUTONOMOUS_RUN_STEPS.md); the beamline bench tests are
+in [../../tools/BEAMLINE_TESTING.md](../../tools/BEAMLINE_TESTING.md).
 
-## Bench-validated on the rig (this beamtime)
+Software check first: `python -m pytest -q` in the platform folder should report
+zero failures.
 
-- [x] Counter reads live (CTEMP / bstop / I0) via `ct 0.1` refresh — `beamline_read_test.py`
-- [x] Temperature set + readback (`csettemp`) — `beamline_temp_test.py`
-- [x] Shutter open/close (`sopen`/`sclose`) — `beamline_shutter_test.py`
-- [x] 2D collection end-to-end (flat macro, commands mode) — `beamline_collect_test.py --fire`
+---
 
-## Safety (staff hand-back + no interruption)
+## 1. Beamline link (bench tests, reactor app stopped)
 
-| Decision | Implemented | Test |
-|---|---|---|
-| Stop / E-stop act on PUMPS ONLY; beamline untouched | `controller.estop()` sends nothing to SPEC | `test_estop_is_pumps_only_leaves_beamline_untouched` |
-| Never interrupt an in-progress collection | hard RLock; `collect` holds it whole acquisition | `test_collection_blocks_commands_and_reads_skip` |
-| Live reads stay responsive during collection | `read_state` non-blocking try-lock → `{}` | same test |
-| Optional read-during-collect | `read_during_collect` flag | `test_read_during_collect_keeps_polling` |
-| Auto-acquire SPEC remote control before commands | `SpecBeamline._ensure_control` | (real-path) |
-| Release control + close shutter + idle pumps on exit | `controller.shutdown()`, wired to **both** `atexit` and SIGTERM/SIGINT in the app | `test_reactor_hands_the_rig_back_on_sigterm` |
-| No config changes / motor moves / beamline file writes | only csettemp/ct/sopen/sclose/collect macro | `BEAMLINE_SAFETY_AUDIT.md` |
-| Pipeline apps never touch the bServer | `make_beamline` only in reactor + tools | grep-verified |
+- [ ] Counter reads live (CTEMP / bstop / I₀ with the `ct 0.1` refresh): `beamline_read_test.py`
+- [ ] If using EPICS reads: the PVs answer and move: `beamline_epics_test.py`
+- [ ] Temperature set and readback (`csettemp`): `beamline_temp_test.py`
+- [ ] Shutter opens and closes (`sopen` / `sclose`): `beamline_shutter_test.py`
+- [ ] One 2D collection end to end (flat macro, `commands` mode): `beamline_collect_test.py --fire`
 
-## Autonomous run
+## 2. `reactor/config.yml`
 
-| Decision | Implemented | Test |
-|---|---|---|
-| Arming: temperature / timed (no ramp mode; `ramp` is rejected at intake) | `_arm_mode` | `test_reactor_fires…` (timed) |
-| Temperature set before pumps, gates start | arming sends `csettemp`, waits | code-verified |
-| Sample shot at run_end − lead; background at flush_end − lead | run loop `_spec_fired`/`_bkg_fired` | `test_reactor_fires_sample_then_background_tagged` |
-| recipe_id filename tagging (`<id>_sample` / `<id>_bkg`) | `_fire_spec_collection` | same test |
-| Manual "Collect now" (idle only, refuses during run) | `collect_now()` | `test_collect_now_manual_and_guarded` |
-| Simulation \| Hardware toggle (API `mock`/`real`) covers pumps AND beamline | `switch_backend` rebuilds both + rewires temp | `test_backend_switch_covers_pumps_and_beamline` |
-| SPEC can be disabled | `spec.enabled` | `test_spec_can_be_disabled` |
-| Flat macro streamed as action commands (commands mode) | `macro_command_lines` + wait between lines | `test_commands_mode_streams_lines_no_file`, `test_commands_mode_splits_macro_into_spec_lines` |
-| data_dir defaults from hub folder; editable in UI | `default_data_dir` + Data-collection field | code-verified |
-| Live plot: temp 2 dp, bstop/I0 4 dp, 📷 markers | `index.html` | code-verified |
-
-## Pump safety (from earlier audit)
-
-- [x] E-stop idles every pump with per-pump guards (one failure can't block the rest)
-- [x] Lost/hung pump detected during tick
-- [x] Exact serial matching — refuses on missing/ambiguous port (no wrong-pump)
-
-## Before you press "Run autonomously"
-
-0. **The Simulation | Hardware toggle covers pumps AND beamline.** Switching it
-   rebuilds both (`switch_backend` forces `spec.backend` to the same value, also
-   at startup, where `SWAXS_REACTOR_BACKEND` decides, default `mock`). The switch
-   is session-only, so after an app restart check the toggle again.
-1. Backend toggle = **Hardware** (pumps + beamline), then **Run all checks** on the
-   Hardware test tab (read only) and fix any line marked ✗.
-2. `reactor/config.yml` spec: `temp_counter: CTEMP`, `read_refresh_cmd: "ct 0.1"`,
+1. **Every pump's `sensor_min` is the installed sensor's real floor, not 0.** It
+   ships as `0.0`, which would disable the "nonzero setpoint below the minimum is
+   rejected" check. The app refuses to open the pump ports on Hardware in that
+   state; put the real floors in, do not zero them to get past it.
+2. **`spec.simulator.enabled: false`.** It ships `true`. It has no effect on the
+   Hardware backend, but synthetic frames look entirely real, so turn it off.
+3. **spec block:** `temp_counter: CTEMP`, `read_refresh_cmd: "ct 0.1"`,
    `collect_mode: commands`, `macro_file: …flat.template.txt`, `data_dir` = the SPEC
-   `/msd_data/...` folder.
-3. **`sauto off` in SPEC.** Not optional, and promoted out of a parenthesis
-   because it is a dose decision. `read_refresh_cmd` is `ct 0.1`, which obeys
-   `sauto` and may open the fast shutter, and it ships running **on every
-   read** — ~86,400 counts a day on whatever is in the beam, between runs
-   included. That cadence is deliberate: it is what makes the temperature /
-   bstop / I₀ trace genuinely live at 1 Hz instead of a staircase, because
-   with `read_source: "spec"` the counters only move when a count runs. So
-   `sauto off` is the thing that makes the choice safe.
+   `/msd_data/...` folder, and both `hub_path_map` prefixes confirmed.
+4. **`sauto off` in SPEC.** This is a dose decision, not optional. With
+   `read_source: "spec"` the app runs `ct 0.1` before **every** read (about 86,400
+   counts a day at the 1 s read interval, between runs included) so the
+   temperature / bstop / I₀ trace is live. `ct` obeys `sauto` and may open the fast
+   shutter onto whatever is in the beam. `sauto off` makes that safe; the collection
+   macro opens and closes the shutter itself. Alternatives:
+   - `spec.refresh_min_interval_s: 10.0`: 10× fewer counts; the interlock and plot
+     still update at 1 Hz but the trace steps every 10 s.
+   - `spec.read_source: "epics"`: no counting at all, a smooth trace, and readings
+     continue during an acquisition. Verify with `tools/beamline_epics_test.py`.
+5. **Temperature reading during collections.** With `read_source: "spec"` the
+   temperature (and the over-temperature interlock) has no fresh value for the
+   whole of every acquisition (about 100 s at 10 s × 10 frames). That is expected,
+   but you must be able to tell it from a dead sensor. `read_source: "epics"` keeps
+   reading.
+6. **Flush pump.** `flush.pump` ships as `ode_dilution` (a reagent pump, capped at
+   50 µL/min), not `ode_flush`. Confirm that is what is plumbed.
+7. **Calibration edited in `config.yml`?** Restart the app. Switching Simulation |
+   Hardware does not re-read the file, and a saved `<project>/reactor_limits.json`
+   overrides the file (see [../PUMP_FLOW_CALIBRATION.md](../PUMP_FLOW_CALIBRATION.md)).
+8. **`run.resume_auto_run: false`** (shipped). After any restart, switch **Run
+   autonomously** on by hand. An E-stop also switches it off.
 
-   Two alternatives if you would rather not rely on it:
-   - `spec.refresh_min_interval_s: 10.0` — 10× fewer counts, interlock and
-     plot still at 1 Hz, but the trace steps every 10 s.
-   - `spec.read_source: "epics"` — no counting at all, smooth trace, and it
-     keeps reading *during* an acquisition (which also closes the blind
-     window in R3). PVs and the CA gateway are already in the config; verify
-     with `tools/beamline_epics_test.py` first. (Audit R4.)
-4. **Every pump's `sensor_min` is a real number, not 0.** With 0 the documented
-   "nonzero-below-minimum is rejected" check cannot fire, so a recipe can command
-   a flow the installed LG16 cannot meter. The app refuses to start on the real
-   backend with a zero minimum — if it refuses, put the installed sensors'
-   floors in `reactor/config.yml`, do not zero them to get past it. (Audit R14.)
-5. **Arming mode matches the rig.** `arming.default_mode: temperature` needs a
-   live thermocouple; the app now warns at the START of arming if the reading is
-   not trustworthy, but check Autonomous setup, step 2 Timing before you leave. (Audit R13.)
-6. One SPEC client only — no standalone test tool running alongside the app.
-7. Do one **📷 Collect now** from the app to confirm the app path (not just the CLI).
-8. Confirm the reduction pipeline sees the new `.raw` under `data_dir/2D/SAXS` via `X:\`.
+## 3. Data path (where a run silently goes nowhere)
 
-## Open items (not code — rig/ops)
+- [ ] **Project folder** selected in the hub, and every started app shows it
+  (Autonomous Synthesis and Autonomous Analyser especially). If the `X:` drive
+  mounts late, choose the folder again once it appears.
+- [ ] **`<project>/config.yml`** → `data_directory` = `<project>/2D`. Reduction puts
+  `1D/` next to `data_directory`, so a stale value moves all outputs away from the
+  other apps. `poni/` holds the files `config.yml` names.
+- [ ] **SPEC save folder.** The reactor log line `SPEC data_dir → /msd_data/…` shows
+  your project's path. If the `hub_path_map` prefix is wrong it stays at the shipped
+  `/msd_data/.../Auto_Test` and SPEC writes where nothing is reduced. Check the
+  resolved path in the app, not the config.
+- [ ] **Frames per average.** In Visualisation & Average → Auto-Average, **Frames per
+  average (N)** must not exceed the reactor's **Number of frames** (shipped: 30 and
+  10). Otherwise no average is ever written and the loop stops; the app warns when
+  the monitor starts.
 
-- Cool the sample manually (`csettemp <ambient>`) at the end — Stop/E-stop leave temp as-is by design.
-- Confirm the optimizer campaign bounds/target match the chemistry before the loop drives conditions.
+## 4. Before you press "Run autonomously"
 
-## Reactor checks — verify, do not assume
+1. Autonomous Synthesis top-bar toggle = **Hardware** (covers pumps and beamline).
+   It resets to the startup default (`SWAXS_REACTOR_BACKEND`, default `mock`) when
+   the app restarts, so check it again after any restart.
+2. **Hardware test → Run all checks** (read only) and fix any failed line.
+3. **Arming mode matches the rig.** The shipped default waits for the reactor to
+   reach temperature, which needs a live thermocouple; the app warns at the start of
+   arming if the reading is not trustworthy. Check **Autonomous setup → 2 · Timing**.
+4. Only one SPEC client: no bench tool running alongside the app.
+5. One **Collect now** from the app (Hardware test, step 3), and the new `.raw`
+   appears under `data_dir/2D/SAXS` and is reduced (via `X:\`).
+6. Reduction, averaging and subtraction monitors started; the analyser campaign
+   started with the target diameter, tolerance and bounds that match the chemistry.
+7. Slack notifications from Autonomous Watch tested
+   ([../NOTIFICATIONS.md](../NOTIFICATIONS.md)).
+8. Watch the first full cycle end to end before leaving.
 
-1. **`spec.simulator.enabled: false`** — *verify it.* The committed default is
-   `true`, and the simulator writes synthetic frames that look entirely real.
-   (`spec.simulator.poni` now ships blank and resolves from the project folder;
-   it used to be a machine-specific absolute path — audit R24.)
-2. **Confirm the temperature reading is changing.** A frozen value means the
-   over-temperature interlock is blind. With the shipped `spec.read_source: "spec"`
-   the reading also stops for the whole ~100 s of every acquisition — expected, but
-   you must be able to tell that from a dead sensor. `spec.read_source: "epics"`
-   keeps reading during a collection.
-3. **`resume_auto_run: false`** — auto-run is deliberately not resumed after a
-   restart, because resuming moves pumps. After any restart, re-arm
-   **▶ Run autonomously** by hand. E-stop also clears it.
-4. **Pump limits.** `sensor_min` still ships as `0.0` on all five pumps, which
-   disables the below-range rejection. Since September 2026 the app **refuses to
-   open real pump ports** in that state rather than running with the guard off,
-   so this is now a blocker rather than a footnote — put the installed sensors'
-   real floors in `reactor/config.yml`. Separately, a pump commanded to flow but
-   delivering ≤10 % of its setpoint is now a flow fault at any setpoint, which
-   catches the same failure without needing the sensor numbers (audit R14).
-   Saved limits are also reloaded at startup now; they used to revert to
-   `config.yml` on every restart (audit R7).
-5. **Flush pump.** The shipped `flush.pump` is `ode_dilution` (a reagent pump,
-   capped at 50 µL/min), not `ode_flush`. Confirm that is what you want.
-6. **A calibration edited on disk needs an app restart.** Flipping the Simulation | Hardware
-   toggle does *not* reload `reactor/config.yml`.
+## 5. End of the run
 
-## Data-path checks — where a run silently goes nowhere
+- Stop the Autonomous Synthesis app from the hub: it idles the pumps, closes the
+  shutter and releases SPEC remote control for beamline staff.
+- Each synthesis that ends normally or with **Stop → flush** sets the reactor to
+  `temperature.cooldown_c` (25 °C). An E-stop leaves the temperature as it is, so
+  after an E-stop cool it by hand (`csettemp <ambient>`).
 
-- **`spec.data_dir`.** If the `hub_path_map` prefix is wrong, the translation
-  fails and `data_dir` stays at the hardcoded `/msd_data/.../Auto_Test` — SPEC then
-  writes where nothing is reduced. Confirm the resolved path in the app, not the
-  config.
-- **A stale `<project_root>/config.yml`.** Reduction derives its root from
-  `data_directory.parent`, so a leftover config pointing elsewhere silently
-  relocates the 1D outputs away from every other app.
-- **A not-yet-mounted project folder.** Background and analysis guard on
-  `is_dir()` and drop `/api/set_project` if the path is not there yet. If `X:` is
-  slow to mount, re-select the folder once it appears.
-- **`spec.frames` vs the average app's frames/batch.** If `spec.frames` (10 shipped) is
-  smaller than `frames_per_average` (30 shipped), **no average is ever written and
-  the loop stops silently.** The average app now reports this at monitor start — read
-  that line.
+---
 
-## Open items (not code — rig/ops)
+## What the software guarantees (verified by the test suite)
 
-- Cool the sample manually (`csettemp <ambient>`) at the end — Stop/E-stop leave temp as-is by design.
-- Confirm the optimizer campaign bounds/target match the chemistry before the loop drives conditions.
+| Behaviour | Test |
+|---|---|
+| Stop / E-stop act on the pumps only; nothing is sent to SPEC | `test_estop_is_pumps_only_leaves_beamline_untouched` |
+| A collection in progress is never interrupted; reads skip during it | `test_collection_blocks_commands_and_reads_skip` |
+| Optional reads during a collection (`read_during_collect`) | `test_read_during_collect_keeps_polling` |
+| On exit or when the hub stops the app: pumps idled, shutter closed, SPEC control released | `test_r1_the_reactor_hands_the_rig_back_on_sigterm` |
+| Sample shot and background shot tagged `<recipe_id>_sample` / `<recipe_id>_bkg` | `test_reactor_fires_sample_then_background_tagged` |
+| **Collect now** works only when idle | `test_collect_now_manual_and_guarded` |
+| The Simulation / Hardware toggle switches pumps and beamline together | `test_backend_switch_covers_pumps_and_beamline` |
+| 2D collection can be disabled (`spec.enabled`) | `test_spec_can_be_disabled` |
+| The flat macro is streamed as plain SPEC commands, no file written | `test_commands_mode_streams_lines_no_file` |
+
+Also: E-stop idles every pump with a separate guard each, so one failure cannot
+block the rest; a lost or hung pump is detected; pumps are matched by exact serial
+(a missing or ambiguous port is refused rather than guessed); a pump commanded to
+flow but delivering almost nothing is a flow fault. Apart from taking and releasing remote
+control, the platform sends SPEC only `csettemp`, `ct`, `sopen` / `sclose` and the
+collection macro, and no pipeline app
+talks to the bServer. Every command is listed in
+[BEAMLINE_SAFETY_AUDIT.md](BEAMLINE_SAFETY_AUDIT.md).

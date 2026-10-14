@@ -1,221 +1,184 @@
-# Starting an autonomous measurement — operator steps
+# Starting an autonomous measurement: operator steps
 
-Follow in order. The loop is:
-reactor → SPEC collect → reduction → averaging → background subtraction →
-analyzer/optimizer → next recipe. Several stages are **manual to start** — that's
-what most of these steps are.
+**What this is for.** The order of operations for a closed-loop run at the
+beamline: the reactor makes a sample, SPEC collects it, the data apps reduce,
+average and subtract it, the Autonomous Analyser fits it and proposes the next
+recipe, and the reactor runs that. Follow the steps in order.
 
-Every hop is driven by **polling monitors/watchers**. The reactor and analyzer
-watchers auto-start; the reduction, average, and background monitors and the
-optimizer campaign do not. If any one is off, the loop stalls at that stage.
+Want to rehearse first with no beam? The same steps work in **Simulation**; see
+[SIMULATED_2D_DATA.md](SIMULATED_2D_DATA.md). For the final go/no-go list, see
+[audits/PRE_BEAMTIME_READINESS.md](audits/PRE_BEAMTIME_READINESS.md).
+
+**Several stages are manual to start.** The reactor's conditions watcher and the
+analyser's folder watcher start by themselves; the reduction, averaging and
+subtraction monitors and the optimiser campaign do not. If any one of them is off,
+the loop stalls at that stage. Every app also starts fresh after a stop or hub
+restart: monitors do not resume and the campaign is not resumed (export
+`SWAXS_RESUME=1` before launching to opt back into resuming). Reactor pump limits,
+the conditions folder and the reactor's run and data-collection settings are kept.
 
 ---
 
-## 0. Hardware / beamline (before software)
+## 0. Hardware and beamline (before any software)
 
-1. Pumps powered, USB connected, lines primed, no leaks; pumps tared.
+1. Pumps powered, USB connected, lines primed, no leaks.
 2. Flow cell mounted at the sample position; beam ready; hutch searched.
 3. bServer (`pySSRL-bServer`) running on the control PC.
 4. Temperature controller in remote/SPEC mode.
+5. The beamline link bench-tested with the reactor app stopped:
+   [tools/BEAMLINE_TESTING.md](../tools/BEAMLINE_TESTING.md).
 
 ## 1. Launch the platform
 
-1. Start the hub with a launcher — `./start_platform.sh` (macOS/Linux),
-   `start_platform.bat` (Windows) → open
-   **http://localhost:5100**. The launchers source `.env` and resolve the AI
-   token; `python hub/app.py` starts the hub but leaves `.env` unread, so the
-   assistant and Slack/email notifications come up unconfigured.
-2. **Pick the project folder** in the hub (the experiment root that holds `2D/`,
-   `poni/`, `config.yml`). This pushes the folder to every app.
-3. Start each app from the hub: **Calibration, Reduction, Visualisation & Average, Background,
-   Quality, Analyzer, Autonomous Synthesis (reactor), Autonomous Watch (watchdog)**
-   (Assistant optional).
-   Calibration (:5101) is what generates the `.poni` files step 2 checks for —
-   start it first if the calibration has not been done yet.
-4. Open each app and confirm it shows the right folder. The hub injects
-   `SWAXS_PROJECT` into every subprocess at launch (`hub/app.py`, `_start_app`) and each
-   app reads it on boot, so a re-select is not normally needed — but re-select
-   if any app shows a blank or wrong root (this happens when the path was not
-   yet mounted at launch; background and analysis both guard on `is_dir()`).
-   The reactor and analyzer fall back to the repo directory when the root is
-   blank, so check those two in particular.
+1. Start the hub with the launcher, `./start_platform.sh` (macOS/Linux) or
+   `start_platform.bat` (Windows), and open **http://localhost:5100**.
+2. **Choose the project folder** in the hub's top bar (the experiment folder with
+   `2D/`, `poni/` and `config.yml`) and type your name in **Operator**.
+3. Start the apps you need: **Geometry Calibration** (5101, only if the `.poni`
+   files still have to be made), **Reduction & Correction** (5102),
+   **Visualisation & Average** (5103), **Background Subtraction** (5104),
+   **Autonomous Analyser** (5107), **Autonomous Synthesis** (5108) and
+   **Autonomous Watch** (5110). Quality Gate (5105) and Guinier (5109) are
+   optional.
+4. Open each app and check it shows the right project folder. If one shows a
+   blank or wrong folder (it can happen when a network drive mounts late), choose
+   the folder again in the hub. Check Autonomous Synthesis and Autonomous Analyser
+   in particular.
 
 ## 2. Check the project config
 
-1. `<project_root>/config.yml` → `data_directory` = `<project_root>/2D`
-   (this is what reduction scans; if it points elsewhere the loop won't connect).
-   Reduction derives its output root from `data_directory.parent`, so a leftover
-   `config.yml` pointing elsewhere silently relocates all the 1D folders away
-   from the other apps.
-2. `poni/` has the calibration `.poni` + mask files; `config.yml` names them.
+1. `<project>/config.yml` → `data_directory` is `<project>/2D`. Reduction writes
+   its `1D/` tree next to `data_directory`, so a leftover value pointing elsewhere
+   sends every output away from the other apps.
+2. `poni/` holds the `.poni` and mask files that `config.yml` names.
 
-## 3. Reactor / beamline setup (Autonomous Synthesis app, :5108)
+## 3. Reactor and beamline setup (Autonomous Synthesis, 5108)
 
-1. Simulation | Hardware toggle (top bar) → **Hardware** (covers pumps + beamline).
-   Then, on the **Hardware test** tab, press **Run all checks** (read only: pumps
-   connected and answering, pressure, live temperature, I₀/bstop arriving) and fix
-   any line marked ✗.
-2. Confirm the log shows `📁 SPEC data_dir → /msd_data/…` matching where SPEC saves
-   (the `2D/SAXS` under your project, via the `hub_path_map`). If the
-   `hub_path_map` prefixes are wrong the translation silently fails and
-   `spec.data_dir` stays at the hardcoded `/msd_data/.../Auto_Test` — SPEC then
-   writes where nothing is reduced.
-3. Live plot (Hardware test, step 3, or the Live plots tab) reads temperature / bstop / I₀ (EPICS if configured, else `ct`).
-4. **Autonomous setup, step 2 Timing:** arming mode (temperature or timed) + wait,
-   synthesis duration, flush rate/duration. Flush pump = **ode_dilution** (current workaround).
-5. **Autonomous setup, step 3 Data collection:** exposure, frames, sample keyword (`sample`),
-   background keyword (`bkg`), trigger-before-end (`spec_lead`) longer than
-   frames×exposure. `data_dir` should already be filled from the hub.
-6. **Hardware test, step 2 Pump limits and calibration:** per-pump min/max and `cal ×` (water→fluid
-   factor) set if you have them.
+1. Top-bar toggle → **Hardware** (covers pumps and beamline together). On the
+   **Hardware test** tab press **Run all checks** (read only: pumps connected and
+   answering, pressure, live temperature, I₀/bstop arriving) and fix any failed
+   line.
+2. Check the activity log shows the SPEC save folder (`SPEC data_dir → /msd_data/…`)
+   pointing at the `2D/SAXS` of your project. If the `hub_path_map` prefixes in
+   `reactor/config.yml` are wrong, the folder stays at the shipped
+   `/msd_data/.../Auto_Test` and SPEC writes where nothing is reduced.
+3. **Hardware test**, step 2 **Pump limits and calibration**: per-pump min/max and
+   `Cal ×` set, then **Apply limits**. See
+   [PUMP_FLOW_CALIBRATION.md](PUMP_FLOW_CALIBRATION.md).
+4. **Hardware test**, step 4 (or the **Live plots** tab): temperature, bstop and I₀
+   are updating.
+5. **Autonomous setup**, step 2 **Timing**: when to start the pumps (**after a
+   fixed wait** or when the **reactor reaches temperature**), **Synthesis duration**,
+   **Flush rate**, **Flush duration** and **Flush pump** (shipped:
+   `ode_dilution`).
+6. **Autonomous setup**, step 3 **Data collection**: **Exposure**, **Number of
+   frames**, **Sample keyword** (`sample`), **Background keyword** (`bkg`),
+   **Trigger before end** (longer than frames × exposure) and **Save folder
+   (SPEC)**, which is filled from the hub folder.
 
 ### `reactor/config.yml` settings that change how the run behaves
 
-These are not in the UI. Check them before the first cycle.
+Not in the UI; check them before the first cycle.
 
-| Key | Shipped default | Why you care |
+| Key | Shipped | Why it matters |
 |---|---|---|
-| `spec.read_source` (`:280`) | `"spec"` | With `"spec"` a collection holds the SPEC lock for its whole duration and temperature / I₀ / bstop reads **stop** — with `exposure_s: 10` and `frames: 10` that is ~100 s per acquisition with no fresh temperature, so the over-temperature interlock has nothing to compare against for that window. The app warns once per run instead of raising a sensor fault. Set `"epics"` (verify PVs with `tools/beamline_epics_test.py`) to keep reading during a collection. |
-| `spec.background_when` (`:264`) | `"before"` | Sets the physical order of the cycle — see step 7. `"after"` is the legacy order. |
-| `run.resume_auto_run` (`:386`) | `false` | Deliberately false: auto-run does **not** resume after an app restart, because resuming moves pumps unattended. After any restart you must turn Auto-run back on by hand. |
+| `spec.read_source` | `"spec"` | With `"spec"`, temperature, I₀ and bstop stop updating for the whole of every collection (10 s × 10 frames = 100 s with no fresh temperature for the over-temperature interlock). `"epics"` keeps reading; verify the PVs with `tools/beamline_epics_test.py` first. |
+| `spec.background_when` | `"before"` | Physical order of each cycle, see step 7. `"after"` is the older order. |
+| `run.resume_auto_run` | `false` | **Run autonomously** is not switched back on after an app restart, because that would move pumps unattended. Turn it on by hand. |
+| `temperature.cooldown_c` | `25.0` | The reactor is set to this temperature when each synthesis ends. |
 
-**Fresh start (Sept 2026).** Every app now comes up **fresh** after a stop or a
-hub restart: monitors do not auto-resume, the reduction/average/background memos
-are not restored (data re-processes from scratch), and the Bayesian campaign is
-not resumed. Nothing from a previous run carries over. To opt back into the old
-resume-after-crash behavior (restore the processed/batch memos and auto-restart
-the monitors), export `SWAXS_RESUME=1` before launching. Reactor **pump limits**
-and the **recipes-folder** setting are hardware calibration/config and are kept
-regardless.
+**Target Runs.** Each campaign is a Target Run tagged `Run1`, `Run2`, … (one more
+than the highest on disk). The tag is the start of every `recipe_id` (`Run3_r001`,
+…) and so of every 2D file name, which makes each dataset traceable to its
+conditions. **Abort** in the analyser ends the campaign; the next **Start
+campaign** is a new Target Run.
 
-**Target Runs.** Each optimization campaign is a **Target Run** tagged `Run1`,
-`Run2`, … (the number is one more than the highest already on disk). The tag is
-prepended to every `recipe_id` (`Run3_r001`, `Run3_r002`, …) and therefore into
-the 2D/SAXS filenames (`Run3_r001_sample_..._SAXS.raw`), so every dataset is
-traceable to the target-run conditions that produced it. **Aborting** a campaign
-resets the analyzer to a clean slate; the next **Start** is a brand-new Target Run.
+**Notifications.** Set up Slack in Autonomous Watch before an overnight run:
+[NOTIFICATIONS.md](NOTIFICATIONS.md).
 
-**Run notifications** (Slack thread per recipe, email) are configured
-separately — see `docs/NOTIFICATIONS.md`. Set them up before an overnight run;
-the analyzer's fit for each recipe is posted into that recipe's thread, with the
-QC plot attached when the fit is suspect.
+## 4. Single-shot dry pass (always do this first)
 
-## 4. Single-shot dry pass (do this before autonomous!)
+1. Autonomous Synthesis → **Hardware test**, step 3 → **Collect now** as *sample*.
+2. A `.raw` appears under `<project>/2D/SAXS/`.
+3. Start the monitors (step 5) or run each app once by hand, and follow the shot:
+   `2D/SAXS` → `1D/SAXS/Reduction` → `Averaged` → `Subtracted`.
+4. The analyser fits the subtracted file and the **size is physical, not 10× off**
+   (that confirms the q-unit path).
 
-1. Reactor → **📷 Collect now** (role = sample).
-2. Confirm a `.raw` appears under `<project>/2D/SAXS/`.
-3. Start reduction/averaging/subtraction monitors (next step) OR run them once
-   manually, and confirm the shot flows: `2D/SAXS` → `1D/SAXS/Reduction` →
-   `Averaged` → `Subtracted`.
-4. Open the Analyzer and confirm it fits the subtracted file and the **size is
-   physical (not 10× off)** — this proves the q-unit path is correct.
+## 5. Start the pipeline monitors (they do not start by themselves)
 
-## 5. Start the pipeline monitors (these do NOT auto-start)
+1. **Reduction & Correction** → **Run & monitor** tab → switch on **Watch for new
+   files** (checks `2D/` every 10 s by default).
+2. **Visualisation & Average** → **Auto-Average** tab → set **Frames per average
+   (N)** to the reactor's **Number of frames**, then **Start auto-averaging**. The
+   field defaults to 30 and the reactor to 10 frames; with N larger than the frames
+   per acquisition no average is ever written (the log warns).
+3. **Background Subtraction** → **Auto-Subtract** tab → sample and background
+   keywords, scale method, and the trim/rebin q-range (default 0.3 to 6.0 nm⁻¹,
+   549 points) → **Start auto-subtraction**.
+4. Optional: **Quality Gate** → **Start grading**.
 
-1. **Reduction app** → *Run & Monitor* tab → the **Watch for new files** toggle
-   (watches `2D` for new `.raw`; the interval box next to it defaults to 10 s).
-2. **Visualisation & Average app** → *▶ Start auto-averaging* (Reduction → Averaged).
-3. **Background app** → *▶ Start auto-subtraction* (Averaged → Subtracted).
-   - Confirm sample/background keywords + scale method; "Output q-range &
-     rebinning" panel as needed (default 0.3 to 6.0 nm⁻¹, 549 pts).
-4. (Optional) **Quality app** for review — not required by the loop.
+## 6. Start the optimiser campaign (Autonomous Analyser, 5107)
 
-## 6. Start the optimizer campaign (Analyzer app, :5107)
+1. **Setup** tab: check the watched **Folder** (`1D/SAXS/Subtracted`), set **Target
+   diameter (nm)** and **Tolerance ± (nm)**, **Max PDI** and **Max experiments**,
+   and confirm the parameter bounds match your chemistry.
+2. **Start campaign.** The analyser fits each new subtracted profile and writes the
+   next condition into `1D/SAXS/Conditions/`.
+3. **Quality gate.** If the Quality Gate is running and putting profiles in
+   `Subtracted/Good/`, the analyser fits only those. If `Good/` is empty or missing,
+   it fits every subtracted profile, and a bad subtraction (wrong pairing, wrong
+   background) still reaches the campaign. Low-confidence fits enter the optimiser
+   as noisy observations rather than being dropped. Watch the first few conditions.
 
-1. Set the **target size** (nm) and **tolerance**, and confirm the parameter
-   **bounds** match your chemistry.
-2. **Start campaign.** The analyzer now watches `1D/SAXS/Subtracted`, fits each new
-   profile, and writes the next recipe to `1D/SAXS/Conditions`.
-3. **There is no quality gate in front of the optimizer.** The analyzer fits
-   every subtracted file and feeds the campaign regardless of the Quality app's
-   verdict; a low-confidence fit is not discarded, it enters the surrogate as a
-   high-noise observation (by design — see
-   `docs/PARAMETER_SPACE_AND_CONVERGENCE.md`). Consequence for you: a *bad
-   subtraction* (wrong pairing, wrong background) still gets told to the
-   campaign. Eyeball the analyzer feed for the first few conditions. The
-   Quality app's `Good/` sorting is not in the automatic path.
+## 7. Launch the autonomous run (Autonomous Synthesis)
 
-## 7. Launch the autonomous run (reactor)
-
-1. Turn **▶ Run autonomously** ON (Autonomous setup, step 4) so the reactor pulls each new condition from
-   `1D/SAXS/Conditions` and runs it.
-2. Seed the loop: either submit one starting recipe manually, or let the campaign
-   propose the first condition.
-3. Watch the **first full cycle** end-to-end before leaving it. With the shipped
-   `background_when: "before"` (`reactor/config.yml:264`) the physical order is:
+1. **Autonomous setup**, step 4 → **Run autonomously**. The reactor runs each
+   condition file in `1D/SAXS/Conditions/`, oldest first. The campaign wrote the
+   first one at **Start campaign**; you can also queue one by hand with **Add to
+   queue**.
+2. Watch the **first full cycle** before leaving. With `background_when: "before"`
+   the order is:
 
    ```
    flush → background shot (clean capillary, tagged with the UPCOMING recipe_id)
-        → arm → run → sample shot
-        → reduce → average → subtract → analyzer fit
+        → arm → synthesis → sample shot
+        → reduce → average → subtract → analyser fit
         → next condition queued → reactor runs it
    ```
 
-   So the blank is measured **before** the synthesis, not after it. The
-   background is therefore already on disk when the sample frames land and
-   subtraction can start immediately. The pair shares one `recipe_id`, which is
-   how the background app matches them.
+   The sample and its background share one `recipe_id`, which is how Background
+   Subtraction pairs them. After the first cycle the pre-synthesis flush is a short
+   solvent rinse (`flush.blank_rinse_s`, 30 s), because the line is already clean.
+   With `background_when: "after"` the blank is collected during the post-synthesis
+   flush instead (arm → synthesis → sample shot → flush → background shot).
 
-   With the legacy `background_when: "after"` the blank is collected during the
-   post-synthesis flush and tagged with the run that just finished — that gives
-   the older order (arm → run → sample shot → flush → background shot). If what
-   you see does not match the setting you have, something misfired.
+## 8. During the run and stopping
 
-## 8. During / stopping
-
-- **Stop / E-stop** act on pumps only and never interrupt an in-progress X-ray
-  collection.
-- Turn **Auto-run OFF** to stop after the current condition; **Abort** to end the
-  current run into flush.
-- At the end: the reactor cools to room temp on run end (`cooldown_c`); close the
-  reactor app to release SPEC remote control for beamline staff.
-
----
-
-## Go / no-go checklist
-
-Condensed from the pre-beamtime readiness review. Run through it at the start of
-every beamtime, in this order.
-
-1. Hub: select the project folder; confirm **every started app** shows it
-   (reactor and analyzer especially — they fall back to the repo directory when
-   the root is blank).
-2. `<root>/config.yml` `data_directory` = `<root>/2D`; `poni/` present with the
-   `.poni` and mask files `config.yml` names.
-3. Reactor: backend = **Hardware**, **Run all checks** all ✓; the `📁 SPEC data_dir → …` log line shows the
-   right `/msd_data/...` path; EPICS reads live (or `read_source: "spec"` with
-   `ct`, accepting the blind window in §3); flush pump + per-pump calibration
-   set.
-4. One **📷 Collect now** → the `.raw` lands in `2D/SAXS` and reduction
-   auto-processes it → averaged → subtracted → analyzer produces a fit. This is
-   the full single-shot dry pass (§4).
-5. Start the three monitors: reduction, average, background. Start the analyzer
-   campaign with the target size and tolerance set.
-6. Confirm the first subtracted file's size looks physical, not 10× off. The
-   analyzer detects the header q-unit and converts Å⁻¹ → nm⁻¹ itself, but
-   confirm it on the dry pass rather than assuming.
-7. Launch the autonomous run; watch the first full cycle end-to-end before
-   leaving it.
-
-### Known alignment points — no action needed
-
-- `recipe_id` survives reactor → reduction (`{stem}_SAXS.dat`) → average
-  averaging (grouped by `{recipe_id}_{role}`) → background pairing (by
-  `recipe_id`, nearest-index fallback) → analyzer → optimizer match.
-- The optimizer→reactor file contract matches, and the folders align: the
-  analyzer writes `1D/SAXS/Conditions`, the reactor watches it.
-- Safety: E-stop acts on pumps only; no command can interrupt an in-progress
-  collection; EPICS reads are independent of SPEC; remote control is released
-  on exit; per-pump flow calibration, flow-OK and volume-limit checks all
-  apply; the reactor cools down at run end.
+- **Pause:** turn **Run autonomously** off. The current condition finishes and
+  flushes, then the reactor waits with the queue kept. This is when beamline
+  settings (exposure, frames, trigger before end) can be changed; they apply when
+  you turn it back on.
+- **End the current run early:** **Stop → flush**.
+- **Stop / EMERGENCY STOP** act on the pumps only and never interrupt an X-ray
+  collection in progress. An E-stop also turns **Run autonomously** off: after
+  clearing the fault, press **Reset**, then switch **Run autonomously** on again.
+- **At the end:** stop the reactor app (from the hub) to idle the pumps, close the
+  shutter and hand SPEC control back to beamline staff. After an E-stop the
+  temperature is left as it was; cool it by hand (`csettemp <ambient>`).
 
 ---
 
-### Quick "won't-start" checklist
-- Nothing reducing? → reduction monitor not started, or `data_directory` ≠ `<root>/2D`,
-  or SPEC writing to a different `2D/SAXS` than reduction scans.
-- Nothing subtracting? → average/background monitors not started, or keywords wrong.
-- Optimizer not advancing? → campaign not started, or analyzer/reactor on different
-  project roots (re-select the hub folder), or bad subtractions feeding it.
-- Sizes look 10× off? → q-unit; the analyzer auto-converts Å⁻¹, but confirm on the
-  dry pass (step 4).
+## Won't-start checklist
+
+- **Nothing reducing?** Reduction's **Watch for new files** is off,
+  `data_directory` is not `<project>/2D`, or SPEC writes to a different `2D/SAXS`.
+- **Nothing averaging?** **Frames per average (N)** is larger than the reactor's
+  **Number of frames**, or the monitor is not started.
+- **Nothing subtracting?** The monitor is not started, or the keywords are wrong.
+- **Optimiser not advancing?** Campaign not started, the analyser and reactor are
+  on different project folders (choose the folder again in the hub), or bad
+  subtractions are feeding it.
+- **Sizes 10× off?** A q-unit problem. The analyser converts Å⁻¹ to nm⁻¹ itself,
+  but confirm it on the dry pass.
+- **Autonomous Watch** (5110) names the stage that stalled.

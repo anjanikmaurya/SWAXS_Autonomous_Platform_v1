@@ -1,168 +1,152 @@
-# Autonomous Analyser — knowledge
+# Autonomous Analyser: knowledge
 
-Displayed in the hub as **Autonomous Analyser** (was "Nanoparticle Analyzer" until
-September 2026). Folder, app id and log name stay `analyzer`.
+App id, folder and log name: `analyzer`. Port 5107. Shown in the hub as
+**Autonomous Analyser**.
 
-## Purpose and place in the closed loop
-Autonomous Analyser (port 5107) is the **measurement half of the closed
-synthesis loop**. It watches the SAXS `Subtracted` folder and, as each new
-profile appears, auto-fits a polydisperse-sphere model to extract size,
-polydispersity, the (relative) Porod invariant, an ordered-phase classification
-and a 0–1 confidence. Its output drives the Bayesian optimizer, which writes the
-next synthesis condition into `1D/SAXS/Conditions` — the folder the REACTOR app
-watches.
+## 1. What the app is for
 
-The full loop:
+The Autonomous Analyser is the measurement half of the closed synthesis loop.
+It watches the subtracted SAXS profiles and, as each new `.dat` appears, fits a
+polydisperse-sphere model to get radius, diameter, polydispersity (PDI), Guinier
+Rg, a relative Porod invariant, an ordered-phase label and a 0 to 1 confidence.
+During a campaign each fit is scored against the operator's target and an
+optimiser proposes the next synthesis recipe for the reactor.
 
-```
-reactor (5108)  →  reduction (5102)  →  average (5103)  →  background (5104)
-       ↑                                                        ↓
-       └──── optimizer ←── analyzer (5107) ←──── quality (5105) ─┘
-             (writes 1D/SAXS/Conditions)
-```
+All science lives in `src/analysis/nanoparticle.py`, `src/fitting/` and
+`src/optimizer/`; `analyzer/app.py` holds the routes, the folder watcher, the
+live stream and the manifest writes.
 
-The reactor synthesises a condition, the beamline writes 2D frames, reduction
-makes 1D profiles, the average app averages them, the background app subtracts, the
-Quality Gate sorts them into `Good/`, the analyzer fits the accepted profiles, the
-optimizer turns the fit into a loss and proposes the next condition, and the
-reactor picks it up.
-
-All science lives in `src/analysis/nanoparticle.py` and `src/optimizer/`;
-`analyzer/app.py` is a thin shell holding the routes, the folder watcher, SSE and
-manifest writing.
-
-## Watched folder and the Quality Gate
-Default watched folder is `1D/SAXS/Subtracted` (`_sub_folder`, changeable through
-`GET/POST /api/folder`, relative to the project root or absolute).
-
-`_gate_mode` decides how the Quality Gate is honoured:
-- **auto** (default) — if a `Good/` subfolder exists under the Subtracted folder,
-  analyse THAT, so a profile the gate rejected can never reach the fit or the
-  optimizer.
-- **good** — always require `Good/`.
-- **off** — legacy: analyse the flat folder, gate advisory only.
-
-The watcher is non-recursive and polls every 3 s. It uses
-`src.reactor.intake.decide_intake` on (size, mtime) so a file is only analysed
-once it has stopped changing — a half-written `.dat` is deferred, not fitted.
-
-## The model
-Polydisperse sphere form factor with a size distribution:
+## 2. Where it sits in the pipeline
 
 ```
-I(q) = scale · ∫ n(R) V(R)² P(q,R) dR + background
-P(q,R) = [3(sin x − x cos x)/x³]²,   x = qR
-V(R)  ∝ R³      (constants absorbed into `scale`)
-n(R)  = Schulz (gamma) or log-normal, mean R̄, PDI = σ/R̄
+reactor (5108) -> reduction (5102) -> average (5103) -> background (5104)
+      ^                                                       |
+      |                                                       v
+      +---- Conditions/ <---- analyzer (5107) <---- quality (5105)
 ```
 
-`dist` may be `"schulz"`, `"lognormal"`, or **`"auto"` (what the app uses)**:
-with `auto` BOTH distributions are fitted and the one with the lower
-`rms_log10` residual is kept. The chosen one is reported as `distribution` and in
-`diagnostics.chosen_distribution`.
+| Direction | Folder (under the project root) | What |
+|---|---|---|
+| reads | `1D/SAXS/Subtracted/Good/` or `1D/SAXS/Subtracted/` | subtracted profiles (see Quality Gate below) |
+| writes | `1D/SAXS/Conditions/<recipe_id>.txt` | the next recipe; the reactor polls this folder |
+| writes | `1D/SAXS/Results/Fit/fit_<stem>.png` and `.dat` | a durable record of every fit |
+| writes | `1D/SAXS/Results/campaign_<id>.json` | the campaign's target and outcome |
+| writes | `1D/SAXS/Results/campaign_<id>/` | final figures and history when a campaign ends |
+| writes | `manifest.json`, section `analyses` | one entry per fit |
+| writes | `.swaxs_state/campaign.json` | resume state only (not a record) |
 
-The fit is done in **log space** (residual = log₁₀(model) − log₁₀(I)) with
-`scipy.optimize.least_squares` (`trf`, bounded, max 4000 evaluations) over four
-parameters: R̄, PDI, log₁₀(scale), background. PDI is bounded to [0.01, 0.6] and
-R̄ to [1e-3, 20·R̄₀]. Parameter uncertainties come from a Gauss–Newton covariance
-approximation on the Jacobian.
+**Quality Gate.** The Quality Gate (5105) copies accepted profiles into
+`Subtracted/Good/`. The gate mode (set through `POST /api/folder`, key `gate`;
+there is no UI control) decides which folder is fitted:
 
-The starting radius R̄₀ is the Guinier estimate `R = √(5/3)·Rg` (the sphere
-relation), falling back to `1/median(q)`.
+- `auto` (default): fit `Good/` when it contains `.dat` files, otherwise the flat
+  `Subtracted/` folder (with a warning in the Log). Re-checked on every poll.
+- `good`: always fit `Good/` only, even if it is empty.
+- `off`: always fit the flat folder; the gate is ignored.
 
-Implementation is numpy + scipy only — no sasmodels — so it runs unattended.
+When `Good/` is watched, profiles for a recipe the running campaign is waiting
+for are still picked up from the flat folder, so an ungraded profile cannot stall
+the loop.
 
-## What is returned per profile
-`analyze_profile(q, I, sigma=None, dist="auto")` **never raises**. It returns:
+**Watcher.** Non-recursive, polls every 3 s. A file is fitted only once its size
+and mtime have stopped changing (`src/reactor/intake.py`, `decide_intake`), so a
+half-written `.dat` is deferred. Profiles already present when the app starts (or
+when the project or folder changes) are not auto-fitted; use **Analyse existing
+profiles** for those. A profile that already has a `Results/Fit/` record is
+skipped.
 
-| Key | Contents |
+## 3. How to use it
+
+The page has three tabs: **Setup**, **Fitting**, **Report**, plus a **Log** panel
+visible on every tab. The project folder is pushed by the hub.
+
+### Setup tab
+
+1. **Watched folder** card: the default `1D/SAXS/Subtracted` is usually right.
+   Change it with **Browse…** and **Set** (project-relative or absolute). For data
+   collected earlier, press **Analyse existing profiles**: it fits profiles that
+   have no fit record, oldest first, in the background, and never drives the
+   optimiser.
+2. **Closed-loop campaign** card, three steps:
+   - **1 Campaign goal**: **Target-hit** (find one recipe in spec; stops at the
+     first confident hit), **Level-set** (map every in-spec recipe; uses BAX),
+     **Size-PDI Pareto** (map the size vs PDI trade-off across a diameter range;
+     uses EHVI), **BAX vs BO** (benchmark; run the comparison in Report).
+   - **2 Target & limits**: **Target diameter (nm)** and **Tolerance ± (nm)**, or
+     **Min diameter / Max diameter (nm)** for Pareto; **Max PDI (spread)**;
+     **Max experiments**.
+   - **3 How it fits & searches**: **Fitting method** and **Search strategy**
+     (the list is filtered to the goal), plus any strategy-specific inputs.
+3. Press **Start campaign**. The first condition file is written immediately.
+   Spec, goal and methods are locked while it runs. **Abort** stops the
+   campaign (the reactor finishes the recipe it is running). If the latest run
+   was interrupted, a **Continue RunN: X of Y used** button appears instead.
+4. **Live progress** shows the status, Best radius, Δ to target, Best PDI, Runs
+   and a small radius-per-run chart. **How the score works** explains the loss.
+
+### Fitting tab
+
+**Analysed profiles** table (File, R (nm), PDI, Conf., Phase), sortable, with a
+filter box and a **CSV** download. Select a row (or use the arrow keys) to see
+Radius, Diameter, PDI, Confidence, Rg (Guinier), Invariant (rel.) and Phase, and
+the data with the fitted model. Plot scales: **Log-log**, **Semilog Y**,
+**Semilog X**, **Linear**, **Guinier**; toggles **Residuals** and **Error bars**.
+An optional AI QC note appears under the plot when AI credentials are set.
+Confidence badges: green at ≥ 0.6, amber at ≥ 0.3, otherwise low.
+
+### Report tab
+
+- **Parameter space & convergence**: views **Surrogate** (slice through the GP;
+  choose x, y and "Through best recipe" or "Through box centre"),
+  **Convergence**, **Trajectory**, **Level set**, **Pareto**. Read-only: viewing
+  never changes the next recipe. In Simulation mode the simulator's hidden
+  optimum is marked; with Hardware it is never shown. Guide:
+  [PARAMETER_SPACE_AND_CONVERGENCE.md](../docs/PARAMETER_SPACE_AND_CONVERGENCE.md).
+- **Method comparison (in silico)**: tick optimisers and press **Run
+  comparison**. It races them against the simulator's ground truth with the same
+  loss. It never touches the live campaign, the reactor or real data.
+
+## 4. Settings and defaults
+
+### Fit model (Fitting method)
+
+| Method | What it does |
 |---|---|
-| `n_points` | usable point count (finite, q > 0, I > 0) |
-| `distribution` | `"schulz"` \| `"lognormal"` \| `"guinier_only"` \| None |
-| `size` | `{radius, diameter, unit, source}` — `source` is `"form_factor"` or `"guinier"` |
-| `pdi` | fitted polydispersity index σ/R̄ (None in the fallback path) |
-| `guinier` | `{Rg, I0, R_from_Rg, valid, n_points}` |
-| `invariant` | `{Q_rel, absolute: false}` |
-| `phase` | `{phase, n_peaks, ratios, d_spacing, match, score}` |
-| `fit` | `{rms_log10, scale, background}` |
-| `uncertainty` | `{radius, pdi}` (None where the covariance was not finite) |
-| `confidence` | 0–1 |
-| `diagnostics` | `{rms_log10, guinier_valid, rel_err_radius, chosen_distribution}` |
+| **Least-squares sphere** (`ls_sphere`, default) | the physics fit below |
+| **ML regressor (k-NN)** (`ml_regressor`) | k-nearest-neighbour match against a library of Schulz sphere curves (R 1 to 18 nm, PDI 0.02 to 0.40); fast baseline |
+| **LLM-assisted** (`llm_assisted`) | same numbers as the least-squares fit, plus an AI plain-language reading; identical to `ls_sphere` with no AI backend |
 
-### The invariant is RELATIVE
-`invariant = {"Q_rel": ∫q²I dq, "absolute": false}`. Intensity is in arbitrary
-units — there is no absolute calibration in this path — so `Q_rel` is only
-comparable BETWEEN profiles from the same session with the same normalization.
-Do not quote it as a volume fraction or a cross-section.
-
-### Confidence
-`_confidence(rms_log, guinier_valid, rel_err_R)` is a product of three factors:
+The least-squares model (`src/analysis/nanoparticle.py`, `analyze_profile`):
 
 ```
-f_fit  = 1 / (1 + (rms_log10 / 0.05)²)      ~0.05 log10 RMS = good
-f_guin = 1.0 if the Guinier window was valid else 0.6
-f_unc  = 1 / (1 + (rel_err_radius / 0.10)²) 10% size error = borderline
-confidence = clamp(f_fit · f_guin · f_unc, 0, 1)
+I(q)   = scale · ∫ n(R) V(R)² P(q,R) dR + background
+P(q,R) = [3(sin x − x cos x)/x³]²,  x = qR
+V(R)   ∝ R³   (constants absorbed into scale)
+n(R)   = Schulz or log-normal, mean R̄, PDI = σ/R̄
 ```
 
-The UI colours a result `ok` at ≥ 0.6, `warn` at ≥ 0.3 and `info` below that.
-`QC_CONF_THRESHOLD = 0.5` no longer gates whether a plot is produced — see
-"Where every fit is recorded" below — it only decides whether that record's
-PNG gets attached to the `fit.complete` event / notifications (suspect
-fits do; confident ones don't, to avoid spamming Slack with routine results).
+- The app fits with `dist="auto"`: both distributions are fitted and the one with
+  the lower `rms_log10` is kept (`distribution`, `diagnostics.chosen_distribution`).
+- Fit in log space, residual log₁₀(model) − log₁₀(I), weighted by 1/σ(log₁₀ I)
+  when σ is available; `scipy.optimize.least_squares`, `trf`, max 4000
+  evaluations. Four parameters: R̄, PDI, log₁₀(scale), background.
+- Bounds: PDI in [0.01, 0.6]; R̄ in [1e-3, max(20·R̄₀, 3π/q_min)].
+- Start radius R̄₀ = √(5/3)·Rg (Guinier, sphere relation), else 1/median(q).
+- Uncertainties from a Gauss-Newton covariance on the Jacobian.
+- numpy and scipy only (no sasmodels), so it runs unattended.
 
-## Where every fit is recorded
+**Guinier**: the window is iterated up to 6 times toward q_max·Rg ≈ 1.3; it is
+`valid` only when q_min·Rg < 1.0 and q_max·Rg < 1.5.
 
-Every analyzed profile — not just low-confidence ones — gets a durable record
-in `1D/SAXS/Results/Fit/`, written by `_write_fit_record()`:
+**Invariant is relative**: `invariant = {"Q_rel": ∫q²I dq, "absolute": false}`.
+Intensity is in arbitrary units, so compare `Q_rel` only between profiles of the
+same session and normalisation; never quote it as a volume fraction.
 
-| File | What's in it |
-|---|---|
-| `Fit/fit_<stem>.png` | log-log data + fit curve, with R, D, PDI, phase, distribution and confidence annotated directly on the plot |
-| `Fit/fit_<stem>.dat` | `q_nm-1  I_data  sigma  I_fit` columns, plus a `#`-commented header with the same fit values, the campaign ID/target if one was running, and the source file path |
+**Phase (report only, never affects size or confidence)**: Bragg peaks are found
+on detrended log₁₀(I) (`detect_bragg_peaks`, `min_prominence=0.08`, needs ≥ 20
+points) and indexed by q/q₁ ratios within 6%:
 
-The point is cross-checking after the beamtime ends: nothing here depends on
-the in-memory `_results` store (bounded to `_MAX_RESULTS`, lost on restart) or
-on re-running the fit. `I_fit` is `NaN` when no form-factor fit succeeded
-(Guinier/Porod-only profiles) — the data columns are still written.
-
-**Never write this into `Conditions/`** — see the campaign-record warning
-above; the same reactor-polling hazard applies to any file written there.
-
-**Always check `confidence` before trusting a size.**
-
-## Units caveat
-Sizes are in the same units as 1/q — nm when q is in nm⁻¹, which is the platform
-default set by the reduction `unit` key (`q_nm^-1`). The `size.unit` field says so
-explicitly: `"same as 1/q (nm if q in nm^-1)"`.
-
-The analyzer additionally detects an Å⁻¹ q column from the `.dat` header (a header
-mentioning `q_A-1`, `a^-1` or `å`, as written by the background app's "Output
-q-range & rebinning" when Å⁻¹ is picked; the default is nm⁻¹) and multiplies q by 10 before fitting, so sizes are not 10×
-wrong and the campaign optimises toward the right target.
-
-## Graceful degradation
-- Fewer than **12** usable points → an empty result with
-  `diagnostics.error = "too few points"` and confidence 0.
-- If BOTH form-factor fits fail, the code falls back to a **Guinier-only size**:
-  `distribution = "guinier_only"`, `size.source = "guinier"`,
-  `size.radius = √(5/3)·Rg`, no `pdi`, no `fit`, `diagnostics.note =
-  "form-factor fit failed; Guinier-only size"`, and the confidence is computed
-  with `rms_log = 1.0` (so it is low by construction).
-
-The Guinier estimate itself iterates its window up to 6 times so that
-`q_max·Rg ≈ 1.3`, and marks itself `valid` only when `q_min·Rg < 1.0` and
-`q_max·Rg < 1.5`.
-
-## Bragg-peak detection and phase indexing
-`detect_bragg_peaks(q, I, min_prominence=0.08)` finds structure-factor peaks
-sitting ABOVE the smooth form-factor decay: it detrends log₁₀(I) with a moving
-average and runs `scipy.signal.find_peaks` on the residual. Needs ≥ 20 points.
-
-`index_phase(peak_q)` classifies an ordered mesophase from the peak-position
-ratios q/q₁ against known sequences:
-
-| Phase | q/q₁ ratios |
+| Phase | q/q₁ |
 |---|---|
 | `lamellar` | 1, 2, 3, 4 |
 | `hexagonal` | 1, 1.732, 2, 2.646, 3 |
@@ -170,228 +154,184 @@ ratios q/q₁ against known sequences:
 | `FCC` | 1, 1.155, 1.633, 1.915, 2.309 |
 | `simple_cubic` | 1, 1.414, 1.732, 2 |
 
-A ratio counts as matched within 6% of the nearest expected value. The phase is
-named only when the match score is ≥ 0.75 with ≥ 2 peaks; otherwise it reports
-`"disordered"`, and `"none"` with fewer than 2 peaks. `d_spacing = 2π/q₁`.
+Named when score ≥ 0.75 with ≥ 2 peaks, else `"disordered"`; `"none"` with fewer
+than 2 peaks. `d_spacing = 2π/q₁`.
 
-This is **report-only** — it never affects size, PDI or confidence.
+**Confidence** (0 to 1, product of factors):
 
-## The optimizer — parameter space
-`src/optimizer/space.py` — five knobs, `NAMES = ["T_reac", "F_tot", "x_ODE",
-"x_TOP", "x_oley"]`, with the reactor's own bounds so the optimizer can never
-propose a recipe the reactor would reject:
+```
+f_fit  = 1 / (1 + (rms_log10 / 0.05)²)        0.05 log10 RMS = good
+f_guin = 1.0 if Guinier valid else 0.6
+f_unc  = 1 / (1 + (rel_err_radius / 0.10)²)   10% size error = borderline
+× 1 / (1 + (|R_fit − R_Guinier| / R_Guinier / 0.30)²)   when Guinier is valid
+× 0.25 if R or PDI hit a bound;  × 0.5 if the solver did not converge
+```
+
+**Result fields**: `n_points`, `distribution` (`schulz`, `lognormal`,
+`guinier_only` or None), `size` `{radius, diameter, unit, source}`, `pdi`,
+`guinier` `{Rg, I0, R_from_Rg, valid, n_points}`, `invariant`, `phase`
+`{phase, n_peaks, ratios, d_spacing, match, score}`, `fit`
+`{rms_log10, scale, background}`, `uncertainty` `{radius, pdi}`, `confidence`,
+`diagnostics` `{rms_log10, guinier_valid, rel_err_radius, at_bounds, converged,
+chosen_distribution}`.
+
+**Degraded results**: fewer than 12 usable points gives confidence 0 and
+`diagnostics.error = "too few points"`. If both form-factor fits fail, the size
+falls back to √(5/3)·Rg (`distribution = "guinier_only"`, `size.source =
+"guinier"`, no PDI), with a low confidence by construction.
+
+**Units**: sizes are in the units of 1/q, nm for the platform default q in nm⁻¹.
+If the `.dat` header marks q in Å⁻¹ (`q_A-1`, `a^-1` or `å`), q is multiplied by
+10 before fitting.
+
+### Parameter space (`src/optimizer/space.py`)
 
 | Knob | Default bounds | Unit |
 |---|---|---|
-| `T_reac` | [180, 300] | °C |
-| `F_tot` | [40, 120] | µL/min |
-| `x_ODE`, `x_TOP`, `x_oley` | each [0, 0.3] | fraction of F_tot |
+| `T_reac` | 180 to 300 | °C |
+| `F_tot` | 40 to 120 | µL/min |
+| `x_ODE`, `x_TOP`, `x_oley` | each 0 to 0.3 | fraction of F_tot |
 
-Plus the composition constraint `x_ODE + x_TOP + x_oley ≤ x_sum_max` (default
-**0.9**); the precursor fraction is the remainder `1 − Σx`. All of these come from
-the `bounds` block of the reactor config (`ParameterSpace.from_config`).
+Constraint `x_ODE + x_TOP + x_oley ≤ x_sum_max` (default 0.9); precursor is the
+remainder. All come from the `bounds` block of the reactor config
+(`ParameterSpace.from_config`), so the optimiser cannot propose a recipe the
+reactor rejects. Sobol sampling with rejection keeps every proposal valid.
 
-Space-filling samples are drawn with **Sobol** sampling plus rejection, so every
-proposal already satisfies the constraint.
+### Campaign parameters
 
-## The optimizer — campaign lifecycle
-`CampaignController` (`src/optimizer/campaign.py`).
+The UI enters diameters; the optimiser works in **radius** (target and tolerance
+are halved). For Pareto the target is the centre of the range and the tolerance
+its half-width, both as radius.
 
-`POST /api/campaign/start` accepts `target_size` (default 5.0), `tolerance`
-(0.3), `pdi_cap` (0.15), `budget` (25) and `n_init` (10).
+| Parameter | UI default | API default (`POST /api/campaign/start`) |
+|---|---|---|
+| target | 5 nm diameter | `target_size` 5.0 (radius) |
+| tolerance | ± 0.6 nm diameter | `tolerance` 0.3 (radius) |
+| PDI cap | 0.1 | `pdi_cap` 0.15 |
+| budget | 30 | `budget` 25 |
+| seed points | not in UI | `n_init` 10 |
 
-1. **Cold start** — optional literature seeds, then Sobol fills the rest of the
-   `n_init` budget.
-2. **GP suggestion** — after the seeds, each proposal is the Sobol candidate
-   (pool of 256) that maximises **Expected Improvement** under a Gaussian-process
-   surrogate fitted on the unit-cube parameters.
-3. Every proposal gets a generated `recipe_id`
-   (`auto_YYYYmmdd_HHMMSS_<4 hex>`) and is written as
-   `<conditions folder>/<recipe_id>.txt` in the reactor's `key = value` param
-   format (`recipe_id`, `T_reac`, `F_tot`, `x_ODE`, `x_TOP`, `x_oley`).
-4. When the matching measurement arrives, `tell()` records it and the next
-   condition is proposed.
+Other body keys: `goal` (`target-hit`, `level-set`, `pareto`, `benchmark`),
+`size_range` [min, max] diameter (Pareto), `method_params`.
 
-Status is one of `idle`, `running`, `converged`, `exhausted`, `aborted`.
-It **converges** when a CONFIDENT run (confidence ≥ `confidence_min`, default
-0.5) lands within `tolerance` of `target_size` with PDI ≤ `pdi_cap`, and becomes
-**exhausted** at the run budget.
+**Search strategies** (`src/optimizer/methods/`):
 
-### The loss
+| Strategy | Goal(s) | Extra input |
+|---|---|---|
+| Bayesian GP + EI (`gp_ei`, default) | Target-hit | none |
+| Bayesian GP + UCB (`gp_ucb`) | Target-hit | UCB κ, default 2.0 |
+| TuRBO (trust-region BO) (`turbo`) | Target-hit | trust-region size, default 0.5 |
+| Random / Sobol search (`random`) | Target-hit | none |
+| BAX (`bax`) | Level-set (forced) | band threshold τ (loss), default 2.0 |
+| Pareto GP + EHVI (`pareto_ehvi`) | Pareto (forced) | none |
+
+**How a campaign runs** (`CampaignController`, `src/optimizer/campaign.py`):
+
+1. Cold start: `n_init` space-filling Sobol points.
+2. Then each proposal maximises the acquisition (EI for the default) over a pool
+   of 256 Sobol candidates, under an RBF Gaussian process on unit-cube inputs.
+3. Each proposal gets a `recipe_id` `RunN_rNNN` (for example `Run3_r001`) and is
+   written as `Conditions/<recipe_id>.txt`, `key = value` lines: `recipe_id`,
+   `T_reac`, `F_tot`, `x_ODE`, `x_TOP`, `x_oley`. N is one more than the highest
+   `RunN` found on disk, so a new run never reuses old file names.
+4. The reactor names acquisitions `{recipe_id}_{sample|bkg}...`; when a fitted
+   profile carries a pending `recipe_id`, its radius, PDI and confidence are told
+   to the optimiser and the next condition is written.
+
+**Loss** (lower is better, radius units):
+
 ```
-loss = ((size − target_size) / tolerance)²  +  weight_pdi · (PDI / pdi_cap)
-```
-with `weight_pdi` default 1.0. A profile that could not be sized gets the
-sentinel `_FAIL_LOSS = 1e3`; a sized profile with no PDI contributes
-`weight_pdi · 1.0` for the PDI term.
-
-An optional monotone `loss_transform: "log1p"` can be applied before the GP sees
-the loss (the raw loss spans ~0.3 to >200 and one sentinel dominates a stationary
-GP). The default is `"none"` — switching it mid-campaign would invalidate the
-history.
-
-### Confidence is a WEIGHT, not a gate
-A low-confidence profile is **not dropped**. `fit_surrogate` sets the GP
-observation noise per point to
-
-```
-noise_i = (0.05 · var(y) + 1e-6) / max(confidence_i, 0.05)
+loss = ((R − R_target) / tol)² + weight_pdi · (PDI / pdi_cap)
 ```
 
-so low confidence → high noise → the point is trusted less but still informs the
-surrogate. (`confidence_min` is used only for the convergence test, not for
-admission.)
+`weight_pdi` = 1.0. No PDI counts as `weight_pdi · 1`. An unsized profile gets
+1e3; it uses budget but is left out of the GP. `loss_transform` is `"none"`
+(optional `"log1p"`).
 
-### Self-healing and restart
-- A proposal whose measurement never arrives times out after
-  `SWAXS_PENDING_TIMEOUT_S` (default 3600 s) and is recorded as a FAILED
-  measurement (`tell(params, None, None, 0.0)`), then the next condition is
-  proposed — so the loop cannot idle until morning.
-- Campaign state (config, status, history, pending set, handled files) is
-  snapshotted to a run-state file, NOT the manifest, and a `running` campaign is
-  rebuilt on startup by replaying its history through `tell()`. The replay
-  deliberately skips the proposal step so it does not re-emit condition files or
-  notifications; the pending set is restored verbatim. Restoring `handled` is what
-  stops a restart re-analysing every existing profile (which would append
-  duplicate manifest entries and duplicate notifications).
+**Confidence weights, it does not filter**: GP noise per point is
+`(0.05·var(y) + 1e-6) / max(confidence, 0.05)`, so a weak fit is trusted less but
+still counts. The reported best recipe prefers points with confidence ≥ 0.5.
 
-### Campaign endpoints
-- `GET  /api/campaign` — status plus `pending` recipe ids and the resolved
-  conditions folder
-- `POST /api/campaign/start` — start a campaign and emit the first condition
-- `POST /api/campaign/abort` — operator abort
-- `GET/POST /api/campaign/folder` — the conditions folder the proposals are
-  written to (default `1D/SAXS/Conditions`)
-- `GET  /api/campaign/diagnostics` — is the loop still learning, and is it still
-  roaming? Read-only: it uses `peek()`, never `ask()`, so opening the panel
-  mid-run cannot change which recipe the reactor is told to make next.
-- `GET  /api/campaign/plot/<view>.png` — server-rendered figure. Views:
-  **`slice`** (takes `x`, `y`, `anchor`), **`convergence`**, **`trajectory`**.
-  An unknown view returns a placeholder image rather than an error.
+**Convergence**: status is `idle`, `running`, `converged`, `exhausted` or
+`aborted`. A hit is a run with confidence ≥ 0.5 (`confidence_min`), |R − target|
+≤ tolerance and PDI ≤ cap. Target-hit stops as `converged` at the first hit;
+Level-set and Pareto keep measuring to the budget (outcome `mapped`). Reaching
+the budget without a hit is `exhausted`.
 
-## Where the optimisation target is recorded
+**Timeouts and restarts**:
+- A condition with no measurement after `SWAXS_PENDING_TIMEOUT_S` (default 3600 s)
+  is recorded as failed and the next one is proposed, so the loop never idles.
+- A running campaign is **not** auto-resumed after a restart (it drives the
+  reactor); a banner says so. Use **Continue RunN** to rebuild it from the
+  durable fit records, which also re-issues conditions still waiting in
+  `Conditions/`. `SWAXS_RESUME=1` opts in to automatic resume.
+- **Start** sets aside leftover condition files into `Conditions/done/` with a
+  "NOT RUN" note (nothing is deleted). **Abort** does the same for its own
+  queued conditions, saves the results, and clears the run so the next Start is
+  a new Target Run.
 
-The target (`target_size`, `tolerance`, `pdi_cap`, plus `budget`/`n_init`) is
-written to **three durable places** the moment a campaign starts, so a finished
-run can always be asked what it was aiming for:
+### Records written
 
-| Where | What it answers |
+- **Every fit**: `Results/Fit/fit_<stem>.png` (log-log data and fit, annotated with
+  R, D, PDI, phase, distribution, confidence) and `fit_<stem>.dat` (columns
+  `q_nm-1  I_data  sigma  I_fit`, a `#` header with the fit values, source file
+  and campaign target). `I_fit` is NaN when there was no form-factor fit. The
+  newest 5,000 pairs are kept (`SWAXS_ANALYZER_FIT_RETENTION`, 0 = keep all).
+- **Campaign target**, written at start in three places: `manifest.json`
+  `project_meta.campaign`; each `analyses` entry's `params` (`campaign_id`,
+  `target_size`, `tolerance`, `pdi_cap`); and `Results/campaign_<id>.json`,
+  rewritten at the end with the outcome (`converged`, `mapped`, `exhausted` or
+  `aborted`). `.swaxs_state/campaign.json` is resume state that expires after 7
+  days; do not use it as a record.
+- **Campaign end**: `Results/campaign_<id>/` with `campaign.json` (target,
+  outcome, full history), `history.csv` (one row per evaluation),
+  `convergence.png`, `trajectory.png`, `slice.png`.
+- **Manifest entry per fit**: `analysis_type = "nanoparticle"`, `params` `{model:
+  "polydisperse_sphere", distribution, ...}`, `results` = the table row,
+  `quality_score` = confidence, `provenance` `{recipe_id, run_tag, q_unit, source}`
+  where `source` is `simulated` or `measured`.
+- **Bus event `fit.complete`** (live fits only, not backfill): `recipe_id`,
+  `file`, `size` (radius), `pdi`, `confidence`, `distribution`, `phase`,
+  `guinier_rg`, `suspect` (confidence ≤ 0.5), `plot_png`, `loss`. The Watchdog
+  (5110) uses it for notifications. It is deliberately not `analysis.complete`,
+  which belongs to the Data Analysis app (5106).
+
+Never put other files in `Conditions/`: the reactor reads every `*.txt`, `*.dat`
+and `*.json` there as a recipe.
+
+## 5. Troubleshooting
+
+| Symptom | Likely cause and fix |
 |---|---|
-| `manifest.json` → `project_meta.campaign` | "what is/was this experiment targeting?" — permanent, cross-app, and the AI assistant reads it |
-| every `analyses` entry's `params` (`target_size`, `tolerance`, `pdi_cap`, `campaign_id`) | "what was **this fit** judged against?" — stays correct even if the operator aborts and restarts with a different target mid-experiment |
-| `1D/SAXS/Results/campaign_<id>.json` | a human-readable record per campaign, written on start and rewritten on finish with the outcome (`converged` + the converged condition, `exhausted` + best, or `aborted`) |
+| Nothing is fitted | Check the Log for the folder actually watched. Profiles present before startup are not auto-fitted: press **Analyse existing profiles**. In gate mode `good`, `Good/` may be empty. |
+| Log warns "Good/ exists but holds no profiles" | The Quality Gate is not running. Start it, or set gate mode `off`. |
+| Rejected profiles are being fitted | No `Good/` data yet, or gate mode `off`. Run the Quality Gate. |
+| Campaign proposes one recipe then waits | The reactor has not run it yet, or the profile name does not carry the `recipe_id`. After 1 h it is recorded as failed and the loop moves on. Log warns about orphan profiles whose `recipe_id` is not pending. |
+| Sizes 10× off | q unit not recognised. The header must say `q_A-1` for Å⁻¹; otherwise nm⁻¹ is assumed. |
+| Low confidence everywhere | Too few points, no valid Guinier region, fit at a bound, or the sample is not sphere-like. Check the Guinier view and residuals. |
+| "older profile(s) skipped" in the Log | Historical files with no fit record were not refitted, to keep the live loop fast. Use **Continue RunN** or **Analyse existing profiles**. |
+| Campaign stopped after a restart | Intended: press **Continue RunN** (or Start a new one). |
+| Cannot change the search strategy | A campaign is running; Abort first. |
+| Start refused, "already running" | Abort the current campaign first. |
 
-`.swaxs_state/campaign.json` also holds the target, but that file is **resume
-state, not a record**: it is overwritten by the next campaign and expires after
-7 days. Do not read it to find out what an old run targeted.
+## 6. API routes
 
-A resumed campaign keeps its original `campaign_id`, so a restart continues
-writing to the existing record rather than orphaning it and starting another.
-
-**Never write this record into `Conditions/`.** That folder is what the
-reactor polls every cycle for the next recipe (`*.dat`/`*.txt`/`*.json`); an
-early version put the record there and it was rejected as an invalid recipe
-(missing `T_reac`) on every poll, forever, spamming the reactor log — caught
-live in a mock run. Regression test:
-`tests/test_restart_recovery.py::test_the_campaign_record_never_lands_in_conditions`.
-
-## Where a finished campaign's figures go
-
-When a campaign **ends** — converged, budget exhausted, or aborted — everything
-worth keeping is written to a folder named for that campaign, a sibling of
-`Conditions/`:
-
-```
-1D/SAXS/Results/campaign_<id>/
-    campaign.json     target, outcome and the full history
-    history.csv       one row per evaluation (for a spreadsheet or a paper)
-    convergence.png   loss/size vs evaluation
-    trajectory.png    the path the optimiser took through the space
-    slice.png         the model surface through the best point
-```
-
-A new folder every time a target is set, so campaigns never overwrite each
-other. The figures come from the same renderer the live UI uses
-(`src/optimizer/plots.py`), which previously drew only on demand and saved
-nothing — a finished run left no plot behind at all.
-
-Not to be confused with `docs/figures/*.png`: those are **not** from a real
-run. `tools/campaign_plots.py` generates them in silico, driving the real
-optimizer against the simulator's ground truth, to document how the optimizer
-behaves.
-
-Note for maintainers: `_campaign_cfg` holds **exactly** the
-`CampaignController` constructor kwargs and is splatted as `**cfg` on resume —
-any descriptive key added there is a `TypeError` that silently kills the
-restore. Descriptive metadata (objective string, `started_at`, `operator`)
-lives in `_campaign_meta` instead.
-
-## Manifest and event bus
-Each fitted profile is written to `manifest.json` via `add_analysis_entry` with
-`analysis_type = "nanoparticle"`,
-`params = {model: "polydisperse_sphere", distribution: <chosen>}`,
-`results` = the summary row, and `quality_score` = the confidence. Entries land
-under the top-level `analyses` key, one uuid per fit.
-
-A `fit.complete` bus event is published with `recipe_id`, `file`, `size`,
-`pdi`, `confidence`, `distribution`, `phase`, `guinier_rg`, `suspect`,
-`plot_png` and `loss`. The reactor's notifier consumes it to report the fit
-against the recipe that produced it.
-
-**Not `analysis.complete`.** The Data Analysis app already owns that name for
-a completely different payload (`analysis_type`, `file_path`, `results`, via
-`EventBusClient.emit_analysis_complete`). Reusing it here used to make the
-hub's event log render this app's events as literally "undefined on ?" — it
-read `data.analysis_type`/`data.file_path`, fields this payload doesn't have —
-and would make the reactor's Slack notifier (which listens for the analyzer's
-exact event name) fire an empty message on every Guinier/Porod/Kratky/peak/
-model result the Data Analysis app produces. Found live from the hub log.
-
-## Recipe correlation — tying a profile back to its conditions
-`src/optimizer/io.py`:
-- `recipe_id_from_filename(filename, tags=("sample","bkg"))` — the reactor names
-  every acquisition `{recipe_id}_{sample|bkg}`, so the id is everything before the
-  role tag. Returns `""` when the filename does not follow the convention. Used
-  for notifications and provenance, where there is no pending list to match on.
-- `match_recipe_id(filename, pending_ids)` — returns the pending recipe_id
-  carried in this filename, or None. Longest id first, so a longer id cannot be
-  shadowed by a shorter one that is its prefix.
-
-This join is what makes "which conditions gave the smallest particles?"
-answerable: the fitted size comes from the analyzer, the conditions from the
-recipe file, and the filename carries the `recipe_id` that links them.
-
-## Other endpoints
-- `GET  /api/health` — `{"status": "ok", "app": "analyzer", "analyzed": <count>}`
-- `GET  /api/project`, `POST /api/set_project` — project root (pushed by the hub);
-  setting it clears the handled set so the new project is rescanned
-- `GET/POST /api/folder` — watched folder and `gate` mode (`auto`/`good`/`off`)
-- `GET  /api/results` — the summary row of every retained result
-- `GET  /api/result/<name>` — summary + full result + downsampled plot data
-  (q, I, model, sigma)
-- `GET  /api/stream` — incremental SSE. The first frame carries a bounded
-  snapshot (`_SNAPSHOT = 200`, newest first); after that each frame is normally
-  empty or a single row.
-
-Retained results are capped at `SWAXS_ANALYZER_MAX_RESULTS` (default 600) — an
-overnight campaign produces thousands and the full record lives in the manifest,
-so keeping every fit in RAM only slows the app down.
-
-## Target Runs & fresh start (Sept 2026)
-
-Each optimization campaign is a **Target Run** tagged `Run1`, `Run2`, … The number
-is derived from disk at campaign start (`_next_run_no` = max existing `Run<n>` + 1,
-read from the Conditions folder and `Results/campaign_*.json`), so it survives a
-restart without storing a counter. The tag is prepended to every `recipe_id`
-(`_new_rid` → `Run{N}_r{seq}`), so it flows automatically into the condition file,
-the reactor recipe, and the 2D/SAXS filenames (`Run3_r001_sample_..._SAXS.raw`) —
-every dataset is traceable to its target-run conditions. Downstream parsers are
-unaffected because `recipe_id` is "everything before the role tag" (`split_role`),
-and `Run<digits>` never aliases a role token.
-
-**Aborting** a campaign (`POST /api/campaign/abort`) resets the analyzer to a clean
-slate — `_campaign`, `_pending`, `_handled`, the run tag, and the `.swaxs_state`
-campaign file are all cleared — so the next **Start** is a brand-new Target Run.
-
-Resume is OFF by default: a restart never auto-resumes a campaign (or any monitor).
-Export `SWAXS_RESUME=1` to opt back into resume-after-crash.
+| Route | Purpose |
+|---|---|
+| `GET /api/health` | `{status, app: "analyzer", analyzed}` |
+| `GET /api/project`, `POST /api/set_project` | project root (pushed by the hub) and watched path |
+| `GET/POST /api/folder` | watched folder and `gate` (`auto`, `good`, `off`) |
+| `GET /api/results` | summary row of every retained result (up to `SWAXS_ANALYZER_MAX_RESULTS`, default 600; the manifest holds all) |
+| `GET /api/result/<name>` | summary, full result and downsampled plot data |
+| `POST /api/analyze_existing` | backfill of unfitted profiles |
+| `GET /api/stream` | SSE: first frame up to 200 newest rows, then only new rows, log lines and campaign status |
+| `GET/POST /api/methods` | list and select fitting method and search strategy |
+| `GET /api/campaign` | status, `pending` recipe ids, conditions folder, goal |
+| `POST /api/campaign/start` | start a campaign (body keys above) |
+| `POST /api/campaign/abort` | operator abort |
+| `GET /api/campaign/incomplete`, `POST /api/campaign/continue` | offer and rebuild the latest unfinished Target Run |
+| `GET/POST /api/campaign/folder` | conditions folder (default `1D/SAXS/Conditions`) |
+| `GET /api/campaign/diagnostics` | read-only learning and convergence summary |
+| `GET /api/campaign/plot/<view>.png` | `slice` (`x`, `y`, `anchor`), `convergence`, `trajectory`, `levelset`, `pareto` |
+| `POST /api/study`, `GET /api/study/plot.png` | in-silico method comparison |
+| `GET /api/restart_notice` | whether an interrupted campaign needs a manual Continue |

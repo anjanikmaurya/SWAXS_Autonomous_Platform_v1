@@ -1,9 +1,11 @@
-# Reactor hardware setup — fluidics, temperature & beamline
+# Reactor hardware setup: fluidics, temperature and beamline
 
-Physical setup for the autonomous flow-synthesis rig and how each component maps to
-the software/config. Software install is in `docs/REACTOR_SETUP.md`; code locations
-in `docs/REACTOR_MAP.md`. Items marked **⚠ confirm on rig** depend on your exact
-hardware — verify before beamtime.
+**What this is for.** The physical rig behind the Autonomous Synthesis app (pumps,
+flow sensors, heated reactor, flow cell, beamline components) and which
+`reactor/config.yml` setting controls each part. Use it when building or checking
+the rig before a beamtime. Software setup: [REACTOR_SETUP.md](REACTOR_SETUP.md);
+code locations: [REACTOR_MAP.md](REACTOR_MAP.md). Items marked **⚠ confirm on rig**
+depend on your exact hardware.
 
 ---
 
@@ -44,13 +46,11 @@ to the **control PC over USB/serial** (FTDI → COM/tty).
 | `top` | LG16-0480 | 1–50 | **0.0** / 50 | reagent (low flow) |
 | `ode_dilution` | LG16-0480 | 1–50 | **0.0** / 50 | dilution (low flow) |
 
-The "sensor range" column is the physical sensor. The `config.yml` column is what
-the software actually enforces — and **`sensor_min: 0.0` on every pump means the
-lower limit is switched off in the shipped config** (`reactor/config.yml` lines
-23, 36, 49, 61, 74). Until you set the real minima, a recipe whose computed
-setpoint is, say, 0.3 µL/min on an LG16-0480 is **accepted and sent to hardware**,
-below the sensor's usable range, and the delivered flow is unknown while the app
-displays a number as if it were measured. Set them before you trust a composition.
+The "sensor range" column is the physical sensor; the `config.yml` column is what
+the software enforces. The shipped `sensor_min: 0.0` would switch the lower limit
+off, so **on Hardware the app refuses to open the pump ports until every pump's
+`sensor_min` is set to its sensor's real minimum.** Put the real floors in; do not
+leave them at 0.
 
 Setup:
 
@@ -60,9 +60,8 @@ Setup:
    fallback. Put the confirmed `serial` for each pump in `config.yml`.
 3. Set each pump's `sensor_min` / `max_flow` to the installed sensor's real limits.
    A nonzero setpoint below `sensor_min` or above `max_flow` rejects the whole
-   recipe, never clamps (`src/reactor/recipe.py recipe_to_setpoints`) — but with
-   the shipped `sensor_min: 0.0` **the below-minimum rejection does nothing**.
-   `max_pressure` (mbar) is the pump's ceiling. **⚠ do this before beamtime.**
+   recipe, never clamps. `max_pressure` (mbar) is the pump's ceiling. **⚠ do this
+   before beamtime** (the app will not start on Hardware with a zero minimum).
 4. Prime lines and check for leaks before any beam.
 
 Software: `src/reactor/hardware.py` (`RealPump`, `PumpBank`) via
@@ -74,8 +73,8 @@ Software: `src/reactor/hardware.py` (`RealPump`, `PumpBank`) via
 The driver (`src/reactor/drivers/Py_P_Pump.py`) speaks the Mitos ASCII protocol
 verified on the SSRL rig: **57600 baud, 8N1, no handshaking**, newline-terminated
 commands — `s` (status), `A1`/`A0` (enter/leave remote control), `F<pl/s>` (flow
-setpoint, **picolitres per second** on the wire — the platform works in µL/min and
-`ulmin_to_pls` converts, `Py_P_Pump.py:13` and `set_flow`), `P<mbar>` / `P0`
+setpoint, **picolitres per second** on the wire; the platform works in µL/min and
+converts), `P<mbar>` / `P0`
 (target pressure / idle-vent), `R0` (pressure tare), `R1` (flow-sensor tare). It
 enters remote control automatically and polls status to hold it; a pump **drops out
 of remote control after ~30 s** without a command. **One pump per COM/tty port**
@@ -93,9 +92,9 @@ flow through it) — `Py_P_Pump.tare` / `tare_flow`, exposed as
 `PumpBank.tare(name, kind="pressure"|"flow"|"both")`.
 
 Do it **from the reactor app**: **Hardware test → 1 · Tare pumps** has per-pump
-**Pressure / Flow / Both** buttons, which POST `/api/tare` →
-`controller.tare_pump` and are accepted only in idle / ready / estop, so a tare
-can never land mid-run. One pump at a time; wait for it to return to IDLE.
+**Pressure / Flow / Both** buttons. They work only when the reactor is idle, ready
+or E-stopped, so a tare can never land mid-run. One pump at a time; wait for it to
+return to IDLE.
 
 Only use the console tools (`tools/tare_probe.py`, or `P_pump(...).tare()` then
 `set_idle()`) when the app is **not** running — the app holds the COM port and the
@@ -131,11 +130,10 @@ not over a separate cable to the control PC:
   temperature controller behind `csettemp`/`CTEMP`. **⚠ confirm** the controller
   (e.g. Linkam/hot-stage) is in SPEC/remote mode and that `CTEMP` reads the sample.
 
-**⚠ On `read_source: "spec"` the temperature reading — and with it the
-over-temperature interlock — goes dark for the whole of every 2D acquisition.** A
-collection holds the SPEC lock and counter reads are non-blocking by design
-(`src/beamline/driver.py read_state`), so nothing refreshes from the first frame
-to the last: at the shipped `exposure_s: 10 × frames: 10` that is **100 s per
+**⚠ On `read_source: "spec"` the temperature reading, and with it the
+over-temperature interlock, goes dark for the whole of every 2D acquisition.** A
+collection holds the SPEC link, so nothing refreshes from the first frame to the
+last: at the shipped `exposure_s: 10 × frames: 10` that is **100 s per
 acquisition with no fresh temperature**, repeated every run. The `ct 0.1` refresh
 described above applies only between collections. Fix it by reading from EPICS:
 set `spec.read_source: "epics"`, fill in `spec.epics_pvs` (⚠ confirm the PV names
@@ -146,10 +144,11 @@ unavailable, `spec.read_during_collect: true` polls the SPEC counters during a
 collection instead — only use it if the bServer tolerates counter reads mid-scan.
 
 Arming (`config.yml arming`): `temperature` (wait to reach and hold T) or `timed`
-(fixed wait, `default_wait_s`). Those are the only two modes — any other
-`arm_mode` (e.g. the old `ramp`) is rejected by `src/reactor/recipe.py` at intake,
-which stalls the queue during an unattended campaign. The shipped default is
-`timed`, 120 s: **as delivered the pumps start on a timer, not on temperature.**
+(fixed wait, `default_wait_s`, 120 s). Those are the only two modes; a condition
+file with any other `arm_mode` is rejected at intake. The shipped default is
+**`temperature`**, which needs a live temperature reading; use `timed` only when no
+thermocouple is wired. In the app this is **Autonomous setup → 2 · Timing → Start
+the pumps**.
 
 ## 3. Flow cell in the beam
 
@@ -160,12 +159,15 @@ cell for the background measurement.
 
 **Which pump flushes:** `config.yml flush.pump` ships as **`ode_dilution`** — a
 reagent pump on the mixer, not the dedicated `ode_flush` line ("Default is
-ode_dilution (same ODE) while ode_flush is down; switch to ode_flush once fixed").
-So the shipped rig flushes with the same ODE through the reagent path, at a rate
-capped by that pump's own `max_flow`: the 50 µL/min limit auto-clamps the flush
-rate (`controller._enter_flush` logs "clamped … flush will take longer"). Switch
-`flush.pump` to `ode_flush` once the dedicated line works, and re-check
-`flush.duration` for the rate you end up with.
+ode_dilution (same ODE) while ode_flush is down"). So the shipped rig flushes with
+the same ODE through the reagent path, at a rate capped by that pump's own
+`max_flow` (50 µL/min; a higher flush rate is clamped and the log says the flush
+will take longer). The flush pump can also be chosen in the app (**Autonomous setup
+→ 2 · Timing → Flush pump**). Switch to `ode_flush` once the dedicated line works,
+and re-check the flush duration for the rate you end up with.
+
+During the flush the app also checks that the other pumps are not still flowing,
+and that a pump with a `volume_limit` does not keep delivering.
 
 With `spec.background_when: "before"` (shipped) the flush + background happen
 **before** the synthesis, on a clean capillary — see §4 and
@@ -231,8 +233,8 @@ app stopped, then come back here.
 
 1. All 5 pumps enumerated; `tools/map_pumps.py` matches every `serial`; lines primed,
    no leaks.
-2. `sensor_min` / `max_flow` / `max_pressure` set to the **real** sensors — the
-   shipped `sensor_min: 0.0` leaves the low-flow rejection disabled (§1). **⚠**
+2. `sensor_min` / `max_flow` / `max_pressure` set to the **real** sensors (the app
+   refuses to start on Hardware while any `sensor_min` is 0, §1). **⚠**
 3. Pumps tared (Pressure + Flow, per pump) and flow-calibrated if you need true
    ODE flow — `docs/PUMP_FLOW_CALIBRATION.md`.
 4. Temperature controller in remote/SPEC mode and reading the sample.
@@ -241,7 +243,8 @@ app stopped, then come back here.
 6. Detectors calibrated — `poni` files + masks present for the reduction step.
 7. Beamline runbook passed (`tools/BEAMLINE_TESTING.md`), including `read_source`
    decided and verified.
-8. Then: reactor app → **Hardware** → **Run all checks** (Hardware test tab) → one **📷 Collect now** → confirm the pipeline sees it.
+8. Then: reactor app → **Hardware** → **Run all checks** (Hardware test tab) → one
+   **Collect now** → confirm the pipeline sees it.
 
 Safety review: `docs/audits/BEAMLINE_SAFETY_AUDIT.md`. Readiness:
 `docs/audits/PRE_BEAMTIME_READINESS.md`. Bench runbook: `tools/BEAMLINE_TESTING.md`.

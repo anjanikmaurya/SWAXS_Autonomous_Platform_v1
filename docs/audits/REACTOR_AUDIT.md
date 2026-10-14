@@ -1,5 +1,12 @@
 # Reactor app — deep audit (September 2026)
 
+> **Audit status: complete.** Run in September 2026, closed 20 September 2026.
+> 27 findings (R1 to R27) plus one operator request (R28): **25 fixed**, R4
+> accepted by the operator (counting cadence kept for a live trace), **R12 open**
+> (deferred). Fixes are held by `tests/test_reactor_audit_2026_09.py`. Open items
+> are tracked in [OPEN_DEFECTS.md](OPEN_DEFECTS.md). The text below is the
+> original audit and is not updated; line numbers in it are from September 2026.
+
 Scope: `reactor/app.py`, `reactor/templates/index.html`, `reactor/config.yml`,
 all of `src/reactor/` (controller, hardware, recipe, config, intake, drivers),
 and `src/beamline/driver.py`. Four lenses, all requested: hardware safety on

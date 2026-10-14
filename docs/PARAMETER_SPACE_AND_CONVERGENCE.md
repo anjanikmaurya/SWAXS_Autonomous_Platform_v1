@@ -16,7 +16,7 @@ python tools/campaign_plots.py --out docs/figures \
 
 Every flag above is deliberately **non-default**: the script's own defaults are
 `--budget 40 --n-init 10 --tolerance 0.30 --pdi-cap 0.15 --replicates 12`
-(`tools/campaign_plots.py:229-236`). This document poses a harder problem than
+(`tools/campaign_plots.py`, its `argparse` block). This document poses a harder problem than
 the defaults do — a 3× tighter size tolerance and a 3× tighter PDI cap, with a
 larger budget and more replicates to match. Run it bare and the numbers will not
 be these.
@@ -24,6 +24,13 @@ be these.
 The same renderer (`src/optimizer/plots.py`) backs the analyzer's live
 **Parameter space** panel, so what you watch during beamtime and what appears
 here cannot diverge.
+
+Everything below describes the **default** optimiser, `gp_ei`
+(`CampaignController` in `src/optimizer/campaign.py`: GP surrogate with a fixed
+`length_scale = 0.3`, expected improvement). Since October 2026 the analyzer
+can also run `random`, `gp_ucb`, `turbo`, `bax` and `pareto_ehvi`
+(`src/optimizer/methods/`) and compare them in silico (`src/optimizer/study.py`);
+see [AUTOFIT_REDESIGN.md](AUTOFIT_REDESIGN.md).
 
 ---
 

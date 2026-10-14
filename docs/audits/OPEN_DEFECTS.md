@@ -1,5 +1,12 @@
 # Open defects — the platform's single register
 
+> **Status, re-checked against the code on 2026-10-14.** Open: N5, N6 (mostly
+> fixed), N8 to N16, O3, O4, O7, O9, O10, O15, O18, C4, C5, U3, U5, U6, D1, D4,
+> W11, W12, W14, W15, W17 to W23, assistant A9, analyzer L1 and L2, R12
+> (reactor audit). Fixed since the last pass: O12 (SQLite store), O14, O16,
+> W10, assistant A1 to A3. The manifest rows (O3, O4, O12,
+> O18) describe the current SQLite store (`src/manifest_store.py`).
+
 **This is the one place open defects are tracked.** Ten point-in-time audits
 (June–July 2026) were consolidated into this file; they remain in git history if
 you need the original narratives. `git log --diff-filter=D -- docs/audits/`.
@@ -326,47 +333,51 @@ but harmless and self-documenting where it sits.
 
 ## Open — not fixed, ranked by expected loss
 
-> **The reactor's findings (R1–R25) live in a separate file — 24 of 25 FIXED.**
+> **The reactor audit's findings (R1 to R28) live in a separate file: 25 of 27 fixed, R4 accepted, R12 open.**
 > A September 2026 deep audit of `reactor/` + `src/reactor/` + `src/beamline/`
 > produced its own register with severity, evidence and a proposed fix per
 > item: **[REACTOR_AUDIT.md](REACTOR_AUDIT.md)**. They are kept there rather
 > than merged here because they share a subsystem and a remediation order, and
 > because eight of them are backed by executable probes that only make sense
 > read together. All but **R12** (a rejected condition file is a log line
-> only — the optimizer never hears) were fixed on 2026-09-20 and are held by
-> `tests/test_reactor_audit_2026_09.py`, which was run against the pre-fix
-> commit to confirm it catches the old behaviour: 50 of its 52 tests failed
-> there. Two items still need the rig rather than code — the real `sensor_min`
+> only; the optimizer never hears) and the accepted **R4** were fixed on
+> 2026-09-20 and are held by `tests/test_reactor_audit_2026_09.py`. Note: the
+> R numbers there are not the same items as the July "8 residual risks" R1 to
+> R8 further down this file. Two items still need the rig rather than code: the real `sensor_min`
 > values (R14) and `sauto off` (R4); both are on the pre-beamtime checklist.
 
-> **The assistant's findings (A1–A6) live in
-> [ASSISTANT_AUDIT.md](ASSISTANT_AUDIT.md).** A September 2026 audit of
-> `assistant/` + `src/ai/` fixed **A6** (P(r) auto-Dmax returned meaningless
-> Dmax/Rg — the "enable Pr analysis" request; held by
-> `tests/test_pr_ift.py`). Three hardening items are OPEN, all local
-> single-user and low blast radius: **A1** PDF-ingest path traversal (raw
-> client filename), **A2** no upload size cap, **A3** raw `str(exc)` returned
-> to the client across nine routes. **A4** (run_python is a guard, not a jail)
-> is an accepted, human-gated residual.
+> **The assistant's findings (A1 to A10) live in
+> [ASSISTANT_AUDIT.md](ASSISTANT_AUDIT.md).** Two September 2026 passes fixed
+> A1 (PDF-ingest path traversal, now `secure_filename`), A2 (50 MB upload cap),
+> A3 (`_fail()` instead of raw `str(exc)`), A6 (P(r) auto-Dmax; held by
+> `tests/test_pr_ift.py`), A7 (Å⁻¹ to nm⁻¹ in `_load_dat`) and A8 (thread-safe
+> plotting). **A9 is OPEN** (LOW): with no subtracted file, an ambiguous
+> averaged keyword can fall back to the `_bkg` average. A4 (run_python is a
+> guard, not a jail) is an accepted, human-gated residual.
+
+> **The analyzer's findings live in [AUTOFIT_AUDIT.md](AUTOFIT_AUDIT.md)**
+> (its own A1 to A9, all fixed, October 2026). Two LOW limitations are OPEN:
+> **L1** `/api/stream` holds one server thread per viewer; **L2** a campaign
+> that reaches its budget stops, and the next one must be started by hand.
 
 > **N1–N4 are FIXED** (September 2026, before beta): the reduction processed-set
 > and the average batch state now persist across a restart, batch membership is
 > tracked by filename rather than by a count that a failed read could shift, and
 > `/api/run` is refused with 409 while the monitor is live. Regression tests:
 > `tests/test_continuous_run_hardening.py`. Rows kept below for the history.
-> **N5, N6, N16 and O3 remain open** (N7 fixed 2026-09-11) — see
+> N7 was fixed 2026-09-11 and N6 is mostly fixed; **N5, N16 and O3 remain
+> open**. Per-item status with evidence:
 > [../CONTINUOUS_RUN_HARDENING_PLAN.md](../CONTINUOUS_RUN_HARDENING_PLAN.md).
 
 These were reproduced or confirmed by reading, but are larger than a safe
 single-session change. Ranked by what they cost during an unattended run.
 
-> **Planned work.** The subset that threatens a multi-day autonomous run —
-> N1–N7, N16 and O3 — has a phased remediation plan with a fix, the gotchas
-> and a regression test for each: **[../CONTINUOUS_RUN_HARDENING_PLAN.md](../CONTINUOUS_RUN_HARDENING_PLAN.md)**.
-> Not yet implemented. Two findings from writing it that change this table:
-> **O3's stated cause below is wrong** (see the note on O3), and **N16 must be
-> done after N3/N4/N5** — extracting the average monitor loop before its state
-> is fixed means doing the work twice.
+> **Remediation plan.** The subset that threatens a multi-day autonomous run
+> (N1 to N7, N16 and O3) has a phased plan with a fix, the gotchas and a
+> regression test for each:
+> **[../CONTINUOUS_RUN_HARDENING_PLAN.md](../CONTINUOUS_RUN_HARDENING_PLAN.md)**.
+> N1 to N4 and N7 are done, N6 mostly; N5, N16 and O3 are open. N16 should
+> follow N5, because the average monitor loop's stop logic changes in both.
 
 | # | Sev | Finding | Consequence |
 |---|---|---|---|
@@ -375,9 +386,9 @@ single-session change. Ranked by what they cost during an unattended run.
 | N3 | **FIXED** | `average` `_avg_batch_state` is zeroed on every `monitor_start`, including the boot resume. | After a restart the whole night is re-averaged: every batch file overwritten and one `file.averaged` per batch — which is what the reactor treats as measurement-complete. Fix: persist the batch state alongside the monitor state. |
 | N4 | **FIXED** | `average` batch state is a **count**, not a set of identities, and `read_folder` silently skips unreadable files. One transient read failure shifts every subsequent batch boundary. | A frame is silently reused in the next batch and one is dropped; if the count ever exceeds the group length, that keyword stops averaging entirely. Fix: track consumed filenames. |
 | N5 | **MEDIUM** | `average` stop→start within one interval can leave two loops racing the same counter, or the old thread can switch the **new** monitor off after `start` returned OK. | Double-written or skipped batches; or a monitor that reports running and is not. Fix: per-run `threading.Event` instead of a shared bool; join the old thread. |
-| N6 | **MEDIUM** | `quality` `_results` / `_overrides` are mutated by the grader thread, the bus thread and request threads while other requests iterate them. | `RuntimeError: dictionary changed size during iteration` — tolerable in `/api/results`, but `_recolor()` and `_rescore_all()` have side effects, so a mid-loop failure leaves half the profiles re-verdicted and re-copied, permanently, with nothing logged. Fix: snapshot under `_lock`. |
+| N6 | MEDIUM · **MOSTLY FIXED** (`_results` is guarded by `_results_lock` and every loop iterates `_results_snapshot()`; `tests/test_quality_audit_fixes.py`. Residual: `_overrides` is unlocked and records are still mutated in place) | `quality` `_results` / `_overrides` are mutated by the grader thread, the bus thread and request threads while other requests iterate them. | `RuntimeError: dictionary changed size during iteration`: tolerable in `/api/results`, but `_recolor()` and `_rescore_all()` have side effects, so a mid-loop failure leaves half the profiles re-verdicted and re-copied, permanently, with nothing logged. Fix: snapshot under `_lock`. |
 | N7 | ~~MEDIUM~~ **FIXED 2026-09-11** | Two mechanisms. A parse cache in `src/plot_reduction.py::read_folder`, keyed by path and valued `((mtime_ns, size), entry)` so a rewritten file replaces its entry rather than leaving a dead one behind, LRU-bounded by `SWAXS_READ_CACHE_MAX` (3000; each entry holds three float64 arrays, so the bound is a memory bound). And `read_folder(skip_names=...)`, which the average monitor feeds from `_consumed_for(det)`, so frames already averaged into a batch are never stat'd or parsed — a poll now costs the NEW frames only. `todo`, and the gate this app publishes, are unchanged. Tests: `tests/test_read_folder_cost.py`. The average and subtraction monitor defaults dropped 10 s → 3 s as a result. |
-| N8 | **MEDIUM** | `calibration` Stop does not stop the SFTP copy — the executor drains its queue and the handle is dropped anyway. | Status says "Stopped" while an orphan thread keeps writing; a second Start can run two syncs into the same `.part` paths. Fix: `shutdown(cancel_futures=True)`; keep the handle until the thread is dead. |
+| N8 | **MEDIUM** (partly mitigated: Stop now joins the sync thread for up to 3 s and the watch loop joins its workers before reporting "Stopped"; queued transfers are still not cancelled, and the handle is dropped after the 3 s timeout) | `calibration` Stop does not stop the SFTP copy: the executor drains its queue and the handle is dropped anyway. | Status says "Stopped" while an orphan thread keeps writing; a second Start can run two syncs into the same `.part` paths. Fix: `shutdown(cancel_futures=True)`; keep the handle until the thread is dead. |
 | N9 | **MEDIUM** | `calibration` never persists/resumes its transfer — the O1 fix skipped the first stage of the pipeline. | A restart silently stops data ingest; every downstream app then honestly reports "no new files" and stays green. Note: only key-based auth can be resumed, since the password is deliberately never persisted. |
 | N10 | **MEDIUM** | `quality` "Re-grade with AI" is stored in `_overrides`, so it is recorded as `source="user", overridden=True` and pins the verdict forever. | Provenance claims a scientist labelled the profile; later threshold changes can never reclassify it. Fix: a separate `_ai_verdicts` store. |
 | N11 | **MEDIUM** | A single override shifts the **global** adaptive threshold, persists it, and does not re-sort. Repeat overrides of one file are counted repeatedly. | The persisted threshold stops matching the already-sorted files. Fix: `_recolor()` after `_adapt_threshold()`; key `_adapt` by path. |
@@ -385,7 +396,7 @@ single-session change. Ranked by what they cost during an unattended run.
 | N13 | **LOW** | `analysis` Guinier overlay is drawn over the whole q-range, ignoring `res["q_range"]`. | The saved `*_fit.dat` shows an extrapolated curve that reads as a much worse fit than it is. |
 | N14 | **LOW** | Both reduction and the average app drive `pyplot` from a 2-worker pool; the global figure manager is not thread-safe. | Two simultaneous render requests can garble a figure. UI-only. |
 | N15 | **LOW** | `src/analysis/atsas.py:122` `mkdtemp()` per `run_datgnom` call, never removed. | One temp dir per file in an ATSAS batch. |
-| N16 | **MEDIUM** | Four stages poll independently at 10 s, in series, plus a 2-poll stability gate — 99 % of the 264 s frame-to-fit latency is waiting, 1 % is CPU (measured). Every app already publishes and receives bus events. | A frame takes ~4 min to reach the optimizer when the work costs ~2 s. Fix: have each stage act on the upstream `file.*` event and keep polling only as the fallback it was meant to be. |
+| N16 | **MEDIUM** (partly mitigated: average and subtraction now poll every 3 s after N7; still no stage acts on the upstream event, only quality subscribes to `file.subtracted`) | Four stages poll independently at 10 s, in series, plus a 2-poll stability gate: 99 % of the 264 s frame-to-fit latency is waiting, 1 % is CPU (measured). Every app already publishes and receives bus events. | A frame takes ~4 min to reach the optimizer when the work costs ~2 s. Fix: have each stage act on the upstream `file.*` event and keep polling only as the fallback it was meant to be. |
 
 
 ---
@@ -414,16 +425,16 @@ numbers anywhere, which is why the file they came from could not simply be delet
 
 | # | Sev | Finding | Consequence & fix |
 |---|---|---|---|
-| O3 | **HIGH** | **Manifest write cost is O(N²).** Every entry embeds a full `config_snapshot` (`src/manifest.py:695-696`), nothing prunes, and reduction writes once per frame under `flock` with no timeout. Measured 3.5 ms at 100 entries → **609 ms at 20 000**. | By 03:00 the bookkeeping costs more than the science and blocks all six writers. Fix: **batch reduction's per-frame writes** per poll cycle as average/background already do, and drop `indent=2`. **Correction (Sept 2026):** the cause stated here is wrong. The snapshots the apps actually pass are 1-6 keys, ~100-200 bytes (`reduction/app.py:329-333` passes four); the dominant cost is that every write is a full read -> `json.load` -> mutate -> `json.dump` of the whole file under `flock`. Deduplicating configs would barely help. See ../CONTINUOUS_RUN_HARDENING_PLAN.md Phase 4. |
-| O4 | **HIGH** | **`flock` failure disables manifest writing silently** — the call is unguarded (`src/manifest.py:274-283`); on NFS/SMB it raises `ENOTSUP` and every caller swallows it into one log line. | Data reduces fine, `.dat` files appear, `manifest.json` is never created: **no provenance for the entire run**. Highest-variance item left. Fix: `except OSError` with a one-time ERROR and a portable `os.mkdir` lock fallback. |
+| O3 | **HIGH · OPEN** (partly mitigated) | **Manifest write cost grows with the whole manifest.** Every `update_manifest` call is lock → `load_manifest` → mutate → `save_manifest`. With the SQLite store (`src/manifest_store.py`) that means `load_dict` rebuilds the full dict from the DB, `save_dict` upserts **every** row of every section in one transaction, and `_write_json` then re-exports the whole `manifest.json` with `indent=2`. Reduction still calls `update_manifest` once per frame, and the hub writes every bus event into the manifest the same way (`_append_event_to_manifest`). So each write is still O(N) and a run's total is O(N²). The July measurement (3.5 ms at 100 entries, 609 ms at 20 000) was taken on the old JSON store and has not been repeated. | By 03:00 the bookkeeping can cost more than the science and blocks every writer behind the lock. Mitigated: `analyses` is capped (`SWAXS_MANIFEST_ANALYSES_CAP`, default 3000) and routine snapshots are throttled to one per 600 s. Fix: write only the changed rows (the per-entry `add_*` helpers already know them), batch reduction's per-frame writes per poll cycle as average/background do, and drop `indent=2` from the export. The original cause given here (large `config_snapshot`) was wrong: the snapshots are 1 to 6 keys. See ../CONTINUOUS_RUN_HARDENING_PLAN.md Phase 4. |
+| O4 | **HIGH · OPEN** | **A lock failure disables manifest writing silently.** `manifest_lock` (`src/manifest.py`) calls `fcntl.flock` unguarded; on NFS/SMB it can raise `ENOTSUP`, and every caller swallows the exception into one log line. The SQLite store adds a second risk on the same mounts: `manifest.db` runs in WAL mode, which SQLite does not support on network file systems. | Data reduces fine, `.dat` files appear, and the run has **no provenance**. Highest-variance item left. Fix: `except OSError` with a one-time ERROR and a portable `os.mkdir` lock fallback; detect a network mount and fall back to `journal_mode=DELETE` (or warn loudly). Until then keep the project folder on a local disk. |
 | O7 | **HIGH** | **Only the first rolling batch trains the optimizer.** The average app emits `batch001, batch002…`; `_pending.pop(rid, None)` (`analyzer/app.py:296`) means first-arrival wins — and `batch001` is the *least* settled flow with the worst statistics. | The manifest and campaign history disagree about the same recipe with no marker saying which trained the model. Fix: accumulate per recipe and `tell()` once on the highest-confidence batch. |
 | O9 | **MED** | **Subtracted `.dat` drops the sample's metadata footer**, including the simulator's `simulated=1` flag — `background/app.py:215-241` writes only its own header. | Mock and real results are indistinguishable downstream: manifest, campaign history and Slack reports alike. |
 | O10 | **MED** | **Switching the project folder mid-session splits the writers.** Monitor loops keep the absolute paths captured at start; the manifest write in the same loop uses the live `_project_root`; reduction writes to `data_directory.parent` — a third manifest. | Data lands in the old folder, provenance in the new. Fix: stop the monitors on `set_project` with a clear log line. |
-| O12 | **MED** | **No `fsync` before `replace`** (`src/manifest.py:236`), and salvage handles only the "valid JSON + trailing bytes" case. | On salvage failure the manifest resets to empty and processing continues; 8 h of provenance survive only in a `manifest.corrupt-*` file nothing points the operator at. |
-| O14 | **MED** | **`_FAIL_LOSS` rows still enter the GP fit and still consume budget** (`src/optimizer/campaign.py:27,70`). Partially mitigated by the `_transform()` compression at `:107-115`. | One bad fit degrades every subsequent suggestion. Fix: exclude them from the fit; count them separately. |
+| O12 | MED · **FIXED** (October 2026, SQLite store) | **No `fsync` before `replace`, and an unsalvageable manifest reset to empty.** With the default SQLite backend the DB is the source of truth and each save is one transaction; a missing, empty or unreadable `manifest.db` is restored from the newest snapshot in `.manifest_snapshots/` with the newer `manifest.json` merged on top; a JSON that cannot be read with nothing to restore from raises `ManifestUnreadableError` instead of starting empty. Tests: `tests/test_manifest_snapshots.py`, `tests/test_manifest_sqlite.py::test_json_reset_cannot_wipe_history`. | Residual, only with `SWAXS_MANIFEST_BACKEND=json`: `_read_json_manifest` still resets to an empty manifest when salvage fails (the damaged copy is kept as `manifest.corrupt-*.json`), and the JSON write has no `fsync`. |
+| O14 | MED · **FIXED** | **`_FAIL_LOSS` rows entered the GP fit.** `CampaignController` now drops failed measurements (no size, or loss at the `_FAIL_LOSS` sentinel) before fitting the surrogate (`src/optimizer/campaign.py`, the fit helper). They still count against the budget, by design. | A single 1e3 outlier no longer flattens the posterior. |
 | O15 | **MED** *(half fixed)* | The `_MAX_RESULTS=600` bound and `_handled` pruning landed (`analyzer/app.py:76`, `:383-384`, `:527-528`). **Residual: the SSE stream still has no sequence-number filter.** | Re-sends summaries the client already has. Reduction's SSE is the model implementation. |
-| O16 | **MED** *(half fixed)* | `at_bounds` is now computed (`src/analysis/core.py:734-779`) and persisted (`src/analysis/io.py:82`). **Residual: confidence is still not scaled down when it is non-empty** (`src/analysis/nanoparticle.py:183`). | A railed boundary artefact is still reported to the optimizer at full confidence. |
-| O18 | **LOW** | On Windows the manifest lock is a silent no-op — `_HAVE_FCNTL` only, no `msvcrt` (`src/manifest.py`). | Clean, invisible lost updates with six concurrent writers. Windows is a supported platform. Fix: `msvcrt.locking` fallback, or the portable directory lock from O4. |
+| O16 | MED · **FIXED** | `at_bounds` is computed and persisted, and `_confidence` in `src/analysis/nanoparticle.py` now scales confidence by 0.25 when a parameter rails against a bound (and by 0.5 when the solver did not converge). | A railed boundary artefact reaches the optimizer with low confidence, so the GP treats it as noisy. |
+| O18 | **LOW · OPEN** | On Windows the manifest lock is a silent no-op: `manifest_lock` uses `fcntl` only, with no `msvcrt` fallback (`src/manifest.py`). SQLite's own locking serialises each transaction but not the load → mutate → save cycle, so two apps can still overwrite each other's update. | Clean, invisible lost updates with several concurrent writers. Windows is a supported platform. Fix: `msvcrt.locking` fallback, or the portable directory lock from O4. |
 
 **O13 is FIXED** (was listed open): the quality gate's LLM adjudication is now
 honoured (`quality/app.py:216-222`) and there is a graded-file cache (`:481`).
@@ -452,8 +463,8 @@ honoured (`quality/app.py:216-222`) and there is a graded-file cache (`:481`).
 | LOW | `/api/set_project` is dropped on a not-yet-mounted path — background and analysis guard on `is_dir()`. Re-select the folder once a slow network drive appears. |
 | LOW | The reactor's **"■ Stop → flush" is mislabelled during the `flushing` state**, where it stops the flush and idles. |
 | LOW | No tooltips on the reactor's stop/safe control cluster, and the E-stop → Reset recovery path is not explicit in the UI. |
-| LOW | `/api/browse` returns `{"path": …}` in reduction but `{"current": …}` in the average app — two contracts for one job. |
-| LOW | `quality`, `reactor`, `analyzer` and `calibration` post-date the design audit and have **never been contrast-checked**. See `docs/DESIGN_SYSTEM.md` §6. |
+| LOW | `/api/browse` returns `{"path": …}` in reduction but `{"current": …}` in the average app. Five apps (analysis, analyzer, assistant, quality, reactor) now share `src/folder_browse.py` (`{"current", "parent", "dirs"}`); reduction, average, background, calibration and the hub keep their own routes. |
+| LOW | Accessibility: every app now uses the shared palette, whose text contrast is tested (`tests/test_ui_theme_uniform.py`), but `--border-strong` fails 3:1 in both themes and six apps (analysis, analyzer, calibration, quality, reactor, watchdog) have no `:focus-visible` rule. See `docs/DESIGN_SYSTEM.md` §6. |
 
 ### Fresh start reprocessed the whole folder — FIXED 2026-09-11
 
@@ -500,14 +511,14 @@ defect lives.
 
 | ID | Sev | Finding |
 |---|---|---|
-| W10 | MED | The **`campaign` notification category is wired to nothing**. It is in `CATEGORIES`, validated by `/api/settings`, persisted to config.yml and rendered as a toggle, but `category_for_event` maps nothing to it, no caller passes it, and no `campaign.*` event is published anywhere. Toggling it has no effect. Fix: have the analyzer publish campaign-lifecycle events, or drop the category. |
+| W10 | ~~MED~~ **FIXED** | The `campaign` notification category was wired to nothing. `src/watchdog/policy.py` `_EVENT_CATEGORY` now maps `average.skipped` and `file.skipped` (a condition losing its data point) to `campaign`. |
 | W11 | MED | **A low-confidence fit is classified as a fault**, so it overrides quiet hours and snooze (`messages.format_fit_complete` returns `level="fault"` when `suspect`). Its category is `results`, so the only way to stop 3am pages about a poor fit is to silence all fit results. |
 | W12 | MED | **`summary: "hourly"` is accepted, validated, persisted and exposed on `/api/settings` — and never read.** `should_send` ignores `cfg["summary"]`. config.yml's comment admits it is a placeholder; `policy.py`'s docstring claims otherwise. |
 | W14 | MED | **Ports hard-coded in three places** (`probes.MONITOR_APPS`, `probes.ANALYZER_PORT`/`REACTOR_PORT`, `app.LOOP_APPS`), duplicating `apps.yml`. A renumbering makes every probe read "down". |
 | W15 | MED | **The localhost probes do not bypass a configured proxy.** With `http_proxy` exported, every probe is routed out and fails, so all six apps read as down and every stall diagnosis is wrong in the same direction. Fix: one opener with `ProxyHandler({})`. |
 | W17 | LOW | **The loop-closure edge is unmonitored.** `fit` is last in `_STAGE_ORDER` and `STAGE_TIMEOUTS` has no `collect` key, so once `fit.complete` lands nothing is expected until it ages out of the 2 h window. The reactor failing to start the next run raises no stall. Documented as intended by `test_at_final_stage`, but it is the gap that matters overnight. |
 | W18 | LOW | Dead code: `expectations.format_stall_message` (imported by the app, never called — `diagnose_stall` superseded it) and `probes.check_monitor_alive`. `format_stall_message` also labels the *overdue delta* as the silence duration. |
-| W19 | LOW | `save_notify_settings` writes config.yml **non-atomically and unlocked** (`write_text` in place), unlike `src/manifest.py` and `src/runstate.py`. A crash or two concurrent POSTs mid-write truncates a tracked file. |
+| W19 | LOW *(half fixed)* | `save_notify_settings` now writes config.yml through a temp file and `os.replace` (atomic). Residual: still **unlocked**, so two concurrent POSTs can each overwrite the other's change. |
 | W20 | LOW | **Docstring/contract drift on `now`.** `policy.should_send` documents UTC but *requires* local time for quiet hours to mean the operator's night; `expectations` wants UTC. The app passes each correctly; a future caller following the docstrings breaks quiet hours by the UTC offset. |
 | W21 | LOW | `_in_quiet_hours` treats `start == end` as "never quiet" rather than "always quiet", accepted silently. |
 | W22 | LOW | `should_send`'s snooze check is `isinstance(snooze_until, float)` with a `0.0` fallback, so an int silently disables the snooze. Unreachable today (`_state` is memory-only); a trap if snooze is ever persisted. |
@@ -518,16 +529,16 @@ defect lives.
 
 ## Recommended order
 
-1. **O4, then O3** — the silent `flock` failure is the highest-variance item left
-   (on an NFS/SMB project folder the run produces no provenance at all and nothing
-   says so); then the O(N²) write cost.
-2. **R1–R4** — the reactor HIGHs. R3 (unvalidated sign) and R4 (dead config) are
-   small, self-contained changes; R1 is a lock-scope refactor.
-3. **N1, N3** — the two restart-integrity bugs that re-process a whole night.
-4. **O7, O14, O16** — what the optimizer is actually trained on.
-5. **N16** — drive the stages off the event bus instead of four 10 s pollers in
-   series. Largest latency win (264 s → seconds) and the most invasive.
-6. ~~**D3** — move the subtraction science into `src/`.~~ Done 2026-09-11.
+1. **O4, then O3**: the silent lock failure is the highest-variance item left
+   (on an NFS/SMB project folder the run can produce no provenance at all and
+   nothing says so); then the per-write cost that grows with the manifest.
+2. **O7**: only the first rolling batch of a recipe trains the optimizer.
+3. **N5**: the average monitor stop/start race.
+4. **N16**: drive the stages off the event bus instead of pollers in series.
+   Largest latency win and the most invasive.
+
+Done since this list was first written: R1 to R8 (October 2026), N1 to N4,
+N7, D3, O12, O14, O16.
 
 
 ## What I checked and found sound

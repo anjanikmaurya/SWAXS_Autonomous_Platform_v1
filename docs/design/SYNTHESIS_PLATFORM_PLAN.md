@@ -1,18 +1,22 @@
 # Autonomous Synthesis: modular instrument platform (plan)
 
-Status: **plan, partly built.** Phase 0 is built (October 2026): the contract in
-`src/synthesis/` (types.py, instrument.py with the gated `InstrumentSession`,
-registry.py, and a simulated `ToyMixer` in toy.py), tested by
-`tests/test_synthesis_contract.py`. Nothing uses it yet: the reactor app and its
-hardware code are unchanged, and no instrument is registered.
-Phases 1 to 6 are **NEVER BUILT** yet (including `src/synthesis/workflow.py` and
-the instrument modules). Robot and well plate routes are deliberately left for later.
-**Built (October 2026):** the page layout of section 8, in its simplified form: left
-column = synthesis route (Flow reactor; robot and well plate are placeholders) with
-the pump controls and emergency stop at its foot; three tabs Hardware test ·
-Autonomous setup · Live plots, each a numbered sequence; Activity log docked below.
-A runnable copy with a simulated backend: `docs/mockups/synthesis_flow_mockup.html`
-(rebuild with `python docs/mockups/build_flow_mockup.py`).
+Status (checked 2026-10-14): **plan; page layout and phase 0 built.**
+
+- **Built, page layout (section 8, simplified form):** the reactor page has a
+  left column with the synthesis route (Flow reactor; robot and well plate are
+  placeholders), the pump controls and the emergency stop at its foot; three
+  tabs Hardware test · Autonomous setup · Live plots, each a numbered sequence;
+  the Activity log docked below. A runnable copy with a simulated backend:
+  `docs/mockups/synthesis_flow_mockup.html` (rebuild with
+  `python docs/mockups/build_flow_mockup.py`).
+- **Built, phase 0:** the contract in `src/synthesis/` (`types.py`,
+  `instrument.py` with the gated `InstrumentSession`, `registry.py`, and a
+  simulated `ToyMixer` in `toy.py`), tested by `tests/test_synthesis_contract.py`.
+  Nothing uses it yet: the reactor app and its hardware code are unchanged, and
+  no instrument is registered.
+- Phases 1 to 6 are NEVER BUILT (including `src/synthesis/workflow.py` and the instrument modules).
+  Robot and well plate routes are deliberately left for later.
+
 Scope: redesign of the Autonomous Synthesis app (`reactor/`, port 5108) and
 `src/reactor/` + `src/beamline/` so that any synthesis hardware (flow reactor,
 microfluidic chip, liquid handling robot, syringe well plate mixer, …) plugs in

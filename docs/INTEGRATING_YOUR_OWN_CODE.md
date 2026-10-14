@@ -331,8 +331,8 @@ EventBusClient("my_ml").on_event(my_handler).connect(retry=True)
 
 You can publish too — emitting `fit.complete` (with `recipe_id`, `file`, `size`,
 `pdi`, `confidence`, `suspect`) makes your prediction show up in the hub's live
-event feed and in the reactor's Slack notifications, exactly like the built-in
-analyzer's. Use that exact name and shape — not `analysis.complete`, which is
+event feed and in Autonomous Watch's Slack notifications (`results`
+category), exactly like the built-in analyzer's. Use that exact name and shape, not `analysis.complete`, which is
 the Data Analysis app's event under a similar name but a different payload.
 
 **Polling still works and is the more robust choice** if your program may be
@@ -372,8 +372,9 @@ made.** The detail matters if your program will run unattended for days.
 
 ### 5.1 The latency budget
 
-Default poll intervals: 10 s for background and the Quality Gate, 3 s for the
-reactor. So from "a subtracted file exists" to "the reactor accepted your
+Default poll intervals: 3 s for average and background, 10 s for the Quality
+Gate (which also grades immediately on `file.subtracted`), 3 s for the reactor's
+conditions folder (`poll_interval` in `reactor/config.yml`). So from "a subtracted file exists" to "the reactor accepted your
 condition" is roughly:
 
 ```
@@ -387,10 +388,11 @@ A synthesis-plus-acquisition cycle is minutes, so polling latency is around 1%
 of the loop. Your model's inference time will dominate it. Do not optimise
 this before measuring it.
 
-(The platform-wide figure is worse — four stages polling in series gives a
-measured ~264 s frame-to-fit latency, 99% of it waiting. That is tracked as
-**N16** in `docs/audits/OPEN_DEFECTS.md` and is about the built-in chain, not
-about your program.)
+(The platform-wide figure is worse: several stages polling in series. It was
+measured at ~264 s frame-to-fit with 10 s polls, 99% of it waiting; the 3 s
+average and background polls have cut that since. Tracked as **N16** in
+`docs/audits/OPEN_DEFECTS.md`; it is about the built-in chain, not about your
+program.)
 
 ### 5.2 Why polling beats the alternatives *here*
 
@@ -406,32 +408,34 @@ about your program.)
 - Atomic `.part`-then-rename writes plus the size/mtime stability check already
   close the torn-read hole.
 
-### 5.3 Three anti-patterns to avoid — all of them real defects in this repo
+### 5.3 Three anti-patterns to avoid: all of them were real defects in this repo
 
-Copying the built-in apps' *approach* is right. Copying their implementation
-is not. Each of these is a filed defect:
+Each of these was a filed defect in the built-in apps, fixed in September 2026
+(the fixes are the pattern to copy):
 
-1. **Do not re-parse the whole folder every poll.** The average app re-reads
-   and re-parses every `.dat` in the Reduction folder on each 10 s cycle with
-   no mtime filter; at ~10 000 files it falls progressively behind the
-   acquisition it is tracking (**N7**). Keep an index of
-   `path -> (size, mtime)` and only touch what changed. A poll then costs one
-   `listdir` plus a `stat` per file — microseconds for hundreds of files.
+1. **Do not re-parse the whole folder every poll.** The average app once
+   re-parsed every `.dat` in the Reduction folder on each 10 s cycle with no
+   mtime filter; at ~10 000 files it fell progressively behind the acquisition
+   it was tracking (**N7**, fixed with `read_folder(skip_names=...)` and a
+   parse cache that re-reads a file only when its `(mtime, size)` changes).
+   Keep an index of `path -> (size, mtime)` and only touch what changed. A poll
+   then costs one `listdir` plus a `stat` per file: microseconds for hundreds
+   of files.
 2. **Track consumed files by name, never by count.** The average app's batch
-   state is a count, and `read_folder` silently skips unreadable files, so one
-   transient read failure shifts every subsequent batch boundary — a frame is
-   reused, another dropped, and if the count ever exceeds the group length that
-   keyword stops averaging entirely (**N4**). Store a set of filenames.
+   state was a count, and `read_folder` silently skips unreadable files, so one
+   transient read failure shifted every subsequent batch boundary: a frame is
+   reused, another dropped, and if the count ever exceeded the group length that
+   keyword stopped averaging entirely (**N4**). Store a set of filenames.
 3. **Persist that set to disk.** In-memory only means a restart re-processes
-   the entire experiment — which for the reduction app means rewriting every
+   the entire experiment: for the reduction app that meant rewriting every
    `.dat` and thousands of manifest writes (**N1**), and for the average app
-   means re-emitting `file.averaged` for the whole night, which the reactor
-   treats as measurement-complete (**N3**). Write your seen-set next to your
+   re-emitting `file.averaged` for the whole night, which the reactor treats
+   as measurement-complete (**N3**). Write your seen-set next to your
    output and reload it on startup.
 
-Also: if you write to `manifest.json` on every prediction, batch it. Manifest
-write cost is O(N²) — every entry embeds a full config snapshot, measured at
-3.5 ms per write at 100 entries and 609 ms at 20 000 (**O3**).
+Also: if you write to the manifest on every prediction, batch it. Every
+`update_manifest` call loads and re-saves the whole manifest, so the cost per
+write grows with the experiment (**O3**, still open).
 
 ### 5.4 The recommended shape
 
@@ -450,8 +454,9 @@ this run for days.
 Folder-polling stops being the right answer when you have tens of thousands of
 files in one campaign folder, or several consumers that must not double-process
 the same file, or you need transactional "claim this file" semantics. At that
-point a small SQLite work-queue beside the folders is the natural step, and it
-would fix the manifest cost too. Nothing at current scale demands it, and it is
+point a small SQLite work queue beside the folders is the natural step. (The
+manifest already moved to SQLite in October 2026; that is provenance, not a work
+queue.) Nothing at current scale demands it, and it is
 a platform-level change rather than something to bolt onto one model.
 
 ---

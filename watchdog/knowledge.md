@@ -1,92 +1,163 @@
-# Autonomous Watch — Platform liveness monitoring and notifications
+# Autonomous Watch: loop monitor and notifications (port 5110)
 
-The Autonomous Watch app (port 5110) is the sole point where platform notifications are sent. It detects when an autonomous loop has stalled and watches for faults, communicating exclusively through Slack.
+## 1. What it is for
 
-## What it does
+Autonomous Watch shows where the autonomous loop currently is, detects when it
+has stalled, and is the only app that sends platform notifications. No other
+app has a notification setting. Messages go to Slack only (no email), through a
+Slack Workflow Builder webhook. Setup and the full event table are in
+[docs/NOTIFICATIONS.md](../docs/NOTIFICATIONS.md).
 
-- **Subscribes to the event bus** from all platform apps (calibration, reduction, average, background, quality, analysis, analyzer, reactor)
-- **Translates platform events into notifications**: run start/complete, safety faults, emergency stops, fit results
-- **Applies notification policy**: a master Start/Stop switch, five independent message categories, quiet hours, snooze, and throttling — faults always send immediately, subject only to the master switch and category filter
-- **Detects stalls**: monitors which stage of the pipeline hasn't emitted an event recently and reports which stage is dead
-- **Sends to Slack** via a Workflow Builder webhook (fire-and-forget, never blocks, degrades gracefully when the webhook is unset or unreachable)
+## 2. Where it sits in the platform
 
-## Notifications to Slack
+**Reads**
+- Every event on the hub bus (`ws://localhost:5100/ws`). On start, and when the
+  project changes, it also recovers the recent event window from the manifest,
+  so a stall that began before a restart is still seen.
+- Status probes of the loop apps: reduction (5102), average (5103), background
+  (5104), quality (5105), analyzer (5107), reactor (5108).
+- The project folder (file counts and dashboard metrics).
 
-All messages go to `#autoq` (private channel on the Stanford Enterprise Grid, configured via Slack Workflow Builder).
+**Writes**
+- Slack messages (fire-and-forget on a background thread; never blocks any app).
+- Its settings file: `<project>/watchdog_config.yml` if that file exists, else
+  `watchdog/config.yml` in the repo. The Alerts page writes back to whichever
+  file is in use.
+- It does not write to the manifest.
 
-Two orthogonal things gate a message before it reaches Slack, both resolved inside the pure function `should_send()` in `src/watchdog/policy.py`:
+**Secret**: `SWAXS_SLACK_WEBHOOK_URL` in `.env` at the repo root (git-ignored,
+read at startup). If it is unset, Autonomous Watch logs once and keeps running;
+nothing else in the platform is affected.
 
-- **Level** (`fault` / `progress` / `info`) — faults always send (subject only to the master switch and category filter below); progress/info respect quiet hours and snooze.
-- **Category** — every message belongs to exactly one of five categories, each independently toggleable on the **Alerts** page:
-  1. `safety` — E-stop, safety trips, pump faults
-  2. `stalls` — loop stalled, with the diagnosis
-  3. `results` — fit results, low-confidence fits
-  4. `progress` — recipe started, run complete
-  5. `campaign` — converged, budget exhausted, hourly summary
+## 3. How to use it
 
-  `safety` cannot be turned off while the master switch (below) is on — that's enforced in `should_send()` itself, not just the UI, so nothing else can regress it.
+1. One-time: create the Slack workflow and put the webhook URL in `.env` (see
+   [docs/NOTIFICATIONS.md](../docs/NOTIFICATIONS.md)), then restart the platform.
+2. Check the wiring: `curl -X POST http://localhost:5110/api/test`. A test
+   message should appear in `#autoq`. This bypasses the master switch and
+   category filter, so success only proves the webhook works.
+3. Open Autonomous Watch from the hub. The sidebar has three views:
+   - **The loop**: the dashboard (below).
+   - **Messages**: the most recent messages it decided to send.
+   - **Alerts**: the Slack controls.
+4. On **Alerts**, set **Sending** on (the master button), choose **Quiet hours**
+   (type `23:00-07:00`, click **Set**; **Turn off** clears them), and tick the
+   **Categories** you want (**All** / **None** shortcuts). Changes apply at once
+   and persist to the settings file.
+5. Leave the page open on a wall display during an unattended run. The theme
+   follows the platform setting (saved choice, else the OS); pick dark once.
 
-## Configuration
+### The loop dashboard
 
-- `watchdog/config.yml` holds non-secret policy: quiet hours, snooze defaults, throttle interval, the **master switch** (`notify.slack_enabled` — when `false`, nothing sends at all, checked before every other rule), and the **category toggles** (`notify.categories`)
-- Both the master switch and categories can be changed live from the **Alerts** page or `POST /api/settings`, and persist back to `config.yml`
-- `SWAXS_SLACK_WEBHOOK_URL` environment variable (`.env`, git-ignored) holds the Workflow Builder webhook URL
-- If the webhook is unset, Autonomous Watch logs once and keeps running; nothing in the platform is affected
+- **Health row** (top bar, beside CPU, memory, disk): one dot per loop app that
+  is taking part right now (a monitor app while its monitor runs, the reactor
+  while a run or auto-run is armed, the analyzer whenever it answers). Apps not
+  taking part are not shown. A dot turns red when an enrolled app is unhealthy
+  (for example the reactor control loop has died) or the probe data is stale.
+- **The cycle**: reactor, reduce, average, subtract, fit+predict, back to the
+  reactor. The reactor collects BACKGROUND first (clean capillary, during the
+  flush), then SAMPLE (during synthesis). A lane tag on reduce/average and a
+  two-step tracker (① Background, ② Sample) on the reactor node show which is
+  flowing. Subtraction runs only when both averages exist; fit+predict writes the
+  next condition. Each node shows its state (idle, running, waiting, done,
+  stalled) and its recipe_id.
+- **The two gates**, where the loop normally parks (from outside a gate looks
+  like a crash): AVERAGE shows `have / expected` frames with a meter; SUBTRACT
+  shows one tick per lane, so a one-sided wait is obvious.
+- Charts: **Throughput**, **Time per loop run**, **Pipeline funnel**, **Run
+  outcomes** (particle diameter per fit, colour = confidence, size ∝ PDI).
+  Plotly is served from the repo's vendored copy, so charts work offline.
 
-## Slack Workflow Builder
+## 4. Settings and defaults
 
-The workflow is named `auto-run` and is triggered by a webhook with this JSON body:
+### What decides whether a message is sent
 
-```json
-{"title": "...", "text": "...", "level": "info"}
-```
+All in `should_send()` in `src/watchdog/policy.py`, checked in this order:
+1. **Master switch** (`notify.slack_enabled`, default `true`). Off means nothing
+   is sent at all, including safety.
+2. **Category filter** (`notify.categories`). `safety` cannot be filtered out
+   while sending is on; the Alerts page shows it checked and disabled.
+3. **Level**: faults always send (past quiet hours and snooze). Progress and info
+   respect quiet hours and snooze.
+4. **Throttle** (`notify.min_interval_s`, default 3 s) between webhook posts.
+   Faults go on a priority queue: sent first, never throttled, never dropped in
+   favour of an info message.
 
-The three keys are fixed by the published workflow. Level is exactly "info" or "fault".
+### Message categories
 
-## The dashboard page
+| Category | Events |
+|---|---|
+| `safety` | `reactor.estop`, `reactor.safety` (fault), `reactor.vent` (fault if an E-stop was latched, else info) |
+| `stalls` | Stall diagnoses from the stall checker |
+| `results` | `fit.complete` (fault if the fit is flagged suspect) |
+| `progress` | `reactor.run_start`, `reactor.run_complete`, `reactor.backend` (Simulation/Hardware switch), and any unmapped event such as `reactor.run_abandoned` (sent as a fault) |
+| `campaign` | `average.skipped` (fault: a batch was consumed with no average), `file.skipped` (info: reduction gave up on a frame) |
 
-The page is a wall display, sized to be read from two
-metres. Its theme follows the platform rule (saved `swaxs-theme` choice, else the
-OS), so on a wall-display PC choose dark once. It shows one thing: where the autonomous loop currently is.
+High-frequency events (`file.reduced`, `file.averaged`, `file.subtracted`,
+`analysis.complete`, ...) are deliberately not sent; they appear on the dashboard.
+Converged/budget messages and the hourly summary are not implemented yet.
 
-- **Health row** (top bar, beside the CPU/memory/disk numbers): one big blinking
-  dot per loop app that is **active right now**. "Active" is each app's own
-  notion of taking part: a monitor app while its monitor thread runs, the reactor
-  while it has a run or auto-run armed, the analyzer whenever it answers. An app
-  that is not taking part is not listed at all. A dot turns red when an app is
-  enrolled but unhealthy (e.g. a reactor whose control loop has died) or when the
-  probe snapshot is too stale to trust.
-- **The cycle**: one reactor, one reduce app, one average app — not two. The
-  reactor collects BACKGROUND first (on the clean capillary, during the
-  flush), then SAMPLE (during synthesis); which of the two is currently
-  flowing through reduce/average is shown as a lane tag on those nodes and as
-  a two-step phase tracker (① Background → ② Sample) on the reactor node
-  itself, not by duplicating the reduce/average boxes. Both phases' averages
-  then feed subtraction, which runs *only* when both exist, then fit+predict,
-  which writes the next condition and hands control back to the reactor.
-  Every node shows its state (idle / running / waiting / done / stalled) and
-  the recipe_id it is on.
-- **The two gates**, because they are where the loop actually parks and from the
-  outside a gate looks like a crash: AVERAGE shows `have / expected` frames with
-  a meter and says how many more it is waiting for; SUBTRACT shows a tick box per
-  lane so a one-sided wait is visible at a glance.
-- **The Alerts page** (separate nav item, not part of the dashboard view): the
-  Slack master Start/Stop switch, the five category checkboxes with All/None
-  shortcuts, and a live one-line summary of what's currently active. The
-  `safety` checkbox is shown checked and disabled whenever sending is on — the
-  UI mirrors the backend rule rather than re-implementing it.
+### Settings file keys (`watchdog/config.yml`)
 
-Stall detection itself is unchanged by the page — `src/watchdog/expectations.py`
-decides what is overdue, and the dashboard only renders that verdict.
+| Key | Default | Meaning |
+|---|---|---|
+| `notify.quiet_hours` | `null` | `"HH:MM-HH:MM"` in local time; suppresses progress, never faults |
+| `notify.summary` | `"off"` | `"hourly"` is accepted but is a placeholder |
+| `notify.snooze_default_min` | `30` | Minutes used by `POST /api/snooze` with no value |
+| `notify.min_interval_s` | `3` | Throttle between posts |
+| `notify.slack_enabled` | `true` | Master switch |
+| `notify.categories` | all `true` | Per-category toggles |
+| `diagnosis.ai_fallback_enabled` | `false` | Optional AI reading of the stalled app's log |
 
-## Routes
+A malformed settings file fails closed: sending is held off and the Alerts page
+shows the error until the file is fixed.
 
-- `GET /api/health` — Autonomous Watch status (always `{"status": "ok"}`)
-- `GET /api/metrics` — one dashboard snapshot; `GET /api/stream` — the same at 1 Hz (SSE).
-  Both carry `loop` (per-node state for the cycle), `health` (active loop apps),
-  `probe` (snapshot age), plus throughput, stage durations, file counts and run outcomes.
-- `GET /api/settings` — current policy (quiet hours, snooze state, summary mode, `slack_enabled`, `categories`) and recent messages
-- `POST /api/settings {slack_enabled?, categories?}` — update the master switch and/or one or more categories (partial dict — only sent keys change); `safety` is forced back on server-side if sending is on, no matter what's sent
-- `POST /api/test` — send a test message to Slack (returns `{"ok": true}` if sent); bypasses the master switch and category filter — it's a webhook wiring check, not a policy check
-- `POST /api/snooze {minutes}` — silence progress messages for N minutes
-- `POST /api/set_project {path}` — set the project folder (same as all apps)
+### Stall detection
+
+Every 5 minutes the checker looks for the next expected event after the last one
+seen (`src/watchdog/expectations.py`). Timeouts: reduce 1 h after
+`reactor.run_start`; average, subtract and fit 30 min each after the previous
+stage. Events older than 2 h are ignored (prior campaign). When a stage is
+overdue, `src/watchdog/diagnose.py` matches one of seven known stall patterns
+(A to G) using the probes and the dashboard's loop state and reports the numbers;
+if none matches it says "unrecognised pattern" and lists every number. With
+`ai_fallback_enabled`, an unrecognised stall also gets a paragraph labelled
+"AI reading of the log:" (needs AI credentials; advisory only). Repeated alerts
+for the same stall back off: 5, 15, 60 min, then hourly.
+
+### Slack payload
+
+The `auto-run` workflow receives `{"title": "...", "text": "...", "level": "..."}`,
+with `level` exactly `info` or `fault`. The three keys are fixed by the
+published workflow.
+
+## 5. Troubleshooting
+
+- **No messages in `#autoq`**: on **Alerts**, Sending must be on and the
+  category checked; check quiet hours (the badge shows when they are active);
+  check `SWAXS_SLACK_WEBHOOK_URL` in `.env` and restart; run the `curl` test; look
+  at the Alerts note for a config or delivery error.
+- **Only faults arrive**: quiet hours or a snooze is active. A snooze is cleared
+  when the project is set again, or wait it out.
+- **The loop stalled but no stall message**: stall detection needs recent
+  events. An idle platform, or events older than 2 h, raise nothing. Also check
+  the `stalls` category is on.
+- **A node looks stuck at AVERAGE or SUBTRACT**: read the gate. Waiting for
+  frames or for the other lane is normal, not a crash.
+- **Charts blank**: no vendored Plotly and no internet; the console says so.
+
+## 6. API routes
+
+| Method | Route | Purpose |
+|---|---|---|
+| GET | `/` | UI |
+| GET | `/api/health` | Always `{"status": "ok"}` |
+| GET | `/api/project` | Project folder in use |
+| POST | `/api/set_project` | `{path}` set the project, reload settings, clear snooze |
+| GET | `/api/metrics` | One dashboard snapshot (`loop`, `health`, `probe`, throughput, stage durations, file counts, run outcomes) |
+| GET | `/api/stream` | Same snapshot as SSE, about 1 Hz, sent when it changes |
+| GET | `/api/settings` | Policy, `slack_enabled`, `categories`, `webhook_configured`, `config_error`, `delivery_error`, last 20 messages |
+| POST | `/api/settings` | Partial update of `slack_enabled`, `categories`, `quiet_hours`; safety is forced on while sending is on |
+| POST | `/api/test` | Send a test message (bypasses master switch and categories) |
+| POST | `/api/snooze` | `{minutes}` silence progress messages (default 30) |
+| GET | `/vendor/<name>` | Vendored JS (Plotly), CDN fallback |
