@@ -255,6 +255,29 @@ More: [QUICKSTART.md § Troubleshooting](QUICKSTART.md#troubleshooting).
 
 ---
 
+## For reviewers
+
+The state of the code, and what is known to be unfinished:
+
+| Topic | Where |
+|---|---|
+| What changed recently | [docs/CHANGELOG.md](docs/CHANGELOG.md) |
+| How the system is built (hub, event bus, manifest, `src/` map) | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| Known open defects, each with status and evidence | [docs/audits/OPEN_DEFECTS.md](docs/audits/OPEN_DEFECTS.md) |
+| All audits (reactor, beamline safety, assistant, autofit, watch) | [docs/audits/README.md](docs/audits/README.md) |
+| Readiness for an unattended multi-day run | [docs/CONTINUOUS_RUN_HARDENING_PLAN.md](docs/CONTINUOUS_RUN_HARDENING_PLAN.md) |
+| How σ(q) is estimated and propagated | [docs/ERROR_PROPAGATION.md](docs/ERROR_PROPAGATION.md) |
+| Optimiser parameter space and convergence | [docs/PARAMETER_SPACE_AND_CONVERGENCE.md](docs/PARAMETER_SPACE_AND_CONVERGENCE.md) |
+| Plans not yet built (modular Synthesis app, autopilot) | [docs/design/](docs/design/) |
+
+Tests: `python -m pytest` from the activated environment (about 1600 tests, a
+few minutes; no hardware or network needed). The reactor runs in **Simulation**
+by default, and [docs/SIMULATED_2D_DATA.md](docs/SIMULATED_2D_DATA.md) rehearses
+the closed loop on synthetic data, so the whole platform can be tried on a
+laptop without beam or hardware.
+
+---
+
 ## License
 
 See `LICENSE`.

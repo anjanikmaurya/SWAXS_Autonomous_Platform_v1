@@ -21,6 +21,21 @@ this file is the running summary. Dates are when the work landed on `main`.
   moved). Test: `tests/test_corrections_channel.py`.
 - README and QUICKSTART show the new SWAXS app icons (`tools/build_doc_icons.py`).
 
+### Calibration, forms and Background layout
+
+- **Calibration: Detector menu instead of a Pixel box.** pyFAI-calib2 crashed
+  when given only a pixel size (no detector shape). The app now passes a pyFAI
+  detector model (`--detector`): **Auto** picks it from the image shape, or
+  choose any pyFAI model, grouped by manufacturer (`/api/detectors`). The GUI
+  opens with the loaded file as a detached process, so a crash cannot affect
+  the other apps (`src/preprocess/calib.py`, `tests/test_calib_launch.py`).
+- **Forms: label beside its box** in every app, two fields per line, stacking
+  below 1100 px (`assets/icons/swaxs-tokens.css`).
+- **Background Subtraction: setup in numbered, logical order.** The file
+  buttons (including List) sit together in step 3, and the old "ML output:
+  truncate & rebin" card is now **Output q-range & rebinning**, near the end.
+- **Hub:** the Bus badge moved to the right of the top bar.
+
 ### SQLite manifest store
 
 - The manifest is now stored in `manifest.db` (SQLite, WAL mode,
