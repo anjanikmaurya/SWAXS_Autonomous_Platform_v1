@@ -218,13 +218,21 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
   font-size:13px;font-weight:600;cursor:pointer;transition:all .15s;
   text-decoration:none;display:inline-flex;align-items:center;gap:5px;
 }
-.btn-start{background:color-mix(in srgb,var(--info-text) 13%,transparent);border-color:color-mix(in srgb,var(--info-text) 50%,transparent);color:var(--info-text)}
-.btn-start:hover{background:color-mix(in srgb,var(--info-text) 26%,transparent);border-color:var(--info-text)}
-.btn-stop{background:color-mix(in srgb,var(--err-text) 13%,transparent);border-color:color-mix(in srgb,var(--err-text) 50%,transparent);color:var(--err-text)}
-.btn-stop:hover{background:color-mix(in srgb,var(--err-text) 26%,transparent);border-color:var(--err-text)}
-.btn-open{background:color-mix(in srgb,var(--ok-text) 13%,transparent);border-color:color-mix(in srgb,var(--ok-text) 50%,transparent);color:var(--ok-text)}
-.btn-open:hover{background:color-mix(in srgb,var(--ok-text) 26%,transparent);border-color:var(--ok-text)}
-.btn-open[disabled]{opacity:.4;pointer-events:none}
+/* Card buttons: saturated per theme (the shared --*-text tokens are pastel in
+   dark mode, which made Start / Stop / Open look washed out). */
+:root{--hb-start:#1d4ed8;--hb-start-t:#1d4ed8;--hb-start-f:#1d4ed8;
+      --hb-stop:#dc2626;--hb-stop-t:#b91c1c;--hb-stop-f:#b91c1c;
+      --hb-open:#16a34a;--hb-open-t:#15803d;--hb-open-f:#15803d;--hb-tint:12%}
+html:root[data-theme="dark"]{--hb-start:#3b82f6;--hb-start-t:#7cb0ff;--hb-start-f:#2563eb;
+      --hb-stop:#ef4444;--hb-stop-t:#ff8a8a;--hb-stop-f:#dc2626;
+      --hb-open:#22c55e;--hb-open-t:#5ee08f;--hb-open-f:#15803d;--hb-tint:22%}
+.btn-start{background:color-mix(in srgb,var(--hb-start) var(--hb-tint),transparent);border-color:var(--hb-start);color:var(--hb-start-t);font-weight:600}
+.btn-start:hover{background:var(--hb-start-f);border-color:var(--hb-start-f);color:#fff}
+.btn-stop{background:color-mix(in srgb,var(--hb-stop) var(--hb-tint),transparent);border-color:var(--hb-stop);color:var(--hb-stop-t);font-weight:600}
+.btn-stop:hover{background:var(--hb-stop-f);border-color:var(--hb-stop-f);color:#fff}
+.btn-open{background:color-mix(in srgb,var(--hb-open) var(--hb-tint),transparent);border-color:var(--hb-open);color:var(--hb-open-t);font-weight:600}
+.btn-open:hover{background:var(--hb-open-f);border-color:var(--hb-open-f);color:#fff}
+.btn-open[disabled]{opacity:.55;pointer-events:none}
 .btn-primary{background:var(--accent);border-color:var(--accent-d);color:#fff;padding:8px 18px;font-size:15px}
 .btn-primary:hover{background:var(--accent-d)}
 .btn-ghost{background:transparent;border-color:var(--border);color:var(--text);padding:8px 18px;font-size:15px}
