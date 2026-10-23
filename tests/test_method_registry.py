@@ -33,7 +33,7 @@ def test_all_fitters_return_the_result_contract():
     from src.analysis.nanoparticle import model_intensity
     q = np.logspace(np.log10(0.08), np.log10(3.5), 150)
     I = model_intensity(q, 4.0, 0.12, 1000.0, 0.0, "schulz")
-    for mid in ("ls_sphere", "ml_regressor", "llm_assisted"):
+    for mid in ("ls_sphere", "ml_regressor", "llm_assisted", "catalogue_bic"):
         r = F.get(mid).fit(q, I, None)
         assert r.get("distribution")
         assert 0.0 <= r.get("confidence", -1) <= 1.0

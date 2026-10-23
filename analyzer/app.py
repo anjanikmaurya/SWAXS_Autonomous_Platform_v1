@@ -1376,8 +1376,11 @@ def _write_fit_record(path: Path, q, I, sigma, model, summary: dict, res: dict) 
                 ax.set_title(path.name, fontsize=9)
                 ax.legend(fontsize=7, loc="lower left")
 
+                _m = summary.get("model") or "polydisperse_sphere"
                 value_lines = [
-                    f"R = {summary.get('radius')} nm" if summary.get("radius") is not None else None,
+                    f"model = {_m}" if _m != "polydisperse_sphere" else None,
+                    (f"R = {summary.get('radius')} nm" if _m == "polydisperse_sphere"
+                     else f"R_eq = {summary.get('radius')} nm") if summary.get("radius") is not None else None,
                     f"D = {summary.get('diameter')} nm" if summary.get("diameter") is not None else None,
                     f"PDI = {summary.get('pdi')}" if summary.get("pdi") is not None else None,
                     f"phase = {summary.get('phase')}" if summary.get("phase") else None,
@@ -1404,11 +1407,15 @@ def _write_fit_record(path: Path, q, I, sigma, model, summary: dict, res: dict) 
             f"# Diameter (nm)   : {summary.get('diameter')}",
             f"# PDI             : {summary.get('pdi')}",
             f"# Distribution    : {summary.get('distribution')}",
+            f"# Model           : {summary.get('model') or 'polydisperse_sphere'}",
             f"# Phase           : {summary.get('phase')}",
             f"# Confidence      : {summary.get('confidence')}",
             f"# Invariant (rel) : {summary.get('invariant_rel')}",
             f"# Guinier Rg (nm) : {summary.get('guinier_rg')}",
         ]
+        for _k, _v in (res.get("model_params") or {}).items():
+            _e = (res.get("model_errors") or {}).get(_k)
+            header.append(f"# Param {_k:<17s}: {_v:.5g}" + (f" +/- {_e:.2g}" if _e else ""))
         if res.get("fit"):
             header.append(f"# Fit scale       : {res['fit'].get('scale')}")
             header.append(f"# Fit background  : {res['fit'].get('background')}")
@@ -1515,15 +1522,28 @@ def _analyze_file(path: Path, drive_loop: bool = True) -> None:
         sig = None
     q, I = q[m], I[m]
     model = None
-    if res.get("size") and res["size"].get("source") == "form_factor" and res.get("fit"):
+    _fc = res.get("fit_curve") or {}
+    if _fc.get("q") and _fc.get("I"):
+        # any catalogue model (catalogue_bic, llm_assisted): the fitter returns
+        # its own fit curve, so the overlay is not limited to a sphere
+        try:
+            model = np.interp(q, np.asarray(_fc["q"], float), np.asarray(_fc["I"], float),
+                              left=np.nan, right=np.nan)
+        except Exception:
+            model = None
+    elif res.get("size") and res["size"].get("source") == "form_factor" and res.get("fit"):
         model = model_intensity(q, res["size"]["radius"], res["pdi"],
                                 res["fit"]["scale"], res["fit"]["background"],
                                 res.get("distribution", "schulz"))
     # advisory LLM QC note (empty + instant if no AI credentials configured)
-    try:
-        res["llm"] = narrate_fit(res.get("diagnostics", {}))
-    except Exception:
-        res["llm"] = {"summary": "", "flags": []}
+    # The LLM-assisted fitter already made this call; never pay for it twice.
+    if isinstance(res.get("llm_assist"), dict):
+        res["llm"] = res["llm_assist"]
+    else:
+        try:
+            res["llm"] = narrate_fit(res.get("diagnostics", {}))
+        except Exception:
+            res["llm"] = {"summary": "", "flags": []}
     sz = res.get("size") or {}
     ph = res.get("phase") or {}
     summary = {
@@ -1533,6 +1553,7 @@ def _analyze_file(path: Path, drive_loop: bool = True) -> None:
         "pdi": round(res["pdi"], 3) if res.get("pdi") is not None else None,
         "confidence": res.get("confidence", 0.0),
         "distribution": res.get("distribution"),
+        "model": res.get("model") or "polydisperse_sphere",
         "phase": ph.get("phase"),
         "invariant_rel": (round(res["invariant"]["Q_rel"], 4)
                           if res.get("invariant") else None),
@@ -1548,15 +1569,20 @@ def _analyze_file(path: Path, drive_loop: bool = True) -> None:
     conf = summary["confidence"]
     tag = "ok" if conf >= 0.6 else ("warn" if conf >= 0.3 else "info")
     r = summary["radius"]
-    _emit(f"✓ {path.name}: R={r} PDI={summary['pdi']} conf={conf} ({summary['distribution']})", tag)
+    _mdl = summary["model"]
+    _emit(f"✓ {path.name}: R={r} PDI={summary['pdi']} conf={conf} "
+          f"({summary['distribution'] if _mdl == 'polydisperse_sphere' else _mdl + ', equivalent R'})", tag)
     # record in the manifest (best-effort)
     if _project_root:
         try:
             # The TARGET goes in per entry, not just once per campaign: an
             # operator can abort and restart with a different target mid-run, and
             # only a per-fit copy stays true about what this fit was judged against.
-            _params = {"model": "polydisperse_sphere",
+            _params = {"model": summary["model"],
                        "distribution": summary["distribution"]}
+            if res.get("model_params"):
+                _params["model_params"] = res["model_params"]
+                _params["model_errors"] = res.get("model_errors") or {}
             if _campaign_cfg:
                 _params.update({
                     "campaign_id":  _campaign_id,

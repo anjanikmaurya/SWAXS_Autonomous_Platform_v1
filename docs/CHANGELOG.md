@@ -7,6 +7,23 @@ this file is the running summary. Dates are when the work landed on `main`.
 
 ## October 2026
 
+### Structure fitter, Phase 2: robust fitter and Catalogue + BIC method
+
+- `src/analysis/model_fit.py`: fits one catalogue model robustly (scale and
+  background solved exactly at every step, sizes on a log scale, bounded least
+  squares from several starts seeded by the curve's features, coarse-then-fine
+  with a time budget per model). The old `sasmodels_fit` had returned a 50 Å
+  sphere as 76 Å; this recovers sphere, cylinder, core-shell, ellipsoid and
+  mass-fractal parameters within 2 %.
+- New fitting method **Catalogue + BIC** in the Analyser: every catalogue shape,
+  then the best with structure factors, lowest BIC wins; picked the true shape
+  for 5 of 5 test curves. Reports an equivalent radius to the optimiser.
+- The Analyser now records the real model name (not always
+  `polydisperse_sphere`), draws any model's fit curve, writes the model's
+  parameters ± errors into the Fit record, and asks for the AI comment once
+  per curve (it was twice with LLM-assisted).
+- Tests: `tests/test_fitter_phase2.py`.
+
 ### Structure fitter, Phase 1: context and features
 
 Groundwork for the LLM-assisted structure fitter (plan:

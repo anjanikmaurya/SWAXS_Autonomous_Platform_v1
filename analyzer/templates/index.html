@@ -724,7 +724,7 @@ function setSort(k){
 function exportCsv(){
   const rows=[..._rows.values()].sort((a,b)=>(a.seq||0)-(b.seq||0));
   if(!rows.length) return;
-  const cols=['seq','ts','name','radius','diameter','pdi','confidence','distribution',
+  const cols=['seq','ts','name','radius','diameter','pdi','confidence','distribution','model',
               'phase','guinier_rg','invariant_rel'];
   const esc=v=>v==null?'':(/[",\n]/.test(String(v))?'"'+String(v).replace(/"/g,'""')+'"':String(v));
   const csv=[cols.join(',')].concat(rows.map(r=>cols.map(c=>esc(r[c])).join(','))).join('\n');
@@ -755,8 +755,9 @@ async function select(name){
   const d=await api('/api/result/'+encodeURIComponent(name));
   if(d.error){ $('selName').textContent=name+': could not load ('+d.error+')'; return; }
   const s=d.summary;
-  $('selName').textContent=name;
-  $('n-r').textContent=s.radius!=null?s.radius+' nm':'—';
+  const mdl=(s.model&&s.model!=='polydisperse_sphere')?s.model:null;
+  $('selName').textContent=name+(mdl?'  ·  '+mdl:'');
+  $('n-r').textContent=s.radius!=null?s.radius+' nm'+(mdl?' (equivalent)':''):'—';
   $('n-d').textContent=s.diameter!=null?s.diameter+' nm':'—';
   $('n-pdi').textContent=s.pdi??'—';
   $('n-conf').innerHTML=badge(s.confidence);

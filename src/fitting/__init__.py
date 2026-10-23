@@ -45,8 +45,11 @@ _DESC = {
                     "(Schulz / log-normal); physics-based and interpretable.",
     "ml_regressor": "A trained model predicts size / PDI directly from the curve — "
                     "near-instant, uncertainty-aware (coming soon).",
-    "llm_assisted": "An AI agent runs the analysis tools, picks the model and "
-                    "explains the result in plain language (coming soon).",
+    "catalogue_bic": "Fits every structure in the catalogue (sphere, core-shell, "
+                     "ellipsoid, cylinder, mass fractal, plus structure factors) "
+                     "and keeps the best by BIC. No AI. Reports an equivalent radius.",
+    "llm_assisted": "Sphere fit plus a plain-language AI reading of the result. "
+                    "AI model selection is being built (docs/design/LLM_FITTER_PLAN.md).",
 }
 
 
@@ -63,3 +66,4 @@ def available() -> list[dict]:
 from . import ls_sphere          # noqa: E402,F401  (registers "ls_sphere")
 from . import ml_regressor       # noqa: E402,F401  (registers "ml_regressor")
 from . import llm_assisted       # noqa: E402,F401  (registers "llm_assisted")
+from . import catalogue_bic      # noqa: E402,F401  (registers "catalogue_bic")
