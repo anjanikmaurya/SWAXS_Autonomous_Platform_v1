@@ -7,6 +7,16 @@ this file is the running summary. Dates are when the work landed on `main`.
 
 ## October 2026
 
+### Structure fitter, Phase 3: benchmark
+
+`tools/fitter_benchmark.py` (logic `src/fitting/benchmark.py`) scores every
+fitting method on simulated curves of the five catalogue shapes with known
+truth, on separate practice and held-out sets, resumable. Held-out, 40 curves:
+Catalogue + BIC 100 % shape correct, median size error 0.3 %; sphere fit and ML
+regressor 20 % (spheres only) with 49 % and 38 % median size error. Results and
+limits: `docs/benchmarks/FITTER_BENCHMARK_2026-10.md`. Test:
+`tests/test_fitter_benchmark.py`.
+
 ### Structure fitter, Phase 2: robust fitter and Catalogue + BIC method
 
 - `src/analysis/model_fit.py`: fits one catalogue model robustly (scale and

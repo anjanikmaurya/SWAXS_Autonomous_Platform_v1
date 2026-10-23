@@ -12,7 +12,11 @@
 > **Catalogue + BIC** method `src/fitting/catalogue_bic.py`, which picked the
 > true shape for 5 of 5 sasmodels test curves with parameters within 2 %; the
 > Analyser records, draws and reports any model.
-> Phases 3 to 5 are NEVER BUILT yet (including `src/fitting/llm_structure.py` and `tools/fitter_benchmark.py`).
+> Phase 3 is built: `src/fitting/benchmark.py` and `tools/fitter_benchmark.py`;
+> results in `docs/benchmarks/FITTER_BENCHMARK_2026-10.md` (Catalogue + BIC:
+> 40/40 shapes on held-out curves, median size error 0.3 %). Next for Phase 3:
+> a hard set with real-world effects, without which the AI cannot be judged.
+> Phases 4 and 5 are NEVER BUILT yet (including `src/fitting/llm_structure.py`).
 
 ## Goal
 
