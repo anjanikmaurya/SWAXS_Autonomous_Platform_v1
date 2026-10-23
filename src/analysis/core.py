@@ -956,14 +956,27 @@ def sasmodels_fit(
             q_fine_A, I_fine = q_A, I_calc
         # convert the fit-curve q back to the input unit so it overlays the data
         q_fine = q_fine_A / to_A
-        chi2   = float(
-            np.sum(((I - I_calc) / sigma) ** 2) / max(len(I) - len(free_names), 1)
-        )
+        chi2_total = float(np.sum(((I - I_calc) / sigma) ** 2))
+        n_pts, k_free = int(len(I)), len(free_names)
+        chi2   = float(chi2_total / max(n_pts - k_free, 1))
+        # Model comparison: with Gaussian σ, −2 ln L = χ² + const, so
+        # AIC = χ² + 2k and BIC = χ² + k·ln n. Lower is better; only compare
+        # fits of the SAME data. BIC penalises extra parameters more, which is
+        # what keeps a 6-parameter core-shell from beating a sphere on noise.
+        aic = chi2_total + 2 * k_free
+        bic = chi2_total + k_free * float(np.log(max(n_pts, 1)))
+        errors = _param_errors(residuals, free_names, best, chi2) if free_names else {}
 
         return {
             "model":       model_name,
             "params":      {k: float(v) for k, v in best.items()},
             "chi2":        round(chi2, 4),
+            "chi2_total":  round(chi2_total, 4),
+            "n_points":    n_pts,
+            "n_free":      k_free,
+            "aic":         round(aic, 4),
+            "bic":         round(bic, 4),
+            "errors":      errors,        # 1σ, from the χ² curvature, scaled by reduced χ²
             "converged":   converged,
             "at_bounds":   at_bounds,
             "q_unit":      q_unit,
@@ -980,6 +993,42 @@ def sasmodels_fit(
     except Exception as exc:
         return {"error": str(exc)}
 
+
+
+def _param_errors(chi2_fn, names, best, chi2_red, rel_step=1e-3) -> dict:
+    """1σ parameter errors from the curvature of χ² at the minimum.
+
+    Near the minimum χ²(p) ≈ χ²_min + ½ Δpᵀ H Δp, and Cov = 2·H⁻¹. Scaled by
+    the reduced χ² (standard when σ may be mis-estimated). Finite differences,
+    so it costs about 2k² model evaluations; returns {} if the Hessian is not
+    positive definite (a flat or degenerate direction, itself worth knowing).
+    """
+    try:
+        x0 = np.array([float(best[k]) for k in names])
+        k = len(x0)
+        if k == 0 or k > 12:
+            return {}
+        h = np.where(np.abs(x0) > 1e-12, np.abs(x0) * rel_step, rel_step)
+
+        def f(x):
+            return chi2_fn(list(x))
+
+        f0 = f(x0)
+        H = np.zeros((k, k))
+        for i in range(k):
+            ei = np.zeros(k); ei[i] = h[i]
+            H[i, i] = (f(x0 + ei) - 2 * f0 + f(x0 - ei)) / h[i] ** 2
+            for j in range(i + 1, k):
+                ej = np.zeros(k); ej[j] = h[j]
+                H[i, j] = H[j, i] = (f(x0 + ei + ej) - f(x0 + ei - ej)
+                                     - f(x0 - ei + ej) + f(x0 - ei - ej)) / (4 * h[i] * h[j])
+        cov = 2.0 * np.linalg.inv(H) * max(float(chi2_red), 1.0)
+        d = np.diag(cov)
+        if not np.all(np.isfinite(d)) or np.any(d <= 0):
+            return {}
+        return {n: float(np.sqrt(v)) for n, v in zip(names, d)}
+    except Exception:                                      # noqa: BLE001
+        return {}
 
 def sasmodels_params(model_name: str) -> dict:
     """

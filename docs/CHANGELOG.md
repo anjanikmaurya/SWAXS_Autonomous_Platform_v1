@@ -7,6 +7,18 @@ this file is the running summary. Dates are when the work landed on `main`.
 
 ## October 2026
 
+### Structure fitter, Phase 1: context and features
+
+Groundwork for the LLM-assisted structure fitter (plan:
+`docs/design/LLM_FITTER_PLAN.md`). `src/analysis/features.py` computes the
+model-free features of a curve (Guinier, Porod exponent, Kratky, p(r) Dmax,
+invariants, low-q slope, and new oscillation-minima detection);
+`src/analysis/fit_context.py` collects what the pipeline knows about a curve
+(recipe, `chemistry.yml`, normalisation, background QC, quality flags);
+`sasmodels_fit` now reports χ², BIC, AIC and 1σ parameter errors; the closed
+model catalogue is `ai_knowledge/rules/saxs_models.yml`; Reduction records the
+normalisation mode. Test: `tests/test_fitter_phase1.py`.
+
 ### Assistant knowledge organised; every answer traced
 
 - **One layout** for everything the assistant knows (`ai_knowledge/README.md`,

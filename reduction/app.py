@@ -637,7 +637,8 @@ def _register_reduced(result: dict, raw_path: Path, detector: str,
             user = user,
             config = {
                 k: config[k] for k in
-                ("npt_radial", "error_model", "mode", "compound")
+                ("npt_radial", "error_model", "mode", "compound", "normalization",
+                 "absolute_calibration_factor", "unit")
                 if k in config
             },
         )

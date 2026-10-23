@@ -24,6 +24,10 @@ sources:
     role: injected
     order: 4
     shared: true
+  - id: saxs_models
+    path: ai_knowledge/rules/saxs_models.yml
+    role: injected          # structure fitter only: its closed model catalogue
+    shared: true
   - id: sops
     path: ai_knowledge/rules/sops.json
     role: memory

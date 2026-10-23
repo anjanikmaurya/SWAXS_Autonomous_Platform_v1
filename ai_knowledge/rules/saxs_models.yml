@@ -1,0 +1,62 @@
+# The closed catalogue of structures the structure fitter may choose from.
+# Used by the catalogue + BIC method and given to the AI proposer as its only
+# allowed choices (docs/design/LLM_FITTER_PLAN.md). Names are sasmodels models.
+#
+# Lengths in nm (the platform's unit; the fitter converts to sasmodels' Å).
+# Every model also has scale and background, which the fitter solves exactly.
+# `fit` lists the shape parameters that are optimised; `pd` the ones that carry
+# a Schulz size distribution; `bounds` are hard limits, not starting guesses.
+# `equivalent_radius` says how the optimiser's size is reported for this shape.
+version: 1
+
+models:
+  sphere:
+    describe: Solid sphere, polydisperse. Rg = sqrt(3/5) R; first minimum at q R = 4.49; Porod n = -4.
+    fit: [radius]
+    pd: [radius]
+    bounds: {radius: [0.5, 100]}
+    equivalent_radius: radius
+
+  core_shell_sphere:
+    describe: Sphere with a shell of different contrast (ligand or oxide layer). Minima shifted and damped versus a sphere; Kratky peak can sit off the globular reference.
+    fit: [radius, thickness, sld_core, sld_shell]
+    pd: [radius]
+    bounds: {radius: [0.5, 100], thickness: [0.1, 20], sld_core: [-10, 100], sld_shell: [-10, 100]}
+    fixed: {sld_solvent: 7.0}
+    equivalent_radius: rg
+
+  ellipsoid:
+    describe: Spheroid of revolution, polar and equatorial radii. Minima smeared by orientation averaging; Kratky peak lower than a sphere's.
+    fit: [radius_polar, radius_equatorial]
+    pd: [radius_equatorial]
+    bounds: {radius_polar: [0.5, 200], radius_equatorial: [0.5, 100]}
+    equivalent_radius: rg
+
+  cylinder:
+    describe: Rod of radius R and length L. For L >> R, a q^-1 region between 2 pi/L and 1/R; Porod n = -4 at high q.
+    fit: [radius, length]
+    pd: [radius]
+    bounds: {radius: [0.5, 100], length: [1, 2000]}
+    equivalent_radius: rg
+
+  mass_fractal:
+    describe: Aggregates of primary particles with fractal dimension Df (1 to 3); low-q power law q^-Df up to a cutoff length; primary-particle Porod tail at high q.
+    fit: [radius, fractal_dim_mass, cutoff_length]
+    bounds: {radius: [0.5, 50], fractal_dim_mass: [1.0, 3.0], cutoff_length: [5, 5000]}
+    equivalent_radius: radius
+
+# Structure factors for interacting particles; appended as "<model>@<factor>".
+# They add a correlation peak or a low-q depression or rise in I(q).
+structure_factors:
+  hardsphere:
+    describe: Excluded-volume repulsion; suppresses low-q intensity and adds a broad peak near q = 2 pi / (2 R_eff).
+    fit: [volfraction]
+    bounds: {volfraction: [0.0, 0.6]}
+  stickyhardsphere:
+    describe: Short-range attraction (aggregation tendency); raises low-q intensity.
+    fit: [volfraction, stickiness]
+    bounds: {volfraction: [0.0, 0.6], stickiness: [0.05, 100]}
+  hayter_msa:
+    describe: Screened Coulomb repulsion between charged particles; correlation peak that moves with concentration.
+    fit: [volfraction, charge]
+    bounds: {volfraction: [0.0, 0.6], charge: [0, 200]}

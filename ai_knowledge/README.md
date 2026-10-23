@@ -9,7 +9,7 @@ is listed in [`sources.yml`](sources.yml) (a test checks that the two agree).
 
 | Folder | What | In git |
 |---|---|---|
-| `rules/` | Instructions given on **every** turn: corrections, group SOPs, the base prompt | yes |
+| `rules/` | Instructions given on **every** turn: corrections, group SOPs, the base prompt; plus `saxs_models.yml`, the structure fitter's model catalogue | yes |
 | `reference/` | Documents **searched by meaning** for each question: `literature/`, `user_papers/`, `beamline/` | yes (literature, beamline) |
 | `cases/` | Expert-judged worked examples (the knowledge pack; to be filled) | yes |
 | `evals/` | Exam questions with marking points, to score the assistant (to be filled) | yes |
