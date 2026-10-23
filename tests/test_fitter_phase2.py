@@ -151,8 +151,8 @@ def test_llm_assisted_comment_is_not_requested_twice(tmp_path, monkeypatch, sphe
     calls = []
     fake = lambda d: calls.append(1) or {"summary": "s", "flags": []}     # noqa: E731
     monkeypatch.setattr(az, "narrate_fit", fake)
-    import src.fitting.llm_assisted as la
-    monkeypatch.setattr(la, "narrate_fit", fake)
+    import src.fitting.llm_structure as ls
+    monkeypatch.setattr(ls, "_client", lambda: None)          # no AI here: fallback path
     I, s = sphere
     sub = tmp_path / "1D" / "SAXS" / "Subtracted"
     sub.mkdir(parents=True)
@@ -160,4 +160,7 @@ def test_llm_assisted_comment_is_not_requested_twice(tmp_path, monkeypatch, sphe
     f.write_text("# q_nm-1 I sigma\n" + "\n".join(f"{a:.6g} {b:.6g} {c:.6g}"
                                                   for a, b, c in zip(Q, I, s)) + "\n")
     az._analyze_file(f, drive_loop=False)
-    assert len(calls) == 1
+    # the LLM-assisted fitter supplies its own summary, so the Analyser makes
+    # no extra AI call for the comment (it used to make two)
+    assert calls == []
+    assert az._results[f.name]["full"]["llm"] == az._results[f.name]["full"]["llm_assist"]

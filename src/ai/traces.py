@@ -92,6 +92,26 @@ def note(key: str, value) -> None:
         r[key] = value
 
 
+def record(kind: str, **fields) -> Path | None:
+    """Write one standalone trace line (not a chat turn), e.g. kind="fitter"
+    for each structure-fitter decision. Same folder, same rules, never raises."""
+    if not enabled():
+        return None
+    try:
+        rec = {"ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+               "id": uuid.uuid4().hex[:12], "kind": kind,
+               **{k: (_cut(v) if isinstance(v, str) else v) for k, v in fields.items()}}
+        d = traces_dir()
+        d.mkdir(parents=True, exist_ok=True)
+        path = d / f"{datetime.now().strftime('%Y-%m-%d')}.jsonl"
+        with _write_lock, path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(rec, default=str, ensure_ascii=False) + "\n")
+        return path
+    except Exception as exc:                             # noqa: BLE001
+        logger.debug("[traces] could not write record: %s", exc)
+        return None
+
+
 def finish(result: dict | None = None, error: str | None = None) -> Path | None:
     """Write the trace for this turn. Returns the file written (or None)."""
     r = _rec()

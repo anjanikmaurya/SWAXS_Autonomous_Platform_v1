@@ -60,14 +60,54 @@ fractal); PDI error; shape accuracy among fits the method called confident
   not spherical.
 - Catalogue + BIC costs about 8 to 9 s per curve against 0.2 s.
 
+## Hard held-out, 40 curves with real-data problems
+
+Each curve has one or two of: a structure factor (hard sphere or sticky hard
+sphere), an aggregation upturn, a background subtraction error, a missing low-q
+range (beamstop), a missing high-q range, a 15 to 40 % second population.
+The true shape is the main population's.
+
+| Method | Cases | Shape correct | Size error (median) | Size within 10 % | PDI error (median) | Correct when confident | s / curve |
+|---|---|---|---|---|---|---|---|
+| `ls_sphere` | 40 | 20 % | 66 % | 25 % | 0.217 | 67 % | 0.58 |
+| `ml_regressor` | 40 | 20 % | 31 % | 20 % | 0.121 | n/a | 0.01 |
+| `catalogue_bic` | 40 | 55 % | 8.3 % | 52 % | 0.054 | 78 % | 9.18 |
+
+## Per shape (shape correct / median size error)
+
+| Method | sphere | core_shell_sphere | ellipsoid | cylinder | mass_fractal |
+|---|---|---|---|---|---|
+| `ls_sphere` | 100 % / 20 % | 0.0 % / 5.0 % | 0.0 % / 62 % | 0.0 % / 75 % | 0.0 % / 3207 % |
+| `ml_regressor` | 100 % / 14 % | 0.0 % / 8.3 % | 0.0 % / 32 % | 0.0 % / 59 % | 0.0 % / 1078 % |
+| `catalogue_bic` | 25 % / 4.0 % | 88 % / 0.2 % | 50 % / 36 % | 38 % / 36 % | 75 % / 8.3 % |
+
+## Per real-data problem (shape correct)
+
+| Method | structure_factor | aggregation | subtraction_error | beamstop | narrow_q | mixture |
+|---|---|---|---|---|---|---|
+| `ls_sphere` | 29 % (n=7) | 29 % (n=7) | 9.1 % (n=11) | 8.3 % (n=12) | 18 % (n=11) | 25 % (n=8) |
+| `ml_regressor` | 29 % (n=7) | 29 % (n=7) | 9.1 % (n=11) | 8.3 % (n=12) | 18 % (n=11) | 25 % (n=8) |
+| `catalogue_bic` | 29 % (n=7) | 29 % (n=7) | 82 % (n=11) | 67 % (n=12) | 64 % (n=11) | 38 % (n=8) |
+
+Statistics alone fall to 55 % of shapes and 52 % of sizes within 10 %.
+Subtraction errors and missing q-ranges are handled well; interactions,
+aggregation and mixtures are not, and real spheres are often over-read as a
+more flexible core-shell or fractal model. This is the set the LLM-assisted
+fitter must improve on:
+
+```
+python tools/fitter_benchmark.py --n 40 --split hard_heldout --methods catalogue_bic llm_assisted
+```
+
+(needs the AI login; about one AI call per curve, the knowledge bundle cached).
+
 ## Limits of this benchmark
 
-These curves are clean: one shape each, no structure factor, no instrument
-smearing, perfect background subtraction, no aggregation upturn, no beamstop
-shadow, no mixtures. On such data, statistics alone already find the shape, so
-there is little left for the AI fitter to improve. A **hard set** with those
-real-world effects is needed before the LLM-assisted fitter (Phase 4) can be
-judged; that is the next addition to this benchmark.
+The clean sets have one shape per curve and perfect subtraction, where
+statistics alone already find the shape. The hard sets add the common
+real-data problems but are still simulated: no instrument smearing, no
+detector artefacts, and shapes only from the catalogue. Real beamtime curves
+with expert verdicts (the `ai_knowledge/cases/` library) are the final test.
 
 ## Reproduce
 

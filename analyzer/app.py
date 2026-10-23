@@ -1506,7 +1506,10 @@ def _analyze_file(path: Path, drive_loop: bool = True) -> None:
         # aren't 10× off and the campaign optimizes toward the right target.
         if _q_is_angstrom(hdr):
             q = q * 10.0                       # Å⁻¹ → nm⁻¹
-        res = fitting.get(_active_fitter).fit(q, I, sigma, dist="auto")
+        # path + project root let a context-aware fitter (LLM-assisted) gather
+        # what the pipeline knows about this curve; the others ignore them
+        res = fitting.get(_active_fitter).fit(q, I, sigma, dist="auto", path=str(path),
+                                              project_root=_project_root)
     except Exception as exc:
         _emit(f"✗ {path.name}: {exc}", "error")
         return

@@ -27,7 +27,19 @@ from collections import Counter, defaultdict
 import numpy as np
 
 SHAPES = ("sphere", "core_shell_sphere", "ellipsoid", "cylinder", "mass_fractal")
-SPLIT_OFFSET = {"practice": 0, "heldout": 1_000_003}
+SPLIT_OFFSET = {"practice": 0, "heldout": 1_000_003,
+                "hard": 2_000_029, "hard_heldout": 3_000_017}
+HARD_SPLITS = ("hard", "hard_heldout")
+
+#: Real-data problems added to every "hard" case (one or two of them):
+#:   structure_factor   interacting particles (hard sphere / sticky hard sphere)
+#:   aggregation        low-q power-law upturn from clusters
+#:   subtraction_error  background over- or under-subtracted
+#:   beamstop           the low-q end is missing
+#:   narrow_q           the high-q end is missing
+#:   mixture            a minority population of a second shape
+EFFECTS = ("structure_factor", "aggregation", "subtraction_error", "beamstop",
+           "narrow_q", "mixture")
 
 
 def _rng(split: str, i: int):
@@ -64,11 +76,41 @@ def make_case(split: str, i: int) -> dict:
         p = {"radius": _log_u(r, 0.5, 3), "fractal_dim_mass": float(r.uniform(1.7, 2.8)),
              "cutoff_length": _log_u(r, 20, 150)}
         pdp, pd = None, None
-    return {"id": f"{split}-{i:04d}", "split": split, "index": i, "shape": shape,
+    case = {"id": f"{split}-{i:04d}", "split": split, "index": i, "shape": shape,
             "params": p, "pd_param": pdp, "pdi": pd,
             "q_min": float(r.uniform(0.04, 0.12)), "q_max": float(r.uniform(2.5, 5.0)),
             "n_q": int(r.integers(180, 320)), "noise": float(_log_u(r, 0.008, 0.06)),
-            "bkg_frac": float(_log_u(r, 1e-4, 5e-3)), "seed": SPLIT_OFFSET[split] + i}
+            "bkg_frac": float(_log_u(r, 1e-4, 5e-3)), "seed": SPLIT_OFFSET[split] + i,
+            "effects": {}}
+    if split in HARD_SPLITS:
+        pool = [e for e in EFFECTS if not (e == "structure_factor" and shape == "mass_fractal")]
+        for e in (str(x) for x in r.choice(pool, size=int(r.integers(1, 3)), replace=False)):
+            if e == "structure_factor":
+                if r.random() < 0.5:
+                    case["effects"][e] = {"name": "hardsphere",
+                                          "volfraction": float(r.uniform(0.1, 0.35))}
+                else:
+                    case["effects"][e] = {"name": "stickyhardsphere",
+                                          "volfraction": float(r.uniform(0.1, 0.3)),
+                                          "stickiness": float(r.uniform(0.1, 0.5))}
+            elif e == "aggregation":
+                case["effects"][e] = {"amplitude": float(_log_u(r, 0.1, 1.5)),
+                                      "exponent": float(r.uniform(2.0, 3.0))}
+            elif e == "subtraction_error":
+                case["effects"][e] = {"factor": float(r.choice([-1, 1]) * r.uniform(1.0, 4.0))}
+            elif e == "beamstop":
+                case["effects"][e] = {}
+                case["q_min"] = float(r.uniform(0.15, 0.3))
+            elif e == "narrow_q":
+                case["effects"][e] = {}
+                case["q_max"] = float(r.uniform(1.2, 2.0))
+            elif e == "mixture":
+                other = "cylinder" if shape != "cylinder" else "sphere"
+                op = ({"radius": _log_u(r, 1, 4), "length": _log_u(r, 15, 60)}
+                      if other == "cylinder" else {"radius": _log_u(r, 2, 10)})
+                case["effects"][e] = {"shape": other, "params": op,
+                                      "fraction": float(r.uniform(0.15, 0.4))}
+    return case
 
 
 def _model_call(name, q_nm, params_nm, pd_param=None, pdi=None, pd_n=35):
@@ -106,13 +148,30 @@ def render(case: dict):
     """(q, I, sigma, truth) for a case."""
     r = np.random.default_rng(case["seed"])
     q = np.geomspace(case["q_min"], case["q_max"], case["n_q"])
-    I0 = _model_call(case["shape"], q, case["params"], case["pd_param"], case["pdi"])
+    fx = case.get("effects") or {}
+    name, params = case["shape"], dict(case["params"])
+    if "structure_factor" in fx:
+        sq = dict(fx["structure_factor"])
+        name = f"{name}@{sq.pop('name')}"
+        params.update(sq)
+    I0 = _model_call(name, q, params, case["pd_param"], case["pdi"])
     I0 = I0 / I0[0]
+    if "mixture" in fx:
+        mx = fx["mixture"]
+        I2 = _model_call(mx["shape"], q, mx["params"], "radius", 0.1)
+        I0 = (1 - mx["fraction"]) * I0 + mx["fraction"] * I2 / I2[0]
+    if "aggregation" in fx:
+        ag = fx["aggregation"]
+        I0 = I0 + ag["amplitude"] * (q / q[0]) ** (-ag["exponent"])
     I0 = I0 + case["bkg_frac"]
     s = case["noise"] * I0 + 0.2 * case["bkg_frac"]
-    I = np.abs(I0 + r.normal(0, s))
+    I = I0 + r.normal(0, s)
+    if "subtraction_error" in fx:          # a wrong solvent scale: a flat offset
+        I = I + fx["subtraction_error"]["factor"] * case["bkg_frac"]
+    I = np.abs(I)
     truth = {"shape": case["shape"], "R_eq": true_equivalent_radius(case),
-             "pdi": case["pdi"], "params": case["params"]}
+             "pdi": case["pdi"], "params": case["params"],
+             "effects": sorted(fx)}
     return q, I, s, truth
 
 
@@ -129,7 +188,7 @@ def run_case(case: dict, methods) -> list[dict]:
         t0 = time.perf_counter()
         row = {"case": case["id"], "split": case["split"], "method": m,
                "true_shape": truth["shape"], "true_R": truth["R_eq"], "true_pdi": truth["pdi"],
-               "noise": case["noise"]}
+               "noise": case["noise"], "effects": sorted(case.get("effects") or {})}
         try:
             res = F.get(m).fit(q, I, s)
             row.update({"ok": True,
@@ -169,6 +228,12 @@ def score(rows: list[dict]) -> dict:
                     "size_err_median": round(float(np.median(
                         [abs(r["pred_R"] - r["true_R"]) / r["true_R"] for r in s_rows])), 3),
                 }
+        per_effect = {}
+        for e in EFFECTS:
+            e_rows = [r for r in ok if e in (r.get("effects") or [])]
+            if e_rows:
+                per_effect[e] = {"n": len(e_rows), "shape_acc": round(float(np.mean(
+                    [r["pred_shape"] == r["true_shape"] for r in e_rows])), 3)}
         confusion = Counter((r["true_shape"], r["pred_shape"]) for r in ok)
         out[m] = {
             "n_cases": n, "n_failed": n - len(ok),
@@ -181,6 +246,7 @@ def score(rows: list[dict]) -> dict:
                 [r["pred_shape"] == r["true_shape"] for r in conf])), 3) if conf else None),
             "seconds_median": round(float(np.median([r["seconds"] for r in rs])), 2),
             "per_shape": per_shape,
+            "per_effect": per_effect,
             "confusion": {f"{a}->{b}": c for (a, b), c in sorted(confusion.items())},
         }
     return out
@@ -207,4 +273,12 @@ def report_markdown(scores: dict, title: str = "Fitter benchmark") -> str:
             d = s["per_shape"].get(sh)
             cells.append(f"{pct(d['shape_acc'])} / {pct(d['size_err_median'])}" if d else "n/a")
         lines.append(f"| `{m}` | " + " | ".join(cells) + " |")
+    if any(s.get("per_effect") for s in scores.values()):
+        lines += ["", "## Per real-data problem (shape correct)", "",
+                  "| Method | " + " | ".join(EFFECTS) + " |", "|---|" + "---|" * len(EFFECTS)]
+        for m, s in scores.items():
+            pe = s.get("per_effect") or {}
+            lines.append(f"| `{m}` | " + " | ".join(
+                f"{pct(pe[e]['shape_acc'])} (n={pe[e]['n']})" if e in pe else "n/a"
+                for e in EFFECTS) + " |")
     return "\n".join(lines) + "\n"

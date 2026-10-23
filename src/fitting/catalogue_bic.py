@@ -72,18 +72,21 @@ class CatalogueBIC:
     ready = True
 
     def fit(self, q, I, sigma=None, **opts) -> dict:
-        res = analyze_profile(q, I, sigma, dist=opts.get("dist", "auto"))
+        # Only the cheap parts of the sphere analysis (Guinier, invariant,
+        # phase); the slow sphere fit runs only if the catalogue fails.
+        res = analyze_profile(q, I, sigma, dist=opts.get("dist", "auto"), fit_form_factor=False)
         try:
             sel = select(q, I, sigma)
+            err = None if (sel["winner"] and sel["winner"].get("equivalent_radius")) \
+                else "no catalogue model fitted"
         except Exception as exc:                          # noqa: BLE001
-            res.setdefault("diagnostics", {})["catalogue_error"] = str(exc)
+            sel, err = None, str(exc)
+        if err:
+            res = analyze_profile(q, I, sigma, dist=opts.get("dist", "auto"))
+            res.setdefault("diagnostics", {})["catalogue_error"] = err
             res["diagnostics"]["method"] = self.id
             return res                                    # the sphere fit stands
         win, ranked = sel["winner"], sel["ranked"]
-        if not win or not win.get("equivalent_radius"):
-            res.setdefault("diagnostics", {})["catalogue_error"] = "no catalogue model fitted"
-            res["diagnostics"]["method"] = self.id
-            return res
         return apply_winner(res, win, ranked, sel["features"], method=self.id)
 
 

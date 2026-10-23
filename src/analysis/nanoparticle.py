@@ -280,9 +280,14 @@ def _confidence(rms_log, guinier_valid, rel_err_R, *, at_bounds=False,
     return float(round(max(0.0, min(1.0, c)), 3))
 
 
-def analyze_profile(q, I, sigma=None, dist="auto") -> dict:
+def analyze_profile(q, I, sigma=None, dist="auto", fit_form_factor: bool = True) -> dict:
     """Analyze one SAXS profile. Never raises — on failure returns a low-confidence
-    result. ``dist``: 'schulz' | 'lognormal' | 'auto' (fit both, keep the better)."""
+    result. ``dist``: 'schulz' | 'lognormal' | 'auto' (fit both, keep the better).
+
+    ``fit_form_factor=False`` returns only the cheap parts (Guinier, invariant,
+    phase, a Guinier-based size) and skips the sphere form-factor fit, which
+    can take tens of seconds on an aggregated curve. The catalogue and
+    LLM-assisted fitters use this, since they fit the structure themselves."""
     q = np.asarray(q, float); I = np.asarray(I, float)
     m = np.isfinite(q) & np.isfinite(I) & (q > 0) & (I > 0)
     # sigma must be masked and sorted in lock-step with q/I, or a weighted fit
@@ -314,7 +319,7 @@ def analyze_profile(q, I, sigma=None, dist="auto") -> dict:
         result["phase"] = {"phase": "none", "n_peaks": 0}
     Rbar0 = g["R_from_Rg"] if g.get("R_from_Rg") else 1.0 / np.median(q)
 
-    dists = ["schulz", "lognormal"] if dist == "auto" else [dist]
+    dists = (["schulz", "lognormal"] if dist == "auto" else [dist]) if fit_form_factor else []
     best = None
     for d in dists:
         try:

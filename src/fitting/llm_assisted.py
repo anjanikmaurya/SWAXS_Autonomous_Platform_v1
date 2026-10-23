@@ -1,44 +1,22 @@
-"""LLM-assisted fitter — physics fit with an AI interpretation layer.
+"""LLM-assisted fitter: the AI proposes the structure, physics fits it.
 
-The quantitative numbers (size / PDI / confidence) come from the same
-least-squares sphere fit as `ls_sphere` — an LLM is not a reliable quantitative
-fitter on its own (see docs/AUTOFIT_REDESIGN.md). What this method adds is an AI
-reading of the fit: a plain-language summary and quality flags, via the same
-narrate helper the Guinier assistant uses. It degrades gracefully: with no AI
-backend configured, narrate returns an empty note and this behaves exactly like
-the physics fit.
-
-A fuller agentic fitter (SasView-tool-driven model selection, e.g. SasAgent) can
-later register under this same interface.
+The implementation is src/fitting/llm_structure.py (Phase 4 of
+docs/design/LLM_FITTER_PLAN.md). Registered under the same id as before, so an
+Analyser that had "LLM-assisted" selected keeps it. With no AI login it falls
+back to Catalogue + BIC (statistics only) and says so in the result.
 """
 from __future__ import annotations
 
-from src.analysis.nanoparticle import analyze_profile
 from . import register
+from .llm_structure import LLMStructure
 
+# kept for callers that patch it (tests); the new fitter writes its own summary
 try:
-    from src.ai.loop_advice import narrate_fit
-except Exception:                       # AI extras absent → interpretation is a no-op
-    def narrate_fit(fit):               # type: ignore
+    from src.ai.loop_advice import narrate_fit  # noqa: F401
+except Exception:                                   # noqa: BLE001
+    def narrate_fit(fit):                           # type: ignore
         return {"summary": "", "flags": []}
 
+LLMAssisted = LLMStructure
 
-class LLMAssisted:
-    id = "llm_assisted"
-    label = "LLM-assisted"
-    ready = True
-
-    def fit(self, q, I, sigma=None, **opts) -> dict:
-        res = analyze_profile(q, I, sigma, dist=opts.get("dist", "auto"))
-        # Attach the AI interpretation under a dedicated key. (_analyze_file also
-        # sets res["llm"] for the standard QC note; keeping ours separate means
-        # this method's reading survives and is clearly attributable.)
-        try:
-            res["llm_assist"] = narrate_fit(res.get("diagnostics", {}))
-        except Exception:
-            res["llm_assist"] = {"summary": "", "flags": []}
-        res.setdefault("diagnostics", {})["method"] = "llm_assisted"
-        return res
-
-
-register(LLMAssisted())
+register(LLMStructure())

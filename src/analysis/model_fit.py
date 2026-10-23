@@ -55,6 +55,10 @@ def _is_length(units: str) -> bool:
     return (units or "").strip() in ("Ang", "Å")
 
 
+class _OutOfTime(Exception):
+    """The model's time budget ran out; the best point seen so far is kept."""
+
+
 class _Problem:
     """One model + optional structure factor, set up for least squares."""
 
@@ -84,6 +88,8 @@ class _Problem:
         for pdn in entry.get("pd", []):
             names.append(f"{pdn}_pd"); lo.append(0.005); hi.append(0.6); logs.append(True)
         self.names, self.lo, self.hi, self.logs = names, np.array(lo), np.array(hi), np.array(logs)
+        self.deadline = None                    # perf_counter time; None = no limit
+        self.best_cost, self.best_x = np.inf, None
 
     # conversions: platform values (nm) ↔ sasmodels (Å) ↔ search space (log)
     def _to_model(self, n, v):
@@ -116,14 +122,20 @@ class _Problem:
         return max(a, 1e-300), b
 
     def resid(self, x):
+        if self.deadline is not None and time.perf_counter() > self.deadline:
+            raise _OutOfTime()
         try:
             F = self.shape(self.from_x(x))
             if not np.all(np.isfinite(F)) or np.all(F <= 0):
                 return np.full_like(self.I, 1e6)
             a, b = self.linear(F)
-            return (self.I - (a * F + b)) / self.s
+            r = (self.I - (a * F + b)) / self.s
         except Exception:                                    # noqa: BLE001
             return np.full_like(self.I, 1e6)
+        c = float(np.dot(r, r))
+        if c < self.best_cost:
+            self.best_cost, self.best_x = c, np.array(x, float)
+        return r
 
 
 def _starts(prob: _Problem, seeds: dict, n_extra: int = 3, rng=None) -> list[np.ndarray]:
@@ -238,22 +250,34 @@ def fit_model(q, I, sigma, model: str, catalogue: dict | None = None,
         t0 = time.perf_counter()
         costs = [float(np.sum(coarse.resid(x) ** 2)) for x in x0s]   # one eval each
         t_eval = max((time.perf_counter() - t0) / len(x0s), 1e-5)
-        n_par = len(prob.names) + 1                    # evals per Jacobian step
-        nfev_c = int(np.clip(0.5 * TIME_BUDGET_S / (t_eval * len(x0s)), 3 * n_par, 80))
+        # max_nfev counts function evaluations only; each step also costs about
+        # n_par more for the numerical Jacobian, so the budget divides by that.
+        n_par = len(prob.names) + 1
+        nfev_c = int(np.clip(0.5 * TIME_BUDGET_S / (t_eval * len(x0s) * n_par), 2, 40))
         order = np.argsort(costs)                       # most promising starts first
-        best_c = None
+        coarse.deadline = t0 + 0.6 * TIME_BUDGET_S      # hard stops, so no model can
+        prob.deadline = t0 + 1.5 * TIME_BUDGET_S        # run away (long rods did)
+        x_start = x0s[int(order[0])]
         for i in order:
-            r = least_squares(coarse.resid, x0s[i], bounds=(lo_x, hi_x), method="trf",
+            try:
+                least_squares(coarse.resid, x0s[i], bounds=(lo_x, hi_x), method="trf",
                               x_scale="jac", max_nfev=nfev_c)
-            if best_c is None or r.cost < best_c.cost:
-                best_c = r
-            if time.perf_counter() - t0 > 0.6 * TIME_BUDGET_S:
+            except _OutOfTime:
                 break
+        if coarse.best_x is not None:
+            x_start = coarse.best_x
         t_full = t_eval * len(q) / max(len(q[::step]), 1) * (PD_N / PD_N_SEARCH)
-        nfev_f = int(np.clip(0.4 * TIME_BUDGET_S / t_full, 3 * n_par, 150))
-        best = least_squares(prob.resid, best_c.x, bounds=(lo_x, hi_x), method="trf",
-                             x_scale="jac", max_nfev=nfev_f)
-        vals = prob.from_x(best.x)
+        nfev_f = int(np.clip(0.4 * TIME_BUDGET_S / (t_full * n_par), 3, 60))
+        timed_out = False
+        try:
+            best = least_squares(prob.resid, x_start, bounds=(lo_x, hi_x), method="trf",
+                                 x_scale="jac", max_nfev=nfev_f)
+            x_best = best.x
+        except _OutOfTime:
+            timed_out, best = True, None
+            x_best = prob.best_x if prob.best_x is not None else x_start
+        prob.deadline = None
+        vals = prob.from_x(x_best)
         F = prob.shape(vals)
         a, b = prob.linear(F)
         I_fit = a * F + b
@@ -262,7 +286,7 @@ def fit_model(q, I, sigma, model: str, catalogue: dict | None = None,
         chi2 = chi2_total / max(n - k, 1)
         errors = {}
         try:                                   # Jacobian in x-space → value space
-            J = best.jac
+            J = best.jac if best is not None else None
             cov = np.linalg.inv(J.T @ J) * max(chi2, 1.0)
             dx = np.sqrt(np.clip(np.diag(cov), 0, None))
             for nm, v, d, lg in zip(prob.names, vals, dx, prob.logs):
@@ -283,7 +307,8 @@ def fit_model(q, I, sigma, model: str, catalogue: dict | None = None,
             "n_points": n, "n_free": k,
             "aic": round(chi2_total + 2 * k, 4),
             "bic": round(chi2_total + k * math.log(n), 4),
-            "converged": bool(best.success), "at_bounds": at_bounds,
+            "converged": bool(best.success) if best is not None else False,
+            "timed_out": timed_out, "at_bounds": at_bounds,
             "rg": rg, "equivalent_radius": R_eq,
             "pdi": params.get(pd_keys[0]) if pd_keys else None,
             "q": q.tolist(), "I_fit": I_fit.tolist(),

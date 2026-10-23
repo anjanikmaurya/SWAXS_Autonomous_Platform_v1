@@ -16,7 +16,14 @@
 > results in `docs/benchmarks/FITTER_BENCHMARK_2026-10.md` (Catalogue + BIC:
 > 40/40 shapes on held-out curves, median size error 0.3 %). Next for Phase 3:
 > a hard set with real-world effects, without which the AI cannot be judged.
-> Phases 4 and 5 are NEVER BUILT yet (including `src/fitting/llm_structure.py`).
+> Phase 3 also has hard sets (`hard`, `hard_heldout`) with real-data problems:
+> Catalogue + BIC there 55 % of shapes, 52 % of sizes within 10 %.
+> Phase 4 is built: `src/fitting/llm_structure.py`, behind the existing
+> **LLM-assisted** menu entry (propose, fit, select by BIC, one residual check,
+> cache, traces, fallback to Catalogue + BIC). Its benchmark score needs the AI
+> login, so it is run on the operator's machine (command in
+> `docs/benchmarks/FITTER_BENCHMARK_2026-10.md`).
+> Phase 5 is NEVER BUILT yet.
 
 ## Goal
 

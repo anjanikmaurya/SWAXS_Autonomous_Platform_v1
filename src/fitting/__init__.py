@@ -48,8 +48,10 @@ _DESC = {
     "catalogue_bic": "Fits every structure in the catalogue (sphere, core-shell, "
                      "ellipsoid, cylinder, mass fractal, plus structure factors) "
                      "and keeps the best by BIC. No AI. Reports an equivalent radius.",
-    "llm_assisted": "Sphere fit plus a plain-language AI reading of the result. "
-                    "AI model selection is being built (docs/design/LLM_FITTER_PLAN.md).",
+    "llm_assisted": "The AI reads the curve's features, the sample context and the "
+                    "knowledge base, proposes up to 3 structures from the catalogue; "
+                    "each is fitted and the best by BIC wins. Falls back to "
+                    "Catalogue + BIC with no AI login.",
 }
 
 

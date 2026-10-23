@@ -7,6 +7,24 @@ this file is the running summary. Dates are when the work landed on `main`.
 
 ## October 2026
 
+### Structure fitter, Phase 4: the AI proposes, physics fits
+
+- **LLM-assisted** in the Analyser is now a real structure fitter
+  (`src/fitting/llm_structure.py`): the AI reads the curve's features, the
+  pipeline context (recipe, `chemistry.yml`, normalisation, background and
+  quality flags), a log-log and Kratky plot and the knowledge bundle (model
+  catalogue, corrections, SOPs, SAXS guidelines, cached), and names up to 3
+  catalogue structures. Each, plus a sphere baseline, is fitted by the robust
+  fitter and the lowest BIC wins; a poor winner gets one residual check.
+  Proposals are cached per curve, every decision is traced (kind "fitter"),
+  and with no AI login or a bad answer it falls back to Catalogue + BIC.
+- Benchmark hard sets with real-data problems; Catalogue + BIC 55 % of shapes
+  on hard held-out curves, so there is room for the AI to show its value.
+- Speed: the catalogue and LLM fitters no longer run the slow sphere fit first
+  (48 s down to 5 s on an aggregated curve); each model has an enforced time
+  budget (a long rod could previously run for minutes).
+- Tests: `tests/test_fitter_phase4.py` (a stand-in AI, no login needed).
+
 ### Structure fitter, Phase 3: benchmark
 
 `tools/fitter_benchmark.py` (logic `src/fitting/benchmark.py`) scores every
