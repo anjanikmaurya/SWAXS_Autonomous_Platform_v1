@@ -1083,8 +1083,9 @@ if __name__ == "__main__":
     if _SOCK_AVAILABLE:
         print(f"  → ws://localhost:{_HUB_PORT}/ws  (event bus)")
     print(f"  → {len(APPS)} app(s) registered from apps.yml")
-    for a in APPS:
-        print(f"      {a['icon']}  {a['name']}  :{a['port']}")
+    from src.term_banner import app_lines      # coloured mark per app accent
+    for _line in app_lines(APPS):
+        print(_line)
     print("━" * 58)
     try:
         app.run(debug=False, port=_HUB_PORT, threaded=True)
