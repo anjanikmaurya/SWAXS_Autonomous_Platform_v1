@@ -60,6 +60,7 @@ OPTIONAL = {
     "pytest": "pip install pytest",
     "Py_P_Pump": "vendored in src/reactor/drivers/",
     "jsdom": "tests/ui (node, not pip)",
+    "cairosvg": "build-time only: tools/build_term_icons.py (PNGs are committed)",
 }
 
 
