@@ -58,7 +58,7 @@ def _emit_interactive(fig: dict | None) -> None:
 # ("Invalid model name") — it needs the "us.anthropic." prefix. Falling back to the
 # bare id was why the "default" model failed while explicitly-picked ids worked.
 # The env/settings value still overrides this for any other deployment.
-_DEFAULT_MODEL      = "us.anthropic.claude-sonnet-4-6"
+from .models import GATEWAY_DEFAULT as _DEFAULT_MODEL   # noqa: E402  one default for the platform
 _MAX_TOKENS         = 8192       # default response budget (was 4096) — long answers OK
 _KB_TOP_K           = 6          # knowledge-base hits to include
 _MAX_TOOL_ROUNDS    = 8          # max recursive tool-use loops per chat turn

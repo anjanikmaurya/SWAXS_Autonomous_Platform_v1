@@ -9,6 +9,13 @@ this file is the running summary. Dates are when the work landed on `main`.
 
 ### Analyser: choose the Claude model and thinking; test the AI connection
 
+- The Analyser (and the AI fitter, knowledge drafting and loop advice) now log in
+  and pick their model exactly as Guinier does, from one module,
+  `src/ai/models.py`: `~/.claude/settings.json` is loaded first, and the default
+  is a SLAC-gateway model id (`us.anthropic.claude-sonnet-4-6`). Before, they
+  fell back to a bare `claude-sonnet-5`, which the gateway rejects, and read the
+  default before loading the settings.
+
 - The AI level's box in Setup step 3 now sets the **Claude model** (default from
   your settings, or Sonnet / Opus / Haiku 5.5, Fable 5.1) and **Thinking** (off,
   standard, deep). Both are recorded with every decision and shown in Report.

@@ -105,6 +105,7 @@ SWAXS_Autonomous_Platform_v1/
 │   └── ai/                     # assistant.py · knowledge.py · memory.py · hints.py
 │                               #   · plots.py · code_exec.py · loop_advice.py
 │                               #   · layout.py (every knowledge path) · traces.py (answer traces)
+│                               #   · models.py (one login + model default for every AI caller)
 │
 ├── apps.yml                # THE app registry — ports, entries, knowledge, manifest keys
 ├── start_platform.sh       # macOS / Linux launcher

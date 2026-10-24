@@ -3,7 +3,7 @@
 
     python tools/ai_check.py                    # the default model from your settings
     python tools/ai_check.py --all              # every model offered in the Analyser
-    python tools/ai_check.py --model claude-opus-5-5 --thinking standard
+    python tools/ai_check.py --model us.anthropic.claude-opus-5 --thinking standard
 
 Reads the same login as the apps: ANTHROPIC_AUTH_TOKEN / ANTHROPIC_API_KEY,
 else ~/.claude/settings.json (and ANTHROPIC_BASE_URL for a gateway).
@@ -11,7 +11,6 @@ else ~/.claude/settings.json (and ANTHROPIC_BASE_URL for a gateway).
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from pathlib import Path
 
@@ -27,9 +26,12 @@ def main(argv=None) -> int:
     ap.add_argument("--thinking", default="off", choices=list(A.THINKING))
     ap.add_argument("--all", action="store_true")
     a = ap.parse_args(argv)
-    print("anthropic package:", "installed" if _has("anthropic") else "MISSING (pip install -r requirements-ai.txt)")
-    print("login found:      ", "yes" if A.ai_available() else "no")
-    print("gateway:          ", "set" if os.environ.get("ANTHROPIC_BASE_URL") else "not set (direct API)")
+    from src.ai.models import login_summary
+    s = login_summary()
+    print("anthropic package:", "installed" if s["package"] else "MISSING (pip install -r requirements-ai.txt)")
+    print("settings.json:    ", "found" if s["settings_file"] else "not found (~/.claude/settings.json)")
+    print("login:            ", s["login"])
+    print("gateway:          ", "set (ANTHROPIC_BASE_URL)" if s["gateway"] else "not set (direct API)")
     print("default model:    ", A._model())
     models = [m for m, _ in A.MODELS] if a.all else [a.model]
     ok_any = False

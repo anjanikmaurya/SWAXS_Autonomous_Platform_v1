@@ -395,7 +395,7 @@ def test_ai_state_survives_a_restart(tmp_path, monkeypatch):
 
 # ── model, thinking and the connection test ──────────────────────────────────
 def test_thinking_drops_temperature_and_sets_a_budget():
-    kw = _aid._call_kwargs("claude-opus-5-5", "deep")
+    kw = _aid._call_kwargs("us.anthropic.claude-opus-5", "deep")
     assert kw["thinking"] == {"type": "enabled", "budget_tokens": 8000}
     assert "temperature" not in kw and kw["max_tokens"] > 8000
     assert _aid._call_kwargs("m", "off")["temperature"] == 0
@@ -411,15 +411,15 @@ def test_chosen_model_and_thinking_are_used_and_recorded():
                 kw = {**kw, "temperature": 0}      # FakeAI asserts temperature 0
             return super().create(**kw)
     c = _ctl("ai_copilot", Spy({"choice": 1, "reason": "r", "cited": ["data"]}),
-             model="claude-haiku-5-5", thinking="standard")
+             model="us.anthropic.claude-haiku-4-5-20251001-v1:0", thinking="standard")
     _feed(c, 4)
-    assert seen["model"] == "claude-haiku-5-5" and seen["thinking"]["budget_tokens"] == 2000
+    assert seen["model"] == "us.anthropic.claude-haiku-4-5-20251001-v1:0" and seen["thinking"]["budget_tokens"] == 2000
     d = c.decisions[-1]
-    assert d["model"] == "claude-haiku-5-5" and d["thinking"] == "standard"
+    assert d["model"] == "us.anthropic.claude-haiku-4-5-20251001-v1:0" and d["thinking"] == "standard"
 
 
 def test_connection_test_reports_and_never_shows_a_secret():
-    ok = _aid.test_connection("claude-sonnet-5-5", client_factory=lambda: FakeAI('{"ok": true}'))
+    ok = _aid.test_connection("us.anthropic.claude-sonnet-4-6", client_factory=lambda: FakeAI('{"ok": true}'))
     assert ok["ok"] and ok["ms"] >= 0
     bad = _aid.test_connection("x", client_factory=lambda: FakeAI(
         RuntimeError("401 invalid key sk-ant-REALSECRET123456 for Bearer abc.def")))
@@ -433,13 +433,37 @@ def test_routes_validate_model_and_thinking(tmp_path, monkeypatch):
     cl = a.app.test_client()
     st = cl.get("/api/ai/status").get_json()
     assert st["available"] and {"off", "standard", "deep"} <= set(st["thinking"])
-    assert any(m["id"] == "claude-opus-5-5" for m in st["models"])
-    r = cl.post("/api/ai/test", json={"model": "claude-opus-5-5"}).get_json()
-    assert r["ok"] and r["model"] == "claude-opus-5-5"
+    assert any(m["id"] == "us.anthropic.claude-opus-5" for m in st["models"])
+    r = cl.post("/api/ai/test", json={"model": "us.anthropic.claude-opus-5"}).get_json()
+    assert r["ok"] and r["model"] == "us.anthropic.claude-opus-5"
     assert cl.post("/api/ai/test", json={"model": "gpt-9"}).status_code == 400
     r = cl.post("/api/campaign/start", json={**BODY, "ai": {"level": "ai_copilot", "model": "gpt-9"}})
     assert r.status_code == 400 and "model" in r.get_json()["error"]
     assert cl.post("/api/campaign/start", json={**BODY, "ai": {"level": "ai_copilot",
-                   "model": "claude-haiku-5-5", "thinking": "standard"}}).get_json()["ok"]
-    assert a._campaign.model == "claude-haiku-5-5" and a._campaign.thinking == "standard"
-    assert a._campaign_meta["ai"]["model"] == "claude-haiku-5-5"
+                   "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0", "thinking": "standard"}}).get_json()["ok"]
+    assert a._campaign.model == "us.anthropic.claude-haiku-4-5-20251001-v1:0" and a._campaign.thinking == "standard"
+    assert a._campaign_meta["ai"]["model"] == "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+
+
+def test_the_analyser_uses_guiniers_login_and_gateway_model(tmp_path, monkeypatch):
+    """The same ~/.claude/settings.json the assistant reads gives the Analyser its
+    login and model; with nothing set the default is a gateway id, never a bare
+    'claude-...' id that the SLAC Bedrock gateway rejects."""
+    import json as _j
+    from src.ai import models as MD
+    for k in ("ANTHROPIC_MODEL", "SWAXS_DESIGN_MODEL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY",
+              "ANTHROPIC_BASE_URL"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setattr(MD, "_ROOT", tmp_path)                 # no .env
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert MD.default_model("SWAXS_DESIGN_MODEL") == MD.GATEWAY_DEFAULT
+    assert MD.GATEWAY_DEFAULT.startswith("us.anthropic.")
+    (tmp_path / ".claude").mkdir()
+    (tmp_path / ".claude" / "settings.json").write_text(_j.dumps({"env": {
+        "ANTHROPIC_BASE_URL": "https://gw.example", "ANTHROPIC_AUTH_TOKEN": "tok-123",
+        "ANTHROPIC_DEFAULT_SONNET_MODEL": "us.anthropic.claude-sonnet-5"}}))
+    assert _aid._model() == "us.anthropic.claude-sonnet-5"
+    s = MD.login_summary()
+    assert s["login"] == "gateway token" and s["gateway"] and "tok-123" not in str(s)
+    assert all(m.startswith("us.anthropic.") for m, _ in MD.MODELS)
+    assert [m for m, _ in _aid.MODELS][0] == "" and len(_aid.MODELS) == len(MD.MODELS) + 1

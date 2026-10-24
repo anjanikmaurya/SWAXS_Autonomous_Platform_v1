@@ -31,16 +31,10 @@ _MAX_TOKENS = 500
 
 # ── shared client (unify with SWAXSAssistant._get_client in a refactor) ────────
 def _get_client():
-    """Return an Anthropic client, or None if no credentials are configured."""
-    try:
-        from .assistant import _load_claude_settings_into_env  # reuse SLAC-gateway loader
-        _load_claude_settings_into_env()
-        import anthropic
-        if not (os.environ.get("ANTHROPIC_AUTH_TOKEN") or os.environ.get("ANTHROPIC_API_KEY")):
-            return None
-        return anthropic.Anthropic()
-    except Exception:
-        return None
+    """Return an Anthropic client, or None if no credentials are configured.
+    Same login as the assistant (src/ai/models.py)."""
+    from .models import get_client
+    return get_client()
 
 
 def _ask_json(system: str, user: str, max_tokens: int = _MAX_TOKENS,
@@ -57,7 +51,8 @@ def _ask_json(system: str, user: str, max_tokens: int = _MAX_TOKENS,
     if client is None:
         return None
     try:
-        model = os.environ.get("ANTHROPIC_MODEL", "").strip() or "claude-sonnet-5"
+        from .models import default_model
+        model = default_model()
         kwargs = {} if timeout_s is None else {"timeout": float(timeout_s)}
         resp = client.messages.create(
             model=model, max_tokens=max_tokens,

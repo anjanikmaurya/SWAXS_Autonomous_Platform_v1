@@ -137,8 +137,8 @@ def _client():
 
 
 def _ai_model() -> str:
-    return os.environ.get("SWAXS_FITTER_MODEL") or os.environ.get("ANTHROPIC_MODEL", "").strip() \
-        or "claude-sonnet-5"
+    from src.ai.models import default_model
+    return default_model("SWAXS_FITTER_MODEL")
 
 
 def _ask(client, bundle: str, user_text: str, png: str | None) -> tuple[dict | None, dict]:

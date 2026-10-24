@@ -139,8 +139,10 @@ green at ≥ 0.6, amber at ≥ 0.3, otherwise low.
 
 The cold start is never the AI's. The AI level drives the optimiser shown in its
 detail box (Shortlist from / Fallback optimiser / Optimiser). The box also sets the
-**Claude model** (Default = `SWAXS_DESIGN_MODEL`, else `ANTHROPIC_MODEL`; or Sonnet
-5.5, Opus 5.5, Haiku 5.5, Fable 5.1; a gateway may offer only some) and
+**Claude model** (Default = `SWAXS_DESIGN_MODEL`, else `ANTHROPIC_MODEL`, else
+`ANTHROPIC_DEFAULT_SONNET_MODEL` from `~/.claude/settings.json`, else
+`us.anthropic.claude-sonnet-4-6`; or the same gateway ids the assistant offers:
+Sonnet 4.6, Sonnet 5, Opus 4.8, Opus 5, Haiku 4.5) and
 **Thinking** (off: temperature 0, the same answer for the same state; standard
 about 2k and deep about 8k tokens of extended thinking, slower; answers are still
 cached on the exact prompt). **Test AI connection** makes one tiny real call with

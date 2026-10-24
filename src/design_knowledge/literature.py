@@ -173,7 +173,8 @@ def draft_cards(text: str, source: str, client=None, use_ai: bool = True) -> tup
         cl = client if client is not None else _client()
         if cl is not None:
             try:
-                model = os.environ.get("ANTHROPIC_MODEL", "").strip() or "claude-sonnet-5"
+                from src.ai.models import default_model
+                model = default_model("SWAXS_DESIGN_MODEL")
                 resp = cl.messages.create(
                     model=model, max_tokens=1200, system=SYSTEM, timeout=60,
                     messages=[{"role": "user", "content": f"<text>\n{text}\n</text>"}])

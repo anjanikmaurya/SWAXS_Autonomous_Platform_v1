@@ -94,11 +94,8 @@ def ai_available() -> bool:
 
 #: Model choices for the next-recipe AI. "" = the default from your settings
 #: (SWAXS_DESIGN_MODEL, else ANTHROPIC_MODEL). A gateway may offer only some.
-MODELS = [("", "Default (from your AI settings)"),
-          ("claude-sonnet-5-5", "Claude Sonnet 5.5 (balanced)"),
-          ("claude-opus-5-5", "Claude Opus 5.5 (most capable, slower)"),
-          ("claude-haiku-5-5", "Claude Haiku 5.5 (fastest)"),
-          ("claude-fable-5-1", "Claude Fable 5.1")]
+from src.ai.models import MODELS as _GW_MODELS, default_model as _default_model  # noqa: E402
+MODELS = [("", "Default (from your AI settings)")] + list(_GW_MODELS)
 #: Thinking: extended thinking budget before the answer. Off keeps temperature 0.
 THINKING = {"off": 0, "standard": 2000, "deep": 8000}
 
@@ -143,8 +140,9 @@ def _call_kwargs(model: str, thinking: str, max_tokens: int = 700) -> dict:
 
 
 def _model() -> str:
-    return (os.environ.get("SWAXS_DESIGN_MODEL") or os.environ.get("ANTHROPIC_MODEL", "").strip()
-            or "claude-sonnet-5")
+    """The default model: SWAXS_DESIGN_MODEL, ANTHROPIC_MODEL, settings.json, the
+    gateway default; the login settings are loaded first (src/ai/models.py)."""
+    return _default_model("SWAXS_DESIGN_MODEL")
 
 
 def _r(v, n=4):
