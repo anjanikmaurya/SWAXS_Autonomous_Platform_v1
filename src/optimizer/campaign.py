@@ -12,6 +12,9 @@ Design choices (from the loop spec):
     high-noise GP observation (trusted less) instead of being dropped.
   • Stop when a CONFIDENT run hits size ±tolerance AND PDI ≤ cap; else stop at
     the run budget (or on manual abort).
+  • A HELD result (the fit is not the expected shape, see
+    src/optimizer/intake_rules.py) counts against the budget but does not train
+    the surrogate, cannot be the best and cannot end the run, until accept().
 
 Engine is behind ``ask()/tell()`` so a heavier backend (Ax/BoTorch) could drop
 in without touching the app.
@@ -105,7 +108,8 @@ class CampaignController:
         return dict(cond)
 
     def tell(self, params: dict, size, pdi, confidence: float,
-             recipe_id: str = "") -> dict:
+             recipe_id: str = "", held: str | None = None,
+             model: str | None = None) -> dict:
         """Record a measured result and update stop state.
 
         ``recipe_id`` is stored as a TOP-LEVEL field (not inside ``params``, which
@@ -117,6 +121,10 @@ class CampaignController:
         rec = {"params": dict(params), "size": size, "pdi": pdi,
                "confidence": float(confidence), "loss": loss,
                "recipe_id": str(recipe_id or "")}
+        if held:
+            rec["held"] = str(held)
+        if model:
+            rec["model"] = str(model)
         self.history.append(rec)
         self._consider_best(rec)
         self._check_stop(rec)
@@ -125,22 +133,26 @@ class CampaignController:
     def _consider_best(self, rec: dict) -> None:
         """Fold one history record into ``best``."""
         size, loss = rec["size"], rec["loss"]
+        # Tiers, best first: trusted (sized, confident, not held) > untrusted
+        # (low confidence) > held (wrong shape, waiting for the operator). A
+        # held point is kept only so `best` is never None once there is data.
         # Track `best` among CONFIDENCE-GATED points. `best` is reported as the
         # recommended recipe on exhaustion, so a low-confidence lucky hit (a
         # railed/noisy fit whose size happens to land on target → lowest loss)
         # must not become the answer. A trusted point always beats an untrusted
         # one; within a tier, lowest loss wins; an all-failed campaign still keeps
         # its least-bad point so `best` is never None once there's data.
-        trusted = (size is not None and float(rec["confidence"]) >= self.confidence_min)
+        held = bool(rec.get("held"))
+        trusted = (not held and size is not None
+                   and float(rec["confidence"]) >= self.confidence_min)
+        tier = 0 if trusted else (2 if held else 1)
         cur = self.best
-        if cur is None:
-            self.best = {**rec, "_trusted": trusted}
-        elif trusted and not cur.get("_trusted"):
-            self.best = {**rec, "_trusted": True}
-        elif bool(cur.get("_trusted")) == trusted and loss < cur["loss"]:
-            self.best = {**rec, "_trusted": trusted}
+        cur_tier = None if cur is None else cur.get("_tier", 0 if cur.get("_trusted") else 1)
+        if cur is None or tier < cur_tier or (tier == cur_tier and loss < cur["loss"]):
+            self.best = {**rec, "_trusted": trusted, "_tier": tier}
 
-    def replace_failed(self, recipe_id: str, size, pdi, confidence: float) -> dict | None:
+    def replace_failed(self, recipe_id: str, size, pdi, confidence: float,
+                       held: str | None = None, model: str | None = None) -> dict | None:
         """Put a LATE measurement in place of the failure recorded for it.
 
         A condition whose data did not arrive in time is told as a failure so the
@@ -163,6 +175,10 @@ class CampaignController:
         rec = {"params": dict(h["params"]), "size": size, "pdi": pdi,
                "confidence": float(confidence), "loss": self.loss(size, pdi),
                "recipe_id": rid, "late": True}
+        if held:
+            rec["held"] = str(held)
+        if model:
+            rec["model"] = str(model)
         self.history[i] = rec
         self.best = None
         for r in self.history:
@@ -171,9 +187,34 @@ class CampaignController:
             self._check_stop(rec)
         return rec
 
+    def accept(self, recipe_id: str) -> dict | None:
+        """The operator accepts a HELD result: it now trains the surrogate and may
+        be the best or the hit. Returns the record, or None if nothing was held
+        under this recipe_id."""
+        rid = str(recipe_id or "")
+        for rec in self.history:
+            if rid and rec.get("recipe_id") == rid and rec.get("held"):
+                rec.pop("held", None)
+                rec["accepted"] = True
+                break
+        else:
+            return None
+        self.best = None
+        for r in self.history:
+            self._consider_best(r)
+        if self.status_str == "running":
+            self._check_stop(rec)
+        return rec
+
+    def held(self) -> list[dict]:
+        """Results waiting for the operator: recipe_id, reason, model, size."""
+        return [{"recipe_id": h.get("recipe_id", ""), "reason": h.get("held"),
+                 "model": h.get("model"), "size": h.get("size"), "pdi": h.get("pdi")}
+                for h in self.history if h.get("held")]
+
     def _check_stop(self, rec):
         size, pdi, conf = rec["size"], rec["pdi"], rec["confidence"]
-        hit = (size is not None and conf >= self.confidence_min
+        hit = (size is not None and not rec.get("held") and conf >= self.confidence_min
                and abs(size - self.target_size) <= self.tolerance
                and (pdi is None or pdi <= self.pdi_cap))
         if hit and self.converged_condition is None:
@@ -229,7 +270,10 @@ class CampaignController:
         # a single 1e3 outlier dominates np.var(y) and the base noise floor, so the
         # GP posterior goes flat everywhere and EI can't discriminate. Failures
         # still count against the budget; they just don't train the surrogate.
-        hist = [h for h in hist if h.get("size") is not None and h["loss"] < _FAIL_LOSS]
+        # HELD results (not the expected shape) wait for the operator: training on
+        # an equivalent size of the wrong structure would steer the search.
+        hist = [h for h in hist if h.get("size") is not None and h["loss"] < _FAIL_LOSS
+                and not h.get("held")]
         if not hist:
             return None
         X = np.array([self.space.to_unit(h["params"]) for h in hist])
@@ -273,4 +317,6 @@ class CampaignController:
             "pdi_cap": self.pdi_cap,
             "best": self.best,
             "converged_condition": self.converged_condition,
+            "confidence_min": self.confidence_min,
+            "n_held": sum(1 for h in self.history if h.get("held")),
         }

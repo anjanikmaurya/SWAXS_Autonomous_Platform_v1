@@ -85,7 +85,7 @@ class ParetoEHVI(CampaignController):
         pts = []
         for h in self.history:
             R, pdi = h.get("size"), h.get("pdi")
-            if R is None or h.get("loss", 0.0) >= _FAIL_LOSS:
+            if R is None or h.get("loss", 0.0) >= _FAIL_LOSS or h.get("held"):
                 continue
             # A low-confidence fit (railed / noisy) is not a trusted point on the
             # front: it would set the hypervolume the EHVI tries to beat and be
@@ -100,7 +100,8 @@ class ParetoEHVI(CampaignController):
         """GPs on measured radius and PDI (sized, non-failed points only), with
         confidence-weighted noise — same recipe as the loss GP."""
         hist = [h for h in self.history
-                if h.get("size") is not None and h.get("loss", 0.0) < _FAIL_LOSS]
+                if h.get("size") is not None and h.get("loss", 0.0) < _FAIL_LOSS
+                and not h.get("held")]
         if len(hist) < 3:
             return None
         X = np.array([self.space.to_unit(h["params"]) for h in hist])

@@ -45,6 +45,8 @@ from src.reactor import load_config                                      # noqa:
 from src.reactor.recipe import parse_param_file                          # noqa: E402
 from src.optimizer import ParameterSpace, CampaignController, NAMES      # noqa: E402
 from src.optimizer import methods as optimisers                         # noqa: E402  (pluggable optimiser registry)
+from src.optimizer.intake_rules import (held_reason, check_seeds,        # noqa: E402
+                                        EXPECTED_SHAPES, DEFAULT_SHAPE)
 import src.fitting as fitting                                           # noqa: E402  (pluggable fitting registry)
 from src.optimizer.io import (to_param_file, match_recipe_id,           # noqa: E402
                               recipe_id_from_filename)
@@ -142,6 +144,10 @@ def _build_optimiser(space, goal, size_range, base_cfg, method_params=None,
 # ── closed-loop campaign state ─────────────────────────────────────────────────
 _campaign: CampaignController | None = None
 _pending: dict = {}          # recipe_id -> proposed params awaiting a measurement
+#: Operator Pause: no NEW condition is issued while set. Results for conditions
+#: already issued are still recorded, so nothing measured is lost; Resume issues
+#: the next condition if none is outstanding. Persisted with the campaign.
+_paused: bool = False
 _campaign_lock = threading.Lock()
 
 _results: "collections.OrderedDict[str, dict]" = collections.OrderedDict()
@@ -581,6 +587,8 @@ def _advance_campaign() -> None:
     if _campaign is None:
         return
     if _campaign.status_str == "running":
+        if _paused:
+            return                      # Pause: hold back the next condition
         p = _campaign.ask()
         if getattr(_campaign, "last_error", None):
             _emit(f"⚠ search strategy failed ({_campaign.last_error}); proposed a "
@@ -747,7 +755,7 @@ def _write_campaign_results(outcome: dict) -> str:
 
         hist = _campaign.history or []
         if hist:
-            keys = ["recipe_id", "size", "pdi", "confidence", "loss"]
+            keys = ["recipe_id", "size", "pdi", "confidence", "loss", "model", "held"]
             pkeys = sorted({k for h in hist for k in (h.get("params") or {})})
             lines = [",".join(keys + pkeys)]
             for h in hist:
@@ -799,6 +807,7 @@ def _save_campaign() -> None:
             "cfg": _campaign_cfg,
             "meta": _campaign_meta,
             "status": _campaign.status_str,
+            "paused": bool(_paused),
             "history": _campaign.history,
             "pending": _pending,
             "pending_at": _pending_at,
@@ -816,7 +825,7 @@ def _restore_campaign() -> None:
     instead.
     """
     global _campaign, _campaign_cfg, _campaign_id, _campaign_meta, _run_tag, _run_seq
-    global _CAMPAIGN_NOTICE
+    global _CAMPAIGN_NOTICE, _paused
     # NEVER clobber a live campaign. _boot_resume runs on a timer ~1 s after
     # import, so an operator (or a test) who starts a campaign inside that window
     # would have their running campaign silently replaced by the rebuilt one from
@@ -874,11 +883,16 @@ def _restore_campaign() -> None:
                                    _campaign_meta.get("size_range"), cfg,
                                    method_params=_campaign_meta.get("method_params"),
                                    chosen=_campaign_meta.get("optimiser"))
-        camp.start()
+        # the operator's own starting recipes come first again, so the cold
+        # start replays in the same order it was issued
+        camp.start(seeds=_campaign_meta.get("seeds"))
         for rec in hist:                       # rebuild the GP from real results
             camp.tell(rec.get("params") or {}, rec.get("size"),
                       rec.get("pdi"), float(rec.get("confidence") or 0.0),
-                      recipe_id=rec.get("recipe_id", ""))
+                      recipe_id=rec.get("recipe_id", ""),
+                      held=rec.get("held"), model=rec.get("model"))
+            if rec.get("accepted"):
+                camp.history[-1]["accepted"] = True
         # Next ask() must skip every proposal already issued: the replayed results
         # AND the conditions still in flight. Counting only history re-proposed an
         # in-flight Sobol seed when a restart landed during seeding.
@@ -889,6 +903,7 @@ def _restore_campaign() -> None:
         with _campaign_lock:
             _campaign = camp
             _campaign_cfg = cfg
+            _paused = bool(st.get("paused"))
             _pending.clear(); _pending.update(st.get("pending") or {})
             # Restart the expiry clock NOW for every pending condition (audit
             # Q19). The saved proposal times include the downtime, so a restart
@@ -1045,6 +1060,7 @@ def _load_fit_records_for_campaign(campaign_id: str, run_tag: str = "") -> list:
                 "size": _num("Radius (nm)"),
                 "pdi": _num("PDI"),
                 "confidence": _num("Confidence") or 0.0,
+                "model": hdr.get("Model") or None,
                 "written": hdr.get("Written", ""),
             })
     except Exception:
@@ -1096,16 +1112,18 @@ def _continue_run() -> dict:
     raises with a message on failure. Caller (the route) holds no lock;
     this acquires _campaign_lock/_intake_lock itself."""
     global _campaign, _campaign_cfg, _campaign_id, _campaign_meta, _run_tag, _run_seq
+    global _paused
     if _campaign is not None:
         raise RuntimeError("a campaign is already running — abort it first")
     rec = _latest_incomplete_run()
     if rec is None:
         raise RuntimeError("no incomplete Target Run found")
 
-    cfg_keys = ("target_size", "tolerance", "pdi_cap", "budget", "n_init")
+    cfg_keys = ("target_size", "tolerance", "pdi_cap", "budget", "n_init",
+                "confidence_min")
     meta_keys = ("objective", "started_at", "operator", "run_no", "run_tag",
                  "goal", "spec_units", "optimiser", "optimiser_requested",
-                 "size_range", "fitter", "method_params")
+                 "size_range", "fitter", "method_params", "expected_shape", "seeds")
     cfg = {k: rec[k] for k in cfg_keys if k in rec}
     meta = {k: rec[k] for k in meta_keys if k in rec}
     campaign_id = str(rec.get("campaign_id") or "")
@@ -1123,7 +1141,7 @@ def _continue_run() -> dict:
                                meta.get("size_range"), cfg,
                                method_params=meta.get("method_params"),
                                chosen=meta.get("optimiser"))
-    camp.start()
+    camp.start(seeds=meta.get("seeds"))
 
     replayed, skipped = 0, 0
     for fr in recipe_recs:
@@ -1134,7 +1152,9 @@ def _continue_run() -> dict:
                   f"this measurement is not counted toward the budget", "warn")
             continue
         camp.tell(params, fr["size"], fr["pdi"], fr["confidence"],
-                  recipe_id=fr["recipe_id"])
+                  recipe_id=fr["recipe_id"],
+                  held=held_reason(fr.get("model"), meta.get("expected_shape") or "any"),
+                  model=fr.get("model"))
         replayed += 1
     camp._n_asked = len(camp.history)     # next ask() proposes a NEW point, not an already-replayed seed
 
@@ -1183,6 +1203,7 @@ def _continue_run() -> dict:
         _campaign_cfg = cfg
         _campaign_meta = meta
         _campaign_id = campaign_id
+        _paused = False
         if not _pending and _campaign.status_str == "running":
             _advance_campaign()
     _save_campaign()
@@ -1215,8 +1236,10 @@ def _accept_late_result(name: str, res: dict) -> bool:
         return False
     sz = res.get("size") or {}
     size, pdi, conf = sz.get("radius"), res.get("pdi"), res.get("confidence", 0.0)
+    model = res.get("model") or "polydisperse_sphere"
+    held = held_reason(model, _expected_shape())
     try:
-        rec = _campaign.replace_failed(rid, size, pdi, conf)
+        rec = _campaign.replace_failed(rid, size, pdi, conf, held=held, model=model)
     except Exception as exc:
         _emit(f"⚠ could not record the late result for {rid}: {exc}", "warn")
         return False
@@ -1266,8 +1289,13 @@ def _feed_campaign(name: str, res: dict) -> None:
         size = sz.get("radius")
         pdi = res.get("pdi")
         conf = res.get("confidence", 0.0)
+        model = res.get("model") or "polydisperse_sphere"
+        # A fit of another structure than the campaign expects is HELD: it uses
+        # its budget slot but does not steer the search until the operator
+        # accepts it (src/optimizer/intake_rules.py).
+        held = held_reason(model, _expected_shape())
         try:
-            _campaign.tell(params, size, pdi, conf, recipe_id=rid)
+            _campaign.tell(params, size, pdi, conf, recipe_id=rid, held=held, model=model)
         except Exception as exc:
             # Put the condition back so expiry can still account for it, rather
             # than losing both the measurement and the pending slot.
@@ -1278,6 +1306,10 @@ def _feed_campaign(name: str, res: dict) -> None:
             return
         _emit(f"📊 told campaign {rid}: R={size} PDI={pdi} conf={conf} "
               f"(loss={_campaign.history[-1]['loss']:.3f})", "info")
+        if held:
+            _emit(f"⏸ {rid} fitted as {model}, not the expected shape: HELD (counts "
+                  f"against the budget, does not steer the search). Accept it in "
+                  f"Fitting if it should count.", "warn")
         try:
             _advance_campaign()
         except Exception as exc:
@@ -2246,6 +2278,10 @@ def _campaign_status() -> dict:
     # operator set it up: a single target for target-hit / level-set, a diameter
     # RANGE for Pareto (where "distance to one target" is meaningless).
     st["goal"] = str((_campaign_meta or {}).get("goal") or "target-hit")
+    st["paused"] = bool(_paused)
+    st["expected_shape"] = _expected_shape()
+    with _campaign_lock:
+        st["held"] = _campaign.held() if _campaign is not None else []
     if (_campaign_meta or {}).get("size_range"):
         st["size_range"] = _campaign_meta["size_range"]
     return st
@@ -2305,12 +2341,62 @@ def api_campaign_continue():
         return jsonify({"ok": False, "error": str(exc)}), 400
 
 
+def _expected_shape() -> str:
+    """The running campaign's expected shape. A campaign started before this
+    setting existed has none recorded and keeps its old behaviour: any shape."""
+    return str((_campaign_meta or {}).get("expected_shape") or "any")
+
+
+def _cold_start_request(b: dict, space, cfg: dict) -> tuple[int, list, list, str]:
+    """(n_init, seeds, errors, expected_shape) from a Start/Preview request body.
+
+    The cold start is ``n_init`` recipes: the operator's own (``seeds``, checked
+    against the search bounds and the reactor's hard caps), then Sobol points
+    spread over the whole search range for the rest."""
+    errors = []
+    try:
+        budget = int(b.get("budget", 25))
+    except (TypeError, ValueError):
+        budget = 25
+    # An explicit cold start longer than the budget is refused below; an API
+    # caller that leaves it out gets the usual 10, capped at the budget.
+    try:
+        n_init = int(b["n_init"]) if "n_init" in b else min(10, max(budget, 1))
+    except (TypeError, ValueError):
+        n_init, errors = 10, ["the cold start must be a whole number of recipes"]
+    if n_init < 1:
+        errors.append("the cold start needs at least 1 recipe")
+    if n_init > budget:
+        errors.append(f"the cold start ({n_init}) is longer than the whole budget ({budget})")
+    seeds, seed_errs = check_seeds(b.get("seeds") or [], space, (cfg or {}).get("safety") or {})
+    errors += seed_errs
+    if len(seeds) > n_init:
+        errors.append(f"{len(seeds)} of your own recipes do not fit in a cold start of {n_init}")
+    shape = str(b.get("expected_shape") or DEFAULT_SHAPE)
+    if shape not in EXPECTED_SHAPES:
+        errors.append(f"unknown expected shape '{shape}'")
+    return n_init, seeds, errors, shape
+
+
 @app.route("/api/campaign/start", methods=["POST"])
 def api_campaign_start():
     global _campaign, _campaign_cfg, _campaign_id, _campaign_meta, _run_tag, _run_seq
+    global _paused
     b = request.get_json(silent=True) or {}
     try:
-        space = ParameterSpace.from_config(_space_cfg())
+        _cfg_live = _space_cfg()
+        space = ParameterSpace.from_config(_cfg_live)
+        # Refuse BEFORE touching anything: a bad starting recipe or cold start
+        # must never clear the queue or half-start a run.
+        _n_init, _seeds, _errs, _shape = _cold_start_request(b, space, _cfg_live)
+        try:
+            _conf_min = float(b.get("confidence_min", 0.5))
+        except (TypeError, ValueError):
+            _conf_min = -1.0
+        if not (0.0 <= _conf_min <= 1.0):
+            _errs.append("the minimum fit confidence must be between 0 and 1")
+        if _errs:
+            return jsonify({"ok": False, "error": "; ".join(_errs), "errors": _errs}), 400
         with _campaign_lock:
             # Refuse to start over a live run: a second start would drop the running
             # campaign's history, orphan its pending conditions, and re-derive the
@@ -2343,7 +2429,8 @@ def api_campaign_start():
                 tolerance=float(b.get("tolerance", 0.3)),
                 pdi_cap=float(b.get("pdi_cap", 0.15)),
                 budget=int(b.get("budget", 25)),
-                n_init=int(b.get("n_init", 10)))
+                n_init=_n_init,
+                confidence_min=_conf_min)
             _campaign, _opt_id = _build_optimiser(
                 space, _goal, _size_range, _base_cfg, b.get("method_params"))
             _campaign_id = (datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -2359,7 +2446,8 @@ def api_campaign_start():
                 "tolerance": _campaign.tolerance,
                 "pdi_cap": _campaign.pdi_cap,
                 "budget": _campaign.budget,
-                "n_init": int(b.get("n_init", 10)),
+                "n_init": _n_init,
+                "confidence_min": _conf_min,
             }
             # Recorded with the run so the Report tab and the durable record know
             # what the campaign pursued. `optimiser` is the RESOLVED acquisition
@@ -2385,9 +2473,16 @@ def api_campaign_start():
             # acquisition maps the best PDI across it; recorded for the Report).
             if _size_range is not None:
                 _campaign_meta["size_range"] = _size_range
-            _campaign.start()
+            # what steers the search, recorded so resume and Continue keep it
+            _campaign_meta["expected_shape"] = _shape
+            if _seeds:
+                _campaign_meta["seeds"] = _seeds
+            _paused = False
+            _campaign.start(seeds=_seeds)
             _emit(f"🚀 campaign started — target R={_campaign.target_size}±{_campaign.tolerance} nm, "
-                  f"PDI<{_campaign.pdi_cap}, budget {_campaign.budget}", "ok")
+                  f"PDI<{_campaign.pdi_cap}, budget {_campaign.budget}, cold start "
+                  f"{_n_init} ({len(_seeds)} of your own, {_n_init - len(_seeds)} spread out), "
+                  f"expected shape: {EXPECTED_SHAPES[_shape]['label']}", "ok")
             _advance_campaign()             # emit the first condition
         _save_campaign()
         # Durable record of the TARGET, in the two places that outlive the run.
@@ -2401,7 +2496,9 @@ def api_campaign_start():
 @app.route("/api/campaign/abort", methods=["POST"])
 def api_campaign_abort():
     global _campaign, _campaign_id, _campaign_cfg, _campaign_meta, _run_tag, _run_seq
+    global _paused
     with _campaign_lock:
+        _paused = False
         if _campaign is not None:
             _campaign.abort()
             _emit("⏹ campaign aborted by operator", "warn")
@@ -2434,6 +2531,97 @@ def api_campaign_abort():
             _reseed_intake("campaign aborted")
             clear_state(_project_root, _CAMPAIGN_STATE)   # remove the resume file too
     return jsonify({"ok": True})
+
+
+@app.route("/api/campaign/pause", methods=["POST"])
+def api_campaign_pause():
+    """Pause or resume a running campaign. Paused: no NEW condition is written;
+    anything already issued still runs and its result is still recorded."""
+    global _paused
+    want = bool((request.get_json(silent=True) or {}).get("paused", True))
+    with _campaign_lock:
+        if _campaign is None or _campaign.status_str != "running":
+            return jsonify({"ok": False, "error": "no running campaign"}), 409
+        if want == _paused:
+            return jsonify({"ok": True, "paused": _paused})
+        _paused = want
+        if want:
+            _emit("⏸ campaign paused: no new condition will be issued until Resume "
+                  "(anything already queued still runs)", "warn")
+        else:
+            _emit("▶ campaign resumed", "ok")
+            if not _pending:
+                _advance_campaign()
+    _save_campaign()
+    return jsonify({"ok": True, "paused": _paused})
+
+
+@app.route("/api/campaign/accept", methods=["POST"])
+def api_campaign_accept():
+    """Accept a HELD result (fitted as another shape than expected) so it counts."""
+    b = request.get_json(silent=True) or {}
+    with _campaign_lock:
+        if _campaign is None:
+            return jsonify({"ok": False, "error": "no campaign"}), 409
+        held_ids = [h["recipe_id"] for h in _campaign.held() if h.get("recipe_id")]
+        rid = str(b.get("recipe_id") or "")
+        if not rid and b.get("name"):
+            rid = match_recipe_id(str(b["name"]), held_ids) or ""
+        if rid not in held_ids:
+            return jsonify({"ok": False, "error": "nothing held for that recipe"}), 404
+        rec = _campaign.accept(rid)
+        _emit(f"✓ {rid} accepted by the operator ({rec.get('model')}): it now counts "
+              f"in the search", "ok")
+        if _campaign.status_str != "running":
+            # the accepted result ended the run (a confident in-spec hit)
+            _clear_conditions_for_new_campaign(
+                why=f"the campaign {_campaign.status_str} on an accepted result")
+            _pending.clear(); _pending_at.clear()
+            _advance_campaign()
+    _save_campaign()
+    return jsonify({"ok": True, "campaign": _campaign_status()})
+
+
+@app.route("/api/campaign/preview", methods=["POST"])
+def api_campaign_preview():
+    """The cold-start recipes a Start with this body would issue, in order,
+    without starting anything: your own recipes first, then the Sobol spread
+    (the same sequence CampaignController.start() draws)."""
+    b = request.get_json(silent=True) or {}
+    try:
+        cfg = _space_cfg()
+        space = ParameterSpace.from_config(cfg)
+        n_init, seeds, errors, _shape = _cold_start_request(b, space, cfg)
+        if errors:
+            return jsonify({"ok": False, "error": "; ".join(errors), "errors": errors}), 400
+        spread = space.sobol(max(0, n_init - len(seeds)), seed=0)
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    recipes = ([{"kind": "own", "params": s} for s in seeds]
+               + [{"kind": "spread", "params": s} for s in spread])
+    return jsonify({"ok": True, "n_init": n_init, "recipes": recipes})
+
+
+@app.route("/api/search_range")
+def api_search_range():
+    """The search bounds the optimiser may use and the reactor's hard caps,
+    read-only (they are changed in the Reactor app)."""
+    try:
+        cfg = _space_cfg()
+        space = ParameterSpace.from_config(cfg)
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    saf = cfg.get("safety") or {}
+    return jsonify({
+        "ok": True,
+        "bounds": {k: list(v) for k, v in space.bounds.items()},
+        "x_sum_max": space.x_sum_max,
+        "safety": {k: saf.get(k) for k in ("T_max", "F_tot_max", "per_pump_max")
+                   if saf.get(k) is not None},
+        "source": str(cfg.get("_path") or ""),
+        "shapes": {k: v["label"] for k, v in EXPECTED_SHAPES.items()},
+        "default_shape": DEFAULT_SHAPE,
+    })
 
 
 @app.route("/api/campaign/folder", methods=["GET", "POST"])

@@ -79,6 +79,7 @@ SWAXS_Autonomous_Platform_v1/
 │   ├── analysis/               # core.py · io.py · atsas.py · nanoparticle.py · guidelines.py
 │   ├── fitting/                # fitter registry: ls_sphere · ml_regressor · llm_assisted
 │   ├── optimizer/              # campaign.py · space.py · gp.py · io.py · study.py
+│   │                           #   · intake_rules.py (held results, starting-recipe checks)
 │   │                           #   · diagnostics.py · plots.py · methods/ (random,
 │   │                           #   gp_ucb, turbo, bax, pareto_ehvi)
 │   ├── reactor/                # controller.py (API, loop, status) + its parts split out

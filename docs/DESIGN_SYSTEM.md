@@ -118,12 +118,15 @@ theme toggle followed by `Port NNNN · ← Hub`. Every app links back to the hub
 choice, October 2026).** Every app has the same full-width `header.topbar`: logo
 and name, live status, project path, theme switch, `Port NNNN · ← Hub`. The
 multi-section apps (reduction, calibration, watchdog, average, analysis,
-background, reactor) add a left column UNDER it holding only their sections (`#sidebar` /
+background, reactor, analyzer) add a left column UNDER it holding only their sections (`#sidebar` /
 `.nav-btn`), with each section's task tabs (`.toptabbar`) inside the page; their
 `<body class="swaxs-shell">` stacks bar over column + content. In the reactor the
 column lists the synthesis routes, with the pump controls and emergency stop at
 its foot (`#sidebar-controls`), and the Activity log is docked under the tabs.
-Single-workspace apps (analyzer, quality, assistant) have the top bar only. All of it is
+In the analyzer the column lists the campaign goals (Hit a size, Map the in-spec
+region, Size vs PDI trade-off, Compare methods), with the same Setup · Fitting ·
+Report tabs for every goal (October 2026).
+Single-workspace apps (quality, assistant) have the top bar only. All of it is
 styled in the shared stylesheet. Side panels that hold
 CONTENT (the assistant's knowledge base) are fine. Guarded by `tests/test_ui_icon_policy.py`.
 

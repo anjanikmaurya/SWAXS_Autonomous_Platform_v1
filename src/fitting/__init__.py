@@ -43,8 +43,8 @@ def get(fitter_id: str | None):
 _DESC = {
     "ls_sphere":    "Polydisperse-sphere form-factor fit by least squares "
                     "(Schulz / log-normal); physics-based and interpretable.",
-    "ml_regressor": "A trained model predicts size / PDI directly from the curve — "
-                    "near-instant, uncertainty-aware (coming soon).",
+    "ml_regressor": "A trained model predicts size / PDI directly from the curve: "
+                    "near-instant, spheres of radius 1 to 18 nm only.",
     "catalogue_bic": "Fits every structure in the catalogue (sphere, core-shell, "
                      "ellipsoid, cylinder, mass fractal, plus structure factors) "
                      "and keeps the best by BIC. No AI. Reports an equivalent radius.",

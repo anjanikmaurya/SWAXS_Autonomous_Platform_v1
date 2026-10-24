@@ -7,6 +7,37 @@ this file is the running summary. Dates are when the work landed on `main`.
 
 ## October 2026
 
+### Analyser: goal column and the new Setup, Phase 1
+
+- The Autonomous Analyser (5107) now has the platform's left column: the
+  campaign **Goal** (Hit a size, Map the in-spec region, Size vs PDI trade-off,
+  Compare methods), with the same Setup · Fitting · Report tabs for every goal.
+- **Setup** is four numbered steps: Data folders (Conditions checked against
+  the reactor's folder), Target & limits (PDI labelled σ/R̄ from the SAXS fit,
+  new **Expected shape** and **Min fit confidence**, the search range shown
+  read-only from the reactor config), How it fits & searches (method lists
+  grouped Standard / ML / Agentic, filtered to the goal), and **Starting
+  recipes** (spread out plus up to 5 of your own; Preview shows the exact cold
+  start). A Ready-to-start card checks the setup.
+- **Safety**: your own starting recipes are refused unless complete, finite,
+  inside the search bounds and pump windows and under the reactor's hard caps;
+  a refused Start changes nothing. Every recipe a simulated loop writes is
+  checked with the reactor's own `validate()` in the tests.
+- **Held results** (`src/optimizer/intake_rules.py`): a fit of another shape
+  than expected counts against the budget but does not train the model or end
+  the run until the operator accepts it (Fitting tab). The Fitting table shows
+  diameter and a Scored column (yes / weak / held).
+- **Pause / Resume** (Report tab): no new recipe while paused; results already
+  in flight are still recorded; survives a restart. Abort moved beside it.
+- Compare methods races only methods that optimise the same score (Random,
+  GP + EI, GP + UCB, TuRBO), Random and GP + EI ticked by default, with the
+  Setup target.
+- Diameter everywhere in the UI (the optimiser still works in radius).
+- API: `POST /api/campaign/pause`, `/accept`, `/preview`, `GET /api/search_range`;
+  `/api/campaign/start` takes `seeds`, `expected_shape`, `confidence_min`.
+- Tests: `tests/test_analyzer_campaign_controls.py`, the jsdom page check
+  (now 76 checks).
+
 ### Structure fitter, Phase 4: the AI proposes, physics fits
 
 - **LLM-assisted** in the Analyser is now a real structure fitter

@@ -283,11 +283,56 @@ td.name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   gap:16px;align-items:start}
 .setup-side{position:sticky;top:64px}
 @media (max-width:1000px){ .setup-grid{grid-template-columns:1fr} .setup-side{position:static} }
+/* ── goal column (shared shell) + numbered steps ───────────────────────────── */
+body.swaxs-shell #main{overflow-y:auto}
+.card-hd .hd-right.sub{text-transform:none;letter-spacing:normal;font-size:var(--fs-xs);color:var(--muted)}
+.setup-main,.setup-side,.mchoose>div{min-width:0}
+@media (max-width:900px){ .fg{grid-template-columns:1fr} .fg>label{margin-top:0} }
+.steps{counter-reset:st}
+.steps .step{counter-increment:st}
+.steps .step-n::before{content:counter(st)}
+.fg{display:grid;grid-template-columns:150px minmax(0,1fr);gap:8px;align-items:start;margin:4px 0}
+.fg>label{margin:7px 0 0}
+.browse-row{display:flex;gap:6px;align-items:center}
+.range-row{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-top:8px}
+.range-row .lbl{font-size:var(--fs-xs);color:var(--muted);font-weight:600}
+.mono{font-family:var(--mono);font-size:var(--fs-xs)}
+/* method lists: grouped radio rows, the chosen one shows its description */
+.mchoose{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+.colh{font-size:var(--fs-sm);font-weight:700;margin-bottom:5px}
+.mlistbox{border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.mfam{padding:7px 12px 3px;font-size:var(--fs-2xs);font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.mopt{display:flex;gap:9px;align-items:flex-start;padding:6px 12px;margin:0;cursor:pointer;font-weight:400;color:var(--text);font-size:var(--fs-sm)}
+.mopt:hover{background:var(--surface2)}
+.mopt input{width:auto;margin-top:4px;flex-shrink:0}
+.mopt .d{display:none;color:var(--muted);font-size:var(--fs-xs);line-height:1.45;margin-top:2px}
+.mopt.on{background:color-mix(in srgb,var(--accent) 9%,transparent)}
+.mopt.on .d{display:block}
+.mopt.off{opacity:.55;cursor:not-allowed}
+.mtag{font-style:normal;font-size:var(--fs-2xs);padding:0 7px;border-radius:999px;border:1px solid currentColor;margin-left:6px;color:var(--ok-text)}
+.mtag.base{color:var(--muted)}
+.mdetail:empty{display:none}
+.mdetail{margin-top:8px}
+/* starting recipes */
+.starttbl{max-width:760px;margin-top:2px}
+.starttbl input{width:80px}
+.starttbl tr.tot td{border-top:1px solid var(--border-strong)}
+.ownrow{display:grid;grid-template-columns:repeat(5,minmax(0,1fr)) auto;gap:6px;margin:5px 0;max-width:760px}
+.warnt{color:var(--warn-text)} .errt{color:var(--err-text)}
+.prev table{margin-top:6px;max-width:760px}
+.prev td,.prev th{font-family:var(--mono);font-size:var(--fs-xs)}
+/* ready list */
+.ready{list-style:none;margin:0 0 8px;padding:0}
+.ready li{display:flex;gap:8px;align-items:flex-start;padding:4px 0;font-size:var(--fs-sm);line-height:1.4}
+.ready li.ok .ico{color:var(--ok-text)} .ready li.warn .ico{color:var(--warn-text)} .ready li.bad .ico{color:var(--err-text)}
+.btn.danger{color:var(--err-text)}
+.heldbox{margin-top:8px;padding:8px 11px;border:1px solid var(--warn);border-radius:8px;font-size:var(--fs-sm)}
+.scored-held{color:var(--warn-text);font-weight:600} .scored-weak{color:var(--muted)}
 </style></head>
-<body>
+<body class="swaxs-shell">
 {% include "_icon_sprite.svg" %}
 {% include "_icon_helpers.html" %}
-<div class="topbar">
+<header class="topbar">
   <div class="app-lockup">
     {% include "_app_mark.svg" %}
     <h1>Autonomous <span>Analyser</span></h1>
@@ -301,13 +346,22 @@ td.name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   <span class="proj" id="barProject" title="Project folder">No project selected</span>
   <button class="theme-toggle" id="themeBtn" onclick="toggleTheme()" title="Light or dark theme"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-moon"/></svg></button>
   <span class="topbar-sub">Port 5107 · <a href="http://localhost:5100">← Hub</a></span>
-</div>
-
+</header>
+<div class="shell" id="app">
+  <nav id="sidebar">
+  <div class="nav-section-label">Goal</div>
+  <button class="nav-btn active" data-goal="target-hit" onclick="setGoal('target-hit')"><span class="nav-icon"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-target"/></svg></span> Hit a size</button>
+  <button class="nav-btn" data-goal="level-set" onclick="setGoal('level-set')"><span class="nav-icon"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-grid"/></svg></span> Map the in-spec region</button>
+  <button class="nav-btn" data-goal="pareto" onclick="setGoal('pareto')"><span class="nav-icon"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-chart"/></svg></span> Size vs PDI trade-off</button>
+  <button class="nav-btn" data-goal="benchmark" onclick="setGoal('benchmark')"><span class="nav-icon"><svg class="ico" aria-hidden="true"><use href="#swaxs-quality"/></svg></span> Compare methods</button>
+  <div class="nav-hint" id="goalHint"></div>
+  <div class="nav-hint" id="pairHint"></div>
+  </nav>
+  <div id="main">
 <div class="restart-banner" id="restartBanner">
   <span class="rb-x" onclick="this.parentElement.classList.remove('show')"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-close"/></svg></span>
   <span id="restartBannerMsg"></span>
 </div>
-
 
 <div class="toptabbar">
   <button class="toptab active" data-tab="setup"   onclick="showTab('setup')">Setup</button>
@@ -323,121 +377,133 @@ td.name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   <section class="page active" id="page-setup">
    <div class="setup-grid">
     <div class="setup-main">
-    <div class="card fold" id="fold-setup">
-      <div class="card-hd" onclick="toggleFold('fold-setup')">
-        <span class="chev">▾</span> <svg class="ico" aria-hidden="true"><use href="#swaxs-ui-folder"/></svg> Watched folder
-        <span class="hd-right sub" id="setupHint"></span>
+    <div class="card steps">
+      <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-mode-autonomous"/></svg> <span id="goalTitle">Hit a size</span>
+        <span class="hd-right sub"><span id="c_goal_desc"></span> <span id="c_badge"></span></span>
       </div>
-      <div class="foldbody">
-        <div class="path-row">
-          <label for="folder">Folder</label>
-          <div class="browse-row">
+
+      <!-- STEP: data folders (live goals only) -->
+      <div class="step live-only" id="stepFolders">
+        <div class="step-h"><span class="step-n"></span> Data folders</div>
+        <div class="fg"><label for="folder">Watched profiles</label>
+          <div class="cell"><div class="browse-row">
             <input id="folder" placeholder="1D/SAXS/Subtracted" title="Project relative or absolute">
             <button type="button" class="btn btn-ghost btn-sm" onclick="swaxsBrowse('folder')">Browse…</button>
-            <button class="btn btn-accent" onclick="setFolder()">Set</button>
+            <button class="btn btn-accent btn-sm" onclick="setFolder()">Set</button>
           </div>
-        </div>
-        <div class="sub" id="resolved" style="margin-top:6px"></div>
-        <div class="sub" style="margin-top:4px">New <b>.dat</b> profiles here are fitted automatically
-          (sphere + Schulz or log-normal), each with a 0 to 1 confidence.</div>
-        <div class="row" style="margin-top:8px;align-items:center">
-          <button class="btn btn-ghost" id="backfillBtn" onclick="analyzeExisting()"
-                  title="Fit older profiles that were never analysed. Runs in the background, oldest first, and yields to live runs.">
-            <svg class="ico" aria-hidden="true"><use href="#swaxs-ui-start"/></svg>
-            Analyse existing profiles</button>
-          <span class="sub" id="backfillHint" style="margin-left:8px"></span>
-        </div>
-        <div class="sub" style="margin-top:4px">Use once on a folder of <b>previously collected</b> data:
-          the live watcher only fits new profiles. It does not drive the optimiser.</div>
+          <div class="sub" id="resolved"></div></div></div>
+        <div class="fg"><label for="c_cond">Conditions</label>
+          <div class="cell"><input id="c_cond" readonly title="Where each next recipe is written; the reactor reads the same folder">
+          <div class="sub" id="c_cond_note"></div></div></div>
+        <span class="sub" id="setupHint" style="display:none"></span>
       </div>
-    </div>
-
-    <div class="card">
-      <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-mode-autonomous"/></svg> Closed-loop campaign
-        <span class="hd-right sub" id="c_badge"></span>
+      <div class="step race-only" style="display:none">
+        <div class="step-h"><span class="step-n"></span> Simulator only</div>
+        <div class="sub">Compare methods races the chosen methods on the ground-truth simulator: no folders, no reactor, no beam. Results appear in Report.</div>
       </div>
-      <!-- One logical flow, top to bottom: choose the GOAL, set the TARGET & LIMITS
-           (size inputs adapt to the goal), choose HOW it fits & searches (the
-           strategy list is filtered to the goal), then Start. No Advanced split. -->
 
-      <!-- STEP 1 — goal -->
+      <!-- STEP: target & limits -->
       <div class="step">
-        <div class="step-h"><span class="step-n">1</span> Campaign goal <span class="step-sub">(what should the loop achieve?)</span></div>
-        <div class="viewtabs" id="c_goal" style="margin-bottom:4px">
-          <button data-goal="target-hit" class="on" onclick="setGoal('target-hit')">Target-hit</button>
-          <button data-goal="level-set" onclick="setGoal('level-set')">Level-set</button>
-          <button data-goal="pareto" onclick="setGoal('pareto')">Size-PDI Pareto</button>
-          <button data-goal="benchmark" onclick="setGoal('benchmark')">BAX vs BO</button>
-        </div>
-        <div class="sub" id="c_goal_desc" style="line-height:1.45"></div>
-      </div>
-
-      <!-- STEP 2 — target & limits (size inputs adapt to the goal) -->
-      <div class="step">
-        <div class="step-h"><span class="step-n">2</span> Target &amp; limits <span class="step-sub">(the spec the loop aims for)</span></div>
+        <div class="step-h"><span class="step-n"></span> Target &amp; limits</div>
         <div class="grid2">
           <div id="grp_target" title="Target particle diameter you want the loop to hit">
-            <label>Target diameter (nm)</label>
+            <label for="c_target">Target diameter (nm)</label>
             <input id="c_target" type="number" value="5" step="0.1" min="0.2" max="100" oninput="echoSpec()"></div>
           <div id="grp_tol" title="How close counts as a hit, in diameter (±)">
-            <label>Tolerance ± (nm)</label>
+            <label for="c_tol">Tolerance ± (nm)</label>
             <input id="c_tol" type="number" value="0.6" step="0.05" min="0.02" oninput="echoSpec()"></div>
           <div id="grp_dmin" style="display:none" title="Smallest diameter to map">
-            <label>Min diameter (nm)</label>
+            <label for="c_dmin">Min diameter (nm)</label>
             <input id="c_dmin" type="number" value="2" step="0.1" min="0.2" max="100" oninput="echoSpec()"></div>
           <div id="grp_dmax" style="display:none" title="Largest diameter to map">
-            <label>Max diameter (nm)</label>
+            <label for="c_dmax">Max diameter (nm)</label>
             <input id="c_dmax" type="number" value="10" step="0.1" min="0.3" max="100" oninput="echoSpec()"></div>
-          <div><label title="Largest acceptable polydispersity (size spread), 0 to 1">Max PDI (spread)</label>
+          <div><label for="c_pdi" title="Largest acceptable spread, σ/R̄ of the fitted size distribution (not the DLS polydispersity index)">Max PDI (σ/R̄, from the SAXS fit)</label>
             <input id="c_pdi" type="number" value="0.1" step="0.01" min="0.001" max="1"></div>
-          <div><label title="Max number of autonomous experiments before stopping">Max experiments</label>
-            <input id="c_budget" type="number" value="30" step="1" min="1" max="500"></div>
+          <div><label for="c_budget" id="c_budget_lbl" title="Max number of autonomous experiments before stopping">Max experiments</label>
+            <input id="c_budget" type="number" value="30" step="1" min="1" max="500" oninput="countStart()"></div>
+          <div class="live-only"><label for="c_shape" title="A fit of another structure is held: it counts against the budget but does not steer the search until you accept it in Fitting">Expected shape</label>
+            <select id="c_shape" onchange="checkReady()">
+              <option value="sphere_cs">sphere (core-shell counts)</option>
+              <option value="sphere">sphere only</option>
+              <option value="any">any shape (equivalent size)</option>
+            </select></div>
+          <div class="live-only"><label for="c_confmin" title="A fit below this confidence cannot be the answer or end the run; it still informs the model, with a low weight">Min fit confidence</label>
+            <input id="c_confmin" type="number" value="0.5" step="0.05" min="0" max="1"></div>
+          <div class="race-only" style="display:none"><label for="c_repeats">Repeats per method</label>
+            <input id="c_repeats" type="number" value="3" step="1" min="1" max="10"></div>
         </div>
         <div class="sub" id="c_spec_note" style="margin-top:4px"></div>
+        <div class="range-row"><span class="lbl">Search range</span>
+          <span class="mono" id="c_range">loading…</span>
+          <span class="sub" id="c_range_src"></span></div>
       </div>
 
-      <!-- STEP 3 — how it fits & searches (strategy filtered to the goal) -->
+      <!-- STEP: how it fits & searches -->
       <div class="step">
-        <div class="step-h"><span class="step-n">3</span> How it fits &amp; searches <span class="step-sub">(how runs are scored and the next is picked)</span></div>
-        <div class="grid2" style="align-items:start">
-          <div><label>Fitting method</label>
-            <select id="m_fitter" onchange="setMethods()" aria-label="fitting method"></select>
-            <div class="sub" id="m_fitter_desc" style="margin-top:5px;line-height:1.45"></div></div>
-          <div id="m_opt_wrap"><label>Search strategy</label>
-            <select id="m_optimiser" onchange="setMethods()" aria-label="search strategy"></select>
-            <div class="sub" id="m_opt_desc" style="margin-top:5px;line-height:1.45"></div></div>
+        <div class="step-h"><span class="step-n"></span> How it fits &amp; searches</div>
+        <div class="mchoose">
+          <div class="live-only" id="fitCol"><div class="colh">Fitting</div>
+            <div class="mlistbox" id="fitList"></div>
+            <select id="m_fitter" onchange="setMethods()" aria-label="fitting method" hidden></select>
+            <div class="sub" id="m_fitter_desc" hidden></div></div>
+          <div id="m_opt_wrap"><div class="colh" id="optColH">Next recipe</div>
+            <div class="mlistbox live-only" id="optList"></div>
+            <select id="m_optimiser" onchange="setMethods()" aria-label="search strategy" hidden></select>
+            <div class="mlistbox race-only" id="studyMethods" style="display:none"></div></div>
         </div>
-        <div id="m_opt_params" class="grid2" style="margin-top:8px"></div>
+        <div id="m_opt_desc" class="mdetail live-only"></div>
+        <div id="m_opt_params" class="grid2 live-only" style="margin-top:8px"></div>
         <div class="sub" id="m_hint" style="margin-top:6px"></div>
       </div>
 
-      <div class="btn-row" style="margin-top:8px">
-        <button class="btn btn-accent" id="c_start" onclick="startCampaign()"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-start"/></svg> Start campaign</button>
-        <button class="btn btn-ghost" id="c_continue" onclick="continueCampaign()" style="display:none"></button>
-        <button class="btn btn-ghost" id="c_abort" onclick="abortCampaign()" disabled><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-stop"/></svg> Abort</button>
-        <!-- Why Continue is unavailable. A blank space where a button was
-             reads as "broken"; the reason reads as "Start a new one". -->
-        <span class="hint" id="c_continue_hint"></span>
+      <!-- STEP: starting recipes (live goals only) -->
+      <div class="step live-only">
+        <div class="step-h"><span class="step-n"></span> Starting recipes
+          <span class="step-sub">(the cold start, before the optimiser has data)</span></div>
+        <table class="starttbl"><thead><tr><th>Kind</th><th>How many</th><th>Where they go</th></tr></thead><tbody>
+          <tr><td>Spread out</td><td><input type="number" id="c_nspread" value="10" min="0" max="50" step="1" oninput="countStart()"></td>
+            <td class="sub">evenly over the whole search range (Sobol), so the model sees every region</td></tr>
+          <tr><td>Your own</td><td><b id="c_nown">0</b></td>
+            <td class="sub">exact recipes you type, e.g. repeat an earlier best as a check
+              <button class="btn btn-ghost btn-sm" type="button" id="c_addown" onclick="addOwn()">Add recipe</button></td></tr>
+          <tr class="tot"><td><b>Total</b></td><td><b id="c_ninit">10</b></td><td id="c_nmsg" class="sub"></td></tr>
+        </tbody></table>
+        <div id="ownRows"></div>
+        <div class="btn-row"><button class="btn btn-ghost btn-sm" type="button" onclick="previewStart()">Preview starting recipes</button>
+          <span class="sub">Optional. Shows the exact first recipes the reactor will make, before the pumps start; Start makes the same ones.</span></div>
+        <div id="previewOut"></div>
       </div>
-      <div class="sub" id="c_lock_hint" style="display:none;margin-top:4px"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-lock"/></svg> Campaign running. Spec, goal and methods are locked until it finishes or you Abort.</div>
+
+      <div class="btn-row" style="margin-top:8px">
+        <button class="btn btn-accent" id="c_start" onclick="startCampaign()"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-start"/></svg> <span id="c_start_lbl">Start campaign</span></button>
+        <span class="live-only"><button class="btn btn-ghost" id="c_continue" onclick="continueCampaign()" style="display:none"></button>
+        <span class="hint" id="c_continue_hint"></span></span>
+      </div>
+      <div class="sub" id="c_lock_hint" style="display:none;margin-top:4px"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-lock"/></svg> Campaign running. Goal, spec, methods and starting recipes are locked until it finishes or you Abort (Report tab).</div>
     </div>
     </div><!-- /setup-main -->
 
-    <!-- RIGHT column: live progress + score reference -->
+    <!-- RIGHT column: ready check, live progress, score reference -->
     <div class="setup-side">
+    <div class="card">
+      <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-pass"/></svg> Ready to start?</div>
+      <ul class="ready" id="readyList"><li class="sub">Checking…</li></ul>
+      <div class="sub">Amber items are advice; the server refuses anything unsafe when you press Start.</div>
+    </div>
     <div class="card">
       <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-mode-autonomous"/></svg> Live progress</div>
       <div class="bar" id="c_bar"><i></i></div>
       <div class="sub" id="c_status">Idle. Set a target and start.</div>
       <div class="kpis" id="c_kpis" style="display:none">
-        <div class="kpi"><span>Best radius</span><b id="k_r">—</b></div>
+        <div class="kpi"><span>Best diameter</span><b id="k_r">—</b></div>
         <div class="kpi"><span>Δ to target</span><b id="k_d">—</b></div>
         <div class="kpi"><span>Best PDI</span><b id="k_p">—</b></div>
         <div class="kpi"><span>Runs</span><b id="k_n">—</b></div>
       </div>
       <!-- the small chart answers "is it converging?" without opening a figure -->
       <canvas id="spark" style="display:none" role="img"
-              aria-label="Measured radius per run against the acceptance band"></canvas>
+              aria-label="Measured diameter per run against the acceptance band"></canvas>
       <div class="sub" id="sparkNote" style="margin-top:5px"></div>
     </div>
 
@@ -447,11 +513,12 @@ td.name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       </div>
       <div class="foldbody">
         <p class="mintro">Each measured recipe gets one score (lower is better): distance from
-          the target size plus a spread penalty. The strategy uses it to pick the next recipe
-          (see Acquisition under Search strategy).</p>
+          the target size plus a spread penalty. The next-recipe method uses it to pick the next recipe.</p>
         <ul class="mlist">
           <li><b>Score</b> (size error plus spread); one tolerance off the target counts as 1.
-            <span class="note">score = ((R−R<sub>t</sub>)/tol)² + w·(PDI/cap); You enter a diameter; R<sub>t</sub> = diameter/2.</span></li>
+            <span class="note">score = ((R−R<sub>t</sub>)/tol)² + w·(PDI/cap); you enter a diameter, the optimiser works in radius: R<sub>t</sub> = diameter/2, tol = diameter tolerance/2.</span></li>
+          <li><b>PDI</b> is σ/R̄ of the fitted Schulz distribution, not the DLS polydispersity index.</li>
+          <li><b>Held</b> results (not the expected shape) count against the budget but do not steer the search until you accept them in Fitting.</li>
         </ul>
       </div>
     </div>
@@ -465,18 +532,21 @@ td.name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       <div class="card">
         <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-analysis"/></svg> Analysed profiles
           <span class="hd-right">
+            <button class="btn btn-ghost btn-sm" id="backfillBtn" onclick="analyzeExisting()"
+                    title="Fit older profiles that were never analysed. Runs in the background, oldest first, yields to live runs, and never drives the optimiser.">Analyse existing profiles</button>
             <button class="btn btn-ghost btn-sm" onclick="exportCsv()" title="Download the table as CSV"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-download"/></svg> CSV</button>
           </span>
         </div>
+        <div class="sub" id="backfillHint" style="margin:-4px 0 6px"></div>
         <input id="filter" placeholder="Filter by file name (e.g. scan1, recipe ID, SAXS)"
                oninput="applyFilter()" style="margin-bottom:8px">
         <div class="tablewrap" id="tablewrap">
           <table><thead><tr>
             <th class="sortable" data-k="name" onclick="setSort('name')">File <span class="arrow"></span></th>
-            <th class="sortable" data-k="radius" onclick="setSort('radius')">R (nm) <span class="arrow"></span></th>
-            <th class="sortable" data-k="pdi" onclick="setSort('pdi')">PDI <span class="arrow"></span></th>
+            <th class="sortable" data-k="radius" onclick="setSort('radius')" title="Diameter; * = equivalent diameter (2·√(5/3)·Rg) of a non-sphere">D (nm) <span class="arrow"></span></th>
+            <th class="sortable" data-k="pdi" onclick="setSort('pdi')" title="σ/R̄ of the fitted size distribution">PDI <span class="arrow"></span></th>
             <th class="sortable" data-k="confidence" onclick="setSort('confidence')">Conf. <span class="arrow"></span></th>
-            <th>Phase</th>
+            <th title="Whether this result steers the campaign: yes · weak (below the minimum confidence) · held (not the expected shape)">Scored</th>
           </tr></thead>
           <tbody id="rows"><tr><td colspan="5" class="sub">Waiting for profiles…</td></tr></tbody></table>
         </div>
@@ -488,9 +558,10 @@ td.name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       <div class="card">
         <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-autofit"/></svg> Fit: <span id="selName" class="sub">select a profile</span></div>
         <div class="kpis">
-          <div class="kpi"><span>Radius</span><b id="n-r">—</b></div>
+          <div class="kpi"><span>Model</span><b id="n-model">—</b></div>
           <div class="kpi"><span>Diameter</span><b id="n-d">—</b></div>
-          <div class="kpi"><span>PDI</span><b id="n-pdi">—</b></div>
+          <div class="kpi"><span>Radius</span><b id="n-r">—</b></div>
+          <div class="kpi"><span>PDI (σ/R̄)</span><b id="n-pdi">—</b></div>
           <div class="kpi"><span>Confidence</span><b id="n-conf">—</b></div>
           <div class="kpi"><span>R<sub>g</sub> (Guinier)</span><b id="n-rg">—</b></div>
           <div class="kpi"><span>Invariant (rel.)</span><b id="n-inv">—</b></div>
@@ -518,12 +589,21 @@ td.name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
           <span id="lg-stats" class="sub"></span>
         </div>
         <div class="sub" id="llmNote" style="margin-top:8px"></div>
+        <div class="heldbox" id="heldBox" style="display:none"></div>
       </div>
     </div>
   </section>
 
   <!-- ══ TAB: Report — convergence / parameter space, plus the live log ═══ -->
   <section class="page" id="page-report">
+    <div class="card" id="campStrip">
+      <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-gauge"/></svg> Campaign
+        <span class="hd-right">
+          <button class="btn btn-ghost btn-sm" id="c_pause" onclick="pauseCampaign()" disabled title="Stop issuing new recipes; anything already queued still runs">Pause</button>
+          <button class="btn btn-ghost btn-sm danger" id="c_abort" onclick="abortCampaign()" disabled><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-stop"/></svg> Abort</button>
+        </span></div>
+      <div class="sub" id="r_status">No campaign running.</div>
+    </div>
     <div class="card pspace">
       <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-visualisation"/></svg> Parameter space &amp; convergence
         <span class="hd-right">
@@ -565,10 +645,9 @@ td.name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-quality"/></svg> Method comparison (in silico)
         <span class="hd-right"><button class="btn btn-accent btn-sm" id="studyBtn" onclick="runStudy()">Run comparison</button></span>
       </div>
-      <div class="sub" style="margin-bottom:8px">Races the selected optimisers on the ground-truth
-        simulator (same recipes, same loss) to compare sample efficiency. Simulation only; the
-        reactor and live runs are untouched.</div>
-      <div id="studyMethods" class="row" style="gap:14px;margin-bottom:8px"></div>
+      <div class="sub" style="margin-bottom:8px">Races the methods ticked under Compare methods
+        (Setup) on the ground-truth simulator (same recipes, same loss) to compare sample
+        efficiency. Simulation only; the reactor and live runs are untouched.</div>
       <div id="studyWrap"><div class="ph" id="studyPh" style="min-height:160px;display:flex;align-items:center;justify-content:center;color:var(--muted)">Pick optimisers and run a comparison.</div></div>
       <div class="sub" id="studyNote" style="margin-top:6px"></div>
     </div>
@@ -583,6 +662,8 @@ td.name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     <div class="foldbody"><div class="log" id="log"></div></div>
   </div>
 </div>
+  </div><!-- /#main -->
+</div><!-- /#app -->
 
 <div id="lightbox" onclick="this.classList.remove('open')"><img id="lbimg" alt=""></div>
 
@@ -638,11 +719,25 @@ function setPill(id, cls, text){
 const MAX_ROWS = 250;
 const _rowEls = new Map();          // name -> <tr>
 
+const _SPHERES=['sphere','polydisperse_sphere'];
+function _baseModel(m){ return String(m||'polydisperse_sphere').split('@')[0].toLowerCase(); }
+function _isSphere(m){ return _SPHERES.includes(_baseModel(m)); }
+/* Whether a result steers the RUNNING campaign: held (not the expected shape,
+   waiting for Accept) · weak (below the minimum confidence: informs the model
+   with a low weight, cannot be the answer) · yes. Blank outside a campaign. */
+function scoredOf(r){
+  const c=_camp; if(!c || c.status==='idle') return '';
+  const held=(c.held||[]).find(h=>h.recipe_id && r.name.includes(h.recipe_id));
+  if(held) return '<span class="scored-held" title="fitted as '+(held.model||'?')+', not the expected shape">held</span>';
+  if(c.confidence_min!=null && (+r.confidence||0) < +c.confidence_min) return '<span class="scored-weak">weak</span>';
+  return 'yes';
+}
 function rowHTML(r){
   const short = r.name.length > 34 ? '…' + r.name.slice(-32) : r.name;
+  const eq = _isSphere(r.model) ? '' : '*';
   return `<td class="name" title="${r.name}">${short}</td>` +
-         `<td>${num(r.radius)}</td><td>${num(r.pdi,3)}</td>` +
-         `<td>${badge(r.confidence)}</td><td class="sub">${r.phase || '—'}</td>`;
+         `<td title="${r.model||''}">${num(r.radius!=null?2*r.radius:r.diameter)}${eq}</td><td>${num(r.pdi,3)}</td>` +
+         `<td>${badge(r.confidence)}</td><td class="sub">${scoredOf(r)||'—'}</td>`;
 }
 
 function visibleRows(){
@@ -757,8 +852,10 @@ async function select(name){
   const s=d.summary;
   const mdl=(s.model&&s.model!=='polydisperse_sphere')?s.model:null;
   $('selName').textContent=name+(mdl?'  ·  '+mdl:'');
-  $('n-r').textContent=s.radius!=null?s.radius+' nm'+(mdl?' (equivalent)':''):'—';
-  $('n-d').textContent=s.diameter!=null?s.diameter+' nm':'—';
+  $('n-model').textContent=mdl||'sphere';
+  $('n-r').textContent=s.radius!=null?s.radius+' nm'+(mdl&&!_isSphere(mdl)?' (equivalent)':''):'—';
+  $('n-d').textContent=s.diameter!=null?s.diameter+' nm'+(mdl&&!_isSphere(mdl)?' (equivalent)':''):'—';
+  renderHeldBox(name);
   $('n-pdi').textContent=s.pdi??'—';
   $('n-conf').innerHTML=badge(s.confidence);
   $('n-phase').textContent=(d.full.phase&&d.full.phase.phase)||'—';
@@ -1048,6 +1145,7 @@ async function setFolder(){
   const r=await api('/api/folder',{folder:f});
   if(r.error){ $('resolved').textContent='Could not set the folder: '+r.error; return; }
   $('resolved').textContent=r.resolved?'Watching: '+r.resolved:'';
+  _folderInfo=r; checkReady();
   setPill('p_watch','', r.resolved);
   $('setupHint').textContent=(r.resolved||'').split('/').slice(-2).join('/');
 }
@@ -1100,16 +1198,46 @@ function updateMethodDescs(){
   // it maximises to pick the next recipe), so the maths is explicit per strategy.
   const m=_methodFor(_methodData.optimisers, $('m_optimiser').value);
   const a=m.acq||{};
-  const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  let html=esc(m.desc||'');
+  let html='';
   if(a.name){
-    html+=`<div class="acqbox"><div><b>Acquisition:</b> ${esc(a.name)}</div>`
+    html+=`<div class="acqbox"><div><b>${esc(m.label||'')}</b> · acquisition: ${esc(a.name)}</div>`
         + (a.formula?`<code class="acqf">${esc(a.formula)}</code>`:'')
         + (a.picks?`<div class="acqp">↳ picks ${esc(a.picks)}</div>`:'')
         + `</div>`;
   }
   $('m_opt_desc').innerHTML=html;
   renderOptParams();
+  renderMethodLists();
+}
+const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+/* Families shown in Setup step 3 (Standard · ML · Agentic) */
+const _FIT_FAM={catalogue_bic:'Standard', ls_sphere:'Standard', ml_regressor:'ML', llm_assisted:'Agentic'};
+const _OPT_FAM={random:'Standard', gp_ei:'ML', gp_ucb:'ML', turbo:'ML', bax:'ML', pareto_ehvi:'ML'};
+const _TAG={catalogue_bic:'recommended', gp_ei:'recommended', random:'baseline', ls_sphere:'fastest', ml_regressor:'spheres only'};
+function _listHTML(kind, items, fam, active){
+  let h='', last=null;
+  items.forEach(m=>{
+    const f=fam[m.id]||'Standard';
+    if(f!==last){ h+=`<div class="mfam">${f}</div>`; last=f; }
+    const tag=_TAG[m.id]?`<i class="mtag${m.id==='random'?' base':''}">${esc(_TAG[m.id])}</i>`:'';
+    h+=`<label class="mopt${m.id===active?' on':''}${m.ready===false?' off':''}" data-kind="${kind}" data-id="${esc(m.id)}">`
+      +`<input type="radio" name="m_${kind}" value="${esc(m.id)}"${m.id===active?' checked':''}${m.ready===false?' disabled':''}>`
+      +`<span><b>${esc(m.id==='llm_assisted'?'AI-assisted structure':m.label)}</b>${tag}${m.ready===false?' <i class="mtag base">not available yet</i>':''}`
+      +`<span class="d">${esc(m.desc||'')}</span></span></label>`;
+  });
+  return h;
+}
+function renderMethodLists(){
+  const fits=_methodData.fitters||[];
+  const fl=$('fitList'); if(fl) fl.innerHTML=_listHTML('fit', fits, _FIT_FAM, $('m_fitter').value);
+  const opts=[...$('m_optimiser').options].map(o=>_methodFor(_methodData.optimisers,o.value)).filter(m=>m.id);
+  const ol=$('optList'); if(ol) ol.innerHTML=_listHTML('opt', opts, _OPT_FAM, $('m_optimiser').value);
+  document.querySelectorAll('.mopt input').forEach(i=>i.onchange=()=>{
+    const sel=$(i.name==='m_fit'?'m_fitter':'m_optimiser'); sel.value=i.value; setMethods();
+  });
+  if(_running) lockSetup(true);
+  const fit=_methodFor(fits,$('m_fitter').value), opt=_methodFor(_methodData.optimisers,$('m_optimiser').value);
+  $('pairHint').innerHTML=_goal==='benchmark'?'':`<b>Fitting</b>: ${esc(fit.id==='llm_assisted'?'AI-assisted structure':(fit.label||''))}<br><b>Next recipe</b>: ${esc(opt.label||'')}`;
 }
 async function loadMethods(){
   const r=await api('/api/methods');
@@ -1142,7 +1270,7 @@ function applyGoalStrategies(keep){
   if(wrap) wrap.style.display = '';
 }
 async function setMethods(){
-  updateMethodDescs();
+  updateMethodDescs(); checkReady();
   const r=await api('/api/methods',{fitter:$('m_fitter').value, optimiser:$('m_optimiser').value});
   if(r.error){ $('m_hint').textContent='✗ '+r.error; await loadMethods(); return; }
   $('m_hint').textContent='Active fitter: '+r.active.fitter+' · strategy: '+r.active.optimiser;
@@ -1152,12 +1280,14 @@ async function setMethods(){
 async function loadStudyMethods(){
   const r=await api('/api/methods');
   if(!r || r.error || !Array.isArray(r.optimisers)) return;
-  const box=$('studyMethods'); box.innerHTML='';
-  r.optimisers.filter(m=>m.ready).forEach((m,i)=>{
-    const id='study_'+m.id;
-    const lbl=document.createElement('label');
-    lbl.style.cssText='display:flex;gap:6px;align-items:center;font-size:var(--fs-sm);color:var(--text)';
-    lbl.innerHTML=`<input type="checkbox" id="${id}" value="${m.id}" ${i<3?'checked':''} style="width:auto"> ${m.label}`;
+  // Race methods that optimise the SAME single objective (the score); BAX and
+  // EHVI optimise a band and a front, so they are compared within their goals.
+  const RACE=['random','gp_ei','gp_ucb','turbo'];
+  const box=$('studyMethods'); box.innerHTML='<div class="mfam">Methods to race</div>';
+  r.optimisers.filter(m=>m.ready && RACE.includes(m.id)).forEach(m=>{
+    const lbl=document.createElement('label'); lbl.className='mopt';
+    lbl.innerHTML=`<input type="checkbox" id="study_${m.id}" value="${m.id}" ${(m.id==='random'||m.id==='gp_ei')?'checked':''}>`
+      +`<span><b>${esc(m.label)}</b>${m.id==='random'?' <i class="mtag base">baseline</i>':''}</span>`;
     box.appendChild(lbl);
   });
 }
@@ -1166,7 +1296,12 @@ async function runStudy(){
   const btn=$('studyBtn'), note=$('studyNote');
   if(!ids.length){ note.textContent='Pick at least one optimiser.'; return; }
   btn.setAttribute('disabled',''); note.textContent='Running '+ids.length+' method(s) on the simulator…';
-  const r=await api('/api/study',{methods:ids, repeats:3});
+  const d=+$('c_target').value, dt=+$('c_tol').value;
+  const body={methods:ids, repeats:Math.max(1,Math.min(10,+$('c_repeats').value||3))};
+  if(d>0&&dt>0){ body.target_size=d/2; body.tolerance=dt/2; }
+  if(+$('c_pdi').value>0) body.pdi_cap=+$('c_pdi').value;
+  if(+$('c_budget').value>0) body.budget=+$('c_budget').value;
+  const r=await api('/api/study',body);
   btn.removeAttribute('disabled');
   if(r.error||r.ok===false){ note.textContent='✗ '+(r.error||'Comparison failed'); return; }
   $('studyWrap').innerHTML='<img src="/api/study/plot.png?t='+Date.now()+'" alt="method comparison" style="width:100%;border-radius:8px;cursor:zoom-in" onclick="lightboxSrc(this.src)">';
@@ -1175,7 +1310,7 @@ async function runStudy(){
     const conv=v.runs.filter(x=>x.status==='converged').length;
     return `${v.label}: ${conv}/${v.runs.length} converged`;
   });
-  note.textContent='Target radius '+r.cfg.target_size+' nm · '+r.repeats+' repeats · '+parts.join('  ·  ');
+  note.textContent='Target diameter '+num(2*r.cfg.target_size,2)+' nm · '+r.repeats+' repeats · '+parts.join('  ·  ');
 }
 function lightboxSrc(src){ const lb=$('lightbox'); $('lbimg').src=src; lb.classList.add('open'); }
 
@@ -1195,6 +1330,133 @@ async function analyzeExisting(){
   setTimeout(()=>btn.removeAttribute('disabled'), 3000);
 }
 
+let _goal='target-hit', _camp=null, _running=false, _range=null;
+const _GOAL={
+  'target-hit':{t:'Hit a size', d:'Find one recipe inside the spec, then stop.'},
+  'level-set':{t:'Map the in-spec region', d:'Find every recipe that meets the spec (BAX), not one fragile recipe.'},
+  'pareto':{t:'Size vs PDI trade-off', d:'Map the best achievable PDI across a size range (EHVI).'},
+  'benchmark':{t:'Compare methods', d:'Race methods on the simulator. No reactor, no beam.'}
+};
+async function setGoal(g){
+  if(_running && g!==_goal) return;          // the goal is locked while a campaign runs
+  _goal=g;
+  const race = g==='benchmark', pareto = g==='pareto';
+  document.querySelectorAll('#sidebar .nav-btn').forEach(b=>b.classList.toggle('active', b.dataset.goal===g));
+  $('goalTitle').textContent=(_GOAL[g]||{}).t||g;
+  $('c_goal_desc').textContent=(_GOAL[g]||{}).d||'';
+  $('goalHint').textContent=(_GOAL[g]||{}).d||'';
+  document.querySelectorAll('.live-only').forEach(e=>e.style.display=race?'none':'');
+  document.querySelectorAll('.race-only').forEach(e=>e.style.display=race?'':'none');
+  $('optColH').textContent = race ? 'Methods to race' : 'Next recipe';
+  $('c_start_lbl').textContent = race ? 'Run comparison' : 'Start campaign';
+  $('c_budget_lbl').textContent = race ? 'Experiments per run' : 'Max experiments';
+  // Pareto maps a size RANGE, not a single target → swap the size inputs.
+  $('grp_target').style.display = pareto?'none':'';
+  $('grp_tol').style.display    = pareto?'none':'';
+  $('grp_dmin').style.display   = pareto?'':'none';
+  $('grp_dmax').style.display   = pareto?'':'none';
+  echoSpec();
+  // Goal-first: list only the strategies valid for this goal, preselecting the
+  // default; keep the current pick if it is still valid.
+  if(!race && _methodData.optimisers && _methodData.optimisers.length){
+    const cur=$('m_optimiser').value;
+    applyGoalStrategies(cur);
+    updateMethodDescs();
+    await setMethods();            // persist the resolved strategy on the server
+  }
+  renderMethodLists(); checkReady();
+}
+
+/* ── starting recipes (cold start) ─────────────────────────────────────── */
+const _RNAMES=['T_reac','F_tot','x_ODE','x_TOP','x_oley'];
+function _rangeHint(k){
+  if(!_range||!_range.bounds||!_range.bounds[k]) return k;
+  const b=_range.bounds[k]; return `${k} (${b[0]} to ${b[1]})`;
+}
+function addOwn(){
+  const box=$('ownRows'); if(box.children.length>=5) return;
+  const row=document.createElement('div'); row.className='ownrow';
+  row.innerHTML=_RNAMES.map(k=>`<input type="number" step="any" data-k="${k}" placeholder="${esc(_rangeHint(k))}" title="${esc(_rangeHint(k))}" oninput="countStart()">`).join('')
+    +'<button class="btn btn-ghost btn-sm" type="button" onclick="this.parentElement.remove();countStart()">Remove</button>';
+  box.appendChild(row); countStart();
+}
+function ownSeeds(){
+  return [...document.querySelectorAll('#ownRows .ownrow')].map(r=>{
+    const o={}; r.querySelectorAll('input').forEach(i=>{ o[i.dataset.k]=i.value===''?null:+i.value; }); return o; });
+}
+function countStart(){
+  const own=document.querySelectorAll('#ownRows .ownrow').length;
+  const spread=Math.max(0, Math.round(+$('c_nspread').value||0));
+  const n=own+spread, budget=+$('c_budget').value||0;
+  $('c_nown').textContent=own; $('c_ninit').textContent=n;
+  $('c_addown').disabled = own>=5 || _running;
+  let msg='then the optimiser picks from the measured results', cls='sub';
+  if(n<1){ msg='At least 1 starting recipe is needed'; cls='errt'; }
+  else if(budget && n>budget){ msg=`Longer than the whole budget (${budget}): Start will refuse`; cls='errt'; }
+  else if(n<5){ msg='Few: the optimiser needs about 10 (2 × the 5 settings) to learn the trends'; cls='warnt'; }
+  else if(budget && n>budget/3){ msg=`More than a third of the ${budget}-run budget is spent before the optimiser aims`; cls='warnt'; }
+  else if(own && spread<Math.ceil(n/2)){ msg='Keep at least half spread out, so the model sees the whole range'; cls='warnt'; }
+  const el=$('c_nmsg'); el.textContent=msg; el.className=cls;
+  checkReady();
+  return {n, own, spread};
+}
+function _coldBody(){
+  const c=countStart();
+  return {n_init:c.n, seeds:ownSeeds(), budget:+$('c_budget').value, expected_shape:$('c_shape').value};
+}
+async function previewStart(){
+  const out=$('previewOut');
+  const r=await api('/api/campaign/preview', _coldBody());
+  if(r.error||r.ok===false){ out.innerHTML=`<div class="errt" style="margin-top:6px">✗ ${esc(r.error||'refused')}</div>`; return; }
+  const rows=r.recipes.map((x,i)=>`<tr><td>${i+1}</td><td>${x.kind==='own'?'your own':'spread'}</td>`
+    +_RNAMES.map(k=>`<td>${num(x.params[k], k.startsWith('x_')?3:1)}</td>`).join('')+'</tr>').join('');
+  out.innerHTML=`<div class="prev"><table><thead><tr><th>#</th><th>kind</th>${_RNAMES.map(k=>'<th>'+k+'</th>').join('')}</tr></thead><tbody>${rows}</tbody></table>`
+    +`<div class="sub">${r.recipes.length} starting recipes, in the order they will be issued; every one is inside the search range and the reactor limits.</div></div>`;
+}
+
+/* ── search range + conditions folder (read-only, from the reactor) ────── */
+async function loadRange(){
+  const r=await api('/api/search_range');
+  if(r.error||r.ok===false||!r.bounds){ $('c_range').textContent='could not read the search range'; _range=null; checkReady(); return; }
+  _range=r; const b=r.bounds, s=r.safety||{};
+  $('c_range').textContent=`T ${b.T_reac[0]} to ${b.T_reac[1]} °C · F_tot ${b.F_tot[0]} to ${b.F_tot[1]} µL/min · x_ODE, x_TOP, x_oley each ${b.x_ODE[0]} to ${b.x_ODE[1]}, sum ≤ ${r.x_sum_max}`;
+  $('c_range_src').textContent=`from the reactor config${s.T_max!=null?`; hard caps T ${s.T_max} °C`:''}${s.F_tot_max!=null?`, F_tot ${s.F_tot_max} µL/min`:''}. Change them in the Reactor app.`;
+  checkReady();
+}
+let _condInfo=null;
+async function loadCondFolder(){
+  const r=await api('/api/campaign/folder');
+  if(r.error) return;
+  _condInfo=r; $('c_cond').value=r.folder||'';
+  $('c_cond_note').innerHTML = r.mismatch
+    ? `<span class="errt">The reactor reads ${esc(r.reactor||'?')}: recipes written here would never run.</span>`
+    : '<span style="color:var(--ok-text)">same folder as the reactor</span>';
+  checkReady();
+}
+
+/* ── ready to start? ───────────────────────────────────────────────────── */
+let _folderInfo=null;
+function checkReady(){
+  const ul=$('readyList'); if(!ul) return;
+  const li=(cls,txt)=>`<li class="${cls}">${icoSvg(cls==='ok'?'pass':'warning')}<span>${txt}</span></li>`;
+  let h='';
+  if(_goal==='benchmark'){
+    const n=document.querySelectorAll('#studyMethods input:checked').length;
+    h+=li('ok','Simulator ready: no reactor, no beam');
+    h+=li(n?'ok':'bad', n?`${n} method(s) ticked to race`:'Tick at least one method to race');
+  } else {
+    h+=_folderInfo&&_folderInfo.resolved ? li('ok','Watching '+esc(_folderInfo.resolved)) : li('warn','No watched folder set yet');
+    h+=_condInfo ? (_condInfo.mismatch ? li('bad','Conditions folder differs from the reactor\'s: nothing would run') : li('ok','Reactor reads the same Conditions folder')) : li('warn','Conditions folder not checked yet');
+    h+=_range ? li('ok','Search range read from the reactor config') : li('warn','Search range not read yet');
+    const fit=_methodFor(_methodData.fitters,$('m_fitter').value);
+    h+=fit.id ? li('ok','Fitting: '+esc(fit.id==='llm_assisted'?'AI-assisted structure (falls back to Catalogue + BIC without an AI login)':fit.label)) : li('warn','Choose a fitting method');
+    const n=+$('c_ninit').textContent||0, b=+$('c_budget').value||0;
+    h+= (n>=1 && (!b || n<=b)) ? li(n<5||(b&&n>b/3)?'warn':'ok', `Cold start: ${n} recipe(s)`) : li('bad','Cold start does not fit the budget');
+    const shp=$('c_shape'); h+=li('ok','Expected shape: '+esc(shp.options[shp.selectedIndex].text));
+  }
+  ul.innerHTML=h;
+}
+
 function echoSpec(){
   const el=$('c_spec_note');
   if(_goal==='pareto'){
@@ -1206,40 +1468,12 @@ function echoSpec(){
   }
   const d=+$('c_target').value, t=+$('c_tol').value;
   if(!(d>0&&t>0)){ el.textContent='Enter a positive diameter and tolerance.'; return; }
-  el.textContent=`→ radius ${(d/2).toFixed(2)} ± ${(t/2).toFixed(2)} nm sent to the optimiser `
-    +`(accepts ${(d-t).toFixed(2)} to ${(d+t).toFixed(2)} nm diameter).`;
-}
-
-let _goal='target-hit';
-const _GOAL_DESC={
-  'target-hit':'Find one recipe inside the spec; stops when a confident run lands in the band (Aim 1a).',
-  'level-set':'Map every recipe that meets the spec, giving robustness margins, not one fragile recipe (Aim 1b). Uses BAX.',
-  'pareto':'Map the best achievable size-PDI trade-off across the range (Aim 1c). Uses EHVI. Pareto scoring is partial.',
-  'benchmark':'Compare BAX vs BO on the same spec. Run it in Report → Method comparison (Aim 1c).'
-};
-async function setGoal(g){
-  _goal=g;
-  document.querySelectorAll('#c_goal button').forEach(b=>b.classList.toggle('on', b.dataset.goal===g));
-  $('c_goal_desc').textContent=_GOAL_DESC[g]||'';
-  // Pareto maps a size RANGE, not a single target → swap the size inputs.
-  const pareto = g==='pareto';
-  $('grp_target').style.display = pareto?'none':'';
-  $('grp_tol').style.display    = pareto?'none':'';
-  $('grp_dmin').style.display   = pareto?'':'none';
-  $('grp_dmax').style.display   = pareto?'':'none';
-  echoSpec();
-  // Goal-first: filter the strategy dropdown to the strategies valid for this
-  // goal, preselecting the default. Keep the current pick if it's still valid
-  // (so switching between target-hit styles doesn't reset the operator's choice).
-  if(_methodData.optimisers && _methodData.optimisers.length){
-    const cur=$('m_optimiser').value;
-    applyGoalStrategies(cur);
-    updateMethodDescs();
-    await setMethods();            // persist the resolved strategy on the server
-  }
+  el.textContent=`→ accepts ${(d-t).toFixed(2)} to ${(d+t).toFixed(2)} nm diameter `
+    +`(the optimiser works in radius: ${(d/2).toFixed(2)} ± ${(t/2).toFixed(2)} nm).`;
 }
 
 async function startCampaign(){
+  if(_goal==='benchmark'){ await runStudy(); showTab('report'); return; }
   const pdi=+$('c_pdi').value, budget=+$('c_budget').value;
   let target_size, tolerance, extra={};
   if(_goal==='pareto'){                                         // spec is a size RANGE (diameter)
@@ -1254,8 +1488,10 @@ async function startCampaign(){
       $('c_status').textContent='✗ Diameter, tolerance, PDI cap and experiments must be positive.'; return; }
     target_size=dia/2; tolerance=dtol/2;                        // optimiser works in radius
   }
-  const body={target_size, tolerance, pdi_cap:pdi, budget,
-              goal:_goal, spec_units:'diameter', ...extra};
+  const cm=+$('c_confmin').value;
+  if(!(cm>=0&&cm<=1)){ $('c_status').textContent='✗ Min fit confidence must be between 0 and 1.'; return; }
+  const body={target_size, tolerance, pdi_cap:pdi, budget, confidence_min:cm,
+              goal:_goal, spec_units:'diameter', ...extra, ..._coldBody()};
   body.method_params=collectOptParams();      // UCB kappa / TuRBO size / BAX tau, per the active optimiser
   $('c_start').disabled=true;
   const r=await api('/api/campaign/start', body);
@@ -1270,6 +1506,26 @@ async function startCampaign(){
 async function abortCampaign(){
   if(!confirm('Abort the campaign? The reactor keeps whatever recipe it is running.')) return;
   await api('/api/campaign/abort',{});
+}
+async function pauseCampaign(){
+  const want=!(_camp&&_camp.paused);
+  const r=await api('/api/campaign/pause',{paused:want});
+  if(r.error||r.ok===false) $('r_status').textContent='✗ '+(r.error||'could not '+(want?'pause':'resume'));
+}
+function renderHeldBox(name){
+  const box=$('heldBox'); if(!box) return;
+  const h=(_camp&&_camp.held||[]).find(x=>x.recipe_id && name && name.includes(x.recipe_id));
+  if(!h){ box.style.display='none'; box.innerHTML=''; return; }
+  box.style.display='block';
+  box.innerHTML=`<b>Held:</b> fitted as ${esc(h.model||'?')}, not the expected shape. It counts against the budget but does not steer the search. `
+    +`<button class="btn btn-ghost btn-sm" type="button" onclick="acceptHeld('${esc(h.recipe_id)}')">Accept: let it count</button>`;
+}
+async function acceptHeld(rid){
+  if(!confirm('Let '+rid+' count in the search? Its size will train the model and it can end the run if it is in spec.')) return;
+  const r=await api('/api/campaign/accept',{recipe_id:rid});
+  if(r.error||r.ok===false){ $('heldBox').textContent='✗ '+(r.error||'could not accept'); return; }
+  if(r.campaign) renderCampaign(r.campaign);
+  renderHeldBox(_sel);
 }
 
 /* ── Continue a stopped Target Run ──────────────────────────────────────── */
@@ -1331,16 +1587,24 @@ const _BADGE={running:'running',converged:'converged',
 function lockSetup(running){
   // While a campaign runs, its spec, goal and methods are fixed — changing them
   // would not affect the live run and only misleads. Lock them until it ends.
-  ['c_target','c_tol','c_dmin','c_dmax','c_pdi','c_budget','m_fitter','m_optimiser'].forEach(id=>{
+  _running=running;
+  ['c_target','c_tol','c_dmin','c_dmax','c_pdi','c_budget','m_fitter','m_optimiser',
+   'c_shape','c_confmin','c_nspread','c_addown'].forEach(id=>{
     const el=$(id); if(el) el.disabled=running; });
-  document.querySelectorAll('#c_goal button, #m_opt_params input').forEach(el=>el.disabled=running);
+  document.querySelectorAll('#sidebar .nav-btn, #m_opt_params input, #fitList input, #optList input, #ownRows input, #ownRows button')
+    .forEach(el=>el.disabled=running);
   const hint=$('c_lock_hint'); if(hint) hint.style.display=running?'block':'none';
 }
 
 function renderCampaign(c){
   const idle = !c || c.status==='idle';
   const running = !!(c && c.status==='running');
+  const heldBefore=JSON.stringify((_camp&&_camp.held)||[]), confBefore=_camp&&_camp.confidence_min, stBefore=_camp&&_camp.status;
+  _camp=c||null;
+  if(heldBefore!==JSON.stringify((c&&c.held)||[]) || confBefore!==(c&&c.confidence_min) || stBefore!==(c&&c.status)){ paintTable(); renderHeldBox(_sel); }
   $('c_abort').disabled = !running;
+  $('c_pause').disabled = !running;
+  $('c_pause').textContent = c&&c.paused ? 'Resume' : 'Pause';
   $('c_start').disabled = running;
   lockSetup(running);
   if(!idle) $('c_continue').style.display='none';
@@ -1352,6 +1616,7 @@ function renderCampaign(c){
   setPill('p_camp', idle?'':((c.status==='running'||c.status==='converged'||mapped)?'on':'warn'),
           idle?'campaign idle':label+' · '+c.n_evaluations+'/'+c.budget);
   if(idle){
+    $('r_status').textContent='No campaign running.';
     $('c_status').textContent='Idle. Set a target and start.';
     $('c_bar').style.display='none'; $('c_kpis').style.display='none';
     $('spark').style.display='none'; $('sparkNote').textContent='';
@@ -1367,17 +1632,19 @@ function renderCampaign(c){
   const pareto = c.goal==='pareto';
   $('c_kpis').style.display='grid';
   const dLabel=$('k_d').parentElement.querySelector('span');
-  $('k_r').textContent = b&&b.size!=null ? num(b.size,3)+' nm' : '—';
+  // Diameter everywhere (the operator enters a diameter); the optimiser works in radius.
+  $('k_r').textContent = b&&b.size!=null ? num(2*b.size,3)+' nm' : '—';
   if(pareto){
     // No single target in a Pareto run: distance-to-target is meaningless, so the
-    // middle tile shows the best diameter mapped so far (operator set a diameter range).
-    dLabel.textContent='Best diameter';
-    $('k_d').textContent = b&&b.size!=null ? num(b.size*2,3)+' nm' : '—';
+    // middle tile shows the mapped diameter range instead.
+    dLabel.textContent='Mapping';
+    const sr=c.size_range;
+    $('k_d').textContent = sr ? `${sr[0]} to ${sr[1]} nm` : '—';
     $('k_d').parentElement.className='kpi';
   } else {
     const dr = (b&&b.size!=null) ? Math.abs(b.size-c.target_size) : null;
     dLabel.textContent='Δ to target';
-    $('k_d').textContent = dr!=null ? (dr<=c.tolerance?'✓ ':'')+num(dr,3)+' nm' : '—';
+    $('k_d').textContent = dr!=null ? (dr<=c.tolerance?'✓ ':'')+num(2*dr,3)+' nm' : '—';
     $('k_d').parentElement.className='kpi'+(dr==null?'':(dr<=c.tolerance?' hit':' miss'));
   }
   $('k_p').textContent = b&&b.pdi!=null ? num(b.pdi,3) : '—';
@@ -1390,7 +1657,7 @@ function renderCampaign(c){
     txt = sr ? `Mapping ${sr[0]} to ${sr[1]} nm diameter · PDI ≤ ${c.pdi_cap}`
              : `Mapping the size range · PDI ≤ ${c.pdi_cap}`;
   } else {
-    txt = `Target radius ${c.target_size} ± ${c.tolerance} nm · PDI ≤ ${c.pdi_cap}`;
+    txt = `Target diameter ${num(2*c.target_size,2)} ± ${num(2*c.tolerance,2)} nm · PDI ≤ ${c.pdi_cap}`;
   }
   if(c.status==='converged'&&c.converged_condition){
     const p=c.converged_condition.params;
@@ -1402,10 +1669,14 @@ function renderCampaign(c){
     // will ever run. Say so in the status line, not only in the log.
     txt += ` · WARNING: conditions go to ${c.conditions_folder} but the reactor watches ${c.conditions_folder_reactor}`;
   }
+  if(c.paused) txt += ' · PAUSED: no new recipe is issued until Resume (Report tab)';
+  const nh=(c.held||[]).length;
+  if(nh) txt += ` · ${nh} held result(s) waiting in Fitting`;
   $('c_status').textContent=txt;
   $('c_status').style.color = c.conditions_folder_mismatch ? 'var(--err-text)' : '';
+  $('r_status').textContent = `${label} · ${c.n_evaluations} of ${c.budget} runs · ${txt}`;
   setPill('p_best','', b&&b.size!=null
-    ? `best ${num(b.size,3)} nm · PDI ${num(b.pdi,3)}` : 'best: no valid fit yet');
+    ? `best D ${num(2*b.size,2)} nm · PDI ${num(b.pdi,3)}` : 'best: no valid fit yet');
 }
 
 /* ── convergence sparkline ───────────────────────────────────────────────── */
@@ -1413,12 +1684,12 @@ function renderCampaign(c){
    question is "are the points landing in the band?" — that fits in 92 px. */
 function drawSpark(conv){
   const cv=$('spark');
-  const sz=(conv&&conv.size||[]).map(v=>v==null?NaN:+v);
+  const sz=(conv&&conv.size||[]).map(v=>v==null?NaN:2*(+v));     // diameter
   if(!sz.length || !sz.some(v=>isFinite(v))){ cv.style.display='none'; return; }
   cv.style.display='block';
   const {ctx,W,H}=fitCanvas(cv,96);
   const L=42,R=10,T=10,B=10;
-  const tgt=+conv.target_size, tol=+conv.tolerance;
+  const tgt=2*(+conv.target_size), tol=2*(+conv.tolerance);
   const fin=sz.filter(isFinite);
   let lo=Math.min(tgt-1.6*tol,...fin), hi=Math.max(tgt+1.6*tol,...fin);
   const pad=(hi-lo)*0.08||0.1; lo-=pad; hi+=pad;
@@ -1450,7 +1721,7 @@ function drawSpark(conv){
   ctx.textBaseline='bottom'; ctx.fillText(fmt(lo), L-5, H-B);
   const inband=sz.filter(v=>isFinite(v)&&Math.abs(v-tgt)<=tol).length;
   $('sparkNote').textContent=
-    `Radius (nm) vs band · ${inband}/${fin.length} inside · ${sz.length} run${sz.length===1?'':'s'}`;
+    `Diameter (nm) vs band · ${inband}/${fin.length} inside · ${sz.length} run${sz.length===1?'':'s'}`;
 }
 
 /* ── parameter space panel ─────────────────────────────────────────────────
@@ -1529,6 +1800,7 @@ async function psDiag(){
   const p=await api('/api/project');
   if(!p.error){ setPill('p_watch','',p.watching); }
   const f=await api('/api/folder');
+  if(!f.error) _folderInfo=f;
   if(!f.error){
     $('folder').value=f.folder||'';
     $('resolved').textContent=f.resolved?'Watching: '+f.resolved:'Not watching a folder yet.';
@@ -1538,10 +1810,12 @@ async function psDiag(){
   try{ psView(localStorage.getItem('swaxs-an-psview')||'slice'); }catch(_){ psView('slice'); }
   sortArrows(); setScale(_scale);
   refreshContinueButton();
+  loadRange(); loadCondFolder();
   await loadMethods();              // populate strategies before the goal filters them
-  loadStudyMethods();
+  await loadStudyMethods();
+  document.getElementById('studyMethods').addEventListener('change', checkReady);
   await setGoal('target-hit');
-  echoSpec();
+  echoSpec(); countStart();
   let _tab='setup'; try{ _tab=localStorage.getItem('swaxs-an-tab')||'setup'; }catch(_){}
   showTab(_tab);
 })();

@@ -57,54 +57,85 @@ skipped.
 
 ## 3. How to use it
 
-The page has three tabs: **Setup**, **Fitting**, **Report**, plus a **Log** panel
+The left column holds the campaign **Goal**: **Hit a size** (find one recipe in
+spec; stops at the first confident hit), **Map the in-spec region** (every
+in-spec recipe; BAX), **Size vs PDI trade-off** (the best PDI across a diameter
+range; EHVI) and **Compare methods** (simulator only). The page has three tabs,
+**Setup**, **Fitting**, **Report**, the same for every goal, plus a **Log** panel
 visible on every tab. The project folder is pushed by the hub.
 
 ### Setup tab
 
-1. **Watched folder** card: the default `1D/SAXS/Subtracted` is usually right.
-   Change it with **Browse…** and **Set** (project-relative or absolute). For data
-   collected earlier, press **Analyse existing profiles**: it fits profiles that
-   have no fit record, oldest first, in the background, and never drives the
-   optimiser.
-2. **Closed-loop campaign** card, three steps:
-   - **1 Campaign goal**: **Target-hit** (find one recipe in spec; stops at the
-     first confident hit), **Level-set** (map every in-spec recipe; uses BAX),
-     **Size-PDI Pareto** (map the size vs PDI trade-off across a diameter range;
-     uses EHVI), **BAX vs BO** (benchmark; run the comparison in Report).
-   - **2 Target & limits**: **Target diameter (nm)** and **Tolerance ± (nm)**, or
-     **Min diameter / Max diameter (nm)** for Pareto; **Max PDI (spread)**;
-     **Max experiments**.
-   - **3 How it fits & searches**: **Fitting method** and **Search strategy**
-     (the list is filtered to the goal), plus any strategy-specific inputs.
-3. Press **Start campaign**. The first condition file is written immediately.
-   Spec, goal and methods are locked while it runs. **Abort** stops the
-   campaign (the reactor finishes the recipe it is running). If the latest run
-   was interrupted, a **Continue RunN: X of Y used** button appears instead.
-4. **Live progress** shows the status, Best radius, Δ to target, Best PDI, Runs
-   and a small radius-per-run chart. **How the score works** explains the loss.
+Numbered steps, top to bottom:
+
+1. **Data folders**: **Watched profiles** (default `1D/SAXS/Subtracted`; Browse…
+   and Set) and **Conditions** (read-only: where each next recipe is written,
+   checked against the folder the reactor reads).
+2. **Target & limits**: **Target diameter (nm)** and **Tolerance ± (nm)**, or
+   **Min / Max diameter (nm)** for the trade-off; **Max PDI (σ/R̄, from the SAXS
+   fit)**, which is the spread of the fitted Schulz distribution, not the DLS
+   polydispersity index; **Max experiments**; **Expected shape** (sphere
+   (core-shell counts), sphere only, any shape); **Min fit confidence** (default
+   0.5). **Search range** shows the bounds read-only from `reactor/config.yml`
+   (with the live pump limits) and the hard safety caps; change them in the
+   Reactor app.
+3. **How it fits & searches**: two lists grouped Standard / ML / Agentic.
+   **Fitting** (Catalogue + BIC recommended; AI-assisted structure) and **Next
+   recipe** (only the methods that suit the goal), with the chosen method's
+   description and acquisition shown.
+4. **Starting recipes** (the cold start): **Spread out** (Sobol points over the
+   whole search range, default 10) and **Your own** (up to 5 exact recipes,
+   **Add recipe**); **Total** is the cold start (`n_init`). It warns below 5,
+   above a third of the budget, or when fewer than half are spread out, and Start
+   refuses a total longer than the budget. **Preview starting recipes** lists the
+   exact first recipes, in order, without starting anything.
+
+The **Ready to start?** card on the right checks the folders, the search range,
+the fitting method, the cold start and the expected shape. Press **Start
+campaign** (for Compare methods: **Run comparison**). Goal, spec, methods and
+starting recipes are locked while a campaign runs. If the latest run was
+interrupted, **Continue RunN** appears beside Start. **Live progress** shows Best
+diameter, Δ to target, Best PDI, Runs and a diameter-per-run chart.
+
+**Safety**: your own recipes must have all five settings, be finite, lie inside
+the search bounds (box, composition sum, each pump's flow window) and under the
+reactor's hard caps (`T_max`, `F_tot_max`); otherwise Start and Preview refuse
+with the reason, and nothing is cleared or started.
 
 ### Fitting tab
 
-**Analysed profiles** table (File, R (nm), PDI, Conf., Phase), sortable, with a
-filter box and a **CSV** download. Select a row (or use the arrow keys) to see
-Radius, Diameter, PDI, Confidence, Rg (Guinier), Invariant (rel.) and Phase, and
-the data with the fitted model. Plot scales: **Log-log**, **Semilog Y**,
-**Semilog X**, **Linear**, **Guinier**; toggles **Residuals** and **Error bars**.
-An optional AI QC note appears under the plot when AI credentials are set.
-Confidence badges: green at ≥ 0.6, amber at ≥ 0.3, otherwise low.
+**Analysed profiles** table (File, D (nm), PDI, Conf., Scored), sortable, with a
+filter box, **Analyse existing profiles** (fits older profiles with no fit
+record, oldest first, in the background; never drives the optimiser) and a
+**CSV** download. D is the diameter; `*` marks the equivalent diameter
+(2·√(5/3)·Rg) of a non-sphere. **Scored** says whether a result steers the
+running campaign: **yes**; **weak** (below the minimum confidence: it informs the
+model with a low weight but cannot be the answer or end the run); **held** (not
+the expected shape: it counts against the budget but does not train the model
+and cannot be the best or the hit). Select a row (or use the arrow keys) to see
+Model, Diameter, Radius, PDI, Confidence, Rg (Guinier), Invariant and Phase, and
+the data with the fitted model. A held fit shows **Accept: let it count**, after
+a confirmation. Plot scales: **Log-log**, **Semilog Y**, **Semilog X**,
+**Linear**, **Guinier**; toggles **Residuals** and **Error bars**. An optional AI
+QC note appears under the plot when AI credentials are set. Confidence badges:
+green at ≥ 0.6, amber at ≥ 0.3, otherwise low.
 
 ### Report tab
 
+- **Campaign**: status, **Pause** / **Resume** (paused: no new recipe is issued;
+  anything already queued still runs and its result is still recorded) and
+  **Abort** (asks first; the reactor finishes the recipe it is running).
 - **Parameter space & convergence**: views **Surrogate** (slice through the GP;
   choose x, y and "Through best recipe" or "Through box centre"),
   **Convergence**, **Trajectory**, **Level set**, **Pareto**. Read-only: viewing
   never changes the next recipe. In Simulation mode the simulator's hidden
   optimum is marked; with Hardware it is never shown. Guide:
   [PARAMETER_SPACE_AND_CONVERGENCE.md](../docs/PARAMETER_SPACE_AND_CONVERGENCE.md).
-- **Method comparison (in silico)**: tick optimisers and press **Run
-  comparison**. It races them against the simulator's ground truth with the same
-  loss. It never touches the live campaign, the reactor or real data.
+- **Method comparison (in silico)**: choose the Compare methods goal, tick the
+  methods (Random, GP + EI, GP + UCB, TuRBO: the ones that optimise the same
+  score; Random and GP + EI by default), set repeats and press **Run comparison**.
+  It races them against the simulator's ground truth with the same loss and the
+  Setup target. It never touches the live campaign, the reactor or real data.
 
 ## 4. Settings and defaults
 
@@ -210,10 +241,15 @@ its half-width, both as radius.
 | tolerance | ± 0.6 nm diameter | `tolerance` 0.3 (radius) |
 | PDI cap | 0.1 | `pdi_cap` 0.15 |
 | budget | 30 | `budget` 25 |
-| seed points | not in UI | `n_init` 10 |
+| cold start | 10 (Spread out + Your own) | `n_init` 10; must be 1 to `budget` |
+| your own recipes | none | `seeds` [{T_reac, F_tot, x_ODE, x_TOP, x_oley}], at most 5 |
+| expected shape | sphere (core-shell counts) | `expected_shape` `sphere_cs` (`sphere`, `any`) |
+| min fit confidence | 0.5 | `confidence_min` 0.5 (0 to 1) |
 
 Other body keys: `goal` (`target-hit`, `level-set`, `pareto`, `benchmark`),
-`size_range` [min, max] diameter (Pareto), `method_params`.
+`size_range` [min, max] diameter (Pareto), `method_params`. A campaign recorded
+before `expected_shape` existed keeps its old behaviour (any shape) when resumed
+or continued.
 
 **Search strategies** (`src/optimizer/methods/`):
 
@@ -228,7 +264,7 @@ Other body keys: `goal` (`target-hit`, `level-set`, `pareto`, `benchmark`),
 
 **How a campaign runs** (`CampaignController`, `src/optimizer/campaign.py`):
 
-1. Cold start: `n_init` space-filling Sobol points.
+1. Cold start: `n_init` recipes: your own (`seeds`, in order) first, then space-filling Sobol points for the rest (seed 0, so Preview shows exactly these).
 2. Then each proposal maximises the acquisition (EI for the default) over a pool
    of 256 Sobol candidates, under an RBF Gaussian process on unit-cube inputs.
 3. Each proposal gets a `recipe_id` `RunN_rNNN` (for example `Run3_r001`) and is
@@ -252,6 +288,18 @@ loss = ((R − R_target) / tol)² + weight_pdi · (PDI / pdi_cap)
 **Confidence weights, it does not filter**: GP noise per point is
 `(0.05·var(y) + 1e-6) / max(confidence, 0.05)`, so a weak fit is trusted less but
 still counts. The reported best recipe prefers points with confidence ≥ 0.5.
+
+**Held results** (`src/optimizer/intake_rules.py`): a fit whose structure is not
+the expected shape (catalogue model without its structure factor: `sphere` and
+`polydisperse_sphere` are spheres, `core_shell_sphere` counts for "sphere
+(core-shell counts)") is recorded with `held: "shape"`. It uses its budget slot
+but is left out of the GP (and the Pareto front, and TuRBO's trust region), and
+cannot be the best or the hit, until `POST /api/campaign/accept`. Held and model
+are in `history.csv`.
+
+**Pause**: while paused no new condition is written; a result for an issued
+condition is still told to the optimiser; Resume writes the next condition if
+none is pending. The pause state survives a restart.
 
 **Convergence**: status is `idle`, `running`, `converged`, `exhausted` or
 `aborted`. A hit is a run with confidence ≥ 0.5 (`confidence_min`), |R − target|
@@ -341,9 +389,13 @@ and `*.json` there as a recipe.
 | `POST /api/analyze_existing` | backfill of unfitted profiles |
 | `GET /api/stream` | SSE: first frame up to 200 newest rows, then only new rows, log lines and campaign status |
 | `GET/POST /api/methods` | list and select fitting method and search strategy |
-| `GET /api/campaign` | status, `pending` recipe ids, conditions folder, goal |
+| `GET /api/campaign` | status, `pending` recipe ids, conditions folder, goal, `paused`, `held`, `expected_shape`, `confidence_min`, `n_held` |
 | `POST /api/campaign/start` | start a campaign (body keys above) |
 | `POST /api/campaign/abort` | operator abort |
+| `POST /api/campaign/pause` | `{paused: true|false}`; 409 when no campaign is running |
+| `POST /api/campaign/accept` | `{recipe_id}` or `{name}`: let a held result count; 404 when nothing is held for it |
+| `POST /api/campaign/preview` | the cold-start recipes a Start with this body would issue (`own` then `spread`), without starting; 400 with the reasons for a bad recipe |
+| `GET /api/search_range` | search bounds, `x_sum_max`, hard safety caps, expected-shape choices (read-only) |
 | `GET /api/campaign/incomplete`, `POST /api/campaign/continue` | offer and rebuild the latest unfinished Target Run |
 | `GET/POST /api/campaign/folder` | conditions folder. Until set here it follows the reactor's folder (`reactor_settings.json`, else `folders.recipes` in `reactor/config.yml`). Returns `reactor` and `mismatch`; a folder that differs from the reactor's is logged as an error and shown in the campaign status line (`conditions_folder_mismatch` in `GET /api/campaign`) |
 | `GET /api/campaign/diagnostics` | read-only learning and convergence summary |

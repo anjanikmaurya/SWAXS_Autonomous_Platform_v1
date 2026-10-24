@@ -53,6 +53,18 @@ const DIAG={ok:true,names:['T_reac','F_tot','x_ODE','x_TOP','x_oley'],has_truth:
   convergence:{runs:ROWS.map(r=>r.seq),size:ROWS.map(r=>r.radius),pdi:ROWS.map(r=>r.pdi),
     target_size:4,tolerance:.1,pdi_cap:.05,n_init:10}};
 
+const RANGE={ok:true,bounds:{T_reac:[180,300],F_tot:[40,120],x_ODE:[0,.3],x_TOP:[0,.3],x_oley:[0,.3]},
+  x_sum_max:.9,safety:{T_max:320,F_tot_max:150},shapes:{sphere_cs:'sphere (core-shell counts)',sphere:'sphere only',any:'any'}};
+const METHODS={fitters:[{id:'catalogue_bic',label:'Catalogue + BIC',ready:true,desc:'every shape'},
+    {id:'ls_sphere',label:'Least-squares sphere',ready:true,desc:'sphere'},
+    {id:'llm_assisted',label:'LLM-assisted',ready:true,desc:'AI proposes'}],
+  optimisers:[{id:'random',label:'Random / Sobol search',ready:true,desc:'baseline'},
+    {id:'gp_ei',label:'Bayesian GP + EI',ready:true,desc:'default',acq:{name:'EI',formula:'EI(x)'}},
+    {id:'gp_ucb',label:'Bayesian GP + UCB',ready:true,desc:'ucb'},{id:'turbo',label:'TuRBO',ready:true,desc:'tr'},
+    {id:'bax',label:'BAX',ready:true,desc:'band'},{id:'pareto_ehvi',label:'Pareto GP + EHVI',ready:true,desc:'front'}],
+  goals:{'target-hit':{methods:['gp_ei','gp_ucb','turbo','random'],default:'gp_ei'},'level-set':{methods:['bax'],default:'bax'},
+    'pareto':{methods:['pareto_ehvi'],default:'pareto_ehvi'},'benchmark':{methods:['gp_ei','gp_ucb','turbo','random','bax','pareto_ehvi'],default:'gp_ei'}},
+  active:{fitter:'catalogue_bic',optimiser:'gp_ei'}};
 function stub(w){
 /* canvas: record instead of raster (jsdom has no 2d context) */
 w.HTMLCanvasElement.prototype.getContext=function(){
@@ -69,6 +81,13 @@ w.fetch=async (u)=>{
     full:{phase:{phase:null},llm:{summary:'fit is well constrained',flags:[]}},
     plot:{q,I,model:MO,sigma:SG}};
   else if(u.startsWith('/api/campaign/diagnostics')) body=DIAG;
+  else if(u.startsWith('/api/search_range')) body=RANGE;
+  else if(u.startsWith('/api/methods')) body=METHODS;
+  else if(u.startsWith('/api/campaign/folder')) body={folder:'1D/SAXS/Conditions',resolved:'/x/1D/SAXS/Conditions',reactor:'1D/SAXS/Conditions',mismatch:false};
+  else if(u.startsWith('/api/campaign/preview')) body={ok:true,n_init:3,recipes:[
+    {kind:'own',params:{T_reac:250,F_tot:70,x_ODE:.1,x_TOP:.1,x_oley:.1}},
+    {kind:'spread',params:{T_reac:282,F_tot:114.5,x_ODE:.11,x_TOP:.11,x_oley:.04}},
+    {kind:'spread',params:{T_reac:184,F_tot:62.8,x_ODE:.19,x_TOP:.22,x_oley:.22}}]};
   else if(u.startsWith('/api/folder')) body={folder:'1D/SAXS/Subtracted',
     resolved:'/Users/a/Data/Auto_Run/1D/SAXS/Subtracted'};
   else if(u.startsWith('/api/project')) body={project_root:'/Users/a/Data/Auto_Run',watching:'/Users/a/Data/Auto_Run/1D/SAXS/Subtracted'};
@@ -111,7 +130,7 @@ const w=dom.window;
   /* campaign card */
   ok($('c_bar').style.display==='block','progress bar shown');
   ok($('c_bar').firstElementChild.style.width==='60%','bar at 60%, got '+$('c_bar').firstElementChild.style.width);
-  ok($('k_r').textContent==='3.994 nm','best radius KPI, got '+$('k_r').textContent);
+  ok($('k_r').textContent==='7.988 nm','best DIAMETER KPI (2 × radius 3.994), got '+$('k_r').textContent);
   ok($('k_d').parentElement.className.includes('hit'),'delta KPI marked as inside tolerance');
   ok($('k_p').parentElement.className.includes('hit'),'PDI KPI marked as under cap');
   ok($('k_n').textContent==='24 / 40','runs KPI, got '+$('k_n').textContent);
@@ -205,6 +224,52 @@ const w=dom.window;
   /* reconnect */
   const first=ES.last; first.onerror&&first.onerror();
   ok($('p_conn').textContent.includes('reconnect'),'reconnect announced: '+$('p_conn').textContent);
+
+  /* ── goal column, Setup steps, starting recipes, held results ───────── */
+  const goals=[...w.document.querySelectorAll('#sidebar .nav-btn')].map(b=>b.dataset.goal);
+  ok(goals.join()==='target-hit,level-set,pareto,benchmark','four goals in the left column: '+goals);
+  ok($('c_range').textContent.includes('180 to 300'),'search range shown read-only: '+$('c_range').textContent);
+  ok($('c_cond').value==='1D/SAXS/Conditions' && /same folder/.test($('c_cond_note').textContent),'conditions folder checked against the reactor');
+  ok(w.document.querySelectorAll('#fitList .mopt').length===3,'fitting methods listed as radio rows');
+  ok([...w.document.querySelectorAll('#optList .mopt')].map(l=>l.dataset.id).join()==='random,gp_ei,gp_ucb,turbo',
+     'next-recipe list filtered to the goal: '+[...w.document.querySelectorAll('#optList .mopt')].map(l=>l.dataset.id));
+  ok(/AI-assisted structure/.test($('fitList').textContent),'the AI fitter has one name');
+  ok($('c_ninit').textContent==='10','cold start defaults to 10, got '+$('c_ninit').textContent);
+  $('c_nspread').value='2'; w.countStart();
+  ok($('c_nmsg').className==='warnt' && /Few/.test($('c_nmsg').textContent),'a short cold start is flagged: '+$('c_nmsg').textContent);
+  $('c_nspread').value='45'; w.countStart();
+  ok($('c_nmsg').className==='errt','a cold start longer than the budget is refused: '+$('c_nmsg').textContent);
+  $('c_nspread').value='9'; w.countStart();
+  /* own recipes are locked while the campaign runs (CAMP is running) */
+  ES.last.emit({results:[],logs:[],campaign:{...CAMP,status:'idle'},total:25,seq:25,reset:false});
+  await new Promise(r=>setTimeout(r,30));
+  w.addOwn();
+  ok(w.document.querySelectorAll('#ownRows .ownrow').length===1 && $('c_ninit').textContent==='10','adding your own recipe counts it');
+  ok(w.document.querySelector('#ownRows input').placeholder.includes('180 to 300'),'own-recipe boxes show the allowed range');
+  await w.previewStart();
+  ok(w.document.querySelectorAll('#previewOut tbody tr').length===3 && /your own/.test($('previewOut').textContent),'preview lists the exact cold start');
+  ok(/Cold start: 10/.test($('readyList').textContent) && /Expected shape/.test($('readyList').textContent),'ready list reflects the setup');
+  /* a held result while running */
+  const heldName=ROWS[5].name;
+  ES.last.emit({results:[],logs:[],campaign:{...CAMP,confidence_min:.5,paused:true,
+     held:[{recipe_id:heldName.slice(5,20),reason:'shape',model:'cylinder'}]},total:25,seq:25,reset:false});
+  await new Promise(r=>setTimeout(r,40));
+  ok(/held/.test(w.document.querySelector(`#rows tr[data-n="${heldName}"]`).textContent),'held result marked in the table');
+  ok($('c_pause').textContent==='Resume' && !$('c_pause').disabled,'paused campaign offers Resume');
+  ok(/PAUSED/.test($('c_status').textContent) && /held/.test($('r_status').textContent),'pause and held count in the status lines');
+  ok(w.document.querySelector('#sidebar .nav-btn').disabled===true,'goal locked while running');
+  await w.select(heldName);
+  ok($('heldBox').style.display==='block' && /Accept/.test($('heldBox').textContent),'held fit offers Accept');
+  /* Compare methods: simulator only */
+  ES.last.emit({results:[],logs:[],campaign:{status:'idle'},total:25,seq:25,reset:false});
+  await new Promise(r=>setTimeout(r,30));
+  await w.setGoal('benchmark');
+  ok($('stepFolders').style.display==='none' && $('studyMethods').style.display==='','compare hides folders, shows methods to race');
+  ok([...w.document.querySelectorAll('#studyMethods input:checked')].map(i=>i.value).join()==='random,gp_ei','race defaults to Random + GP + EI');
+  ok(!w.document.querySelector('#studyMethods input[value="bax"]'),'goal-specific methods are not raced on a single objective');
+  ok($('c_start_lbl').textContent==='Run comparison','Start becomes Run comparison');
+  await w.setGoal('target-hit');
+  ok($('stepFolders').style.display==='','live goal restores the folders step');
 
   /* a failing endpoint must not break the page */
   w.fetch=async()=>({ok:false,status:500,json:async()=>({})});

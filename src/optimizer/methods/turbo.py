@@ -53,8 +53,12 @@ class TuRBO(CampaignController):
         ei = expected_improvement(mu, var, float(np.min(y)))
         return cand[int(np.argmax(ei))]
 
-    def tell(self, params, size, pdi, confidence, recipe_id: str = ""):
-        rec = super().tell(params, size, pdi, confidence, recipe_id=recipe_id)
+    def tell(self, params, size, pdi, confidence, recipe_id: str = "",
+             held: str | None = None, model: str | None = None):
+        rec = super().tell(params, size, pdi, confidence, recipe_id=recipe_id,
+                           held=held, model=model)
+        if rec.get("held"):
+            return rec          # a held result does not move the trust region
         # Count an improvement on the incumbent loss as a success, else a failure;
         # resize the trust region on a run of either, and restart if it collapses.
         loss = rec["loss"]

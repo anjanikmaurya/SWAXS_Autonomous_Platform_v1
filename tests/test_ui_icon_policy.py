@@ -51,8 +51,9 @@ APP_TEMPLATES = [t for t in TEMPLATES if t.parent.parent.name != "hub"]
 #: EVERY app has the same full-width top bar (logo + name, status, project path,
 #: theme switch, Port · ← Hub). Multi-section apps add a LEFT COLUMN of sections
 #: under it, with each section's task tabs inside the page.
-LEFT_COLUMN = {"reduction", "calibration", "watchdog", "average", "analysis", "background", "reactor"}
-TOP_BAR = {"analyzer", "quality", "assistant"}   # reactor moved to the left column, Oct 2026
+LEFT_COLUMN = {"reduction", "calibration", "watchdog", "average", "analysis", "background", "reactor",
+               "analyzer"}   # analyzer: the campaign GOAL in the left column, Oct 2026
+TOP_BAR = {"quality", "assistant"}   # reactor moved to the left column, Oct 2026
 
 
 def test_every_app_has_exactly_one_layout():
