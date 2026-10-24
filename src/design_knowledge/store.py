@@ -8,7 +8,11 @@ travels with the code; ``SWAXS_DESIGN_KNOWLEDGE_DIR`` overrides the folder):
      "chemistry": {"keywords": ["Pd", "ODE", "oleylamine"]},
      "version": 4, "updated_at": "...",
      "cards": [...],        # approved, draft and retired cards (see cards.py)
+     "verdicts": [...],     # the operator's Good / Bad calls on past picks
      "campaigns": [...],    # finished campaigns, with their measured runs
+     "harness": {...},      # settings the campaigns use (HARNESS_DEFAULTS)
+     "evaluations": [...],  # replay results (src/design_knowledge/replay.py)
+     "proposal": {...},     # an improvement waiting for the operator's approval
      "log": [...]}          # what changed, newest last (version, what, who)
 
 Every change bumps ``version`` and is written atomically (temp file, then
@@ -27,6 +31,13 @@ from pathlib import Path
 from .cards import PREFIX, validate_card
 
 _ROOT = Path(__file__).resolve().parents[2]
+
+#: Settings a campaign takes from its set. Changed only by the operator, or by
+#: an improvement the operator approves (replay.propose_improvement).
+HARNESS_DEFAULTS = {"n_knowledge": 3, "shortlist_k": 5, "trust": 0.25}
+HARNESS_LIMITS = {"n_knowledge": (0, 10), "shortlist_k": (2, 8), "trust": (0.05, 0.6)}
+MAX_VERDICTS = 500
+MAX_EVALS = 30
 _LOCK = threading.RLock()
 MAX_LOG = 200
 
@@ -87,7 +98,9 @@ def list_sets() -> list[dict]:
                     "keywords": _keywords(s.get("chemistry")),
                     "n_cards": sum(1 for c in cards if c.get("status") == "approved"),
                     "n_drafts": sum(1 for c in cards if c.get("status") == "draft"),
-                    "n_campaigns": len(s.get("campaigns") or [])})
+                    "n_verdicts": sum(1 for v in s.get("verdicts") or [] if v.get("status") != "retired"),
+                    "n_campaigns": len(s.get("campaigns") or []),
+                    "harness": harness(s)})
     return out
 
 
@@ -188,6 +201,92 @@ def add_campaign(set_id: str, entry: dict, who: str = "") -> bool:
         _bump(s, f"campaign {entry.get('run_tag') or entry.get('campaign_id')} joined", who)
         _write(s)
         return True
+
+
+def harness(s: dict) -> dict:
+    """The set's harness settings, filled with the defaults and clamped to the limits."""
+    h = {**HARNESS_DEFAULTS, **(s.get("harness") or {})}
+    out = {}
+    for k, d in HARNESS_DEFAULTS.items():
+        lo, hi = HARNESS_LIMITS[k]
+        try:
+            v = type(d)(h.get(k, d))
+        except (TypeError, ValueError):
+            v = d
+        out[k] = min(max(v, lo), hi)
+    return out
+
+
+def set_harness(set_id: str, settings: dict, who: str = "", why: str = "") -> dict:
+    with _LOCK:
+        s = load_set(set_id)
+        new = harness({"harness": {**harness(s), **{k: v for k, v in (settings or {}).items()
+                                                      if k in HARNESS_DEFAULTS}}})
+        if new == harness(s):
+            return new
+        s["harness"] = new
+        _bump(s, "harness " + ", ".join(f"{k}={v}" for k, v in new.items()) + (f" ({why})" if why else ""), who)
+        _write(s)
+        return new
+
+
+def add_verdict(set_id: str, verdict: dict, who: str = "") -> dict:
+    """The operator's Good / Bad call on a pick. Counts straight away (it is the
+    operator's own judgement, not a draft). One per recipe: a new call replaces
+    the old one, which is kept as retired."""
+    call = str(verdict.get("call") or "")
+    if call not in ("good", "bad"):
+        raise ValueError("the call must be good or bad")
+    why = " ".join(str(verdict.get("why") or "").split())[:240]
+    with _LOCK:
+        s = load_set(set_id)
+        vs = s.setdefault("verdicts", [])
+        rid = str(verdict.get("recipe_id") or "")
+        for v in vs:
+            if rid and v.get("recipe_id") == rid and v.get("status") != "retired":
+                v["status"] = "retired"
+                v["retired_why"] = "replaced by a new call"
+        nums = [int(v["id"][1:]) for v in vs if str(v.get("id", "")).startswith("V") and v["id"][1:].isdigit()]
+        rec = {"id": f"V{(max(nums) + 1) if nums else 1}", "call": call, "why": why,
+               "recipe_id": rid, "campaign_id": str(verdict.get("campaign_id") or ""),
+               "run_tag": str(verdict.get("run_tag") or ""),
+               "chosen_by": str(verdict.get("chosen_by") or "")[:60],
+               "params": {k: float(v) for k, v in (verdict.get("params") or {}).items()},
+               "result": verdict.get("result") or {}, "reason": str(verdict.get("reason") or "")[:300],
+               "status": "approved", "added_by": who[:80],
+               "added_at": time.strftime("%Y-%m-%dT%H:%M:%S")}
+        vs.append(rec)
+        s["verdicts"] = vs[-MAX_VERDICTS:]
+        _bump(s, f"verdict {rec['id']} ({call}) on {rid}", who)
+        _write(s)
+        return rec
+
+
+def retire_verdict(set_id: str, vid: str, who: str = "") -> bool:
+    with _LOCK:
+        s = load_set(set_id)
+        for v in s.get("verdicts") or []:
+            if v.get("id") == vid and v.get("status") != "retired":
+                v["status"] = "retired"
+                _bump(s, f"retire {vid}", who)
+                _write(s)
+                return True
+    return False
+
+
+def add_evaluation(set_id: str, ev: dict) -> None:
+    with _LOCK:
+        s = load_set(set_id)
+        s.setdefault("evaluations", []).append(ev)
+        s["evaluations"] = s["evaluations"][-MAX_EVALS:]
+        _write(s)                          # a result is not a knowledge change: no version bump
+
+
+def set_proposal(set_id: str, proposal: dict | None, who: str = "") -> None:
+    with _LOCK:
+        s = load_set(set_id)
+        s["proposal"] = proposal
+        _write(s)
 
 
 def export_set(set_id: str) -> dict:

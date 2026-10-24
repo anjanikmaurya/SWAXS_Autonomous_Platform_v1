@@ -91,6 +91,7 @@ SWAXS_Autonomous_Platform_v1/
 │   │                           #   · intake.py · drivers/Py_P_Pump.py
 │   ├── design_knowledge/       # Analyser knowledge sets: store · cards · literature
 │   │                           #   (OpenAlex, AI drafting) · campaigns · freeze
+│   │                           #   · replay (did the knowledge help?, improvement loop)
 │   ├── beamline/driver.py      # SPEC bServer HTTP + EPICS reads
 │   ├── synthesis/              # Instrument contract (phase 0, not used by the reactor yet):
 │   │                           #   types · instrument (gated InstrumentSession) · registry · toy

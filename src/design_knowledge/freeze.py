@@ -48,9 +48,14 @@ def for_campaign(req: dict | None, space) -> dict:
     prior, notes = prior_points(campaigns, space)
     out["prior"] = prior
     out["warnings"] += notes
+    verdicts = [{k: v.get(k) for k in ("id", "call", "why", "chosen_by", "params", "result", "reason")}
+                for v in (s.get("verdicts") or []) if v.get("status") != "retired"][-30:] \
+        if use.get("verdicts", True) else []
     out["frozen"] = {"set_id": s["id"], "name": s.get("name"), "version": s.get("version"),
+                     "verdicts": verdicts, "harness": store.harness(s),
                      "use": {"literature": "literature" in kinds, "notes": "note" in kinds,
-                             "campaigns": bool(use.get("campaigns", True))},
+                             "campaigns": bool(use.get("campaigns", True)),
+                             "verdicts": bool(use.get("verdicts", True))},
                      "cards": [{k: c.get(k) for k in ("id", "param", "effect", "range", "kind",
                                                        "source", "limit_like")} for c in cards],
                      "campaigns": [e.get("campaign_id") for e in campaigns],

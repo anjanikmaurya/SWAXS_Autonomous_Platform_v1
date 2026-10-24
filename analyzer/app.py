@@ -54,6 +54,7 @@ from src.design_knowledge import cards as kcards                       # noqa: E
 from src.design_knowledge import literature as klit                    # noqa: E402
 from src.design_knowledge.campaigns import entry_from_campaign          # noqa: E402
 from src.design_knowledge.freeze import for_campaign as _knowledge_for  # noqa: E402
+from src.design_knowledge import replay as kreplay                     # noqa: E402
 import src.fitting as fitting                                           # noqa: E402  (pluggable fitting registry)
 from src.optimizer.io import (to_param_file, match_recipe_id,           # noqa: E402
                               recipe_id_from_filename)
@@ -151,8 +152,10 @@ def _build_optimiser(space, goal, size_range, base_cfg, method_params=None,
     if ai and ai.get("level") in _aid.LEVELS:
         # An AI level drives the optimiser it was set up with (its shortlist and
         # its fallback); the AI never replaces the optimiser's safety checks.
+        _kh = (((_campaign_meta or {}).get("knowledge") if knowledge is None else knowledge) or {}).get("harness") or {}
         ctl = _aid.AIDesign(ctl, ai["level"], review_every=int(ai.get("review_every") or 0),
                             apply=ai.get("apply") or "auto",
+                            k=int(_kh.get("shortlist_k", 5)), trust=float(_kh.get("trust", 0.25)),
                             knowledge=(_campaign_meta or {}).get("knowledge") if knowledge is None else knowledge,
                             every_pick=bool(ai.get("every_pick")), chemistry=_chemistry(),
                             caps=(_space_cfg().get("safety") or {}))
@@ -2440,6 +2443,7 @@ def _campaign_status() -> dict:
                            "n_prior": _k.get("n_prior", 0)}
     with _campaign_lock:
         st["held"] = _campaign.held() if _campaign is not None else []
+        st["runs"] = _runs_summary() if _campaign is not None else []
     if (_campaign_meta or {}).get("size_range"):
         st["size_range"] = _campaign_meta["size_range"]
     return st
@@ -2497,6 +2501,31 @@ def api_campaign_continue():
         return jsonify({"ok": True, **summary})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+def _runs_summary(n: int = 40) -> list[dict]:
+    """The last runs of the campaign: what was made, who chose it, the result,
+    and the operator's verdict. Lock held by caller."""
+    kinds = list((_campaign_meta or {}).get("seed_kinds") or [])
+    out = []
+    hist = _campaign.history
+    for j, h in enumerate(hist):
+        if j < len(hist) - n:
+            continue
+        p = h.get("params") or {}
+        if h.get("decided_by"):
+            by = h["decided_by"]
+        elif j < (_campaign.n_init or 0):
+            by = {"own": "your own", "knowledge": "from knowledge"}.get(
+                kinds[j] if j < len(kinds) else "", "cold start (spread)")
+        else:
+            by = "optimiser"
+        out.append({"recipe_id": h.get("recipe_id", ""), "n": j + 1, "by": by,
+                    "params": {k: round(float(v), 4) for k, v in p.items()},
+                    "diameter_nm": None if h.get("size") is None else round(2 * float(h["size"]), 3),
+                    "pdi": None if h.get("pdi") is None else round(float(h["pdi"]), 3),
+                    "held": h.get("held"), "verdict": h.get("verdict")})
+    return out
 
 
 def _expected_shape() -> str:
@@ -3011,6 +3040,172 @@ def api_knowledge_review(sid):
     except ValueError as exc:
         return _kerr(exc)
     return jsonify({"ok": True, "card": c})
+
+
+@app.route("/api/campaign/verdict", methods=["POST"])
+def api_campaign_verdict():
+    """Good call / Bad call on a run, with one line why. Kept with the run (in the
+    history and the campaign records) and, when the campaign used a knowledge
+    set, in that set straight away, where an AI level reads it next time."""
+    b = request.get_json(silent=True) or {}
+    call = str(b.get("call") or "")
+    if call not in ("good", "bad"):
+        return jsonify({"ok": False, "error": "the call must be good or bad"}), 400
+    rid = str(b.get("recipe_id") or "")
+    why = " ".join(str(b.get("why") or "").split())[:240]
+    with _campaign_lock:
+        if _campaign is None:
+            return jsonify({"ok": False, "error": "no campaign"}), 409
+        rec = next((h for h in _campaign.history if rid and h.get("recipe_id") == rid), None)
+        if rec is None:
+            return jsonify({"ok": False, "error": "no measured run with that recipe id"}), 404
+        dec = None
+        if _is_ai(_campaign):
+            dec = next((d for d in reversed(_campaign.decisions)
+                        if d.get("kind") == "pick" and d.get("recipe_id") == rid), None)
+        sid = ((_campaign_meta or {}).get("knowledge") or {}).get("set_id")
+        payload = {"call": call, "why": why, "recipe_id": rid, "campaign_id": _campaign_id,
+                   "run_tag": _run_tag, "chosen_by": rec.get("decided_by") or "optimiser",
+                   "params": rec.get("params") or {},
+                   "result": {"diameter_nm": None if rec.get("size") is None else round(2 * float(rec["size"]), 3),
+                              "pdi": rec.get("pdi"), "held": rec.get("held")},
+                   "reason": (dec or {}).get("reason", "")}
+        rec["verdict"] = {"call": call, "why": why}
+        if dec is not None:
+            dec["verdict"] = {"call": call, "why": why}
+    saved = None
+    if sid:
+        try:
+            saved = kstore.add_verdict(sid, payload, _who())
+        except ValueError as exc:
+            return _kerr(exc)
+    _emit(f"🗳 {rid}: {call} call" + (f" ({why})" if why else "")
+          + (f"; kept in the knowledge set {sid} as {saved['id']}" if saved else
+             "; no knowledge set on this campaign, kept with the run only"), "info")
+    _save_campaign()
+    return jsonify({"ok": True, "verdict": saved, "kept_in_set": bool(saved)})
+
+
+@app.route("/api/knowledge/set/<sid>/verdict/<vid>/retire", methods=["POST"])
+def api_knowledge_verdict_retire(sid, vid):
+    try:
+        ok = kstore.retire_verdict(sid, vid, _who())
+    except ValueError as exc:
+        return _kerr(exc, 404)
+    return jsonify({"ok": ok}) if ok else (jsonify({"ok": False, "error": "no such verdict"}), 404)
+
+
+@app.route("/api/knowledge/set/<sid>/harness", methods=["POST"])
+def api_knowledge_harness(sid):
+    try:
+        h = kstore.set_harness(sid, request.get_json(silent=True) or {}, _who(), "set by the operator")
+    except ValueError as exc:
+        return _kerr(exc, 404)
+    return jsonify({"ok": True, "harness": h})
+
+
+# ── did the knowledge help? (replay of past campaigns, background jobs) ─────
+_eval_jobs: dict = {}              # set_id -> {state, kind, started, result | error}
+_eval_lock = threading.Lock()
+
+
+def _eval_worker(sid: str, kind: str, opts: dict) -> None:
+    try:
+        s = kstore.load_set(sid)
+        space = ParameterSpace.from_config(_space_cfg())
+        if kind == "evaluate":
+            arms = kreplay.ARMS + (kreplay.AI_ARMS if opts.get("include_ai") else ())
+            res = kreplay.evaluate(s, space, arms=arms, repeats=opts["repeats"])
+            kstore.add_evaluation(sid, res)
+        else:
+            res = kreplay.propose_improvement(s, space, repeats=opts["repeats"],
+                                              include_ai=bool(opts.get("include_ai")))
+            if res.get("proposal"):
+                kstore.set_proposal(sid, res)
+        with _eval_lock:
+            _eval_jobs[sid] = {"state": "done", "kind": kind, "result": res,
+                               "finished": time.strftime("%H:%M:%S")}
+        _emit(f"📚 {kind} of {sid} finished"
+              + (f": a change is proposed ({res['proposal']}), approve it in Knowledge, Evaluation"
+                 if kind == "propose" and res.get("proposal") else ""), "ok")
+    except Exception as exc:                                  # noqa: BLE001
+        with _eval_lock:
+            _eval_jobs[sid] = {"state": "error", "kind": kind, "error": f"{type(exc).__name__}: {exc}"}
+        _emit(f"⚠ {kind} of {sid} failed: {exc}", "warn")
+
+
+def _eval_start(sid: str, kind: str):
+    b = request.get_json(silent=True) or {}
+    try:
+        kstore.load_set(sid)
+    except ValueError as exc:
+        return _kerr(exc, 404)
+    try:
+        repeats = max(1, min(int(b.get("repeats") or 3), 10))
+    except (TypeError, ValueError):
+        repeats = 3
+    with _eval_lock:
+        if (_eval_jobs.get(sid) or {}).get("state") == "running":
+            return jsonify({"ok": False, "error": "a test is already running for this set"}), 409
+        _eval_jobs[sid] = {"state": "running", "kind": kind, "started": time.strftime("%H:%M:%S")}
+    threading.Thread(target=_eval_worker, daemon=True, name=f"eval-{sid}",
+                     args=(sid, kind, {"repeats": repeats, "include_ai": bool(b.get("include_ai"))})).start()
+    return jsonify({"ok": True, "state": "running"})
+
+
+def _eval_wait(timeout: float = 120.0) -> None:
+    """Tests and tools: wait for every replay job to finish."""
+    t_end = time.time() + timeout
+    while time.time() < t_end:
+        with _eval_lock:
+            if not any(j.get("state") == "running" for j in _eval_jobs.values()):
+                return
+        time.sleep(0.05)
+
+
+@app.route("/api/knowledge/set/<sid>/evaluate", methods=["POST"])
+def api_knowledge_evaluate(sid):
+    """Replay the set's past campaigns with and without each source of knowledge."""
+    return _eval_start(sid, "evaluate")
+
+
+@app.route("/api/knowledge/set/<sid>/propose", methods=["POST"])
+def api_knowledge_propose(sid):
+    """Try other harness settings on the practice campaigns; propose one only if it
+    also wins on the held-out campaign. Nothing changes until it is approved."""
+    return _eval_start(sid, "propose")
+
+
+@app.route("/api/knowledge/set/<sid>/evaluation")
+def api_knowledge_evaluation(sid):
+    with _eval_lock:
+        job = dict(_eval_jobs.get(sid) or {})
+    if job:
+        return jsonify(job)
+    try:
+        evs = kstore.load_set(sid).get("evaluations") or []
+    except ValueError as exc:
+        return _kerr(exc, 404)
+    return jsonify({"state": "done" if evs else "none", "kind": "evaluate",
+                    "result": evs[-1] if evs else None})
+
+
+@app.route("/api/knowledge/set/<sid>/proposal", methods=["POST"])
+def api_knowledge_proposal(sid):
+    approve = bool((request.get_json(silent=True) or {}).get("approve"))
+    try:
+        s = kstore.load_set(sid)
+    except ValueError as exc:
+        return _kerr(exc, 404)
+    prop = (s.get("proposal") or {}).get("proposal")
+    if not prop:
+        return jsonify({"ok": False, "error": "no proposal is waiting"}), 409
+    h = kstore.harness(s)
+    if approve:
+        h = kstore.set_harness(sid, prop, _who(), "approved improvement: " + str(s["proposal"].get("why", ""))[:80])
+    kstore.set_proposal(sid, None)
+    _emit(f"📚 improvement for {sid} {'approved' if approve else 'discarded'}", "info")
+    return jsonify({"ok": True, "harness": h})
 
 
 @app.route("/api/knowledge/set/<sid>/export")

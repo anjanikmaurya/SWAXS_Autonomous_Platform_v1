@@ -90,6 +90,8 @@ w.fetch=async (u)=>{
   else if(u.startsWith('/api/knowledge/sets')) body={ok:true,chemistry:{product:'Pd nanoparticles'},
     sets:[{id:'pd',name:'Pd · ODE',version:4,keywords:['Pd'],n_cards:2,n_drafts:1,n_campaigns:1,matches_chemistry:true}]};
   else if(u.startsWith('/api/knowledge/set/pd/review')) body={ok:true,card:{}};
+  else if(u.startsWith('/api/knowledge/set/pd/evaluation')) body={state:'done',kind:'evaluate',result:{caveat:'Indicative: 2 past campaigns.',campaigns:['Run1','Run2'],set_version:4,repeats:3,at:'2026-10-24',notes:[],
+    summary:[{arm:'gp_ei',label:'GP + EI',runs_to_spec:6,reached:5,trials:6,best_after_10:1.2,fallbacks:0},{arm:'gp_ei_knowledge',label:'GP + EI + recipes from cards',runs_to_spec:4,reached:6,trials:6,best_after_10:0.9,fallbacks:0}]}};
   else if(u.startsWith('/api/knowledge/set/pd')) body={ok:true,set:KSET};
   else if(u.startsWith('/api/knowledge/search')) body={ok:true,results:[{id:'W1',title:'Pd in flow',year:2021,doi:'10.1/x',open_access:true,abstract:'Higher temperature gave larger Pd.'}]};
   else if(u.startsWith('/api/guide')) body={pages:[{id:'score',group:'Scoring',title:'How the score works',family:'',rows:[['What it does','one number']],maths:'score = ...',settings:[]},
@@ -265,6 +267,10 @@ const w=dom.window;
   ok(/clipped/.test($('kn_drafts').textContent) && /More TOP/.test($('kn_drafts').textContent),'draft shows its passage and the clip');
   w.kSection('camps');
   ok(/Run2/.test($('kn_ctbl').textContent) && /4.96 nm/.test($('kn_ctbl').textContent),'campaigns listed with diameter');
+  w.kSection('eval'); await new Promise(r=>setTimeout(r,60));
+  ok($('kh_n').value==='3' && /GP \+ EI/.test($('kn_eval_body').textContent),'evaluation: harness settings and the last replay');
+  w.kSection('verdicts');
+  ok(/No verdict yet/.test($('kn_vtbl').textContent),'verdicts section');
   await w.kSearch();
   ok(w.document.querySelectorAll('#kn_hits .khit').length===1 && /open access/.test($('kn_hits').textContent),'web search results listed');
   /* Guide tab */
@@ -294,11 +300,18 @@ const w=dom.window;
   ES.last.emit({results:[],logs:[],campaign:{...CAMP, ai:{level:'ai_copilot',label:'AI Co-pilot',n_fallbacks:1,can_undo:false,
     work_bounds:null,pending_suggestion:null,decisions:[
       {kind:'pick',n:11,by:'AI Co-pilot',choice:2,shortlist_size:5,recipe_id:'Run3_r011',reason:'card L1',cited:['L1'],knowledge_version:4,same_as_optimiser:false,params:{T_reac:250,F_tot:70,x_ODE:.1,x_TOP:.1,x_oley:.1},result:{diameter_nm:5.1,pdi:.08}},
-      {kind:'pick',n:12,by:'optimiser (fallback)',fallback:'no card id or data was cited',recipe_id:'Run3_r012',params:{T_reac:260,F_tot:70,x_ODE:.1,x_TOP:.1,x_oley:.1}}]}},total:25,seq:25,reset:false});
+      {kind:'pick',n:12,by:'optimiser (fallback)',fallback:'no card id or data was cited',recipe_id:'Run3_r012',params:{T_reac:260,F_tot:70,x_ODE:.1,x_TOP:.1,x_oley:.1}}]},
+    knowledge:{set_id:'pd',name:'Pd · ODE',version:4},
+    runs:[{recipe_id:'Run3_r010',n:10,by:'optimiser',params:{T_reac:240,F_tot:70,x_ODE:.1,x_TOP:.1,x_oley:.1},diameter_nm:4.9,pdi:.09,verdict:{call:'good',why:'close'}},
+          {recipe_id:'Run3_r011',n:11,by:'AI Co-pilot',params:{T_reac:250,F_tot:70,x_ODE:.1,x_TOP:.1,x_oley:.1},diameter_nm:5.1,pdi:.08}]},total:25,seq:25,reset:false});
   await new Promise(r=>setTimeout(r,30));
-  ok($('decCard').style.display==='' && w.document.querySelectorAll('#dec_tbl tbody tr').length===2,'decisions table shown');
+  ok($('decCard').style.display==='' && w.document.querySelectorAll('#dec_tbl tbody tr').length>=2,'decisions table shown');
   ok(/1 of 2/.test($('dec_kpis').textContent) && /fallback: no card/.test($('dec_tbl').textContent),'AI picks and fallbacks are counted and explained');
   ok(/5.10 nm/.test($('dec_tbl').textContent) && /v4/.test($('dec_tbl').textContent),'result and knowledge version per decision');
+  ok(w.document.querySelectorAll('#dec_tbl tbody tr').length===3 && /being made/.test($('dec_tbl').textContent),'every run listed, plus the pick in flight');
+  ok(/good call/.test($('dec_tbl').textContent) && /Bad call/.test($('dec_tbl').textContent),'verdicts shown, and offered where missing');
+  await new Promise(r=>setTimeout(r,60));
+  ok($('helpCard').style.display==='' && /GP \+ EI \+ recipes from cards/.test($('help_body').textContent),'Did the knowledge help? shows the last replay');
   $('k_set').value=''; await w.kSetChosen();
   $('c_nspread').value='2'; w.countStart();
   ok($('c_nmsg').className==='warnt' && /Few/.test($('c_nmsg').textContent),'a short cold start is flagged: '+$('c_nmsg').textContent);

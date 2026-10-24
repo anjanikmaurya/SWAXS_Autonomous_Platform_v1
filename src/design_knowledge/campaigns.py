@@ -34,6 +34,8 @@ def entry_from_campaign(record: dict, history: list[dict], project: str = "") ->
             "project": str(project or ""),
             "goal": str(record.get("goal") or ""),
             "target_size": record.get("target_size"),
+            "tolerance": record.get("tolerance"),
+            "pdi_cap": record.get("pdi_cap"),
             "ended": str(record.get("ended_at") or ""),
             "n": len(history or []),
             "best": {"size": best.get("size"), "pdi": best.get("pdi")},

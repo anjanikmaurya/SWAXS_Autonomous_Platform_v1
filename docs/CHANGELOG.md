@@ -7,6 +7,25 @@ this file is the running summary. Dates are when the work landed on `main`.
 
 ## October 2026
 
+### Analyser: verdicts, replay test and the approve-only improvement loop, Phase 4
+
+- **Verdicts**: Good call / Bad call with one line why on every run in Report,
+  Decisions (now listing every run, not only AI picks). Kept with the run and in
+  the campaign's knowledge set at once; AI levels read them when Setup ticks
+  Your verdicts (Knowledge tab, Your verdicts; one per run, Retire).
+- **Did the knowledge help?** (`src/design_knowledge/replay.py`): each finished
+  campaign of a set is replayed against an emulator fitted to its own measured
+  runs; Random, GP + EI, + past campaigns, + recipes from cards, and optionally
+  AI Co-pilot run fresh campaigns with its target and budget. Runs to reach the
+  spec and best score after 10, with the caveats stated. Report and Knowledge,
+  Evaluation; background job.
+- **Harness settings per set** (recipes from knowledge, AI shortlist size, Pilot
+  trust region), frozen with the campaign. **Propose improvement** tunes them on
+  the older campaigns and proposes a change only if it also wins on the most
+  recent one; nothing changes until the operator approves.
+- Campaign entries now carry tolerance and PDI cap, so they can be replayed.
+- Tests: `tests/test_replay.py` (10); page check 110.
+
 ### Analyser: AI Advisor, Co-pilot and Pilot, Phase 3
 
 - `src/optimizer/ai_design.py` wraps the chosen optimiser. **Advisor**: the

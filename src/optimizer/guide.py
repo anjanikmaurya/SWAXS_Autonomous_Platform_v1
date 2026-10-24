@@ -157,6 +157,25 @@ PAGES = {
                "never passed on as an instruction: only approved cards (setting, effect, numeric "
                "range, source) are used.",
         "refs": "General SAXS knowledge for fitting stays with Guinier (ai_knowledge/rules, reference)."},
+    "verdicts": {"title": "Your verdicts", "group": "Knowledge",
+        "what": "Good call or Bad call, with one line why, on any run in Report, Decisions. It is kept "
+                "with the run and, when the campaign used a knowledge set, in the set at once. With an "
+                "AI level, \"Your verdicts\" ticked and \"every AI pick\", the AI reads them (and may "
+                "cite them) at every pick or review.",
+        "not": "A verdict on the run you are replaying: the replay leaves a campaign's own verdicts out."},
+    "replay": {"title": "Did the knowledge help? (replay)", "group": "Knowledge",
+        "what": "The set's finished campaigns are replayed. For each, an emulator is fitted to its own "
+                "measured runs (a GP for diameter and one for PDI); every method then runs a fresh "
+                "campaign against it with that campaign's target and budget, several times: Random, "
+                "GP + EI, GP + EI with the other campaigns as a warm start, GP + EI with starting "
+                "recipes from the cards, and (if asked) AI Co-pilot with cards and verdicts.",
+        "maths": "score per method = runs to reach the spec (not reached = budget + 1), best score after 10\n"
+                 "propose improvement: tune on the older campaigns, keep a change only if it also wins on\n"
+                 "the most recent campaign (held out); the operator approves it",
+        "not": "Proof. An emulator is only as good as the runs it was fitted on; with one or two "
+               "campaigns the result is indicative; if every method reaches an easy spec in the "
+               "cold start, the test cannot tell them apart.",
+        "refs": "src/design_knowledge/replay.py · Meta-Harness, arXiv 2603.28052"},
     "views": {"title": "Report views", "group": "Report",
         "what": "Convergence: best score so far. Surrogate: the GP's prediction and uncertainty "
                 "across two recipe parameters. Trajectory: every recipe tried. Level set: the "

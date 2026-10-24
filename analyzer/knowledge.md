@@ -140,7 +140,8 @@ green at ≥ 0.6, amber at ≥ 0.3, otherwise low.
 The cold start is never the AI's. The AI level drives the optimiser shown in its
 detail box (Shortlist from / Fallback optimiser / Optimiser). In step 4, **For**:
 **Starting recipes** (the AI does not see the cards) or **Starting recipes and
-every AI pick** (or every progress review, for the Advisor). Anything invalid,
+every AI pick** (or every progress review, for the Advisor); **Your verdicts on
+past picks** (AI levels) adds your Good / Bad calls to what the AI reads. Anything invalid,
 no AI login, a timeout or a non-JSON answer: the optimiser's pick, recorded as a
 fallback; the loop never waits on the AI (the call runs in the background, and
 a pause or abort meanwhile drops its answer). Every decision is in **Report,
@@ -166,8 +167,27 @@ read it; general SAXS knowledge for fitting stays with Guinier.
   then **Approve** or **Reject**.
 - **Cards**: the approved cards, filterable by Literature / Your notes;
   **Retire** stops using a card (it stays in the set's history).
+- **Your verdicts**: the Good / Bad calls, with **Retire**.
 - **Campaigns**: finished campaigns that used the set, with their measured
-  runs; they join automatically when a campaign ends (also on Abort).
+  runs, target, tolerance and PDI cap; they join automatically when a campaign
+  ends (also on Abort).
+- **Evaluation**: the settings campaigns take from the set (starting recipes
+  from knowledge, AI shortlist size, AI Pilot trust region; **Save settings**
+  makes a new version), **Run test** and **Propose improvement**.
+  - **Run test** replays each finished campaign against an emulator fitted to
+    its own measured runs (a GP for diameter and one for PDI), with each method
+    running a fresh campaign with that campaign's target and budget, 3 times:
+    Random, GP + EI, GP + EI + past campaigns (the other campaigns as a warm
+    start), GP + EI + recipes from cards, and, if ticked, AI Co-pilot with cards
+    and verdicts (calls the AI). Scores: runs to reach the spec (not reached =
+    budget + 1) and the best score after 10. A campaign's own verdicts are left
+    out of its replay. Indicative with one or two campaigns; an easy spec that
+    every method meets in the cold start cannot separate them.
+  - **Propose improvement** tries other settings on the older campaigns and
+    proposes one only if it also does better on the most recent campaign, which
+    it was not tuned on. **Approve** applies it (new set version); running
+    campaigns keep the version they started with. Logic:
+    `src/design_knowledge/replay.py`.
 - **Export** downloads the set; **Import** makes a new set from an export, with
   every card as a draft to review.
 
@@ -186,9 +206,16 @@ header link to their page (**Details in the Guide →**).
 
 ### Report tab
 
-- **Decisions** (AI levels): AI picks, how many matched the optimiser's own
-  top pick, fallbacks, the working range; a waiting Advisor suggestion with
-  **Apply** / **Reject**; **Undo range**.
+- **Decisions**: every run of the campaign (who chose it: cold start, your own,
+  from knowledge, the optimiser or an AI level; what it was; why and what it was
+  based on for AI picks; the result) and **Good call** / **Bad call** with one
+  line why. A verdict is kept with the run and, when the campaign used a
+  knowledge set, in that set at once (an AI level reads it next time). For AI
+  levels also: AI picks, how many matched the optimiser's own top pick,
+  fallbacks, the working range, the Advisor's reviews, a waiting suggestion with
+  **Apply** / **Reject**, and **Undo range**.
+- **Did the knowledge help?**: the last replay of the campaign's knowledge set
+  (below), and **Run test**.
 - **Campaign**: status, **Pause** / **Resume** (paused: no new recipe is issued;
   anything already queued still runs and its result is still recorded) and
   **Abort** (asks first; the reactor finishes the recipe it is running).
@@ -464,7 +491,7 @@ and `*.json` there as a recipe.
 | `POST /api/analyze_existing` | backfill of unfitted profiles |
 | `GET /api/stream` | SSE: first frame up to 200 newest rows, then only new rows, log lines and campaign status |
 | `GET/POST /api/methods` | list and select fitting method and search strategy |
-| `GET /api/campaign` | status, `pending` recipe ids, conditions folder, goal, `paused`, `held`, `expected_shape`, `confidence_min`, `n_held` |
+| `GET /api/campaign` | status, `pending` recipe ids, conditions folder, goal, `paused`, `held`, `expected_shape`, `confidence_min`, `n_held`, `runs` (the last 40, with who chose them and the verdict), `knowledge`, `ai` |
 | `POST /api/campaign/start` | start a campaign (body keys above) |
 | `POST /api/campaign/abort` | operator abort |
 | `POST /api/campaign/pause` | `{paused: true|false}`; 409 when no campaign is running |
@@ -473,6 +500,11 @@ and `*.json` there as a recipe.
 | `GET /api/search_range` | search bounds, `x_sum_max`, hard safety caps, expected-shape choices (read-only) |
 | `GET /api/guide` | the Guide pages |
 | `GET /api/ai/status` | `{available}`: is an AI login configured |
+| `POST /api/campaign/verdict` | `{recipe_id, call: good | bad, why}` on a measured run |
+| `POST /api/knowledge/set/<id>/verdict/<vid>/retire` | stop using a verdict |
+| `POST /api/knowledge/set/<id>/harness` | `{n_knowledge, shortlist_k, trust}` (clamped to their limits) |
+| `POST /api/knowledge/set/<id>/evaluate`, `/propose`; `GET .../evaluation` | replay test and improvement proposal (background), and their state or last result |
+| `POST /api/knowledge/set/<id>/proposal` | `{approve}`: apply or discard a proposed improvement |
 | `POST /api/campaign/ai/suggestion` | `{accept}`: apply or reject the Advisor's waiting range |
 | `POST /api/campaign/ai/undo` | undo the last applied working range |
 | `GET/POST /api/knowledge/sets` | list sets (with `matches_chemistry`) and the project's `chemistry.yml`; create a set `{name, keywords}` |

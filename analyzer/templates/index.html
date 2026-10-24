@@ -362,6 +362,9 @@ body.swaxs-shell #main{overflow-y:auto}
 .kn-chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 8px}
 .kn-f{border:1px solid var(--border);background:transparent;color:var(--text);border-radius:999px;padding:2px 10px;font-size:var(--fs-xs);cursor:pointer}
 .kn-f.on{border-color:var(--accent);color:var(--accent-text,var(--accent));font-weight:700}
+.okt{color:var(--ok-text)}
+.revrow{font-size:var(--fs-sm);padding:3px 0;border-bottom:1px dashed var(--border)}
+.kn-sub2{margin:12px 0 6px;font-weight:700;font-size:var(--fs-sm)}
 </style></head>
 <body class="swaxs-shell">
 {% include "_icon_sprite.svg" %}
@@ -507,6 +510,7 @@ body.swaxs-shell #main{overflow-y:auto}
           <div class="kuse-l">
             <label class="tick"><input type="checkbox" id="k_lit" checked onchange="kSetChosen()"> Literature <span class="sub" id="k_lit_n"></span></label>
             <label class="tick"><input type="checkbox" id="k_note" checked onchange="kSetChosen()"> Your notes <span class="sub" id="k_note_n"></span></label>
+            <label class="tick" id="k_verd_row" style="display:none"><input type="checkbox" id="k_verd" checked onchange="kSetChosen()"> Your verdicts on past picks <span class="sub" id="k_verd_n"></span></label>
             <label class="tick" id="k_camp_row"><input type="checkbox" id="k_camp" checked onchange="kSetChosen()"> Past campaigns <span class="sub" id="k_camp_n"></span></label>
           </div>
         </div>
@@ -674,8 +678,17 @@ body.swaxs-shell #main{overflow-y:auto}
         <span class="hd-right"><button class="btn btn-ghost btn-sm" id="ai_undo" type="button" onclick="aiUndo()" disabled title="Undo the last applied working range">Undo range</button></span></div>
       <div class="kpis" id="dec_kpis"></div>
       <div id="dec_pending"></div>
-      <div class="tablewrap" style="max-height:320px"><table id="dec_tbl"><thead><tr><th>Run</th><th>Chosen by</th><th>What</th><th>Why</th><th>Based on</th><th>Result</th></tr></thead><tbody></tbody></table></div>
-      <div class="sub">Every AI decision is also traced in logs/assistant_traces (kind "design"). Knowledge version shown per decision.</div>
+      <div id="dec_reviews"></div>
+      <div class="tablewrap" style="max-height:340px"><table id="dec_tbl"><thead><tr><th>Run</th><th>Chosen by</th><th>What</th><th>Why</th><th>Based on</th><th>Result</th><th>Your verdict</th></tr></thead><tbody></tbody></table></div>
+      <div class="sub">Good call or Bad call, with one line why, is kept with the run and, when the campaign used a knowledge set, in that set at once: an AI level reads it next time (Setup step 4, Your verdicts). AI decisions are also traced in logs/assistant_traces (kind "design").</div>
+    </div>
+    <div class="card" id="helpCard" style="display:none">
+      <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-quality"/></svg> Did the knowledge help?
+        <span class="hd-right"><a href="#" class="glink" data-guide="replay">How this is tested →</a></span></div>
+      <div id="help_body" class="sub">No test yet.</div>
+      <div class="btn-row"><button class="btn btn-ghost btn-sm" type="button" onclick="evalRun('help')">Run test</button>
+        <label class="tick"><input type="checkbox" id="help_ai"> include AI Co-pilot (calls the AI)</label>
+        <span class="sub" id="help_state"></span></div>
     </div>
     <div class="card pspace">
       <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-visualisation"/></svg> Parameter space &amp; convergence
@@ -737,7 +750,9 @@ body.swaxs-shell #main{overflow-y:auto}
         <button class="gd-item kn-sec on" data-k="add" type="button">Add knowledge</button>
         <button class="gd-item kn-sec" data-k="drafts" type="button">Drafts <span class="kn-n" id="kn_n_drafts"></span></button>
         <button class="gd-item kn-sec" data-k="cards" type="button">Cards <span class="kn-n" id="kn_n_cards"></span></button>
+        <button class="gd-item kn-sec" data-k="verdicts" type="button">Your verdicts <span class="kn-n" id="kn_n_verdicts"></span></button>
         <button class="gd-item kn-sec" data-k="camps" type="button">Campaigns <span class="kn-n" id="kn_n_camps"></span></button>
+        <button class="gd-item kn-sec" data-k="eval" type="button">Evaluation</button>
         <div class="kn-foot sub">Design knowledge for the next recipe only. General SAXS knowledge for fitting stays with Guinier.</div>
       </nav>
       <div class="card gd-body">
@@ -778,6 +793,27 @@ body.swaxs-shell #main{overflow-y:auto}
           <table id="kn_tbl"><thead><tr><th>ID</th><th>Setting</th><th>What it says</th><th>Range</th><th>From</th><th>Source</th><th></th></tr></thead><tbody></tbody></table>
         </div>
 
+        <div class="kn-page" id="kn-verdicts" style="display:none">
+          <table id="kn_vtbl"><thead><tr><th>ID</th><th>Run</th><th>Chosen by</th><th>Call</th><th>Why</th><th>Result</th><th></th></tr></thead><tbody></tbody></table>
+          <div class="sub">From Report, Decisions (Good call / Bad call). They count straight away; an AI level reads them when Setup step 4 ticks Your verdicts with "every AI pick".</div>
+        </div>
+        <div class="kn-page" id="kn-eval" style="display:none">
+          <div class="kn-sub2">Settings campaigns take from this set</div>
+          <div class="grid2" id="kn_harness">
+            <div><label for="kh_n">Starting recipes from knowledge</label><input id="kh_n" type="number" min="0" max="10" step="1"></div>
+            <div><label for="kh_k">AI shortlist size</label><input id="kh_k" type="number" min="2" max="8" step="1"></div>
+            <div><label for="kh_t">AI Pilot trust region (fraction of each span)</label><input id="kh_t" type="number" min="0.05" max="0.6" step="0.05"></div>
+          </div>
+          <div class="btn-row"><button class="btn btn-ghost btn-sm" type="button" onclick="kSaveHarness()">Save settings</button></div>
+          <div class="kn-sub2">Did the knowledge help?</div>
+          <div id="kn_eval_body" class="sub">No test yet.</div>
+          <div class="btn-row"><button class="btn btn-accent btn-sm" type="button" onclick="evalRun('kn')">Run test</button>
+            <button class="btn btn-ghost btn-sm" type="button" onclick="evalRun('kn','propose')">Propose improvement</button>
+            <label class="tick"><input type="checkbox" id="kn_eval_ai"> include AI Co-pilot (calls the AI)</label>
+            <span class="sub" id="kn_eval_state"></span></div>
+          <div id="kn_prop"></div><div class="sub" id="kn_prop_note"></div>
+          <div class="sub">The test replays this set's finished campaigns, each against an emulator fitted to its own measured runs, with and without each source of knowledge. Propose improvement tunes the settings on the older campaigns and proposes a change only if it also does better on the most recent one, which it was not tuned on. Nothing changes until you approve it.</div>
+        </div>
         <div class="kn-page" id="kn-camps" style="display:none">
           <table id="kn_ctbl"><thead><tr><th>Campaign</th><th>Runs</th><th>Best</th><th>Ended</th><th>Project</th></tr></thead><tbody></tbody></table>
           <div class="sub">A campaign that used this set joins it when it ends, with its measured runs. Ticked under Past campaigns (Setup), their runs warm-start the optimiser's model, scored against the new target, without using the budget.</div>
@@ -1719,8 +1755,13 @@ async function abortCampaign(){
 }
 function renderDecisions(c){
   const card=$('decCard'), ai=c&&c.ai;
-  if(!ai){ card.style.display='none'; return; }
+  const runs=(c&&c.runs)||[];
+  helpShow(c);
+  if(!ai && !runs.length){ card.style.display='none'; return; }
   card.style.display='';
+  if(!ai){ $('dec_kpis').innerHTML=''; $('dec_pending').innerHTML=''; $('dec_reviews').innerHTML=''; $('ai_undo').style.display='none';
+    _decRows(runs, []); return; }
+  $('ai_undo').style.display='';
   const ds=(ai.decisions||[]).slice().reverse();
   const picks=(ai.decisions||[]).filter(d=>d.kind==='pick');
   const aiPicks=picks.filter(d=>!d.fallback);
@@ -1736,12 +1777,72 @@ function renderDecisions(c){
     +` <button class="btn btn-accent btn-sm" type="button" onclick="aiSuggestion(true)">Apply</button> <button class="btn btn-ghost btn-sm" type="button" onclick="aiSuggestion(false)">Reject</button></div>`:'';
   const what=d=>d.kind==='pick'?(d.params?Object.entries(d.params).map(([k,v])=>k+' '+num(v,k.startsWith('x_')?3:0)).join(' · '):'')
      :(d.bounds?'range '+Object.entries(d.bounds).map(([k,v])=>k+' '+v[0]+' to '+v[1]).join(', ')+' ('+esc(d.action||'')+')':'review'+(d.action?' ('+esc(d.action)+')':''));
-  document.querySelector('#dec_tbl tbody').innerHTML = ds.length ? ds.map(d=>`<tr><td>${esc(d.recipe_id||('after '+d.n))}</td>`
-      +`<td>${esc(d.by)}${d.choice?' (#'+d.choice+' of '+d.shortlist_size+')':''}</td><td class="sub">${esc(what(d))}</td>`
-      +`<td>${esc(d.fallback?('fallback: '+d.fallback):(d.reason||d.note||''))}</td>`
-      +`<td class="sub">${esc((d.cited||[]).join(', '))}${d.knowledge_version?' · v'+d.knowledge_version:''}</td>`
-      +`<td>${d.result?(d.result.diameter_nm!=null?num(d.result.diameter_nm,2)+' nm, PDI '+num(d.result.pdi,3):'no fit')+(d.result.held?' (held)':''):(d.kind==='pick'?'pending':'')}</td></tr>`).join('')
-    : '<tr><td colspan="6" class="sub">No AI decision yet: the cold start comes first.</td></tr>';
+  const reviews=ds.filter(d=>d.kind==='review');
+  $('dec_reviews').innerHTML=reviews.length?'<div class="sub" style="margin:4px 0">Reviews</div>'+reviews.slice(0,6).map(d=>
+    `<div class="revrow"><b>after run ${d.n}</b> · ${esc(d.by)}: ${esc(d.fallback?('dropped: '+d.fallback):(d.note||''))}`
+    +(d.bounds?` <span class="sub">${esc(what(d))}</span>`:'')+'</div>').join(''):'';
+  // rows that were picked but are not measured yet
+  const pend=ds.filter(d=>d.kind==='pick' && d.recipe_id && !runs.some(r=>r.recipe_id===d.recipe_id));
+  _decRows(runs, ds.filter(d=>d.kind==='pick'), pend);
+}
+function _decRows(runs, picks, pend){
+  const byRid=Object.fromEntries((picks||[]).filter(d=>d.recipe_id).map(d=>[d.recipe_id,d]));
+  const what=p=>p?Object.entries(p).map(([k,v])=>k+' '+num(v,k.startsWith('x_')?3:0)).join(' · '):'';
+  const rows=(pend||[]).map(d=>`<tr><td>${esc(d.recipe_id)}</td><td>${esc(d.by)}${d.choice?' (#'+d.choice+')':''}</td><td class="sub">${esc(what(d.params))}</td>`
+      +`<td>${esc(d.fallback?('fallback: '+d.fallback):(d.reason||''))}</td><td class="sub">${esc((d.cited||[]).join(', '))}${d.knowledge_version?' · v'+d.knowledge_version:''}</td><td class="sub">being made</td><td></td></tr>`)
+    .concat(runs.slice().reverse().map(r=>{ const d=byRid[r.recipe_id]||{};
+      const v=r.verdict;
+      return `<tr><td>${esc(r.recipe_id||r.n)}</td><td>${esc(d.by||r.by)}${d.choice?' (#'+d.choice+' of '+d.shortlist_size+')':''}</td>`
+        +`<td class="sub">${esc(what(r.params))}</td><td>${esc(d.fallback?('fallback: '+d.fallback):(d.reason||''))}</td>`
+        +`<td class="sub">${esc((d.cited||[]).join(', '))}${d.knowledge_version?' · v'+d.knowledge_version:''}</td>`
+        +`<td>${r.diameter_nm!=null?num(r.diameter_nm,2)+' nm, PDI '+num(r.pdi,3):'no fit'}${r.held?' (held)':''}</td>`
+        +`<td>${v?`<span class="${v.call==='good'?'okt':'warnt'}">${v.call} call</span> <span class="sub">${esc(v.why||'')}</span>`
+           :`<button class="btn btn-ghost btn-sm" type="button" onclick="verdict('${esc(r.recipe_id)}','good')">Good call</button> <button class="btn btn-ghost btn-sm" type="button" onclick="verdict('${esc(r.recipe_id)}','bad')">Bad call</button>`}</td></tr>`; }));
+  document.querySelector('#dec_tbl tbody').innerHTML = rows.length ? rows.join('')
+    : '<tr><td colspan="7" class="sub">No run measured yet.</td></tr>';
+}
+async function verdict(rid, call){
+  const why=prompt(`${call==='good'?'Good':'Bad'} call on ${rid}. One line why (optional):`,'');
+  if(why===null) return;
+  const r=await api('/api/campaign/verdict',{recipe_id:rid, call, why});
+  if(r.error||r.ok===false){ $('r_status').textContent='✗ '+(r.error||'could not save the verdict'); return; }
+  $('r_status').textContent = r.kept_in_set ? `Verdict ${r.verdict.id} saved in the knowledge set.` : 'Verdict kept with this run (no knowledge set on this campaign).';
+}
+
+/* ── did the knowledge help? (Report) and Evaluation (Knowledge tab) ───── */
+let _helpSid=null, _evalTimer=null;
+function helpShow(c){
+  const sid=(c&&c.knowledge&&c.knowledge.set_id)||$('k_set').value||'';
+  const card=$('helpCard'); card.style.display=sid?'':'none';
+  if(sid && sid!==_helpSid){ _helpSid=sid; evalLoad(sid); }
+}
+function _evalTable(res){
+  if(!res) return '<div class="sub">No test yet.</div>';
+  if(!res.summary||!res.summary.length) return `<div class="sub">${esc(res.caveat||'')} ${esc((res.notes||[]).join('; '))}</div>`;
+  const best=Math.min(...res.summary.map(r=>r.runs_to_spec));
+  return `<table><thead><tr><th>Method</th><th>Runs to reach the spec</th><th>Reached</th><th>Best score after 10</th><th>Fallbacks</th></tr></thead><tbody>`
+    +res.summary.map(r=>`<tr${r.runs_to_spec===best?' class="sel"':''}><td>${esc(r.label)}</td><td>${num(r.runs_to_spec,1)}</td><td>${r.reached} of ${r.trials}</td><td>${num(r.best_after_10,2)}</td><td>${r.arm.startsWith('ai_')?r.fallbacks:'n/a'}</td></tr>`).join('')
+    +`</tbody></table><div class="sub">${esc(res.caveat)} Campaigns replayed: ${esc((res.campaigns||[]).join(', '))}; set v${res.set_version}; ${res.repeats} repeat(s) each; run ${esc(res.at)}.${(res.notes||[]).length?' '+esc(res.notes.join('; ')):''}</div>`;
+}
+async function evalLoad(sid, where){
+  const r=await api(`/api/knowledge/set/${encodeURIComponent(sid)}/evaluation`);
+  const running=r&&r.state==='running';
+  const html=_evalTable(r&&r.kind==='evaluate'?r.result:(r&&r.result&&r.result.summary?r.result:null));
+  if(!where||where==='help'){ $('help_body').innerHTML=html; $('help_state').textContent=running?'Running…':(r&&r.state==='error'?'✗ '+r.error:''); }
+  if(_kset&&_kset.id===sid){ $('kn_eval_body').innerHTML=html; $('kn_eval_state').textContent=running?'Running…':(r&&r.state==='error'?'✗ '+r.error:'');
+    if(r&&r.kind==='propose'&&r.result) $('kn_prop_note').textContent=r.result.why||''; }
+  clearTimeout(_evalTimer);
+  if(running) _evalTimer=setTimeout(()=>evalLoad(sid, where), 1500);
+  else if(_kset&&_kset.id===sid && r&&r.kind==='propose'){ await kOpen(sid,true); }
+}
+async function evalRun(where, kind){
+  const sid = where==='help' ? _helpSid : (_kset&&_kset.id);
+  if(!sid) return;
+  const ai = where==='help' ? $('help_ai').checked : $('kn_eval_ai').checked;
+  if(ai && !confirm('Including AI Co-pilot calls the AI for every replayed pick. Continue?')) return;
+  const r=await api(`/api/knowledge/set/${encodeURIComponent(sid)}/${kind||'evaluate'}`,{repeats:3, include_ai:ai});
+  if(r.error||r.ok===false){ (where==='help'?$('help_state'):$('kn_eval_state')).textContent='✗ '+(r.error||'refused'); return; }
+  evalLoad(sid, where);
 }
 async function aiSuggestion(accept){
   const r=await api('/api/campaign/ai/suggestion',{accept});
@@ -1837,7 +1938,7 @@ function lockSetup(running){
   _running=running;
   ['c_target','c_tol','c_dmin','c_dmax','c_pdi','c_budget','m_fitter','m_optimiser',
    'c_shape','c_confmin','c_nspread','c_addown','k_set','k_lit','k_note','k_camp',
-   'ai_inner','ai_review','ai_apply'].forEach(id=>{
+   'ai_inner','ai_review','ai_apply','k_verd'].forEach(id=>{
     const el=$(id); if(el) el.disabled=running; });
   document.querySelectorAll('#sidebar .nav-btn, #m_opt_params input, #fitList input, #optList input, #ownRows input, #ownRows button, input[name=k_for]')
     .forEach(el=>el.disabled=running);
@@ -2076,6 +2177,8 @@ async function kSetChosen(){
   $('k_note_n').textContent=`${nts.length} card${nts.length===1?'':'s'}`;
   const nc=(_kStepSet&&_kStepSet.campaigns||[]).length;
   $('k_camp_n').textContent=`${nc} campaign${nc===1?'':'s'} (warm start)`;
+  const nv=(_kStepSet&&_kStepSet.verdicts||[]).filter(v=>v.status!=='retired').length;
+  $('k_verd_n').textContent=`${nv} (the AI sees which earlier picks worked)`;
   const drafts=(_kStepSet&&_kStepSet.cards||[]).filter(c=>c.status==='draft').length;
   note.innerHTML=`version ${s?s.version:'?'}`
     +(s&&s.matches_chemistry===false?' · <span class="warnt">does not match chemistry.yml</span>':'')
@@ -2094,13 +2197,16 @@ function _kAutoSplit(on){
   }
   nk.disabled=_running;
   if(nk.dataset.touched!=='1' && +nk.value===0 && nk.dataset.auto!=='1'){
-    nk.value=3; nk.dataset.auto='1';
-    if(sp.dataset.touched!=='1') sp.value=Math.max(0,(+sp.value||0)-3);
+    const hn=((_kSummary($('k_set').value)||{}).harness||{}).n_knowledge;
+    const want=Number.isFinite(+hn)?Math.max(0,Math.min(10,+hn)):3;
+    nk.value=want; nk.dataset.auto='1';
+    if(sp.dataset.touched!=='1') sp.value=Math.max(0,(+sp.value||0)-want);
   }
 }
 function kForShow(){
   const f=$('k_for'); if(!f) return;
   f.style.display=_aiLevel?'':'none';
+  const vr=$('k_verd_row'); if(vr) vr.style.display=_aiLevel?'':'none';
   $('k_for_every').textContent=_aiLevel==='ai_advisor'?'Starting recipes and every progress review':'Starting recipes and every AI pick';
   if(!_aiLevel){ const r=document.querySelector('input[name=k_for][value=start]'); if(r) r.checked=true; }
 }
@@ -2109,7 +2215,8 @@ function kBody(){
   const every=!!_aiLevel && (document.querySelector('input[name=k_for]:checked')||{}).value==='every';
   if(!id) return every?{set_id:'', use:{every_pick:true}}:null;
   return {set_id:id, use:{literature:$('k_lit').checked, notes:$('k_note').checked, every_pick:every,
-          campaigns:_goal!=='benchmark' && $('k_camp').checked && $('k_camp_row').style.display!=='none'},
+          campaigns:_goal!=='benchmark' && $('k_camp').checked && $('k_camp_row').style.display!=='none',
+          verdicts:!!_aiLevel && $('k_verd').checked},
           n:Math.max(0,Math.round(+$('c_nknow').value||0))};
 }
 
@@ -2138,6 +2245,20 @@ function kRender(){
   $('kn_meta').textContent=`version ${s.version}${kw?' · matches: '+kw:''}${s.matches_chemistry===false?' · not this project\'s chemistry.yml':''}`;
   const cards=s.cards||[], drafts=cards.filter(c=>c.status==='draft'), appr=cards.filter(c=>c.status==='approved');
   $('kn_n_drafts').textContent=drafts.length||''; $('kn_n_cards').textContent=appr.length||''; $('kn_n_camps').textContent=(s.campaigns||[]).length||'';
+  const vs=(s.verdicts||[]).filter(v=>v.status!=='retired');
+  $('kn_n_verdicts').textContent=vs.length||'';
+  document.querySelector('#kn_vtbl tbody').innerHTML = vs.length ? vs.slice().reverse().map(v=>`<tr><td>${esc(v.id)}</td><td>${esc(v.run_tag||'')} ${esc(v.recipe_id||'')}</td>`
+      +`<td>${esc(v.chosen_by||'')}</td><td class="${v.call==='good'?'okt':'warnt'}">${esc(v.call)}</td><td>${esc(v.why||'')}</td>`
+      +`<td class="sub">${v.result&&v.result.diameter_nm!=null?num(v.result.diameter_nm,2)+' nm, PDI '+num(v.result.pdi,3):''}</td>`
+      +`<td><button class="btn btn-ghost btn-sm" type="button" onclick="kRetireVerdict('${esc(v.id)}')">Retire</button></td></tr>`).join('')
+    : '<tr><td colspan="7" class="sub">No verdict yet.</td></tr>';
+  const h=s.harness||{}; $('kh_n').value=h.n_knowledge??3; $('kh_k').value=h.shortlist_k??5; $('kh_t').value=h.trust??0.25;
+  const pr=s.proposal&&s.proposal.proposal;
+  $('kn_prop').innerHTML = pr ? `<div class="heldbox"><b>Proposed:</b> ${esc(Object.entries(pr).map(([k,v])=>k+' '+v).join(', '))}`
+      +` <span class="sub">practice ${num(s.proposal.practice_score&&s.proposal.practice_score.current,1)} → ${num(s.proposal.practice_score&&s.proposal.practice_score.proposed,1)} runs,`
+      +` held-out ${esc(s.proposal.held_out||'')} ${num(s.proposal.heldout_score&&s.proposal.heldout_score.current,1)} → ${num(s.proposal.heldout_score&&s.proposal.heldout_score.proposed,1)} runs</span>`
+      +` <button class="btn btn-accent btn-sm" type="button" onclick="kProposal(true)">Approve</button> <button class="btn btn-ghost btn-sm" type="button" onclick="kProposal(false)">Discard</button></div>` : '';
+  evalLoad(s.id, 'kn');
   if(!$('kn_q').value){
     const c=_kchem||{}, parts=[c.product, c.solvent, c.ligand, $('c_target').value?($('c_target').value+' nm'):'', 'flow synthesis size'].filter(Boolean);
     $('kn_q').value=parts.join(' ');
@@ -2245,6 +2366,24 @@ async function kReview(id, action){
   if(!_kMsg(r, `${id}: ${action==='approve'?'approved':action==='reject'?'rejected':'retired'}.`)) return;
   _kStepSet=null; const sec=action==='approve'||action==='reject'?'drafts':'cards';
   await kOpen(_kset.id,true); await loadSets(); kSection(sec);
+}
+async function kSaveHarness(){
+  if(!_kNeedSet()) return;
+  const r=await api(`/api/knowledge/set/${_kset.id}/harness`,{n_knowledge:+$('kh_n').value, shortlist_k:+$('kh_k').value, trust:+$('kh_t').value});
+  if(!_kMsg(r,'Settings saved (new set version).')) return;
+  _kStepSet=null; await kOpen(_kset.id,true); await loadSets(); kSection('eval');
+}
+async function kProposal(approve){
+  if(approve && !confirm('Apply the proposed settings to this set? Running campaigns keep the version they started with.')) return;
+  const r=await api(`/api/knowledge/set/${_kset.id}/proposal`,{approve});
+  if(!_kMsg(r, approve?'Improvement approved: new set version.':'Proposal discarded.')) return;
+  await kOpen(_kset.id,true); await loadSets(); kSection('eval');
+}
+async function kRetireVerdict(id){
+  if(!confirm('Retire verdict '+id+'? It stops being used; it stays in the set\'s history.')) return;
+  const r=await api(`/api/knowledge/set/${_kset.id}/verdict/${id}/retire`,{});
+  if(!_kMsg(r, id+' retired.')) return;
+  await kOpen(_kset.id,true); kSection('verdicts');
 }
 function kExport(){ if(_kset) window.location.href='/api/knowledge/set/'+encodeURIComponent(_kset.id)+'/export'; }
 async function kImport(inp){

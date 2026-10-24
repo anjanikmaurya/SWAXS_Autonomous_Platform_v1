@@ -1,12 +1,15 @@
 # AI next-recipe (design) agent: harness plan
 
-> **Status, 2026-10-24.** Built: traces and version stamps on every AI
-> decision, the three levels with validation and fallback
-> (`src/optimizer/ai_design.py`), knowledge sets and their freezing
-> (`src/design_knowledge/`), the simulator race including AI Co-pilot and
-> Pilot. NEVER BUILT yet: the replay benchmark of past real campaigns, the
-> per-source ablation, the approve-only improvement loop, and verdicts on
-> decisions (Phase 4).
+> **Status, 2026-10-24.** All four phases built: traces and version stamps
+> on every AI decision, the three levels with validation and fallback
+> (`src/optimizer/ai_design.py`), knowledge sets, verdicts and their freezing
+> (`src/design_knowledge/`), the replay of past campaigns against emulators
+> with per-source arms, and the approve-only improvement loop
+> (`src/design_knowledge/replay.py`). Not yet measured with the real AI; the
+> first real result needs finished campaigns with a set.
+> The module names first planned below (`design_agent.py`, `design_bench.py`,
+> `tools/design_benchmark.py`) were NEVER BUILT under those names: the work
+> landed in `ai_design.py` and `replay.py`.
 
 The AI next-recipe levels (Advisor, Co-pilot, Pilot) get the same harness as
 the AI fitter (`docs/design/LLM_FITTER_PLAN.md`), following Meta-Harness
