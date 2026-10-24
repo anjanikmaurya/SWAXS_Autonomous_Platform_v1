@@ -7,6 +7,26 @@ this file is the running summary. Dates are when the work landed on `main`.
 
 ## October 2026
 
+### Analyser: AI Advisor, Co-pilot and Pilot, Phase 3
+
+- `src/optimizer/ai_design.py` wraps the chosen optimiser. **Advisor**: the
+  optimiser picks; reviews every 5 or 10 runs may narrow the working range,
+  applied only inside the search range (undoable) or after the operator's
+  approval. **Co-pilot**: the AI picks one of the optimiser's 5 (its own pick
+  first) and must cite. **Pilot**: the AI writes the recipe, checked against
+  the search range, pump windows, hard caps, working range, a trust region and
+  repeats; one retry, then the optimiser's pick; reviews cannot be off; Start
+  needs a confirmation.
+- Harness: fixed JSON, code-chosen context (the frozen approved cards only when
+  "every AI pick" is on), validation with fallback, cached answers, every
+  decision recorded and traced (kind "design"). The AI call runs in the
+  background, never under the campaign lock; a pause or abort drops its answer.
+- Report, **Decisions**: AI picks, agreement with the optimiser, fallbacks,
+  working range, Apply / Reject / Undo. State survives a restart.
+- Compare methods can race AI Co-pilot and Pilot (needs the AI login; without
+  it they run as GP + EI and say so). The Guide has a page per level.
+- Tests: `tests/test_ai_design.py` (27, a scripted stand-in AI); page check 105.
+
 ### Analyser: knowledge sets and the Guide, Phase 2
 
 - **Knowledge tab**: design knowledge per chemistry (`src/design_knowledge/`,

@@ -74,6 +74,22 @@ class ParameterSpace:
     def names(self):
         return list(NAMES)
 
+    def sub(self, bounds: dict) -> "ParameterSpace":
+        """The same space (composition rule, pump windows) inside narrower bounds.
+
+        ``bounds`` maps setting -> (lo, hi); each is intersected with this space's
+        own bounds, so a sub-space can never reach outside the search range."""
+        sp = ParameterSpace(t_reac=self.bounds["T_reac"], f_tot=self.bounds["F_tot"],
+                            x_sum_max=self.x_sum_max, pump_limits=dict(self.pump_limits))
+        nb = {}
+        for k, (lo, hi) in self.bounds.items():
+            blo, bhi = (bounds or {}).get(k, (lo, hi))
+            nb[k] = (max(float(lo), float(blo)), min(float(hi), float(bhi)))
+            if nb[k][0] > nb[k][1]:
+                raise ValueError(f"{k}: the narrower range lies outside the search range")
+        sp.bounds = nb
+        return sp
+
     # ── validity / constraints ────────────────────────────────────────────────
     def valid(self, p: dict) -> bool:
         for k, (lo, hi) in self.bounds.items():

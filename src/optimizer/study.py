@@ -23,9 +23,20 @@ def _running_min(xs):
     return out
 
 
+def _make(mid, space, cfg, ai_client_factory):
+    """A method, or an AI level ("ai_copilot", "ai_pilot") driving GP + EI."""
+    if mid.startswith("ai_"):
+        from .ai_design import AIDesign                      # noqa: PLC0415
+        kw = {"client_factory": ai_client_factory} if ai_client_factory else {}
+        return AIDesign(_methods.make("gp_ei", space, **cfg), mid,
+                        review_every=5 if mid == "ai_pilot" else 0, **kw)
+    return _methods.make(mid, space, **cfg)
+
+
 def run_study(space: ParameterSpace, method_ids, cfg: dict, *,
               repeats: int = 1, confidence: float = 0.9,
-              truth_cfg: dict | None = None, max_iter: int = 500) -> dict:
+              truth_cfg: dict | None = None, max_iter: int = 500,
+              ai_client_factory=None) -> dict:
     """Run each optimiser id through a campaign against the simulator.
 
     `cfg` holds target_size/tolerance/pdi_cap/budget/n_init (as the live campaign).
@@ -35,11 +46,16 @@ def run_study(space: ParameterSpace, method_ids, cfg: dict, *,
     Returns {method_id: {repeats:[{best_loss_curve, status, n, best}], label}}.
     """
     labels = {m["id"]: m["label"] for m in _methods.available()}
+    from .ai_design import LABELS as _AIL, _client as _ai_client    # noqa: PLC0415
+    _have_ai = (ai_client_factory or _ai_client)() is not None if any(
+        str(m).startswith("ai_") for m in method_ids) else True
+    for k, v in _AIL.items():
+        labels[k] = v + " (GP + EI)" + ("" if _have_ai else ", no AI login: ran as the optimiser")
     results: dict = {}
     for mid in method_ids:
         runs = []
         for r in range(max(1, int(repeats))):
-            camp = _methods.make(mid, space, **cfg)
+            camp = _make(mid, space, cfg, ai_client_factory)
             camp.start()
             losses, n = [], 0
             while n <= max_iter:

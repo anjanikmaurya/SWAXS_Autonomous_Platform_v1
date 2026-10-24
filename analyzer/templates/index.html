@@ -510,7 +510,14 @@ body.swaxs-shell #main{overflow-y:auto}
             <label class="tick" id="k_camp_row"><input type="checkbox" id="k_camp" checked onchange="kSetChosen()"> Past campaigns <span class="sub" id="k_camp_n"></span></label>
           </div>
         </div>
-        <div class="sub">Used for: the starting recipes from knowledge (inside the range the ticked cards allow), and past campaigns as a warm start for the optimiser's model. Only approved cards are used. Frozen at Start; knowledge can narrow where the starting recipes go, never widen the search, and the reactor limits always apply.</div>
+        <div class="kuse" id="k_for" style="display:none">
+          <div class="colh">For</div>
+          <div class="kuse-l">
+            <label class="tick"><input type="radio" name="k_for" value="start" checked> Starting recipes</label>
+            <label class="tick"><input type="radio" name="k_for" value="every"> <span id="k_for_every">Starting recipes and every AI pick</span></label>
+          </div>
+        </div>
+        <div class="sub">Used for: the starting recipes from knowledge (inside the range the ticked cards allow), and past campaigns as a warm start for the optimiser's model; with an AI level and "every AI pick", the AI also reads the cards. Only approved cards are used. Frozen at Start; knowledge can narrow where the starting recipes go, never widen the search, and the reactor limits always apply.</div>
       </div>
 
       <!-- STEP: starting recipes (live goals only) -->
@@ -661,6 +668,14 @@ body.swaxs-shell #main{overflow-y:auto}
           <button class="btn btn-ghost btn-sm danger" id="c_abort" onclick="abortCampaign()" disabled><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-stop"/></svg> Abort</button>
         </span></div>
       <div class="sub" id="r_status">No campaign running.</div>
+    </div>
+    <div class="card" id="decCard" style="display:none">
+      <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-log"/></svg> Decisions
+        <span class="hd-right"><button class="btn btn-ghost btn-sm" id="ai_undo" type="button" onclick="aiUndo()" disabled title="Undo the last applied working range">Undo range</button></span></div>
+      <div class="kpis" id="dec_kpis"></div>
+      <div id="dec_pending"></div>
+      <div class="tablewrap" style="max-height:320px"><table id="dec_tbl"><thead><tr><th>Run</th><th>Chosen by</th><th>What</th><th>Why</th><th>Based on</th><th>Result</th></tr></thead><tbody></tbody></table></div>
+      <div class="sub">Every AI decision is also traced in logs/assistant_traces (kind "design"). Knowledge version shown per decision.</div>
     </div>
     <div class="card pspace">
       <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-visualisation"/></svg> Parameter space &amp; convergence
@@ -1330,6 +1345,27 @@ function updateMethodDescs(){
         + (a.picks?`<div class="acqp">↳ picks ${esc(a.picks)}</div>`:'')
         + `</div>`;
   }
+  if(_aiLevel){
+    const pilot=_aiLevel==='ai_pilot', adv=_aiLevel==='ai_advisor';
+    const lbl=_aiLevel==='ai_copilot'?'Shortlist from':(pilot?'Fallback optimiser':'Optimiser');
+    const opts=[...$('m_optimiser').options].map(o=>`<option value="${esc(o.value)}"${o.value===$('m_optimiser').value?' selected':''}>${esc(o.textContent)}</option>`).join('');
+    const prev=($('ai_review')||{}).value;
+    html=`<div class="acqbox aibox"><div class="grid2">`
+      +`<div><label for="ai_inner">${lbl}</label><select id="ai_inner" onchange="$('m_optimiser').value=this.value;setMethods()">${opts}</select></div>`
+      +`<div><label for="ai_review">Progress review</label><select id="ai_review" onchange="checkReady()">`
+        +`<option value="5">every 5 runs</option><option value="10">every 10 runs</option>${pilot?'':'<option value="0">off</option>'}</select></div>`
+      +(adv?`<div><label for="ai_apply">Apply suggestions</label><select id="ai_apply"><option value="auto">automatically, if within the safety limits</option><option value="ask">ask me first</option></select></div>`:'')
+      +`</div><div class="sub" style="margin-top:6px">`
+      +(adv?'Measuring never stops for a review. A suggested range inside the search range is applied from the next recipe and can be undone (Report, Decisions); one outside it goes back to the AI once, then is dropped.'
+           :'Every AI decision, its reason and what it was based on appear in Report, Decisions. The search range, pump windows and hard caps are always enforced; anything invalid uses the optimiser\'s pick. Measuring continues while a review waits for you.')
+      +(pilot?' The review cannot be turned off, and Start asks you to confirm the limits.':'')
+      +`</div></div>`;
+    $('m_opt_desc').innerHTML=html;
+    if(prev && [...$('ai_review').options].some(o=>o.value===prev)) $('ai_review').value=prev;
+    $('m_opt_params').innerHTML='';
+    renderMethodLists();
+    return;
+  }
   $('m_opt_desc').innerHTML=html;
   renderOptParams();
   renderMethodLists();
@@ -1352,19 +1388,33 @@ function _listHTML(kind, items, fam, active){
   });
   return h;
 }
+const _AI_LEVELS=[
+  {id:'ai_advisor', label:'AI Advisor', desc:'The optimiser picks every recipe; every few runs the AI reviews progress and may suggest a narrower working range (applied only inside the safety limits, or after you approve it).'},
+  {id:'ai_copilot', label:'AI Co-pilot', desc:'The optimiser shortlists 5 recipes (its own pick first); the AI picks one and says why, citing the knowledge or the data. Anything invalid: the optimiser\'s pick.', tag:'recommended for AI'},
+  {id:'ai_pilot', label:'AI Pilot', desc:'The AI writes each recipe, inside the search range, pump windows, hard caps and a trust region around the best recipe; otherwise the optimiser\'s pick. Reviews cannot be turned off.', tag:'experimental'}];
+let _aiLevel=null, _aiOK=null;
 function renderMethodLists(){
   const fits=_methodData.fitters||[];
   const fl=$('fitList'); if(fl) fl.innerHTML=_listHTML('fit', fits, _FIT_FAM, $('m_fitter').value);
   const opts=[...$('m_optimiser').options].map(o=>_methodFor(_methodData.optimisers,o.value)).filter(m=>m.id);
-  const ol=$('optList'); if(ol) ol.innerHTML=_listHTML('opt', opts, _OPT_FAM, $('m_optimiser').value);
+  const ol=$('optList');
+  if(ol){
+    ol.innerHTML=_listHTML('opt', opts, _OPT_FAM, _aiLevel?'':$('m_optimiser').value)
+      +'<div class="mfam">Agentic</div>'+_AI_LEVELS.map(a=>`<label class="mopt${_aiLevel===a.id?' on':''}" data-kind="ai" data-id="${a.id}">`
+        +`<input type="radio" name="m_opt" value="${a.id}"${_aiLevel===a.id?' checked':''}>`
+        +`<span><b>${a.label}</b>${a.tag?` <i class="mtag${a.id==='ai_pilot'?' base':''}">${a.tag}</i>`:''}`
+        +`<span class="d">${esc(a.desc)} <a href="#" class="glink" data-guide="${a.id}">Details in the Guide →</a></span></span></label>`).join('');
+  }
   document.querySelectorAll('.mopt input').forEach(i=>i.onchange=()=>{
-    const sel=$(i.name==='m_fit'?'m_fitter':'m_optimiser'); sel.value=i.value; setMethods();
+    if(i.name==='m_opt' && i.value.startsWith('ai_')){ _aiLevel=i.value; updateMethodDescs(); kForShow(); checkReady(); return; }
+    if(i.name==='m_opt') _aiLevel=null;
+    const sel=$(i.name==='m_fit'?'m_fitter':'m_optimiser'); sel.value=i.value; setMethods(); kForShow();
   });
   if(_running) lockSetup(true);
   // Random uses no data, so past campaigns cannot warm-start it
   const kr=$('k_camp_row'); if(kr) kr.style.display = $('m_optimiser').value==='random' ? 'none' : '';
   const fit=_methodFor(fits,$('m_fitter').value), opt=_methodFor(_methodData.optimisers,$('m_optimiser').value);
-  $('pairHint').innerHTML=_goal==='benchmark'?'':`<b>Fitting</b>: ${esc(fit.id==='llm_assisted'?'AI-assisted structure':(fit.label||''))}<br><b>Next recipe</b>: ${esc(opt.label||'')}`;
+  $('pairHint').innerHTML=_goal==='benchmark'?'':`<b>Fitting</b>: ${esc(fit.id==='llm_assisted'?'AI-assisted structure':(fit.label||''))}<br><b>Next recipe</b>: ${esc(_aiLevel?(_AI_LEVELS.find(a=>a.id===_aiLevel).label+' ('+(opt.label||'')+')'):(opt.label||''))}`;
 }
 async function loadMethods(){
   const r=await api('/api/methods');
@@ -1415,6 +1465,12 @@ async function loadStudyMethods(){
     const lbl=document.createElement('label'); lbl.className='mopt';
     lbl.innerHTML=`<input type="checkbox" id="study_${m.id}" value="${m.id}" ${(m.id==='random'||m.id==='gp_ei')?'checked':''}>`
       +`<span><b>${esc(m.label)}</b>${m.id==='random'?' <i class="mtag base">baseline</i>':''}</span>`;
+    box.appendChild(lbl);
+  });
+  ['ai_copilot','ai_pilot'].forEach(id=>{
+    const a=_AI_LEVELS.find(x=>x.id===id), lbl=document.createElement('label'); lbl.className='mopt';
+    lbl.innerHTML=`<input type="checkbox" id="study_${id}" value="${id}"><span><b>${a.label}</b> <i class="mtag base">needs the AI login</i>`
+      +`<span class="d" style="display:block">drives GP + EI on the simulator; without an AI login it runs as GP + EI</span></span>`;
     box.appendChild(lbl);
   });
 }
@@ -1587,6 +1643,12 @@ function checkReady(){
     const n=+$('c_ninit').textContent||0, b=+$('c_budget').value||0;
     h+= (n>=1 && (!b || n<=b)) ? li(n<5||(b&&n>b/3)?'warn':'ok', `Cold start: ${n} recipe(s)`) : li('bad','Cold start does not fit the budget');
     const shp=$('c_shape'); h+=li('ok','Expected shape: '+esc(shp.options[shp.selectedIndex].text));
+    if(_aiLevel){
+      if(_aiOK===null){ _aiOK=false; api('/api/ai/status').then(r=>{ _aiOK=!!(r&&r.available); checkReady(); }); }
+      h+= _aiOK ? li('ok', esc(_AI_LEVELS.find(a=>a.id===_aiLevel).label)+': AI login found')
+                : li('warn','No AI login found: '+esc(_AI_LEVELS.find(a=>a.id===_aiLevel).label)+' runs as the optimiser until one is set');
+      if(_aiLevel==='ai_pilot') h+=li('warn','AI Pilot is experimental: Start asks you to confirm the limits');
+    }
     const ks=_kSummary($('k_set').value);
     if(!ks) h+=li('ok','No knowledge set: starting recipes are your own and the spread');
     else { h+= ks.matches_chemistry===false ? li('warn','Knowledge set "'+esc(ks.name)+'" does not match chemistry.yml')
@@ -1632,6 +1694,15 @@ async function startCampaign(){
   const body={target_size, tolerance, pdi_cap:pdi, budget, confidence_min:cm,
               goal:_goal, spec_units:'diameter', ...extra, ..._coldBody()};
   body.method_params=collectOptParams();      // UCB kappa / TuRBO size / BAX tau, per the active optimiser
+  if(_aiLevel){
+    body.ai={level:_aiLevel, review_every:+(($('ai_review')||{}).value||0), apply:($('ai_apply')||{}).value||'auto'};
+    if(_aiLevel==='ai_pilot'){
+      const b=(_range&&_range.bounds)||{}, s=(_range&&_range.safety)||{};
+      const lim=Object.entries(b).map(([k,v])=>`${k} ${v[0]} to ${v[1]}`).join(', ');
+      if(!confirm(`AI Pilot will write each recipe itself.\n\nEvery recipe is checked against the search range (${lim}), the pump windows and the hard caps (T ${s.T_max??'?'} °C, F_tot ${s.F_tot_max??'?'} µL/min); anything outside uses the optimiser's pick. A review runs every ${body.ai.review_every} runs.\n\nStart AI Pilot?`)) return;
+      body.ai.confirmed=true;
+    }
+  }
   $('c_start').disabled=true;
   const r=await api('/api/campaign/start', body);
   $('c_start').disabled=false;
@@ -1645,6 +1716,43 @@ async function startCampaign(){
 async function abortCampaign(){
   if(!confirm('Abort the campaign? The reactor keeps whatever recipe it is running.')) return;
   await api('/api/campaign/abort',{});
+}
+function renderDecisions(c){
+  const card=$('decCard'), ai=c&&c.ai;
+  if(!ai){ card.style.display='none'; return; }
+  card.style.display='';
+  const ds=(ai.decisions||[]).slice().reverse();
+  const picks=(ai.decisions||[]).filter(d=>d.kind==='pick');
+  const aiPicks=picks.filter(d=>!d.fallback);
+  const same=aiPicks.filter(d=>d.same_as_optimiser).length;
+  $('dec_kpis').innerHTML=`<div class="kpi"><span>Level</span><b>${esc(ai.label)}</b></div>`
+    +(ai.level!=='ai_advisor'?`<div class="kpi"><span>AI picks</span><b>${aiPicks.length} of ${picks.length}</b></div>`
+      +`<div class="kpi"><span>Same as optimiser's top</span><b>${same} of ${aiPicks.length}</b></div>`:'')
+    +`<div class="kpi"><span>Fallbacks</span><b>${ai.n_fallbacks}</b></div>`
+    +`<div class="kpi"><span>Working range</span><b>${ai.work_bounds?Object.entries(ai.work_bounds).map(([k,v])=>k+' '+num(v[0],k.startsWith('x_')?2:0)+' to '+num(v[1],k.startsWith('x_')?2:0)).join(', '):'full'}</b></div>`;
+  $('ai_undo').disabled=!ai.can_undo;
+  const ps=ai.pending_suggestion;
+  $('dec_pending').innerHTML=ps?`<div class="heldbox"><b>Advisor suggests</b> ${esc(Object.entries(ps.bounds).map(([k,v])=>k+' '+v[0]+' to '+v[1]).join(', '))}: ${esc(ps.note||'')}`
+    +` <button class="btn btn-accent btn-sm" type="button" onclick="aiSuggestion(true)">Apply</button> <button class="btn btn-ghost btn-sm" type="button" onclick="aiSuggestion(false)">Reject</button></div>`:'';
+  const what=d=>d.kind==='pick'?(d.params?Object.entries(d.params).map(([k,v])=>k+' '+num(v,k.startsWith('x_')?3:0)).join(' · '):'')
+     :(d.bounds?'range '+Object.entries(d.bounds).map(([k,v])=>k+' '+v[0]+' to '+v[1]).join(', ')+' ('+esc(d.action||'')+')':'review'+(d.action?' ('+esc(d.action)+')':''));
+  document.querySelector('#dec_tbl tbody').innerHTML = ds.length ? ds.map(d=>`<tr><td>${esc(d.recipe_id||('after '+d.n))}</td>`
+      +`<td>${esc(d.by)}${d.choice?' (#'+d.choice+' of '+d.shortlist_size+')':''}</td><td class="sub">${esc(what(d))}</td>`
+      +`<td>${esc(d.fallback?('fallback: '+d.fallback):(d.reason||d.note||''))}</td>`
+      +`<td class="sub">${esc((d.cited||[]).join(', '))}${d.knowledge_version?' · v'+d.knowledge_version:''}</td>`
+      +`<td>${d.result?(d.result.diameter_nm!=null?num(d.result.diameter_nm,2)+' nm, PDI '+num(d.result.pdi,3):'no fit')+(d.result.held?' (held)':''):(d.kind==='pick'?'pending':'')}</td></tr>`).join('')
+    : '<tr><td colspan="6" class="sub">No AI decision yet: the cold start comes first.</td></tr>';
+}
+async function aiSuggestion(accept){
+  const r=await api('/api/campaign/ai/suggestion',{accept});
+  if(r.error||r.ok===false){ $('r_status').textContent='✗ '+(r.error||'refused'); return; }
+  if(r.campaign) renderCampaign(r.campaign);
+}
+async function aiUndo(){
+  if(!confirm('Undo the last applied working range?')) return;
+  const r=await api('/api/campaign/ai/undo',{});
+  if(r.error||r.ok===false){ $('r_status').textContent='✗ '+(r.error||'nothing to undo'); return; }
+  if(r.campaign) renderCampaign(r.campaign);
 }
 async function pauseCampaign(){
   const want=!(_camp&&_camp.paused);
@@ -1728,9 +1836,10 @@ function lockSetup(running){
   // would not affect the live run and only misleads. Lock them until it ends.
   _running=running;
   ['c_target','c_tol','c_dmin','c_dmax','c_pdi','c_budget','m_fitter','m_optimiser',
-   'c_shape','c_confmin','c_nspread','c_addown','k_set','k_lit','k_note','k_camp'].forEach(id=>{
+   'c_shape','c_confmin','c_nspread','c_addown','k_set','k_lit','k_note','k_camp',
+   'ai_inner','ai_review','ai_apply'].forEach(id=>{
     const el=$(id); if(el) el.disabled=running; });
-  document.querySelectorAll('#sidebar .nav-btn, #m_opt_params input, #fitList input, #optList input, #ownRows input, #ownRows button')
+  document.querySelectorAll('#sidebar .nav-btn, #m_opt_params input, #fitList input, #optList input, #ownRows input, #ownRows button, input[name=k_for]')
     .forEach(el=>el.disabled=running);
   const hint=$('c_lock_hint'); if(hint) hint.style.display=running?'block':'none';
 }
@@ -1744,6 +1853,7 @@ function renderCampaign(c){
   $('c_abort').disabled = !running;
   $('c_pause').disabled = !running;
   $('c_pause').textContent = c&&c.paused ? 'Resume' : 'Pause';
+  renderDecisions(c);
   $('c_start').disabled = running;
   lockSetup(running);
   if(!idle) $('c_continue').style.display='none';
@@ -1809,6 +1919,7 @@ function renderCampaign(c){
     txt += ` · WARNING: conditions go to ${c.conditions_folder} but the reactor watches ${c.conditions_folder_reactor}`;
   }
   if(c.paused) txt += ' · PAUSED: no new recipe is issued until Resume (Report tab)';
+  if(c.ai_busy && c.ai_busy.pick) txt += ' · the AI is choosing the next recipe';
   const nh=(c.held||[]).length;
   if(nh) txt += ` · ${nh} held result(s) waiting in Fitting`;
   $('c_status').textContent=txt;
@@ -1987,9 +2098,17 @@ function _kAutoSplit(on){
     if(sp.dataset.touched!=='1') sp.value=Math.max(0,(+sp.value||0)-3);
   }
 }
+function kForShow(){
+  const f=$('k_for'); if(!f) return;
+  f.style.display=_aiLevel?'':'none';
+  $('k_for_every').textContent=_aiLevel==='ai_advisor'?'Starting recipes and every progress review':'Starting recipes and every AI pick';
+  if(!_aiLevel){ const r=document.querySelector('input[name=k_for][value=start]'); if(r) r.checked=true; }
+}
 function kBody(){
-  const id=$('k_set').value; if(!id) return null;
-  return {set_id:id, use:{literature:$('k_lit').checked, notes:$('k_note').checked,
+  const id=$('k_set').value;
+  const every=!!_aiLevel && (document.querySelector('input[name=k_for]:checked')||{}).value==='every';
+  if(!id) return every?{set_id:'', use:{every_pick:true}}:null;
+  return {set_id:id, use:{literature:$('k_lit').checked, notes:$('k_note').checked, every_pick:every,
           campaigns:_goal!=='benchmark' && $('k_camp').checked && $('k_camp_row').style.display!=='none'},
           n:Math.max(0,Math.round(+$('c_nknow').value||0))};
 }

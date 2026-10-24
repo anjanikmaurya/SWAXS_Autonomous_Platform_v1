@@ -129,6 +129,26 @@ a confirmation. Plot scales: **Log-log**, **Semilog Y**, **Semilog X**,
 QC note appears under the plot when AI credentials are set. Confidence badges:
 green at ≥ 0.6, amber at ≥ 0.3, otherwise low.
 
+### AI next-recipe levels (Setup step 3, Agentic)
+
+| Level | Who picks each recipe | The AI's part |
+|---|---|---|
+| **AI Advisor** | the optimiser | every 5 or 10 runs it reviews progress and may suggest a narrower working range; **Apply suggestions**: automatically if inside the safety limits (undo in Report, Decisions), or **ask me first** |
+| **AI Co-pilot** | the AI, from the optimiser's shortlist of 5 (the optimiser's own pick first, then the best by Expected Improvement) | picks one, gives a reason, cites cards or "data" |
+| **AI Pilot** (experimental) | the AI writes the recipe | must be inside the search range, pump windows, hard caps, working range and a trust region (best ± a quarter of each span), new, and cited; one retry, then the optimiser's pick; reviews every 5 or 10 runs cannot be turned off; Start asks you to confirm the limits |
+
+The cold start is never the AI's. The AI level drives the optimiser shown in its
+detail box (Shortlist from / Fallback optimiser / Optimiser). In step 4, **For**:
+**Starting recipes** (the AI does not see the cards) or **Starting recipes and
+every AI pick** (or every progress review, for the Advisor). Anything invalid,
+no AI login, a timeout or a non-JSON answer: the optimiser's pick, recorded as a
+fallback; the loop never waits on the AI (the call runs in the background, and
+a pause or abort meanwhile drops its answer). Every decision is in **Report,
+Decisions** (who chose, the shortlist position, the reason, the cards cited, the
+knowledge version, the result) and traced in `logs/assistant_traces/` (kind
+`design`). The same prompt gets the same (cached) answer, so a replay is
+reproducible. Logic: `src/optimizer/ai_design.py`.
+
 ### Knowledge tab
 
 Design knowledge for the next recipe, one **knowledge set** per chemistry
@@ -166,6 +186,9 @@ header link to their page (**Details in the Guide →**).
 
 ### Report tab
 
+- **Decisions** (AI levels): AI picks, how many matched the optimiser's own
+  top pick, fallbacks, the working range; a waiting Advisor suggestion with
+  **Apply** / **Reject**; **Undo range**.
 - **Campaign**: status, **Pause** / **Resume** (paused: no new recipe is issued;
   anything already queued still runs and its result is still recorded) and
   **Abort** (asks first; the reactor finishes the recipe it is running).
@@ -290,6 +313,9 @@ its half-width, both as radius.
 | expected shape | sphere (core-shell counts) | `expected_shape` `sphere_cs` (`sphere`, `any`) |
 | min fit confidence | 0.5 | `confidence_min` 0.5 (0 to 1) |
 
+`ai`: `{level: ai_advisor | ai_copilot | ai_pilot, review_every: 0 | 5 | 10, apply: auto | ask,
+confirmed}` (Pilot needs `review_every` 5 or 10 and `confirmed: true`; not for
+`benchmark`); `knowledge.use.every_pick` gives the AI the cards at every pick.
 `knowledge`: `{set_id, use: {literature, notes, campaigns}, n}`; `n` (0 to 10) recipes
 from knowledge go after your own and before the spread; an unknown set is refused.
 The frozen snapshot (set id, version, cards and campaigns used) and the warm-start
@@ -446,6 +472,9 @@ and `*.json` there as a recipe.
 | `POST /api/campaign/preview` | the cold-start recipes a Start with this body would issue (`own` then `spread`), without starting; 400 with the reasons for a bad recipe |
 | `GET /api/search_range` | search bounds, `x_sum_max`, hard safety caps, expected-shape choices (read-only) |
 | `GET /api/guide` | the Guide pages |
+| `GET /api/ai/status` | `{available}`: is an AI login configured |
+| `POST /api/campaign/ai/suggestion` | `{accept}`: apply or reject the Advisor's waiting range |
+| `POST /api/campaign/ai/undo` | undo the last applied working range |
 | `GET/POST /api/knowledge/sets` | list sets (with `matches_chemistry`) and the project's `chemistry.yml`; create a set `{name, keywords}` |
 | `GET /api/knowledge/set/<id>` | the set, each card with its check against the search range |
 | `POST /api/knowledge/set/<id>/notes`, `/text`, `/doi`, `/pdf`, `/from_search` | draft cards from notes, a passage, a DOI's abstract, a PDF, ticked search results |

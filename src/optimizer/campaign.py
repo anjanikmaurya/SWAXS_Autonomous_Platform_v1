@@ -61,6 +61,9 @@ class CampaignController:
         #: confidence). They train the surrogate, scored against THIS campaign's
         #: target, but are not history: no budget, never the best or the hit.
         self.prior: list[dict] = []
+        #: Optional narrower working box for NEW proposals (the AI Advisor's
+        #: accepted suggestion). The surrogate still lives in the full space.
+        self.work_bounds: dict | None = None
         self._n_asked = 0
         self.last_error: str | None = None   # set when ask() had to fall back
         self.n_fallbacks = 0
@@ -297,6 +300,13 @@ class CampaignController:
     def candidate_pool(self, n: int = 256, seed_offset: int | None = None) -> list[dict]:
         """The constraint-valid Sobol pool the acquisition is maximised over."""
         off = self._n_asked + 1 if seed_offset is None else int(seed_offset)
+        if self.work_bounds:
+            try:
+                pool = self.space.sub(self.work_bounds).sobol(int(n), seed=self.seed + off)
+                if pool:
+                    return pool
+            except ValueError:
+                pass                     # an empty working box never stops the loop
         return self.space.sobol(int(n), seed=self.seed + off)
 
     def _suggest_bo(self) -> dict:

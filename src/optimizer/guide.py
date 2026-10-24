@@ -8,7 +8,7 @@ from __future__ import annotations
 
 BENCH = "docs/benchmarks/FITTER_BENCHMARK_2026-10.md"
 
-ORDER = ["Scoring", "Goals", "Fitting", "Next recipe", "Knowledge", "Report"]
+ORDER = ["Scoring", "Goals", "Fitting", "Next recipe", "AI next recipe", "Knowledge", "Report"]
 
 FAMILY = {"catalogue_bic": "Standard", "ls_sphere": "Standard", "ml_regressor": "ML",
           "llm_assisted": "Agentic", "random": "Standard", "gp_ei": "ML", "gp_ucb": "ML",
@@ -97,6 +97,43 @@ PAGES = {
         "refs": "Neiswanger, Wang, Ermon (2021), ICML (InfoBAX)"},
     "pareto_ehvi": {"group": "Next recipe", "when": "Size vs PDI trade-off.", "not": "A single target.",
         "refs": "Emmerich, Giannakoglou, Naujoks (2006), IEEE TEC"},
+    "ai_advisor": {"title": "AI Advisor", "group": "AI next recipe",
+        "what": "The optimiser picks every recipe. Every 5 or 10 runs the AI reviews progress and may "
+                "suggest a narrower working range. A range inside the search range (which sits inside "
+                "the reactor's limits) is applied from the next recipe and can be undone, or waits for "
+                "you with \"ask me first\". A range outside it goes back to the AI once with the limits, "
+                "then is dropped. Measuring never stops for a review.",
+        "when": "You want AI judgement without changing how recipes are chosen.",
+        "maths": "review every N runs -> {note, bounds?, cited}\nbounds valid if inside the search range, "
+                 "at least 10 % of each span wide, and holding a recipe the pumps can make",
+        "scored": "Not yet measured on real campaigns."},
+    "ai_copilot": {"title": "AI Co-pilot", "group": "AI next recipe",
+        "what": "After the cold start the optimiser shortlists 5 recipes: its own pick first, then the "
+                "best by Expected Improvement. The AI picks one and cites the cards or the data it used. "
+                "An unknown choice, no citation, no AI login, a timeout or a bad answer: the optimiser's "
+                "pick, recorded as a fallback.",
+        "when": "The recommended AI level: every option it sees was proposed by the optimiser.",
+        "maths": "shortlist = [optimiser pick] + top-k EI;  answer {choice, reason, cited, expected}\n"
+                 "invalid -> shortlist[1] (the optimiser's own pick)",
+        "scored": "Race it in Compare methods (needs the AI login)."},
+    "ai_pilot": {"title": "AI Pilot", "group": "AI next recipe",
+        "what": "The AI writes each recipe after the cold start. It must give all five settings as "
+                "numbers inside the search range, the pump windows, the hard caps, the working range "
+                "and a trust region around the best recipe, must not repeat a measured recipe, and must "
+                "cite. One retry with the reason, then the optimiser's pick. Reviews cannot be turned "
+                "off, and Start asks you to confirm the limits.",
+        "when": "Method research, after it has beaten Random and GP + EI in Compare methods.",
+        "not": "A beamtime before that.",
+        "maths": "trust region: best ± 25 % of each setting's span / 2",
+        "scored": "Race it in Compare methods (needs the AI login)."},
+    "harness": {"title": "How the AI is harnessed", "group": "AI next recipe",
+        "what": "A fixed JSON answer; the context is chosen by code (target, measured runs, the "
+                "shortlist, the frozen approved cards when \"every AI pick\" is on); every answer is "
+                "validated and falls back safely; the answer is cached on the exact prompt so a replay "
+                "is reproducible; every decision is shown in Report, Decisions and traced (kind "
+                "\"design\"). The AI call runs in the background, so the page and the loop never wait "
+                "on it.",
+        "refs": "docs/design/DESIGN_HARNESS_PLAN.md · Meta-Harness, arXiv 2603.28052"},
     "starting": {"title": "Starting recipes", "group": "Next recipe",
         "what": "Before the optimiser has data it needs a cold start: recipes spread over the whole "
                 "search range so it can learn the trends of all five settings. Your own recipes go "

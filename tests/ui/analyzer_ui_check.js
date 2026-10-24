@@ -243,7 +243,7 @@ const w=dom.window;
   ok($('c_range').textContent.includes('180 to 300'),'search range shown read-only: '+$('c_range').textContent);
   ok($('c_cond').value==='1D/SAXS/Conditions' && /same folder/.test($('c_cond_note').textContent),'conditions folder checked against the reactor');
   ok(w.document.querySelectorAll('#fitList .mopt').length===3,'fitting methods listed as radio rows');
-  ok([...w.document.querySelectorAll('#optList .mopt')].map(l=>l.dataset.id).join()==='random,gp_ei,gp_ucb,turbo',
+  ok([...w.document.querySelectorAll('#optList .mopt')].map(l=>l.dataset.id).join()==='random,gp_ei,gp_ucb,turbo,ai_advisor,ai_copilot,ai_pilot',
      'next-recipe list filtered to the goal: '+[...w.document.querySelectorAll('#optList .mopt')].map(l=>l.dataset.id));
   ok(/AI-assisted structure/.test($('fitList').textContent),'the AI fitter has one name');
   ok($('c_ninit').textContent==='10','cold start defaults to 10, got '+$('c_ninit').textContent);
@@ -274,6 +274,31 @@ const w=dom.window;
   w.showTab('setup');
   const gl=w.document.querySelector('#optList .glink');
   ok(gl && gl.dataset.guide==='random','methods link to their Guide page');
+  /* AI levels */
+  w.document.querySelector('#optList input[value="ai_copilot"]').click(); await new Promise(r=>setTimeout(r,30));
+  ok(/Shortlist from/.test($('m_opt_desc').textContent) && $('ai_inner').value==='gp_ei','Co-pilot shows the optimiser it shortlists from');
+  ok($('k_for').style.display==='' && /every AI pick/.test($('k_for').textContent),'the For choice appears with an AI level');
+  ok([...$('ai_review').options].some(o=>o.value==='0'),'Co-pilot review can be off');
+  ok(/AI Co-pilot \(Bayesian GP \+ EI\)/.test($('pairHint').textContent),'the column shows the AI level and its optimiser');
+  w.document.querySelector('#optList input[value="ai_pilot"]').click(); await new Promise(r=>setTimeout(r,30));
+  ok(![...$('ai_review').options].some(o=>o.value==='0'),'Pilot cannot turn the review off');
+  ok(/experimental/.test($('readyList').textContent),'Pilot flagged in the ready list');
+  w.document.querySelector('#optList input[value="ai_advisor"]').click(); await new Promise(r=>setTimeout(r,30));
+  ok(!!$('ai_apply') && /every progress review/.test($('k_for').textContent),'Advisor offers apply mode and reviews');
+  w.document.querySelector('input[name=k_for][value=every]').checked=true;
+  ok(w.kBody().use.every_pick===true,'every review/pick is sent with the knowledge');
+  w.document.querySelector('#optList input[value="gp_ei"]').click(); await new Promise(r=>setTimeout(r,30));
+  ok($('k_for').style.display==='none' && !w.kBody().use.every_pick,'back to the optimiser: no AI, no every-pick');
+  ok(!!w.document.querySelector('#studyMethods input[value="ai_copilot"]'),'AI Co-pilot can be raced');
+  /* Decisions in Report */
+  ES.last.emit({results:[],logs:[],campaign:{...CAMP, ai:{level:'ai_copilot',label:'AI Co-pilot',n_fallbacks:1,can_undo:false,
+    work_bounds:null,pending_suggestion:null,decisions:[
+      {kind:'pick',n:11,by:'AI Co-pilot',choice:2,shortlist_size:5,recipe_id:'Run3_r011',reason:'card L1',cited:['L1'],knowledge_version:4,same_as_optimiser:false,params:{T_reac:250,F_tot:70,x_ODE:.1,x_TOP:.1,x_oley:.1},result:{diameter_nm:5.1,pdi:.08}},
+      {kind:'pick',n:12,by:'optimiser (fallback)',fallback:'no card id or data was cited',recipe_id:'Run3_r012',params:{T_reac:260,F_tot:70,x_ODE:.1,x_TOP:.1,x_oley:.1}}]}},total:25,seq:25,reset:false});
+  await new Promise(r=>setTimeout(r,30));
+  ok($('decCard').style.display==='' && w.document.querySelectorAll('#dec_tbl tbody tr').length===2,'decisions table shown');
+  ok(/1 of 2/.test($('dec_kpis').textContent) && /fallback: no card/.test($('dec_tbl').textContent),'AI picks and fallbacks are counted and explained');
+  ok(/5.10 nm/.test($('dec_tbl').textContent) && /v4/.test($('dec_tbl').textContent),'result and knowledge version per decision');
   $('k_set').value=''; await w.kSetChosen();
   $('c_nspread').value='2'; w.countStart();
   ok($('c_nmsg').className==='warnt' && /Few/.test($('c_nmsg').textContent),'a short cold start is flagged: '+$('c_nmsg').textContent);

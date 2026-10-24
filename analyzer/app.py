@@ -48,6 +48,7 @@ from src.optimizer import methods as optimisers                         # noqa: 
 from src.optimizer.intake_rules import (held_reason, check_seeds,        # noqa: E402
                                         EXPECTED_SHAPES, DEFAULT_SHAPE)
 from src.optimizer import guide as _guide                               # noqa: E402
+from src.optimizer import ai_design as _aid                             # noqa: E402
 from src.design_knowledge import store as kstore                       # noqa: E402
 from src.design_knowledge import cards as kcards                       # noqa: E402
 from src.design_knowledge import literature as klit                    # noqa: E402
@@ -114,7 +115,7 @@ _MAPPING_GOALS = ("level-set", "pareto")
 
 
 def _build_optimiser(space, goal, size_range, base_cfg, method_params=None,
-                     chosen=None):
+                     chosen=None, ai_meta=None, knowledge=None):
     """Instantiate the optimiser a campaign should use.
 
     The campaign GOAL, not just the operator's dropdown, picks the acquisition:
@@ -145,7 +146,109 @@ def _build_optimiser(space, goal, size_range, base_cfg, method_params=None,
             extra["size_lo"], extra["size_hi"] = lo / 2.0, hi / 2.0
         except (TypeError, ValueError):
             pass
-    return optimisers.make(opt_id, space, **base_cfg, **extra), opt_id
+    ctl = optimisers.make(opt_id, space, **base_cfg, **extra)
+    ai = (_campaign_meta or {}).get("ai") if ai_meta is None else ai_meta
+    if ai and ai.get("level") in _aid.LEVELS:
+        # An AI level drives the optimiser it was set up with (its shortlist and
+        # its fallback); the AI never replaces the optimiser's safety checks.
+        ctl = _aid.AIDesign(ctl, ai["level"], review_every=int(ai.get("review_every") or 0),
+                            apply=ai.get("apply") or "auto",
+                            knowledge=(_campaign_meta or {}).get("knowledge") if knowledge is None else knowledge,
+                            every_pick=bool(ai.get("every_pick")), chemistry=_chemistry(),
+                            caps=(_space_cfg().get("safety") or {}))
+    return ctl, opt_id
+
+
+def _is_ai(c) -> bool:
+    return c is not None and hasattr(c, "prepare_pick")
+
+
+#: one AI job of each kind at a time; the AI call itself runs WITHOUT the lock
+_ai_busy = {"pick": False, "review": False}
+
+
+def _ai_pick_worker(camp) -> None:
+    """Prepare under the lock, call the AI without it, commit under it again.
+    The SSE stream and every other route stay responsive while the AI thinks."""
+    try:
+        with _campaign_lock:
+            if _campaign is not camp or _paused or camp.status_str != "running":
+                return
+            st = camp.prepare_pick()
+        if st is None:
+            return
+        res = camp.decide(st)
+        with _campaign_lock:
+            if _campaign is not camp or _paused or camp.status_str != "running":
+                return
+            p = camp.commit_pick(st, res)
+            if p is None:
+                return
+            rid = _new_rid()
+            _pending[rid] = p
+            _pending_at[rid] = time.time()
+            _write_condition(rid, p)
+            camp.label_last(rid)
+            d = camp.decisions[-1]
+            _emit((f"🤖 {d['by']} chose shortlist #{d.get('choice')} for {rid}: {d.get('reason', '')}"
+                   + (f" (based on {', '.join(d.get('cited') or [])})" if d.get("cited") else ""))
+                  if not d.get("fallback") else
+                  f"🤖 {_aid.LABELS[camp.level]}: {d['fallback']}; the optimiser's own pick is used for {rid}",
+                  "info" if not d.get("fallback") else "warn")
+    except Exception as exc:                                  # noqa: BLE001
+        _emit(f"⚠ the AI pick failed ({type(exc).__name__}: {exc}); falling back to the optimiser", "warn")
+        try:
+            with _campaign_lock:
+                if _campaign is camp and camp.status_str == "running" and not _pending and not _paused:
+                    _advance_sync()
+        except Exception:                                     # noqa: BLE001
+            pass
+    finally:
+        _ai_busy["pick"] = False
+        _save_campaign()
+
+
+def _ai_review_worker(camp) -> None:
+    try:
+        with _campaign_lock:
+            if _campaign is not camp:
+                return
+            st = camp.prepare_review()
+        if st is None:
+            return
+        res = camp.decide(st)
+        with _campaign_lock:
+            if _campaign is not camp:
+                return
+            d = camp.commit_review(st, res)
+        if d:
+            _emit(f"🤖 {d['by']} review after run {d['n']}: "
+                  + (d.get("note") or d.get("fallback") or "")
+                  + (f" [range {d['action']}]" if d.get("bounds") else ""), "info")
+    except Exception as exc:                                  # noqa: BLE001
+        _emit(f"⚠ the AI review failed ({type(exc).__name__}: {exc})", "warn")
+    finally:
+        _ai_busy["review"] = False
+        _save_campaign()
+
+
+def _kick_ai(kind: str) -> bool:
+    """Start an AI job in the background. Lock held by caller."""
+    if _ai_busy[kind]:
+        return True
+    _ai_busy[kind] = True
+    target = _ai_pick_worker if kind == "pick" else _ai_review_worker
+    threading.Thread(target=target, args=(_campaign,), daemon=True,
+                     name=f"ai-{kind}").start()
+    return True
+
+
+def _ai_wait(timeout: float = 30.0) -> None:
+    """Tests and tools: wait for the background AI jobs to finish."""
+    t_end = time.time() + timeout
+    while (_ai_busy["pick"] or _ai_busy["review"]) and time.time() < t_end:
+        time.sleep(0.02)
+
 
 # ── closed-loop campaign state ─────────────────────────────────────────────────
 _campaign: CampaignController | None = None
@@ -595,17 +698,32 @@ def _advance_campaign() -> None:
     if _campaign.status_str == "running":
         if _paused:
             return                      # Pause: hold back the next condition
-        p = _campaign.ask()
-        if getattr(_campaign, "last_error", None):
-            _emit(f"⚠ search strategy failed ({_campaign.last_error}); proposed a "
-                  f"space-filling recipe instead so the loop keeps moving "
-                  f"(fallback #{_campaign.n_fallbacks})", "warn")
-        if p is not None:
-            rid = _new_rid()
-            _pending[rid] = p
-            _pending_at[rid] = time.time()
-            _write_condition(rid, p)
+        if _is_ai(_campaign) and _campaign.wants_ai_pick():
+            _kick_ai("pick")            # the AI chooses in the background
             return
+        _advance_sync()
+        return
+    _report_end()
+
+
+def _advance_sync() -> None:
+    """The optimiser's own next proposal (cold start, Advisor, or a fallback). Lock held."""
+    p = (_campaign.inner.ask() if _is_ai(_campaign) else _campaign.ask())
+    if getattr(_campaign, "last_error", None):
+        _emit(f"⚠ search strategy failed ({_campaign.last_error}); proposed a "
+              f"space-filling recipe instead so the loop keeps moving "
+              f"(fallback #{_campaign.n_fallbacks})", "warn")
+    if p is not None:
+        rid = _new_rid()
+        _pending[rid] = p
+        _pending_at[rid] = time.time()
+        _write_condition(rid, p)
+        return
+    _report_end()
+
+
+def _report_end() -> None:
+    """Report a campaign that has stopped. Lock held by caller."""
     st = _campaign.status_str
     if st == "converged":
         cc = _campaign.converged_condition or {}
@@ -756,6 +874,8 @@ def _write_campaign_results(outcome: dict) -> str:
         body = {**_campaign_record(), **outcome,
                 "ended_at": datetime.datetime.now().isoformat(timespec="seconds"),
                 "history": _campaign.history}
+        if _is_ai(_campaign):
+            body["ai_decisions"] = _campaign.decisions
         (d / "campaign.json").write_text(
             json.dumps(body, indent=2, default=str), encoding="utf-8")
 
@@ -831,6 +951,7 @@ def _save_campaign() -> None:
             "meta": _campaign_meta,
             "status": _campaign.status_str,
             "paused": bool(_paused),
+            "ai_state": _campaign.to_state() if _is_ai(_campaign) else None,
             "history": _campaign.history,
             "pending": _pending,
             "pending_at": _pending_at,
@@ -905,7 +1026,9 @@ def _restore_campaign() -> None:
         camp, _ = _build_optimiser(space, _campaign_meta.get("goal"),
                                    _campaign_meta.get("size_range"), cfg,
                                    method_params=_campaign_meta.get("method_params"),
-                                   chosen=_campaign_meta.get("optimiser"))
+                                   chosen=_campaign_meta.get("optimiser"),
+                                   ai_meta=_campaign_meta.get("ai") or {},
+                                   knowledge=_campaign_meta.get("knowledge") or {})
         # the operator's own starting recipes come first again, so the cold
         # start replays in the same order it was issued
         camp.start(seeds=_campaign_meta.get("seeds"), prior=_campaign_meta.get("prior"))
@@ -916,6 +1039,8 @@ def _restore_campaign() -> None:
                       held=rec.get("held"), model=rec.get("model"))
             if rec.get("accepted"):
                 camp.history[-1]["accepted"] = True
+        if _is_ai(camp):
+            camp.from_state(st.get("ai_state"))
         # Next ask() must skip every proposal already issued: the replayed results
         # AND the conditions still in flight. Counting only history re-proposed an
         # in-flight Sobol seed when a restart landed during seeding.
@@ -1147,7 +1272,7 @@ def _continue_run() -> dict:
     meta_keys = ("objective", "started_at", "operator", "run_no", "run_tag",
                  "goal", "spec_units", "optimiser", "optimiser_requested",
                  "size_range", "fitter", "method_params", "expected_shape", "seeds",
-                 "seed_kinds", "knowledge", "prior")
+                 "seed_kinds", "knowledge", "prior", "ai")
     cfg = {k: rec[k] for k in cfg_keys if k in rec}
     meta = {k: rec[k] for k in meta_keys if k in rec}
     campaign_id = str(rec.get("campaign_id") or "")
@@ -1164,7 +1289,8 @@ def _continue_run() -> dict:
     camp, _ = _build_optimiser(space, meta.get("goal"),
                                meta.get("size_range"), cfg,
                                method_params=meta.get("method_params"),
-                               chosen=meta.get("optimiser"))
+                               chosen=meta.get("optimiser"), ai_meta=meta.get("ai") or {},
+                               knowledge=meta.get("knowledge") or {})
     camp.start(seeds=meta.get("seeds"), prior=meta.get("prior"))
 
     replayed, skipped = 0, 0
@@ -1330,6 +1456,8 @@ def _feed_campaign(name: str, res: dict) -> None:
             return
         _emit(f"📊 told campaign {rid}: R={size} PDI={pdi} conf={conf} "
               f"(loss={_campaign.history[-1]['loss']:.3f})", "info")
+        if _is_ai(_campaign) and _campaign.review_due():
+            _kick_ai("review")
         if held:
             _emit(f"⏸ {rid} fitted as {model}, not the expected shape: HELD (counts "
                   f"against the budget, does not steer the search). Accept it in "
@@ -2197,7 +2325,7 @@ def api_study():
     live campaign, the reactor, or real data."""
     global _study_result
     body = request.get_json(silent=True) or {}
-    ready_opt = {m["id"] for m in optimisers.available() if m["ready"]}
+    ready_opt = {m["id"] for m in optimisers.available() if m["ready"]} | {"ai_copilot", "ai_pilot"}
     ids = [m for m in (body.get("methods") or []) if m in ready_opt]
     if not ids:
         return jsonify({"ok": False, "error": "select at least one available optimiser"}), 400
@@ -2303,6 +2431,7 @@ def _campaign_status() -> dict:
     # RANGE for Pareto (where "distance to one target" is meaningless).
     st["goal"] = str((_campaign_meta or {}).get("goal") or "target-hit")
     st["paused"] = bool(_paused)
+    st["ai_busy"] = dict(_ai_busy)
     st["expected_shape"] = _expected_shape()
     _k = (_campaign_meta or {}).get("knowledge") or {}
     if _k:
@@ -2431,6 +2560,26 @@ def api_campaign_start():
             _conf_min = -1.0
         if not (0.0 <= _conf_min <= 1.0):
             _errs.append("the minimum fit confidence must be between 0 and 1")
+        _ai = b.get("ai") or None
+        if _ai:
+            lvl = str(_ai.get("level") or "")
+            try:
+                rev = int(_ai.get("review_every") or 0)
+            except (TypeError, ValueError):
+                rev = -1
+            if lvl not in _aid.LEVELS:
+                _errs.append(f"unknown AI level '{lvl}'")
+            elif str(b.get("goal") or "target-hit") == "benchmark":
+                _errs.append("AI levels race in Compare methods, not as a live campaign")
+            if rev not in (0, 5, 10):
+                _errs.append("the progress review must be every 5 or 10 runs, or off")
+            if lvl == "ai_pilot" and rev not in (5, 10):
+                _errs.append("AI Pilot needs a progress review every 5 or 10 runs")
+            if lvl == "ai_pilot" and _ai.get("confirmed") is not True:
+                _errs.append("AI Pilot writes the recipes itself: confirm the limits first")
+            _ai = {"level": lvl, "review_every": rev,
+                   "apply": "ask" if _ai.get("apply") == "ask" else "auto",
+                   "every_pick": bool(((b.get("knowledge") or {}).get("use") or {}).get("every_pick"))}
         if _errs:
             return jsonify({"ok": False, "error": "; ".join(_errs), "errors": _errs}), 400
         with _campaign_lock:
@@ -2468,7 +2617,8 @@ def api_campaign_start():
                 n_init=_n_init,
                 confidence_min=_conf_min)
             _campaign, _opt_id = _build_optimiser(
-                space, _goal, _size_range, _base_cfg, b.get("method_params"))
+                space, _goal, _size_range, _base_cfg, b.get("method_params"),
+                ai_meta=_ai or {}, knowledge=_kn.get("frozen") or {})
             _campaign_id = (datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
                             + "_" + uuid.uuid4().hex[:4])
             # New Target Run: derive N from disk (max existing + 1) and reset the
@@ -2511,6 +2661,8 @@ def api_campaign_start():
                 _campaign_meta["size_range"] = _size_range
             # what steers the search, recorded so resume and Continue keep it
             _campaign_meta["expected_shape"] = _shape
+            if _ai:
+                _campaign_meta["ai"] = _ai
             if _seeds:
                 _campaign_meta["seeds"] = _seeds
                 _campaign_meta["seed_kinds"] = (["own"] * _kn["n_own"]
@@ -2626,6 +2778,33 @@ def api_campaign_accept():
                 why=f"the campaign {_campaign.status_str} on an accepted result")
             _pending.clear(); _pending_at.clear()
             _advance_campaign()
+    _save_campaign()
+    return jsonify({"ok": True, "campaign": _campaign_status()})
+
+
+@app.route("/api/ai/status")
+def api_ai_status():
+    return jsonify({"available": _aid.ai_available()})
+
+
+@app.route("/api/campaign/ai/suggestion", methods=["POST"])
+def api_campaign_ai_suggestion():
+    """Apply or reject the AI Advisor's waiting range ("ask me first")."""
+    accept = bool((request.get_json(silent=True) or {}).get("accept"))
+    with _campaign_lock:
+        if not _is_ai(_campaign) or not _campaign.resolve_pending(accept):
+            return jsonify({"ok": False, "error": "no suggestion is waiting"}), 409
+    _emit(f"🤖 Advisor suggestion {'applied' if accept else 'rejected'} by the operator", "info")
+    _save_campaign()
+    return jsonify({"ok": True, "campaign": _campaign_status()})
+
+
+@app.route("/api/campaign/ai/undo", methods=["POST"])
+def api_campaign_ai_undo():
+    with _campaign_lock:
+        if not _is_ai(_campaign) or not _campaign.undo():
+            return jsonify({"ok": False, "error": "nothing to undo"}), 409
+    _emit("↩ the last applied working range was undone", "info")
     _save_campaign()
     return jsonify({"ok": True, "campaign": _campaign_status()})
 
