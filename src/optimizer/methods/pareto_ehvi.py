@@ -102,6 +102,9 @@ class ParetoEHVI(CampaignController):
         hist = [h for h in self.history
                 if h.get("size") is not None and h.get("loss", 0.0) < _FAIL_LOSS
                 and not h.get("held")]
+        hist = hist + [{"params": pp["params"], "size": pp["size"], "pdi": pp.get("pdi"),
+                        "confidence": float(pp.get("confidence") or 0.0)}
+                       for pp in getattr(self, "prior", [])]
         if len(hist) < 3:
             return None
         X = np.array([self.space.to_unit(h["params"]) for h in hist])

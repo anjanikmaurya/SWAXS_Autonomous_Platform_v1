@@ -13,6 +13,7 @@ is listed in [`sources.yml`](sources.yml) (a test checks that the two agree).
 | `reference/` | Documents **searched by meaning** for each question: `literature/`, `user_papers/`, `beamline/` | yes (literature, beamline) |
 | `cases/` | Expert-judged worked examples (the knowledge pack; to be filled) | yes |
 | `evals/` | Exam questions with marking points, to score the assistant (to be filled) | yes |
+| `design/` | The Analyser's design knowledge sets, one per chemistry (Knowledge tab); **not** read by the assistant | yes |
 | `index/` | The search index (`vector_db/`) and its `ingestion_log.json` | **no**, rebuilt per machine |
 
 Knowledge that lives elsewhere, beside the code it describes:

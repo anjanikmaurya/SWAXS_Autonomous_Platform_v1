@@ -1,0 +1,223 @@
+"""
+src/design_knowledge/store.py: knowledge sets on disk.
+
+One JSON file per set, ``ai_knowledge/design/<set_id>.json`` (in git, so a set
+travels with the code; ``SWAXS_DESIGN_KNOWLEDGE_DIR`` overrides the folder):
+
+    {"id": "pd_ode_oleylamine", "name": "Pd · ODE · oleylamine",
+     "chemistry": {"keywords": ["Pd", "ODE", "oleylamine"]},
+     "version": 4, "updated_at": "...",
+     "cards": [...],        # approved, draft and retired cards (see cards.py)
+     "campaigns": [...],    # finished campaigns, with their measured runs
+     "log": [...]}          # what changed, newest last (version, what, who)
+
+Every change bumps ``version`` and is written atomically (temp file, then
+rename) under a lock, so a crash never leaves half a set. Nothing is deleted:
+a removed card is marked "retired" and stays in the file.
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import threading
+import time
+from pathlib import Path
+
+from .cards import PREFIX, validate_card
+
+_ROOT = Path(__file__).resolve().parents[2]
+_LOCK = threading.RLock()
+MAX_LOG = 200
+
+
+def design_dir() -> Path:
+    d = os.environ.get("SWAXS_DESIGN_KNOWLEDGE_DIR")
+    return Path(d) if d else _ROOT / "ai_knowledge" / "design"
+
+
+def _slug(name: str) -> str:
+    s = re.sub(r"[^a-z0-9]+", "_", (name or "").lower()).strip("_")
+    return s[:60] or "set"
+
+
+def _path(set_id: str) -> Path:
+    if not re.fullmatch(r"[a-z0-9_]{1,60}", set_id or ""):
+        raise ValueError("unknown knowledge set")
+    return design_dir() / f"{set_id}.json"
+
+
+def _write(s: dict) -> None:
+    p = _path(s["id"])
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_suffix(".json.part")
+    tmp.write_text(json.dumps(s, indent=2, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(p)
+
+
+def _bump(s: dict, what: str, who: str = "") -> dict:
+    s["version"] = int(s.get("version") or 0) + 1
+    s["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    s.setdefault("log", []).append({"version": s["version"], "what": what[:200],
+                                    "who": who[:80], "at": s["updated_at"]})
+    s["log"] = s["log"][-MAX_LOG:]
+    return s
+
+
+def _keywords(chemistry) -> list[str]:
+    if isinstance(chemistry, dict):
+        kw = chemistry.get("keywords") or []
+    else:
+        kw = chemistry or []
+    return [str(k).strip() for k in kw if str(k).strip()][:12]
+
+
+def list_sets() -> list[dict]:
+    out = []
+    d = design_dir()
+    if not d.is_dir():
+        return out
+    for p in sorted(d.glob("*.json")):
+        try:
+            s = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        cards = s.get("cards") or []
+        out.append({"id": s.get("id"), "name": s.get("name"), "version": s.get("version", 0),
+                    "keywords": _keywords(s.get("chemistry")),
+                    "n_cards": sum(1 for c in cards if c.get("status") == "approved"),
+                    "n_drafts": sum(1 for c in cards if c.get("status") == "draft"),
+                    "n_campaigns": len(s.get("campaigns") or [])})
+    return out
+
+
+def load_set(set_id: str) -> dict:
+    p = _path(set_id)
+    if not p.is_file():
+        raise ValueError("unknown knowledge set")
+    return json.loads(p.read_text(encoding="utf-8"))
+
+
+def create_set(name: str, keywords=None, who: str = "") -> dict:
+    name = " ".join(str(name or "").split())[:80]
+    if not name:
+        raise ValueError("give the set a name")
+    with _LOCK:
+        base = _slug(name)
+        sid, i = base, 2
+        while _path(sid).exists():
+            sid = f"{base[:56]}_{i}"
+            i += 1
+        s = {"id": sid, "name": name, "chemistry": {"keywords": _keywords(keywords)},
+             "version": 0, "cards": [], "campaigns": [], "log": []}
+        _bump(s, "created", who)
+        _write(s)
+        return s
+
+
+def _next_id(s: dict, kind: str) -> str:
+    pre = PREFIX.get(kind, "N")
+    nums = [int(c["id"][1:]) for c in s.get("cards") or []
+            if str(c.get("id", "")).startswith(pre) and c["id"][1:].isdigit()]
+    return f"{pre}{(max(nums) + 1) if nums else 1}"
+
+
+def add_drafts(set_id: str, drafts: list[dict], who: str = "", what: str = "drafts added") -> list[dict]:
+    """Add cards as DRAFTS (never approved on the way in). Returns the stored drafts."""
+    added = []
+    with _LOCK:
+        s = load_set(set_id)
+        for d in drafts:
+            card, errs = validate_card({**d, "added_by": d.get("added_by") or who}, status="draft")
+            if not card:
+                continue
+            card["id"] = _next_id(s, card["kind"])
+            s.setdefault("cards", []).append(card)
+            added.append(card)
+        if added:
+            _bump(s, f"{what}: {len(added)}", who)
+            _write(s)
+    return added
+
+
+def review(set_id: str, card_id: str, action: str, edit: dict | None = None,
+           who: str = "") -> dict:
+    """approve | reject | edit | retire. Edit keeps the card's status unless it is
+    a draft being approved with the edit (action "approve" with ``edit``)."""
+    if action not in ("approve", "reject", "edit", "retire"):
+        raise ValueError("unknown action")
+    with _LOCK:
+        s = load_set(set_id)
+        for i, c in enumerate(s.get("cards") or []):
+            if c.get("id") == card_id:
+                break
+        else:
+            raise ValueError("unknown card")
+        if action in ("edit", "approve") and edit:
+            merged = {**c, **{k: v for k, v in edit.items()
+                              if k in ("param", "effect", "range", "source", "kind")}}
+            card, errs = validate_card(merged, status=c["status"])
+            if not card:
+                raise ValueError("; ".join(errs))
+            card["id"] = c["id"]
+            if card["kind"] != c["kind"]:
+                card["kind"] = c["kind"]            # the id prefix follows the kind it was born with
+            c = card
+        if action == "approve":
+            c["status"] = "approved"
+        elif action == "reject":
+            c["status"] = "retired"
+            c["retired_why"] = "rejected draft"
+        elif action == "retire":
+            c["status"] = "retired"
+        c["reviewed_by"] = who[:80]
+        c["reviewed_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        s["cards"][i] = c
+        _bump(s, f"{action} {card_id}", who)
+        _write(s)
+        return c
+
+
+def add_campaign(set_id: str, entry: dict, who: str = "") -> bool:
+    """Join a finished campaign to the set (once per campaign_id)."""
+    with _LOCK:
+        s = load_set(set_id)
+        if any(e.get("campaign_id") == entry.get("campaign_id") for e in s.get("campaigns") or []):
+            return False
+        s.setdefault("campaigns", []).append(entry)
+        _bump(s, f"campaign {entry.get('run_tag') or entry.get('campaign_id')} joined", who)
+        _write(s)
+        return True
+
+
+def export_set(set_id: str) -> dict:
+    s = load_set(set_id)
+    return {"format": "swaxs-design-knowledge", "format_version": 1, "set": s}
+
+
+def import_set(payload: dict, who: str = "") -> dict:
+    """A new set from an export. Every card arrives as a DRAFT: knowledge from
+    another lab is reviewed here before it can steer a campaign. Campaign
+    entries are kept (they are measurements, not claims)."""
+    if not isinstance(payload, dict) or payload.get("format") != "swaxs-design-knowledge":
+        raise ValueError("not a design-knowledge export")
+    src = payload.get("set") or {}
+    s = create_set(f"{src.get('name') or 'Imported set'} (imported)",
+                   _keywords(src.get("chemistry")), who)
+    add_drafts(s["id"], [{**c, "status": "draft"} for c in src.get("cards") or []
+                         if c.get("status") != "retired"],
+               who, what=f"imported from {src.get('id') or '?'} v{src.get('version', '?')}")
+    for e in (src.get("campaigns") or [])[:50]:
+        if isinstance(e, dict) and e.get("campaign_id"):
+            add_campaign(s["id"], e, who)
+    return load_set(s["id"])
+
+
+def matches(set_summary_or_set: dict, chemistry: dict | None) -> bool | None:
+    """Does a set fit this project's chemistry.yml? None when either says nothing."""
+    kws = [k.lower() for k in (set_summary_or_set.get("keywords")
+                               or _keywords(set_summary_or_set.get("chemistry")))]
+    if not kws or not chemistry:
+        return None
+    blob = json.dumps(chemistry, ensure_ascii=False).lower()
+    return all(k in blob for k in kws)

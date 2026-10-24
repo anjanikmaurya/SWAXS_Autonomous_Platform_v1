@@ -60,9 +60,9 @@ skipped.
 The left column holds the campaign **Goal**: **Hit a size** (find one recipe in
 spec; stops at the first confident hit), **Map the in-spec region** (every
 in-spec recipe; BAX), **Size vs PDI trade-off** (the best PDI across a diameter
-range; EHVI) and **Compare methods** (simulator only). The page has three tabs,
-**Setup**, **Fitting**, **Report**, the same for every goal, plus a **Log** panel
-visible on every tab. The project folder is pushed by the hub.
+range; EHVI) and **Compare methods** (simulator only). The page has five tabs,
+**Setup**, **Fitting**, **Report**, **Knowledge** and **Guide**, the same for every
+goal, plus a **Log** panel visible on every tab. The project folder is pushed by the hub.
 
 ### Setup tab
 
@@ -83,9 +83,18 @@ Numbered steps, top to bottom:
    **Fitting** (Catalogue + BIC recommended; AI-assisted structure) and **Next
    recipe** (only the methods that suit the goal), with the chosen method's
    description and acquisition shown.
-4. **Starting recipes** (the cold start): **Spread out** (Sobol points over the
-   whole search range, default 10) and **Your own** (up to 5 exact recipes,
-   **Add recipe**); **Total** is the cold start (`n_init`). It warns below 5,
+4. **Knowledge for this campaign**: the **Knowledge set** (a set that matches
+   `chemistry.yml` is preselected) and what to **Use**: **Literature** and **Your
+   notes** (approved cards only: they set where the starting recipes from
+   knowledge go) and **Past campaigns** (a warm start: their measured runs train
+   the optimiser's model, scored against the new target, without using the
+   budget; hidden for Random, which uses no data). Drafts waiting for approval
+   are flagged and never used. The set's version is frozen at Start.
+5. **Starting recipes** (the cold start): **From knowledge** (recipes inside the
+   range the ticked approved cards allow; 3 by default when the set has a card
+   with a range, taken out of the spread so the total stays 10), **Spread out**
+   (Sobol points over the whole search range) and **Your own** (up to 5 exact
+   recipes, **Add recipe**); **Total** is the cold start (`n_init`). It warns below 5,
    above a third of the budget, or when fewer than half are spread out, and Start
    refuses a total longer than the budget. **Preview starting recipes** lists the
    exact first recipes, in order, without starting anything.
@@ -119,6 +128,41 @@ a confirmation. Plot scales: **Log-log**, **Semilog Y**, **Semilog X**,
 **Linear**, **Guinier**; toggles **Residuals** and **Error bars**. An optional AI
 QC note appears under the plot when AI credentials are set. Confidence badges:
 green at ≥ 0.6, amber at ≥ 0.3, otherwise low.
+
+### Knowledge tab
+
+Design knowledge for the next recipe, one **knowledge set** per chemistry
+(`ai_knowledge/design/<set_id>.json`, in git). The assistant (Guinier) does not
+read it; general SAXS knowledge for fitting stays with Guinier.
+
+- **Add knowledge**: **Search the web** (OpenAlex; only the query is sent; the
+  query starts from `chemistry.yml` and the target; tick papers, then **Draft
+  cards from the ticked abstracts**), **Add a paper** (a DOI, a PDF if a PDF
+  reader is installed, or a pasted passage with its source) and **Your notes**
+  (one line, one card; the setting and range are guessed).
+- **Drafts**: every new card waits here. Each shows the passage it came from,
+  how its range sits in the search range (clipped, or outside and not used) and
+  whether it reads like a safety limit. Edit the setting, range, text or source,
+  then **Approve** or **Reject**.
+- **Cards**: the approved cards, filterable by Literature / Your notes;
+  **Retire** stops using a card (it stays in the set's history).
+- **Campaigns**: finished campaigns that used the set, with their measured
+  runs; they join automatically when a campaign ends (also on Abort).
+- **Export** downloads the set; **Import** makes a new set from an export, with
+  every card as a draft to review.
+
+How the AI drafts cards: with an AI login the AI reads the text as data (never
+as instructions) and must quote, for each card, a sentence that is really in
+the text, name one of T_reac, F_tot, x_ODE, x_TOP, x_oley and give numbers only;
+anything else is dropped. Without an AI login a sentence filter drafts cards
+instead. Every change bumps the set's version; nothing is deleted.
+
+### Guide tab
+
+One page per goal, fitting method, next-recipe method and concept (score,
+starting recipes, knowledge, report views): what it does, when to use it and
+not, the maths, settings and how it scored. Every method in Setup and the goal
+header link to their page (**Details in the Guide →**).
 
 ### Report tab
 
@@ -245,6 +289,11 @@ its half-width, both as radius.
 | your own recipes | none | `seeds` [{T_reac, F_tot, x_ODE, x_TOP, x_oley}], at most 5 |
 | expected shape | sphere (core-shell counts) | `expected_shape` `sphere_cs` (`sphere`, `any`) |
 | min fit confidence | 0.5 | `confidence_min` 0.5 (0 to 1) |
+
+`knowledge`: `{set_id, use: {literature, notes, campaigns}, n}`; `n` (0 to 10) recipes
+from knowledge go after your own and before the spread; an unknown set is refused.
+The frozen snapshot (set id, version, cards and campaigns used) and the warm-start
+points are recorded in the campaign meta, so resume and Continue rebuild the same run.
 
 Other body keys: `goal` (`target-hit`, `level-set`, `pareto`, `benchmark`),
 `size_range` [min, max] diameter (Pareto), `method_params`. A campaign recorded
@@ -396,6 +445,13 @@ and `*.json` there as a recipe.
 | `POST /api/campaign/accept` | `{recipe_id}` or `{name}`: let a held result count; 404 when nothing is held for it |
 | `POST /api/campaign/preview` | the cold-start recipes a Start with this body would issue (`own` then `spread`), without starting; 400 with the reasons for a bad recipe |
 | `GET /api/search_range` | search bounds, `x_sum_max`, hard safety caps, expected-shape choices (read-only) |
+| `GET /api/guide` | the Guide pages |
+| `GET/POST /api/knowledge/sets` | list sets (with `matches_chemistry`) and the project's `chemistry.yml`; create a set `{name, keywords}` |
+| `GET /api/knowledge/set/<id>` | the set, each card with its check against the search range |
+| `POST /api/knowledge/set/<id>/notes`, `/text`, `/doi`, `/pdf`, `/from_search` | draft cards from notes, a passage, a DOI's abstract, a PDF, ticked search results |
+| `POST /api/knowledge/search` | OpenAlex search `{query}` |
+| `POST /api/knowledge/set/<id>/review` | `{card_id, action: approve, reject, edit, retire, edit: {...}}` |
+| `GET /api/knowledge/set/<id>/export`, `POST /api/knowledge/import` | share a set by file; imported cards are drafts |
 | `GET /api/campaign/incomplete`, `POST /api/campaign/continue` | offer and rebuild the latest unfinished Target Run |
 | `GET/POST /api/campaign/folder` | conditions folder. Until set here it follows the reactor's folder (`reactor_settings.json`, else `folders.recipes` in `reactor/config.yml`). Returns `reactor` and `mismatch`; a folder that differs from the reactor's is logged as an error and shown in the campaign status line (`conditions_folder_mismatch` in `GET /api/campaign`) |
 | `GET /api/campaign/diagnostics` | read-only learning and convergence summary |

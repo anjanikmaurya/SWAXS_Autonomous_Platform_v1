@@ -57,14 +57,21 @@ class CampaignController:
         self.best: dict | None = None
         self.converged_condition: dict | None = None
         self._seeds: list[dict] = []
+        #: Warm start: measured points from earlier campaigns (params, size, pdi,
+        #: confidence). They train the surrogate, scored against THIS campaign's
+        #: target, but are not history: no budget, never the best or the hit.
+        self.prior: list[dict] = []
         self._n_asked = 0
         self.last_error: str | None = None   # set when ask() had to fall back
         self.n_fallbacks = 0
 
     # ── lifecycle ──────────────────────────────────────────────────────────────
-    def start(self, seeds: list[dict] | None = None):
+    def start(self, seeds: list[dict] | None = None, prior: list[dict] | None = None):
         """Begin a campaign. Optional ``seeds`` (e.g. a literature-informed prior)
-        are used first, then Sobol fills the rest of the cold-start budget."""
+        are used first, then Sobol fills the rest of the cold-start budget.
+        Optional ``prior`` points (earlier campaigns) warm-start the surrogate."""
+        self.prior = [dict(pp) for pp in (prior or [])
+                      if pp.get("size") is not None and self.space.valid(pp.get("params") or {})]
         self.status_str = "running"
         self.history.clear(); self.best = None; self.converged_condition = None
         self._n_asked = 0
@@ -274,6 +281,10 @@ class CampaignController:
         # an equivalent size of the wrong structure would steer the search.
         hist = [h for h in hist if h.get("size") is not None and h["loss"] < _FAIL_LOSS
                 and not h.get("held")]
+        # warm start: earlier campaigns' measurements, scored against THIS target
+        hist = hist + [{"params": pp["params"], "loss": self.loss(pp["size"], pp.get("pdi")),
+                        "confidence": float(pp.get("confidence") or 0.0)}
+                       for pp in self.prior]
         if not hist:
             return None
         X = np.array([self.space.to_unit(h["params"]) for h in hist])
@@ -319,4 +330,5 @@ class CampaignController:
             "converged_condition": self.converged_condition,
             "confidence_min": self.confidence_min,
             "n_held": sum(1 for h in self.history if h.get("held")),
+            "n_prior": len(self.prior),
         }

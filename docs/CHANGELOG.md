@@ -7,6 +7,28 @@ this file is the running summary. Dates are when the work landed on `main`.
 
 ## October 2026
 
+### Analyser: knowledge sets and the Guide, Phase 2
+
+- **Knowledge tab**: design knowledge per chemistry (`src/design_knowledge/`,
+  stored in `ai_knowledge/design/`, not read by the assistant). Add knowledge by
+  web search (OpenAlex), DOI, PDF, pasted text or your notes; everything lands
+  in Drafts for approval; cards are typed (setting, effect, numeric range,
+  source), checked against the search range (clipped, or outside and unused)
+  and flagged when they read like a safety limit. AI drafting must quote the
+  text for every card; without an AI login a sentence filter drafts instead.
+  Versioned, nothing deleted (Retire), Export / Import (imports arrive as
+  drafts). Finished campaigns join the set with their measured runs.
+- **Setup step 4, Knowledge for this campaign**: the set (matching
+  `chemistry.yml` preselected), Use Literature / Your notes / Past campaigns.
+  **Starting recipes from knowledge** go inside the range the approved cards
+  allow (3 by default, out of the spread); contradictory cards keep the full
+  range. **Past campaigns** warm-start the optimiser's model (scored against the
+  new target, no budget used; `CampaignController(prior=...)`). The set's
+  version is frozen at Start and kept for resume and Continue.
+- **Guide tab** (`src/optimizer/guide.py`): one page per goal, method and
+  concept; every method links to its page.
+- Tests: `tests/test_design_knowledge.py` (18), page check now 92 assertions.
+
 ### Analyser: goal column and the new Setup, Phase 1
 
 - The Autonomous Analyser (5107) now has the platform's left column: the

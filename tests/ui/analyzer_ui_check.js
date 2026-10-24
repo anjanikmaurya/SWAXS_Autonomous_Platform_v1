@@ -65,6 +65,11 @@ const METHODS={fitters:[{id:'catalogue_bic',label:'Catalogue + BIC',ready:true,d
   goals:{'target-hit':{methods:['gp_ei','gp_ucb','turbo','random'],default:'gp_ei'},'level-set':{methods:['bax'],default:'bax'},
     'pareto':{methods:['pareto_ehvi'],default:'pareto_ehvi'},'benchmark':{methods:['gp_ei','gp_ucb','turbo','random','bax','pareto_ehvi'],default:'gp_ei'}},
   active:{fitter:'catalogue_bic',optimiser:'gp_ei'}};
+const KSET={id:'pd',name:'Pd · ODE',version:4,chemistry:{keywords:['Pd']},matches_chemistry:true,
+  cards:[{id:'L1',param:'T_reac',effect:'hotter, larger',range:[240,290],kind:'literature',source:'Smith 2021',status:'approved',check:{range:[240,290]}},
+         {id:'N1',param:'T_reac',effect:'above 300 °C the ODE boils',range:[null,300],kind:'note',source:'note',status:'approved',limit_like:true,check:{range:[180,300]}},
+         {id:'L2',param:'x_TOP',effect:'more TOP narrows',range:[0.1,0.4],kind:'literature',source:'S',status:'draft',passage:'More TOP narrows the PDI.',check:{range:[0.1,0.3],clipped:true,note:'clipped to 0.1 to 0.3 (search range)'}}],
+  campaigns:[{campaign_id:'c1',run_tag:'Run2',n:24,runs:[{}],best:{size:2.48,pdi:.09},ended:'2026-10-20T10:00',project:'/p'}]};
 function stub(w){
 /* canvas: record instead of raster (jsdom has no 2d context) */
 w.HTMLCanvasElement.prototype.getContext=function(){
@@ -82,6 +87,13 @@ w.fetch=async (u)=>{
     plot:{q,I,model:MO,sigma:SG}};
   else if(u.startsWith('/api/campaign/diagnostics')) body=DIAG;
   else if(u.startsWith('/api/search_range')) body=RANGE;
+  else if(u.startsWith('/api/knowledge/sets')) body={ok:true,chemistry:{product:'Pd nanoparticles'},
+    sets:[{id:'pd',name:'Pd · ODE',version:4,keywords:['Pd'],n_cards:2,n_drafts:1,n_campaigns:1,matches_chemistry:true}]};
+  else if(u.startsWith('/api/knowledge/set/pd/review')) body={ok:true,card:{}};
+  else if(u.startsWith('/api/knowledge/set/pd')) body={ok:true,set:KSET};
+  else if(u.startsWith('/api/knowledge/search')) body={ok:true,results:[{id:'W1',title:'Pd in flow',year:2021,doi:'10.1/x',open_access:true,abstract:'Higher temperature gave larger Pd.'}]};
+  else if(u.startsWith('/api/guide')) body={pages:[{id:'score',group:'Scoring',title:'How the score works',family:'',rows:[['What it does','one number']],maths:'score = ...',settings:[]},
+    {id:'gp_ei',group:'Next recipe',title:'Bayesian GP + EI',family:'ML',rows:[['When to use','Hit a size']],maths:'EI',settings:[]}]};
   else if(u.startsWith('/api/methods')) body=METHODS;
   else if(u.startsWith('/api/campaign/folder')) body={folder:'1D/SAXS/Conditions',resolved:'/x/1D/SAXS/Conditions',reactor:'1D/SAXS/Conditions',mismatch:false};
   else if(u.startsWith('/api/campaign/preview')) body={ok:true,n_init:3,recipes:[
@@ -235,6 +247,34 @@ const w=dom.window;
      'next-recipe list filtered to the goal: '+[...w.document.querySelectorAll('#optList .mopt')].map(l=>l.dataset.id));
   ok(/AI-assisted structure/.test($('fitList').textContent),'the AI fitter has one name');
   ok($('c_ninit').textContent==='10','cold start defaults to 10, got '+$('c_ninit').textContent);
+  ok($('k_set').value==='pd','the knowledge set matching chemistry.yml is preselected');
+  ok($('c_nknow').value==='3' && $('c_nspread').value==='7','knowledge splits the cold start: 3 from knowledge + 7 spread, got '+$('c_nknow').value+'+'+$('c_nspread').value);
+  ok(/1 card/.test($('k_lit_n').textContent) && /1 card/.test($('k_note_n').textContent),'approved card counts per kind');
+  ok(/1 draft/.test($('k_set_note').textContent),'drafts waiting are flagged, not used');
+  ok(/Knowledge: Pd/.test($('readyList').textContent),'ready list names the knowledge set');
+  $('k_set').value=''; await w.kSetChosen();
+  ok($('c_nknow').disabled && $('c_nspread').value==='10','no knowledge: back to 10 spread');
+  $('k_set').value='pd'; await w.kSetChosen();
+  ok($('c_nspread').value==='7','choosing the set again splits again');
+  /* Knowledge tab */
+  w.showTab('knowledge'); await new Promise(r=>setTimeout(r,80));
+  ok($('kn_title').textContent==='Pd · ODE','knowledge tab opens the set');
+  ok(w.document.querySelectorAll('#kn_tbl tbody tr').length===2,'approved cards listed (drafts not)');
+  ok(/sounds like a limit/.test($('kn_tbl').textContent),'limit-like card flagged');
+  w.kSection('drafts');
+  ok(/clipped/.test($('kn_drafts').textContent) && /More TOP/.test($('kn_drafts').textContent),'draft shows its passage and the clip');
+  w.kSection('camps');
+  ok(/Run2/.test($('kn_ctbl').textContent) && /4.96 nm/.test($('kn_ctbl').textContent),'campaigns listed with diameter');
+  await w.kSearch();
+  ok(w.document.querySelectorAll('#kn_hits .khit').length===1 && /open access/.test($('kn_hits').textContent),'web search results listed');
+  /* Guide tab */
+  w.showTab('guide'); await new Promise(r=>setTimeout(r,80));
+  ok(w.document.querySelectorAll('#gd_nav .gd-item').length===2 && /one number/.test($('gd_body').textContent),'guide pages load');
+  w.guideShow('gp_ei'); ok(/Hit a size/.test($('gd_body').textContent),'guide page switches');
+  w.showTab('setup');
+  const gl=w.document.querySelector('#optList .glink');
+  ok(gl && gl.dataset.guide==='random','methods link to their Guide page');
+  $('k_set').value=''; await w.kSetChosen();
   $('c_nspread').value='2'; w.countStart();
   ok($('c_nmsg').className==='warnt' && /Few/.test($('c_nmsg').textContent),'a short cold start is flagged: '+$('c_nmsg').textContent);
   $('c_nspread').value='45'; w.countStart();

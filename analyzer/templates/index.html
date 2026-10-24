@@ -328,6 +328,40 @@ body.swaxs-shell #main{overflow-y:auto}
 .btn.danger{color:var(--err-text)}
 .heldbox{margin-top:8px;padding:8px 11px;border:1px solid var(--warn);border-radius:8px;font-size:var(--fs-sm)}
 .scored-held{color:var(--warn-text);font-weight:600} .scored-weak{color:var(--muted)}
+/* knowledge step */
+.kuse{display:grid;grid-template-columns:150px minmax(0,1fr);gap:8px;margin:6px 0}
+.kuse-l{display:flex;flex-direction:column;gap:3px}
+.tick{display:flex;gap:7px;align-items:baseline;font-weight:400;color:var(--text);font-size:var(--fs-sm);margin:0}
+.tick input{width:auto}
+.glink{color:var(--accent-text,var(--accent));text-decoration:none;font-weight:600;font-size:var(--fs-xs)}
+.glink:hover{text-decoration:underline}
+/* Knowledge + Guide tabs: a nav column beside the content */
+.gd{display:grid;grid-template-columns:240px minmax(0,1fr);gap:14px;align-items:start}
+@media (max-width:900px){.gd{grid-template-columns:1fr}}
+.gd-nav{border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);padding:6px 0;position:sticky;top:56px}
+.gd-grp{padding:10px 14px 3px;font-size:var(--fs-2xs);font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.gd-item{display:block;width:100%;text-align:left;border:none;border-left:3px solid transparent;background:transparent;color:var(--text);padding:6px 14px;font-size:var(--fs-sm);cursor:pointer}
+.gd-item:hover{background:var(--surface2)} .gd-item.on{border-left-color:var(--accent);color:var(--accent-text,var(--accent));font-weight:700}
+.gd-body h3{margin:0 0 10px;font-size:var(--fs-md)}
+.gd-body dl{margin:0;display:grid;grid-template-columns:130px minmax(0,1fr);gap:8px 14px}
+.gd-body dt{font-weight:700;color:var(--muted);font-size:var(--fs-sm)} .gd-body dd{margin:0;font-size:var(--fs-sm);line-height:1.55}
+.gd-body pre{margin:0;padding:8px 10px;border-radius:8px;background:var(--surface2);white-space:pre-wrap;font-family:var(--mono);font-size:var(--fs-xs)}
+.fam{font-size:var(--fs-2xs);padding:1px 8px;border-radius:999px;border:1px solid currentColor;margin-left:6px;color:var(--accent-text,var(--accent));vertical-align:middle}
+.kn-n{float:right;font-size:var(--fs-xs);color:var(--muted)}
+.kn-foot{padding:12px 14px 4px;line-height:1.45}
+.kn-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+.kn-head h3{margin:0} .kn-hbtn{margin-left:auto;display:flex;gap:6px}
+.ksrc{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin:6px 0 10px}
+.ksbox{border:1px solid var(--border);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}
+.ksbox textarea{width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border-strong);border-radius:6px;color:var(--text);padding:6px 9px;font:inherit;font-size:var(--fs-sm)}
+.khit{display:flex;gap:6px;align-items:flex-start;font-weight:400;color:var(--text);font-size:var(--fs-xs);margin:3px 0}
+.khit input{width:auto;margin-top:2px}
+.kdraft{border:1px solid var(--border);border-radius:10px;padding:8px 12px;margin:0 0 8px;display:flex;flex-direction:column;gap:5px}
+.kd-row{display:grid;grid-template-columns:auto 120px 90px 90px auto;gap:6px;align-items:center}
+.kd-pass{font-style:italic}
+.kn-chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 8px}
+.kn-f{border:1px solid var(--border);background:transparent;color:var(--text);border-radius:999px;padding:2px 10px;font-size:var(--fs-xs);cursor:pointer}
+.kn-f.on{border-color:var(--accent);color:var(--accent-text,var(--accent));font-weight:700}
 </style></head>
 <body class="swaxs-shell">
 {% include "_icon_sprite.svg" %}
@@ -367,6 +401,8 @@ body.swaxs-shell #main{overflow-y:auto}
   <button class="toptab active" data-tab="setup"   onclick="showTab('setup')">Setup</button>
   <button class="toptab"        data-tab="fitting" onclick="showTab('fitting')">Fitting</button>
   <button class="toptab"        data-tab="report"  onclick="showTab('report')">Report</button>
+  <button class="toptab"        data-tab="knowledge" onclick="showTab('knowledge')">Knowledge</button>
+  <button class="toptab"        data-tab="guide"   onclick="showTab('guide')">Guide</button>
 </div>
 
 <div class="wrap">
@@ -379,7 +415,7 @@ body.swaxs-shell #main{overflow-y:auto}
     <div class="setup-main">
     <div class="card steps">
       <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-mode-autonomous"/></svg> <span id="goalTitle">Hit a size</span>
-        <span class="hd-right sub"><span id="c_goal_desc"></span> <span id="c_badge"></span></span>
+        <span class="hd-right sub"><span id="c_goal_desc"></span> <a href="#" class="glink" id="goalGuide" data-guide="target-hit">About this goal →</a> <span id="c_badge"></span></span>
       </div>
 
       <!-- STEP: data folders (live goals only) -->
@@ -457,12 +493,34 @@ body.swaxs-shell #main{overflow-y:auto}
         <div class="sub" id="m_hint" style="margin-top:6px"></div>
       </div>
 
+      <!-- STEP: knowledge for this campaign (live goals only) -->
+      <div class="step live-only" id="stepKnow">
+        <div class="step-h"><span class="step-n"></span> Knowledge for this campaign
+          <span class="step-sub"><a href="#" class="glink" data-guide="knowledge">How it is used →</a></span></div>
+        <div class="fg"><label for="k_set">Knowledge set</label>
+          <div class="cell"><div class="browse-row">
+            <select id="k_set" onchange="kSetChosen()"><option value="">None</option></select>
+            <a href="#" class="glink" onclick="showTab('knowledge');return false">Add or edit in the Knowledge tab →</a></div>
+            <div class="sub" id="k_set_note"></div></div></div>
+        <div class="kuse" id="k_use">
+          <div class="colh">Use</div>
+          <div class="kuse-l">
+            <label class="tick"><input type="checkbox" id="k_lit" checked onchange="kSetChosen()"> Literature <span class="sub" id="k_lit_n"></span></label>
+            <label class="tick"><input type="checkbox" id="k_note" checked onchange="kSetChosen()"> Your notes <span class="sub" id="k_note_n"></span></label>
+            <label class="tick" id="k_camp_row"><input type="checkbox" id="k_camp" checked onchange="kSetChosen()"> Past campaigns <span class="sub" id="k_camp_n"></span></label>
+          </div>
+        </div>
+        <div class="sub">Used for: the starting recipes from knowledge (inside the range the ticked cards allow), and past campaigns as a warm start for the optimiser's model. Only approved cards are used. Frozen at Start; knowledge can narrow where the starting recipes go, never widen the search, and the reactor limits always apply.</div>
+      </div>
+
       <!-- STEP: starting recipes (live goals only) -->
       <div class="step live-only">
         <div class="step-h"><span class="step-n"></span> Starting recipes
           <span class="step-sub">(the cold start, before the optimiser has data)</span></div>
         <table class="starttbl"><thead><tr><th>Kind</th><th>How many</th><th>Where they go</th></tr></thead><tbody>
-          <tr><td>Spread out</td><td><input type="number" id="c_nspread" value="10" min="0" max="50" step="1" oninput="countStart()"></td>
+          <tr><td>From knowledge</td><td><input type="number" id="c_nknow" value="0" min="0" max="10" step="1" disabled oninput="this.dataset.touched='1';countStart()"></td>
+            <td class="sub">inside the range the ticked, approved cards allow (step above)</td></tr>
+          <tr><td>Spread out</td><td><input type="number" id="c_nspread" value="10" min="0" max="50" step="1" oninput="this.dataset.touched='1';countStart()"></td>
             <td class="sub">evenly over the whole search range (Sobol), so the model sees every region</td></tr>
           <tr><td>Your own</td><td><b id="c_nown">0</b></td>
             <td class="sub">exact recipes you type, e.g. repeat an earlier best as a check
@@ -651,6 +709,71 @@ body.swaxs-shell #main{overflow-y:auto}
       <div id="studyWrap"><div class="ph" id="studyPh" style="min-height:160px;display:flex;align-items:center;justify-content:center;color:var(--muted)">Pick optimisers and run a comparison.</div></div>
       <div class="sub" id="studyNote" style="margin-top:6px"></div>
     </div>
+  </section>
+
+  <!-- ══ TAB: Knowledge — design knowledge sets, one per chemistry ═══════ -->
+  <section class="page" id="page-knowledge">
+    <div class="gd">
+      <nav class="gd-nav">
+        <div class="gd-grp">Knowledge sets</div>
+        <div id="kn_sets"></div>
+        <button class="gd-item sub" type="button" onclick="kNewSet()">+ New set</button>
+        <div class="gd-grp">This set</div>
+        <button class="gd-item kn-sec on" data-k="add" type="button">Add knowledge</button>
+        <button class="gd-item kn-sec" data-k="drafts" type="button">Drafts <span class="kn-n" id="kn_n_drafts"></span></button>
+        <button class="gd-item kn-sec" data-k="cards" type="button">Cards <span class="kn-n" id="kn_n_cards"></span></button>
+        <button class="gd-item kn-sec" data-k="camps" type="button">Campaigns <span class="kn-n" id="kn_n_camps"></span></button>
+        <div class="kn-foot sub">Design knowledge for the next recipe only. General SAXS knowledge for fitting stays with Guinier.</div>
+      </nav>
+      <div class="card gd-body">
+        <div class="kn-head"><h3 id="kn_title">No knowledge set yet</h3>
+          <span class="sub" id="kn_meta"></span>
+          <span class="kn-hbtn">
+            <button class="btn btn-ghost btn-sm" type="button" id="kn_export" onclick="kExport()">Export</button>
+            <label class="btn btn-ghost btn-sm" style="margin:0">Import<input type="file" accept=".json,application/json" id="kn_import" onchange="kImport(this)" hidden></label>
+          </span></div>
+        <div class="sub" id="kn_msg"></div>
+
+        <div class="kn-page" id="kn-add">
+          <div class="ksrc">
+            <div class="ksbox"><b>Search the web</b>
+              <input id="kn_q" placeholder="Pd nanoparticles 5 nm low PDI flow synthesis">
+              <div class="sub">Scholarly search (OpenAlex). Only this query is sent. Reads abstracts; full text only for papers you add yourself.</div>
+              <button class="btn btn-ghost btn-sm" type="button" onclick="kSearch()">Search</button>
+              <div id="kn_hits"></div></div>
+            <div class="ksbox"><b>Add a paper</b>
+              <div class="browse-row"><input id="kn_doi" placeholder="DOI, e.g. 10.1021/..."><button class="btn btn-ghost btn-sm" type="button" onclick="kDoi()">Use DOI</button></div>
+              <div class="browse-row"><input type="file" id="kn_pdf" accept="application/pdf"><button class="btn btn-ghost btn-sm" type="button" onclick="kPdf()">Read PDF</button></div>
+              <textarea id="kn_text" rows="3" placeholder="or paste a passage"></textarea>
+              <div class="browse-row"><input id="kn_src" placeholder="source, e.g. Smith 2021, Fig. 3"><button class="btn btn-ghost btn-sm" type="button" onclick="kText()">Make cards</button></div>
+              <div class="sub">The AI (or, without an AI login, a sentence filter) drafts cards; each must quote the text it came from.</div></div>
+            <div class="ksbox"><b>Your notes</b>
+              <textarea id="kn_notes" rows="4" placeholder="below 50 µL/min the particles clump"></textarea>
+              <button class="btn btn-ghost btn-sm" type="button" onclick="kNotes()">Make cards</button>
+              <div class="sub">One line, one card. The setting and range are guessed; check them in Drafts.</div></div>
+          </div>
+          <div class="sub">Everything added here waits in Drafts until you approve it. Finished campaigns that used this set join it automatically.</div>
+        </div>
+
+        <div class="kn-page" id="kn-drafts" style="display:none"><div id="kn_drafts"></div></div>
+
+        <div class="kn-page" id="kn-cards" style="display:none">
+          <div class="kn-chips"><button class="kn-f on" data-f="" type="button">All</button><button class="kn-f" data-f="literature" type="button">Literature</button><button class="kn-f" data-f="note" type="button">Your notes</button></div>
+          <div class="sub">Each range is checked against the search range: a card can narrow where the starting recipes go, never widen the search. A safety limit belongs in the Reactor app's limits, not in a card.</div>
+          <table id="kn_tbl"><thead><tr><th>ID</th><th>Setting</th><th>What it says</th><th>Range</th><th>From</th><th>Source</th><th></th></tr></thead><tbody></tbody></table>
+        </div>
+
+        <div class="kn-page" id="kn-camps" style="display:none">
+          <table id="kn_ctbl"><thead><tr><th>Campaign</th><th>Runs</th><th>Best</th><th>Ended</th><th>Project</th></tr></thead><tbody></tbody></table>
+          <div class="sub">A campaign that used this set joins it when it ends, with its measured runs. Ticked under Past campaigns (Setup), their runs warm-start the optimiser's model, scored against the new target, without using the budget.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ TAB: Guide — one page per goal, method and concept ══════════════ -->
+  <section class="page" id="page-guide">
+    <div class="gd"><nav class="gd-nav" id="gd_nav"></nav><div class="card gd-body" id="gd_body"><div class="sub">Loading…</div></div></div>
   </section>
 
   <!-- ══ Log — OUTSIDE the tab pages, so it stays visible on every tab ════ -->
@@ -1159,6 +1282,8 @@ function showTab(t){
   // Canvases laid out while hidden have zero size; refit on reveal.
   if(t==='fitting') setTimeout(redraw, 0);
   if(t==='report')  setTimeout(()=>psLoad(), 0);
+  if(t==='knowledge') loadSets();
+  if(t==='guide' && !_guidePages.length) loadGuide();
 }
 
 /* ── method selection (fitting + optimiser) ─────────────────────────────── */
@@ -1223,7 +1348,7 @@ function _listHTML(kind, items, fam, active){
     h+=`<label class="mopt${m.id===active?' on':''}${m.ready===false?' off':''}" data-kind="${kind}" data-id="${esc(m.id)}">`
       +`<input type="radio" name="m_${kind}" value="${esc(m.id)}"${m.id===active?' checked':''}${m.ready===false?' disabled':''}>`
       +`<span><b>${esc(m.id==='llm_assisted'?'AI-assisted structure':m.label)}</b>${tag}${m.ready===false?' <i class="mtag base">not available yet</i>':''}`
-      +`<span class="d">${esc(m.desc||'')}</span></span></label>`;
+      +`<span class="d">${esc(m.desc||'')} <a href="#" class="glink" data-guide="${esc(m.id)}">Details in the Guide →</a></span></span></label>`;
   });
   return h;
 }
@@ -1236,6 +1361,8 @@ function renderMethodLists(){
     const sel=$(i.name==='m_fit'?'m_fitter':'m_optimiser'); sel.value=i.value; setMethods();
   });
   if(_running) lockSetup(true);
+  // Random uses no data, so past campaigns cannot warm-start it
+  const kr=$('k_camp_row'); if(kr) kr.style.display = $('m_optimiser').value==='random' ? 'none' : '';
   const fit=_methodFor(fits,$('m_fitter').value), opt=_methodFor(_methodData.optimisers,$('m_optimiser').value);
   $('pairHint').innerHTML=_goal==='benchmark'?'':`<b>Fitting</b>: ${esc(fit.id==='llm_assisted'?'AI-assisted structure':(fit.label||''))}<br><b>Next recipe</b>: ${esc(opt.label||'')}`;
 }
@@ -1345,6 +1472,7 @@ async function setGoal(g){
   $('goalTitle').textContent=(_GOAL[g]||{}).t||g;
   $('c_goal_desc').textContent=(_GOAL[g]||{}).d||'';
   $('goalHint').textContent=(_GOAL[g]||{}).d||'';
+  $('goalGuide').dataset.guide=g;
   document.querySelectorAll('.live-only').forEach(e=>e.style.display=race?'none':'');
   document.querySelectorAll('.race-only').forEach(e=>e.style.display=race?'':'none');
   $('optColH').textContent = race ? 'Methods to race' : 'Next recipe';
@@ -1387,7 +1515,8 @@ function ownSeeds(){
 function countStart(){
   const own=document.querySelectorAll('#ownRows .ownrow').length;
   const spread=Math.max(0, Math.round(+$('c_nspread').value||0));
-  const n=own+spread, budget=+$('c_budget').value||0;
+  const know=$('c_nknow').disabled?0:Math.max(0, Math.round(+$('c_nknow').value||0));
+  const n=own+know+spread, budget=+$('c_budget').value||0;
   $('c_nown').textContent=own; $('c_ninit').textContent=n;
   $('c_addown').disabled = own>=5 || _running;
   let msg='then the optimiser picks from the measured results', cls='sub';
@@ -1395,23 +1524,28 @@ function countStart(){
   else if(budget && n>budget){ msg=`Longer than the whole budget (${budget}): Start will refuse`; cls='errt'; }
   else if(n<5){ msg='Few: the optimiser needs about 10 (2 × the 5 settings) to learn the trends'; cls='warnt'; }
   else if(budget && n>budget/3){ msg=`More than a third of the ${budget}-run budget is spent before the optimiser aims`; cls='warnt'; }
-  else if(own && spread<Math.ceil(n/2)){ msg='Keep at least half spread out, so the model sees the whole range'; cls='warnt'; }
+  else if((own||know) && spread<Math.ceil(n/2)){ msg='Keep at least half spread out, so the model sees the whole range'; cls='warnt'; }
   const el=$('c_nmsg'); el.textContent=msg; el.className=cls;
+  if(_running) $('c_nknow').disabled=true;
   checkReady();
-  return {n, own, spread};
+  return {n, own, know, spread};
 }
 function _coldBody(){
   const c=countStart();
-  return {n_init:c.n, seeds:ownSeeds(), budget:+$('c_budget').value, expected_shape:$('c_shape').value};
+  return {n_init:c.n, seeds:ownSeeds(), budget:+$('c_budget').value, expected_shape:$('c_shape').value,
+          knowledge:kBody()};
 }
 async function previewStart(){
   const out=$('previewOut');
   const r=await api('/api/campaign/preview', _coldBody());
   if(r.error||r.ok===false){ out.innerHTML=`<div class="errt" style="margin-top:6px">✗ ${esc(r.error||'refused')}</div>`; return; }
-  const rows=r.recipes.map((x,i)=>`<tr><td>${i+1}</td><td>${x.kind==='own'?'your own':'spread'}</td>`
+  const rows=r.recipes.map((x,i)=>`<tr><td>${i+1}</td><td>${x.kind==='own'?'your own':(x.kind==='knowledge'?'from knowledge':'spread')}</td>`
     +_RNAMES.map(k=>`<td>${num(x.params[k], k.startsWith('x_')?3:1)}</td>`).join('')+'</tr>').join('');
   out.innerHTML=`<div class="prev"><table><thead><tr><th>#</th><th>kind</th>${_RNAMES.map(k=>'<th>'+k+'</th>').join('')}</tr></thead><tbody>${rows}</tbody></table>`
-    +`<div class="sub">${r.recipes.length} starting recipes, in the order they will be issued; every one is inside the search range and the reactor limits.</div></div>`;
+    +`<div class="sub">${r.recipes.length} starting recipes, in the order they will be issued; every one is inside the search range and the reactor limits.`
+    +(r.knowledge&&Object.keys(r.knowledge.cited||{}).length?` From knowledge: ${Object.entries(r.knowledge.cited).map(([k,v])=>k+' from '+v.join(', ')).join('; ')}.`:'')
+    +(r.knowledge&&r.knowledge.n_prior?` Warm start: ${r.knowledge.n_prior} measured run(s) from past campaigns.`:'')
+    +((r.knowledge&&r.knowledge.warnings||[]).map(w=>' <span class="warnt">'+esc(w)+'</span>').join(''))+`</div></div>`;
 }
 
 /* ── search range + conditions folder (read-only, from the reactor) ────── */
@@ -1453,6 +1587,11 @@ function checkReady(){
     const n=+$('c_ninit').textContent||0, b=+$('c_budget').value||0;
     h+= (n>=1 && (!b || n<=b)) ? li(n<5||(b&&n>b/3)?'warn':'ok', `Cold start: ${n} recipe(s)`) : li('bad','Cold start does not fit the budget');
     const shp=$('c_shape'); h+=li('ok','Expected shape: '+esc(shp.options[shp.selectedIndex].text));
+    const ks=_kSummary($('k_set').value);
+    if(!ks) h+=li('ok','No knowledge set: starting recipes are your own and the spread');
+    else { h+= ks.matches_chemistry===false ? li('warn','Knowledge set "'+esc(ks.name)+'" does not match chemistry.yml')
+                                            : li('ok','Knowledge: '+esc(ks.name)+' v'+ks.version+', '+ks.n_cards+' approved card(s)');
+           if(ks.n_drafts) h+=li('warn',ks.n_drafts+' draft card(s) waiting for approval in Knowledge (not used until approved)'); }
   }
   ul.innerHTML=h;
 }
@@ -1589,7 +1728,7 @@ function lockSetup(running){
   // would not affect the live run and only misleads. Lock them until it ends.
   _running=running;
   ['c_target','c_tol','c_dmin','c_dmax','c_pdi','c_budget','m_fitter','m_optimiser',
-   'c_shape','c_confmin','c_nspread','c_addown'].forEach(id=>{
+   'c_shape','c_confmin','c_nspread','c_addown','k_set','k_lit','k_note','k_camp'].forEach(id=>{
     const el=$(id); if(el) el.disabled=running; });
   document.querySelectorAll('#sidebar .nav-btn, #m_opt_params input, #fitList input, #optList input, #ownRows input, #ownRows button')
     .forEach(el=>el.disabled=running);
@@ -1788,6 +1927,243 @@ async function psDiag(){
   if(d.convergence) drawSpark(d.convergence);
 }
 
+/* ── design knowledge: Setup step + Knowledge tab ─────────────────────────── */
+let _ksets=[], _kset=null, _kchem={}, _khits=[], _kfilter='';
+const _KPARAMS=['T_reac','F_tot','x_ODE','x_TOP','x_oley','all'];
+async function loadSets(keep){
+  const r=await api('/api/knowledge/sets');
+  if(r.error||r.ok===false){ _ksets=[]; return; }
+  _ksets=r.sets||[]; _kchem=r.chemistry||{};
+  const sel=$('k_set'), cur=keep!=null?keep:sel.value;
+  sel.innerHTML='<option value="">None</option>'+_ksets.map(s=>
+    `<option value="${esc(s.id)}">${esc(s.name)} (${s.n_cards} card${s.n_cards===1?'':'s'})${s.matches_chemistry===false?' · not this chemistry':''}</option>`).join('');
+  // preselect a set that matches chemistry.yml when nothing is chosen yet
+  const pick = _ksets.some(s=>s.id===cur) ? cur : ((_ksets.find(s=>s.matches_chemistry)||{}).id||'');
+  sel.value=pick;
+  $('kn_sets').innerHTML=_ksets.map(s=>`<button class="gd-item kn-set${_kset&&_kset.id===s.id?' on':''}" type="button" data-s="${esc(s.id)}">${esc(s.name)}</button>`).join('')
+    || '<div class="sub" style="padding:6px 14px">No set yet: + New set</div>';
+  document.querySelectorAll('.kn-set').forEach(b=>b.onclick=()=>kOpen(b.dataset.s));
+  if(!_kset && (pick||_ksets.length)) await kOpen(pick||_ksets[0].id, true);
+  kSetChosen();
+}
+function _kSummary(id){ return _ksets.find(s=>s.id===id)||null; }
+let _kStepSet=null;
+async function kSetChosen(){
+  const id=$('k_set').value, s=_kSummary(id);
+  const note=$('k_set_note');
+  ['k_lit','k_note','k_camp'].forEach(k=>$(k).disabled=!id||_running);
+  if(!id){ note.textContent='No knowledge: the starting recipes come from your own and the spread.';
+    ['k_lit_n','k_note_n','k_camp_n'].forEach(k=>$(k).textContent=''); _kStepSet=null; _kAutoSplit(false); countStart(); return; }
+  if(!_kStepSet || _kStepSet.id!==id){
+    const r=await api('/api/knowledge/set/'+encodeURIComponent(id));
+    _kStepSet = r&&r.ok ? r.set : null;
+  }
+  const cards=(_kStepSet&&_kStepSet.cards||[]).filter(c=>c.status==='approved');
+  const lit=cards.filter(c=>c.kind==='literature'), nts=cards.filter(c=>c.kind==='note');
+  const ranged=cards.filter(c=>(c.kind==='literature'?$('k_lit').checked:$('k_note').checked) && c.check && c.check.range);
+  $('k_lit_n').textContent=`${lit.length} card${lit.length===1?'':'s'}`;
+  $('k_note_n').textContent=`${nts.length} card${nts.length===1?'':'s'}`;
+  const nc=(_kStepSet&&_kStepSet.campaigns||[]).length;
+  $('k_camp_n').textContent=`${nc} campaign${nc===1?'':'s'} (warm start)`;
+  const drafts=(_kStepSet&&_kStepSet.cards||[]).filter(c=>c.status==='draft').length;
+  note.innerHTML=`version ${s?s.version:'?'}`
+    +(s&&s.matches_chemistry===false?' · <span class="warnt">does not match chemistry.yml</span>':'')
+    +(drafts?` · <span class="warnt">${drafts} draft card(s) waiting for approval, not used</span>`:'');
+  _kAutoSplit(ranged.length>0);
+  countStart();
+}
+/* The cold start keeps its size when knowledge is switched on or off: the 3
+   recipes from knowledge come out of the spread (From knowledge 3 · Spread
+   out 7), unless the operator has set the numbers themselves. */
+function _kAutoSplit(on){
+  const nk=$('c_nknow'), sp=$('c_nspread');
+  if(!on){
+    if(nk.dataset.auto==='1' && sp.dataset.touched!=='1') sp.value=(+sp.value||0)+(+nk.value||0);
+    nk.value=0; nk.disabled=true; nk.dataset.auto=''; return;
+  }
+  nk.disabled=_running;
+  if(nk.dataset.touched!=='1' && +nk.value===0 && nk.dataset.auto!=='1'){
+    nk.value=3; nk.dataset.auto='1';
+    if(sp.dataset.touched!=='1') sp.value=Math.max(0,(+sp.value||0)-3);
+  }
+}
+function kBody(){
+  const id=$('k_set').value; if(!id) return null;
+  return {set_id:id, use:{literature:$('k_lit').checked, notes:$('k_note').checked,
+          campaigns:_goal!=='benchmark' && $('k_camp').checked && $('k_camp_row').style.display!=='none'},
+          n:Math.max(0,Math.round(+$('c_nknow').value||0))};
+}
+
+/* Knowledge tab */
+async function kOpen(id, quiet){
+  if(!id){ _kset=null; kRender(); return; }
+  const r=await api('/api/knowledge/set/'+encodeURIComponent(id));
+  if(r.error||r.ok===false){ if(!quiet) $('kn_msg').textContent='✗ '+(r.error||'could not open the set'); return; }
+  _kset=r.set; kRender();
+  document.querySelectorAll('.kn-set').forEach(b=>b.classList.toggle('on',b.dataset.s===id));
+}
+function kSection(k){
+  document.querySelectorAll('.kn-sec').forEach(b=>b.classList.toggle('on',b.dataset.k===k));
+  document.querySelectorAll('.kn-page').forEach(p=>p.style.display=p.id==='kn-'+k?'':'none');
+}
+function _rangeTxt(r){ if(!r) return '—'; const f=v=>v==null?'':(+v).toString();
+  return r[0]==null?`up to ${f(r[1])}`:(r[1]==null?`from ${f(r[0])}`:`${f(r[0])} to ${f(r[1])}`); }
+function kRender(){
+  const s=_kset;
+  ['kn_export'].forEach(k=>$(k).disabled=!s);
+  if(!s){ $('kn_title').textContent='No knowledge set yet'; $('kn_meta').textContent='Make one with + New set.';
+    $('kn_drafts').innerHTML=''; document.querySelector('#kn_tbl tbody').innerHTML=''; document.querySelector('#kn_ctbl tbody').innerHTML='';
+    ['kn_n_drafts','kn_n_cards','kn_n_camps'].forEach(k=>$(k).textContent=''); return; }
+  $('kn_title').textContent=s.name;
+  const kw=(s.chemistry&&s.chemistry.keywords||[]).join(', ');
+  $('kn_meta').textContent=`version ${s.version}${kw?' · matches: '+kw:''}${s.matches_chemistry===false?' · not this project\'s chemistry.yml':''}`;
+  const cards=s.cards||[], drafts=cards.filter(c=>c.status==='draft'), appr=cards.filter(c=>c.status==='approved');
+  $('kn_n_drafts').textContent=drafts.length||''; $('kn_n_cards').textContent=appr.length||''; $('kn_n_camps').textContent=(s.campaigns||[]).length||'';
+  if(!$('kn_q').value){
+    const c=_kchem||{}, parts=[c.product, c.solvent, c.ligand, $('c_target').value?($('c_target').value+' nm'):'', 'flow synthesis size'].filter(Boolean);
+    $('kn_q').value=parts.join(' ');
+  }
+  // drafts: editable, approve / reject
+  $('kn_drafts').innerHTML = drafts.length ? drafts.map(c=>`<div class="kdraft" data-id="${esc(c.id)}">
+      <div class="kd-row"><b>${esc(c.id)}</b>
+        <select data-f="param">${_KPARAMS.map(p=>`<option${p===c.param?' selected':''}>${p}</option>`).join('')}</select>
+        <input data-f="lo" type="number" step="any" placeholder="from" value="${c.range&&c.range[0]!=null?c.range[0]:''}">
+        <input data-f="hi" type="number" step="any" placeholder="to" value="${c.range&&c.range[1]!=null?c.range[1]:''}">
+        <span class="sub">${esc(c.kind)}</span></div>
+      <input data-f="effect" value="${esc(c.effect)}">
+      <input data-f="source" value="${esc(c.source||'')}" placeholder="source">
+      ${c.passage?`<div class="sub kd-pass">“${esc(c.passage)}”</div>`:''}
+      ${c.check&&c.check.note?`<div class="warnt">${esc(c.check.note)}</div>`:''}
+      ${c.limit_like?'<div class="warnt">Sounds like a safety limit: a card cannot enforce it. Set it as a limit in the Reactor app.</div>':''}
+      <div class="btn-row"><button class="btn btn-accent btn-sm" type="button" onclick="kReview('${esc(c.id)}','approve')">Approve</button>
+        <button class="btn btn-ghost btn-sm" type="button" onclick="kReview('${esc(c.id)}','reject')">Reject</button></div></div>`).join('')
+    : '<div class="sub">No drafts waiting.</div>';
+  // approved cards
+  const tb=document.querySelector('#kn_tbl tbody');
+  const shown=appr.filter(c=>!_kfilter||c.kind===_kfilter);
+  tb.innerHTML = shown.length ? shown.map(c=>{
+      const ck=c.check||{};
+      const flag=(ck.outside?'<span class="warnt">outside the search range: not used</span>':(ck.clipped?`<span class="warnt">${esc(ck.note)}</span>`:''))
+        +(c.limit_like?' <span class="warnt" title="A card cannot enforce a limit; set it in the Reactor app">sounds like a limit</span>':'');
+      return `<tr><td>${esc(c.id)}</td><td>${esc(c.param)}</td><td>${esc(c.effect)}</td><td>${esc(_rangeTxt(c.range))} ${flag}</td>`
+        +`<td>${c.kind==='literature'?'literature':'your note'}</td><td class="sub">${esc(c.source||'')}${c.doi?' · '+esc(c.doi):''}</td>`
+        +`<td><button class="btn btn-ghost btn-sm" type="button" onclick="kReview('${esc(c.id)}','retire')" title="Stop using this card (kept in the set's history)">Retire</button></td></tr>`;
+    }).join('') : '<tr><td colspan="7" class="sub">No approved cards'+(_kfilter?' of this kind':'')+'.</td></tr>';
+  const cb=document.querySelector('#kn_ctbl tbody');
+  const cs=s.campaigns||[];
+  cb.innerHTML = cs.length ? cs.map(e=>`<tr><td>${esc(e.run_tag||e.campaign_id)}</td><td>${e.n} (${(e.runs||[]).length} measured)</td>`
+      +`<td>${e.best&&e.best.size!=null?num(2*e.best.size,2)+' nm, PDI '+num(e.best.pdi,3):'—'}</td><td class="sub">${esc((e.ended||'').slice(0,16))}</td><td class="sub">${esc(e.project||'')}</td></tr>`).join('')
+    : '<tr><td colspan="5" class="sub">No campaign has used this set yet.</td></tr>';
+}
+function _kMsg(r, ok){
+  if(r.error||r.ok===false){ $('kn_msg').innerHTML='<span class="errt">✗ '+esc(r.error||'refused')+'</span>'; return false; }
+  $('kn_msg').textContent=ok||''; return true;
+}
+async function _kAfter(r, msg){
+  if(!_kMsg(r, msg)) return;
+  _kStepSet=null; await kOpen(_kset.id, true); await loadSets(); kSection('drafts');
+}
+function _kNeedSet(){ if(_kset) return true; $('kn_msg').innerHTML='<span class="warnt">Make or pick a knowledge set first.</span>'; return false; }
+async function kNewSet(){
+  const name=prompt('Name of the new knowledge set (e.g. Pd · ODE · oleylamine):'); if(!name) return;
+  const kw=prompt('Words that must appear in chemistry.yml for this set to match (comma separated, may be empty):','')||'';
+  const r=await api('/api/knowledge/sets',{name, keywords:kw.split(',').map(x=>x.trim()).filter(Boolean)});
+  if(!_kMsg(r,'Set created.')) return;
+  await kOpen(r.set.id,true); await loadSets(); kSection('add');
+}
+async function kNotes(){
+  if(!_kNeedSet()) return;
+  const r=await api(`/api/knowledge/set/${_kset.id}/notes`,{text:$('kn_notes').value});
+  if(r.ok) $('kn_notes').value='';
+  await _kAfter(r, r.added?`${r.added.length} draft card(s) made from your notes.`:'');
+}
+async function kText(){
+  if(!_kNeedSet()) return;
+  const r=await api(`/api/knowledge/set/${_kset.id}/text`,{text:$('kn_text').value, source:$('kn_src').value});
+  await _kAfter(r, r.added?`${r.added.length} draft card(s) made (${(r.info||{}).method||''}).`:'');
+}
+async function kDoi(){
+  if(!_kNeedSet()) return;
+  $('kn_msg').textContent='Looking the DOI up…';
+  const r=await api(`/api/knowledge/set/${_kset.id}/doi`,{doi:$('kn_doi').value});
+  await _kAfter(r, r.added?`${r.added.length} draft card(s) from the abstract (${(r.info||{}).method||''}).`:'');
+}
+async function kPdf(){
+  if(!_kNeedSet()) return;
+  const f=$('kn_pdf').files&&$('kn_pdf').files[0]; if(!f){ $('kn_msg').textContent='Choose a PDF first.'; return; }
+  const fd=new FormData(); fd.append('file',f); fd.append('source',$('kn_src').value||f.name);
+  $('kn_msg').textContent='Reading the PDF…';
+  let r; try{ const x=await fetch(`/api/knowledge/set/${_kset.id}/pdf`,{method:'POST',body:fd}); r=await x.json(); }catch(e){ r={error:String(e)}; }
+  await _kAfter(r, r.added?`${r.added.length} draft card(s) from the PDF (${(r.info||{}).method||''}).`:'');
+}
+async function kSearch(){
+  $('kn_hits').innerHTML='<div class="sub">Searching…</div>';
+  const r=await api('/api/knowledge/search',{query:$('kn_q').value});
+  if(r.error||r.ok===false){ $('kn_hits').innerHTML='<div class="errt">✗ '+esc(r.error||'search failed')+'</div>'; return; }
+  _khits=r.results||[];
+  $('kn_hits').innerHTML = _khits.length ? _khits.map((w,i)=>`<label class="khit"><input type="checkbox" data-i="${i}"${w.abstract?'':' disabled'}>`
+      +`<span>${esc(w.title)} <span class="sub">${w.year||''}${w.open_access?' · open access':''}${w.abstract?'':' · no abstract'}</span></span></label>`).join('')
+      +'<button class="btn btn-ghost btn-sm" type="button" onclick="kFromSearch()">Draft cards from the ticked abstracts</button>'
+    : '<div class="sub">Nothing found.</div>';
+}
+async function kFromSearch(){
+  if(!_kNeedSet()) return;
+  const works=[...document.querySelectorAll('#kn_hits input:checked')].map(i=>_khits[+i.dataset.i]);
+  if(!works.length){ $('kn_msg').textContent='Tick at least one paper.'; return; }
+  const r=await api(`/api/knowledge/set/${_kset.id}/from_search`,{works});
+  await _kAfter(r, r.added?`${r.added.length} draft card(s) from ${works.length} abstract(s).`:'');
+}
+async function kReview(id, action){
+  if(action==='retire' && !confirm('Retire card '+id+'? It stops being used; it stays in the set\'s history.')) return;
+  let edit=null;
+  const box=document.querySelector(`.kdraft[data-id="${id}"]`);
+  if(box && action==='approve'){
+    const g=f=>box.querySelector(`[data-f="${f}"]`).value;
+    edit={param:g('param'), effect:g('effect'), source:g('source'),
+          range:(g('lo')===''&&g('hi')==='')?null:[g('lo')===''?null:+g('lo'), g('hi')===''?null:+g('hi')]};
+  }
+  const r=await api(`/api/knowledge/set/${_kset.id}/review`,{card_id:id, action, edit});
+  if(!_kMsg(r, `${id}: ${action==='approve'?'approved':action==='reject'?'rejected':'retired'}.`)) return;
+  _kStepSet=null; const sec=action==='approve'||action==='reject'?'drafts':'cards';
+  await kOpen(_kset.id,true); await loadSets(); kSection(sec);
+}
+function kExport(){ if(_kset) window.location.href='/api/knowledge/set/'+encodeURIComponent(_kset.id)+'/export'; }
+async function kImport(inp){
+  const f=inp.files&&inp.files[0]; if(!f) return;
+  let body; try{ body=JSON.parse(await f.text()); }catch(e){ $('kn_msg').textContent='✗ not a JSON file'; return; }
+  const r=await api('/api/knowledge/import', body); inp.value='';
+  if(!_kMsg(r, r.set?`Imported as "${r.set.name}": ${r.set.n_drafts} card(s) wait in Drafts for your review.`:'')) return;
+  await kOpen(r.set.id,true); await loadSets(); kSection('drafts');
+}
+document.querySelectorAll('.kn-sec').forEach(b=>b.onclick=()=>kSection(b.dataset.k));
+document.querySelectorAll('.kn-f').forEach(b=>b.onclick=()=>{ _kfilter=b.dataset.f;
+  document.querySelectorAll('.kn-f').forEach(x=>x.classList.toggle('on',x===b)); kRender(); });
+
+/* ── Guide tab ───────────────────────────────────────────────────────────── */
+let _guidePages=[];
+async function loadGuide(){
+  const r=await api('/api/guide');
+  if(r.error||!r.pages){ $('gd_body').innerHTML='<div class="sub">Could not load the Guide.</div>'; return; }
+  _guidePages=r.pages; let last=null, nav='';
+  r.pages.forEach(p=>{ if(p.group!==last){ nav+=`<div class="gd-grp">${esc(p.group)}</div>`; last=p.group; }
+    nav+=`<button class="gd-item" type="button" data-g="${esc(p.id)}">${esc(p.title)}</button>`; });
+  $('gd_nav').innerHTML=nav;
+  document.querySelectorAll('#gd_nav .gd-item').forEach(b=>b.onclick=()=>guideShow(b.dataset.g));
+  guideShow(r.pages[0].id);
+}
+function guideShow(id){
+  const p=_guidePages.find(x=>x.id===id); if(!p) return;
+  document.querySelectorAll('#gd_nav .gd-item').forEach(b=>b.classList.toggle('on',b.dataset.g===id));
+  let h=`<h3>${esc(p.title)}${p.family?` <span class="fam">${esc(p.family)}</span>`:''}</h3><dl>`;
+  p.rows.forEach(([k,v])=>{ h+=`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`; });
+  if(p.maths) h+=`<dt>The maths</dt><dd><pre>${esc(p.maths)}</pre></dd>`;
+  if(p.settings&&p.settings.length) h+=`<dt>Settings</dt><dd>${p.settings.map(esc).join('<br>')}</dd>`;
+  $('gd_body').innerHTML=h+'</dl>';
+}
+/* every "Details in the Guide →" link opens the Guide at its page */
+document.addEventListener('click',e=>{ const a=e.target.closest('.glink[data-guide]'); if(!a) return;
+  e.preventDefault(); e.stopPropagation(); showTab('guide'); guideShow(a.dataset.guide); }, true);
+
 /* ── theme ───────────────────────────────────────────────────────────────── */
 (function(){const K='swaxs-theme';let d=document.documentElement.getAttribute('data-theme')==='dark';
   function ap(x){document.documentElement.setAttribute('data-theme',x?'dark':'light');
@@ -1816,6 +2192,7 @@ async function psDiag(){
   document.getElementById('studyMethods').addEventListener('change', checkReady);
   await setGoal('target-hit');
   echoSpec(); countStart();
+  await loadSets();
   let _tab='setup'; try{ _tab=localStorage.getItem('swaxs-an-tab')||'setup'; }catch(_){}
   showTab(_tab);
 })();

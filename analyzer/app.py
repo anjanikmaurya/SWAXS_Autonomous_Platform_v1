@@ -47,6 +47,12 @@ from src.optimizer import ParameterSpace, CampaignController, NAMES      # noqa:
 from src.optimizer import methods as optimisers                         # noqa: E402  (pluggable optimiser registry)
 from src.optimizer.intake_rules import (held_reason, check_seeds,        # noqa: E402
                                         EXPECTED_SHAPES, DEFAULT_SHAPE)
+from src.optimizer import guide as _guide                               # noqa: E402
+from src.design_knowledge import store as kstore                       # noqa: E402
+from src.design_knowledge import cards as kcards                       # noqa: E402
+from src.design_knowledge import literature as klit                    # noqa: E402
+from src.design_knowledge.campaigns import entry_from_campaign          # noqa: E402
+from src.design_knowledge.freeze import for_campaign as _knowledge_for  # noqa: E402
 import src.fitting as fitting                                           # noqa: E402  (pluggable fitting registry)
 from src.optimizer.io import (to_param_file, match_recipe_id,           # noqa: E402
                               recipe_id_from_filename)
@@ -776,10 +782,27 @@ def _write_campaign_results(outcome: dict) -> str:
                 _emit(f"⚠ could not save {name}: {exc}", "warn")
 
         _emit(f"💾 campaign results saved to {d}", "ok")
+        _join_knowledge_set(body)
         return str(d)
     except Exception as exc:
         _emit(f"⚠ could not save the campaign results: {exc}", "warn")
         return ""
+
+
+def _join_knowledge_set(record: dict) -> None:
+    """A finished campaign joins the knowledge set it used, with its measured
+    runs, so the next campaign on this chemistry can warm-start from it.
+    Never raises: losing this must not stop a campaign from ending cleanly."""
+    try:
+        sid = ((_campaign_meta or {}).get("knowledge") or {}).get("set_id")
+        if not sid or _campaign is None:
+            return
+        entry = entry_from_campaign(record, _campaign.history, _project_root or "")
+        if kstore.add_campaign(sid, entry, _current_operator(_project_root)):
+            _emit(f"📚 {entry.get('run_tag') or entry['campaign_id']} joined the knowledge set "
+                  f"{sid} ({len(entry['runs'])} measured run(s))", "ok")
+    except Exception as exc:
+        _emit(f"⚠ could not add this campaign to its knowledge set: {exc}", "warn")
 
 
 def _record_campaign_in_manifest(outcome: dict | None = None) -> None:
@@ -885,7 +908,7 @@ def _restore_campaign() -> None:
                                    chosen=_campaign_meta.get("optimiser"))
         # the operator's own starting recipes come first again, so the cold
         # start replays in the same order it was issued
-        camp.start(seeds=_campaign_meta.get("seeds"))
+        camp.start(seeds=_campaign_meta.get("seeds"), prior=_campaign_meta.get("prior"))
         for rec in hist:                       # rebuild the GP from real results
             camp.tell(rec.get("params") or {}, rec.get("size"),
                       rec.get("pdi"), float(rec.get("confidence") or 0.0),
@@ -1123,7 +1146,8 @@ def _continue_run() -> dict:
                 "confidence_min")
     meta_keys = ("objective", "started_at", "operator", "run_no", "run_tag",
                  "goal", "spec_units", "optimiser", "optimiser_requested",
-                 "size_range", "fitter", "method_params", "expected_shape", "seeds")
+                 "size_range", "fitter", "method_params", "expected_shape", "seeds",
+                 "seed_kinds", "knowledge", "prior")
     cfg = {k: rec[k] for k in cfg_keys if k in rec}
     meta = {k: rec[k] for k in meta_keys if k in rec}
     campaign_id = str(rec.get("campaign_id") or "")
@@ -1141,7 +1165,7 @@ def _continue_run() -> dict:
                                meta.get("size_range"), cfg,
                                method_params=meta.get("method_params"),
                                chosen=meta.get("optimiser"))
-    camp.start(seeds=meta.get("seeds"))
+    camp.start(seeds=meta.get("seeds"), prior=meta.get("prior"))
 
     replayed, skipped = 0, 0
     for fr in recipe_recs:
@@ -2280,6 +2304,11 @@ def _campaign_status() -> dict:
     st["goal"] = str((_campaign_meta or {}).get("goal") or "target-hit")
     st["paused"] = bool(_paused)
     st["expected_shape"] = _expected_shape()
+    _k = (_campaign_meta or {}).get("knowledge") or {}
+    if _k:
+        st["knowledge"] = {"set_id": _k.get("set_id"), "name": _k.get("name"),
+                           "version": _k.get("version"), "n_cards": len(_k.get("cards") or []),
+                           "n_prior": _k.get("n_prior", 0)}
     with _campaign_lock:
         st["held"] = _campaign.held() if _campaign is not None else []
     if (_campaign_meta or {}).get("size_range"):
@@ -2347,12 +2376,14 @@ def _expected_shape() -> str:
     return str((_campaign_meta or {}).get("expected_shape") or "any")
 
 
-def _cold_start_request(b: dict, space, cfg: dict) -> tuple[int, list, list, str]:
-    """(n_init, seeds, errors, expected_shape) from a Start/Preview request body.
+def _cold_start_request(b: dict, space, cfg: dict) -> tuple[int, list, list, str, dict]:
+    """(n_init, seeds, errors, expected_shape, knowledge) from a Start/Preview body.
 
     The cold start is ``n_init`` recipes: the operator's own (``seeds``, checked
-    against the search bounds and the reactor's hard caps), then Sobol points
-    spread over the whole search range for the rest."""
+    against the search bounds and the reactor's hard caps), then recipes from
+    knowledge (inside the range the approved cards allow), then Sobol points
+    spread over the whole search range for the rest. ``knowledge`` is the
+    frozen snapshot of the chosen set (src/design_knowledge/freeze.py)."""
     errors = []
     try:
         budget = int(b.get("budget", 25))
@@ -2370,12 +2401,17 @@ def _cold_start_request(b: dict, space, cfg: dict) -> tuple[int, list, list, str
         errors.append(f"the cold start ({n_init}) is longer than the whole budget ({budget})")
     seeds, seed_errs = check_seeds(b.get("seeds") or [], space, (cfg or {}).get("safety") or {})
     errors += seed_errs
+    kn = _knowledge_for(b.get("knowledge"), space)
+    errors += kn["errors"]
+    kn["n_own"] = len(seeds)
+    seeds = seeds + kn["seeds"]
     if len(seeds) > n_init:
-        errors.append(f"{len(seeds)} of your own recipes do not fit in a cold start of {n_init}")
+        errors.append(f"{len(seeds)} recipes of your own and from knowledge do not fit in a "
+                      f"cold start of {n_init}")
     shape = str(b.get("expected_shape") or DEFAULT_SHAPE)
     if shape not in EXPECTED_SHAPES:
         errors.append(f"unknown expected shape '{shape}'")
-    return n_init, seeds, errors, shape
+    return n_init, seeds, errors, shape, kn
 
 
 @app.route("/api/campaign/start", methods=["POST"])
@@ -2388,7 +2424,7 @@ def api_campaign_start():
         space = ParameterSpace.from_config(_cfg_live)
         # Refuse BEFORE touching anything: a bad starting recipe or cold start
         # must never clear the queue or half-start a run.
-        _n_init, _seeds, _errs, _shape = _cold_start_request(b, space, _cfg_live)
+        _n_init, _seeds, _errs, _shape, _kn = _cold_start_request(b, space, _cfg_live)
         try:
             _conf_min = float(b.get("confidence_min", 0.5))
         except (TypeError, ValueError):
@@ -2477,12 +2513,24 @@ def api_campaign_start():
             _campaign_meta["expected_shape"] = _shape
             if _seeds:
                 _campaign_meta["seeds"] = _seeds
+                _campaign_meta["seed_kinds"] = (["own"] * _kn["n_own"]
+                                                + ["knowledge"] * (len(_seeds) - _kn["n_own"]))
+            # the knowledge set as it was at Start: version, the cards and campaigns used
+            if _kn.get("frozen"):
+                _campaign_meta["knowledge"] = _kn["frozen"]
+                _campaign_meta["prior"] = _kn["prior"]
             _paused = False
-            _campaign.start(seeds=_seeds)
+            _campaign.start(seeds=_seeds, prior=_kn.get("prior"))
             _emit(f"🚀 campaign started — target R={_campaign.target_size}±{_campaign.tolerance} nm, "
                   f"PDI<{_campaign.pdi_cap}, budget {_campaign.budget}, cold start "
-                  f"{_n_init} ({len(_seeds)} of your own, {_n_init - len(_seeds)} spread out), "
+                  f"{_n_init} ({_kn['n_own']} of your own, {len(_seeds) - _kn['n_own']} from "
+                  f"knowledge, {_n_init - len(_seeds)} spread out), "
                   f"expected shape: {EXPECTED_SHAPES[_shape]['label']}", "ok")
+            if _kn.get("frozen"):
+                _fz = _kn["frozen"]
+                _emit(f"📚 knowledge: {_fz['name']} v{_fz['version']}, {len(_fz['cards'])} "
+                      f"card(s), {_fz['n_prior']} warm-start point(s) from past campaigns"
+                      + ("".join(f"; {w}" for w in _kn["warnings"])), "info")
             _advance_campaign()             # emit the first condition
         _save_campaign()
         # Durable record of the TARGET, in the two places that outlive the run.
@@ -2591,15 +2639,219 @@ def api_campaign_preview():
     try:
         cfg = _space_cfg()
         space = ParameterSpace.from_config(cfg)
-        n_init, seeds, errors, _shape = _cold_start_request(b, space, cfg)
+        n_init, seeds, errors, _shape, kn = _cold_start_request(b, space, cfg)
         if errors:
             return jsonify({"ok": False, "error": "; ".join(errors), "errors": errors}), 400
         spread = space.sobol(max(0, n_init - len(seeds)), seed=0)
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
-    recipes = ([{"kind": "own", "params": s} for s in seeds]
+    no = kn["n_own"]
+    recipes = ([{"kind": "own", "params": s} for s in seeds[:no]]
+               + [{"kind": "knowledge", "params": s} for s in seeds[no:]]
                + [{"kind": "spread", "params": s} for s in spread])
-    return jsonify({"ok": True, "n_init": n_init, "recipes": recipes})
+    return jsonify({"ok": True, "n_init": n_init, "recipes": recipes,
+                    "knowledge": {"cited": kn.get("cited") or {}, "warnings": kn["warnings"],
+                                  "n_prior": len(kn.get("prior") or []),
+                                  "version": (kn.get("frozen") or {}).get("version")}})
+
+
+# ── design knowledge (Knowledge tab) ─────────────────────────────────────────
+# Thin routes over src/design_knowledge. Everything drafted here is a DRAFT
+# until the operator approves it; nothing here touches a running campaign
+# (a campaign froze its set's version at Start) or the reactor.
+
+def _who() -> str:
+    try:
+        return _current_operator(_project_root)
+    except Exception:                                         # noqa: BLE001
+        return ""
+
+
+def _chemistry() -> dict:
+    try:
+        from src.analysis.fit_context import _read_yaml          # noqa: PLC0415
+        return _read_yaml(Path(_project_root) / "chemistry.yml") if _project_root else {}
+    except Exception:                                         # noqa: BLE001
+        return {}
+
+
+def _kerr(exc: Exception, code: int = 400):
+    return jsonify({"ok": False, "error": str(exc)}), code
+
+
+@app.route("/api/guide")
+def api_guide():
+    return jsonify({"pages": _guide.pages(fitting.available(), optimisers.available())})
+
+
+@app.route("/api/knowledge/sets", methods=["GET", "POST"])
+def api_knowledge_sets():
+    if request.method == "POST":
+        b = request.get_json(silent=True) or {}
+        try:
+            s = kstore.create_set(b.get("name"), b.get("keywords") or [], _who())
+        except ValueError as exc:
+            return _kerr(exc)
+        return jsonify({"ok": True, "set": s})
+    chem = _chemistry()
+    sets = kstore.list_sets()
+    for s in sets:
+        s["matches_chemistry"] = kstore.matches(s, chem)
+    return jsonify({"ok": True, "sets": sets, "chemistry": chem})
+
+
+@app.route("/api/knowledge/set/<sid>")
+def api_knowledge_set(sid):
+    try:
+        s = kstore.load_set(sid)
+        space = ParameterSpace.from_config(_space_cfg())
+    except ValueError as exc:
+        return _kerr(exc, 404)
+    for c in s.get("cards") or []:
+        c["check"] = kcards.check_card(c, space)
+    s["matches_chemistry"] = kstore.matches(s, _chemistry())
+    return jsonify({"ok": True, "set": s})
+
+
+def _drafted(sid: str, drafts: list, info: dict | None = None, what: str = "drafts"):
+    try:
+        added = kstore.add_drafts(sid, drafts, _who(), what=what)
+    except ValueError as exc:
+        return _kerr(exc, 404)
+    _emit(f"📚 {len(added)} draft card(s) added to {sid} ({what}); approve them in Knowledge, "
+          f"Drafts", "info")
+    return jsonify({"ok": True, "added": added, "info": info or {}})
+
+
+@app.route("/api/knowledge/set/<sid>/notes", methods=["POST"])
+def api_knowledge_notes(sid):
+    b = request.get_json(silent=True) or {}
+    drafts, skipped = kcards.notes_to_drafts(b.get("text") or "", added_by=_who())
+    if not drafts:
+        return jsonify({"ok": False, "error": "no line names a recipe setting "
+                                              "(temperature, flow, ODE, TOP, oleylamine)",
+                        "skipped": skipped}), 400
+    return _drafted(sid, drafts, {"skipped": skipped}, "from your notes")
+
+
+@app.route("/api/knowledge/set/<sid>/text", methods=["POST"])
+def api_knowledge_text(sid):
+    b = request.get_json(silent=True) or {}
+    drafts, info = klit.draft_cards(b.get("text") or "", b.get("source") or "pasted text")
+    for d in drafts:
+        if b.get("doi"):
+            d["doi"] = str(b["doi"])[:120]
+    if not drafts:
+        return jsonify({"ok": False, "error": "no statement about a recipe setting was found",
+                        "info": info}), 400
+    return _drafted(sid, drafts, info, f"from {str(b.get('source') or 'pasted text')[:60]}")
+
+
+@app.route("/api/knowledge/set/<sid>/doi", methods=["POST"])
+def api_knowledge_doi(sid):
+    b = request.get_json(silent=True) or {}
+    try:
+        w = klit.by_doi(b.get("doi") or "")
+    except ValueError as exc:
+        return _kerr(exc)
+    except Exception as exc:                                  # noqa: BLE001
+        return _kerr(RuntimeError(f"could not reach OpenAlex: {type(exc).__name__}"), 502)
+    if not w.get("abstract"):
+        return jsonify({"ok": False, "error": "no abstract available for that DOI: paste the "
+                                              "text or add the PDF", "work": w}), 400
+    src = f"{w['title'][:120]} ({w.get('year') or 'n.d.'})"
+    drafts, info = klit.draft_cards(w["abstract"], src)
+    for d in drafts:
+        d["doi"] = w.get("doi") or ""
+    if not drafts:
+        return jsonify({"ok": False, "error": "the abstract states nothing about a recipe setting",
+                        "work": w}), 400
+    return _drafted(sid, drafts, info, f"from DOI {w.get('doi')}")
+
+
+@app.route("/api/knowledge/set/<sid>/pdf", methods=["POST"])
+def api_knowledge_pdf(sid):
+    f = request.files.get("file")
+    if f is None:
+        return _kerr(ValueError("no file"))
+    data = f.read(25 * 1024 * 1024 + 1)
+    if len(data) > 25 * 1024 * 1024:
+        return _kerr(ValueError("the PDF is larger than 25 MB"))
+    try:
+        text = klit.pdf_text(data)
+    except ValueError as exc:
+        return _kerr(exc)
+    except Exception as exc:                                  # noqa: BLE001
+        return _kerr(RuntimeError(f"could not read the PDF ({type(exc).__name__})"))
+    drafts, info = klit.draft_cards(text, request.form.get("source") or (f.filename or "PDF"))
+    if not drafts:
+        return jsonify({"ok": False, "error": "no statement about a recipe setting was found",
+                        "info": info}), 400
+    return _drafted(sid, drafts, info, f"from {str(f.filename or 'PDF')[:60]}")
+
+
+@app.route("/api/knowledge/search", methods=["POST"])
+def api_knowledge_search():
+    b = request.get_json(silent=True) or {}
+    try:
+        res = klit.search(b.get("query") or "", n=int(b.get("n") or 8))
+    except ValueError as exc:
+        return _kerr(exc)
+    except Exception as exc:                                  # noqa: BLE001
+        return _kerr(RuntimeError(f"could not reach OpenAlex: {type(exc).__name__}"), 502)
+    return jsonify({"ok": True, "results": res})
+
+
+@app.route("/api/knowledge/set/<sid>/from_search", methods=["POST"])
+def api_knowledge_from_search(sid):
+    """Draft cards from the abstracts of the works the operator ticked."""
+    b = request.get_json(silent=True) or {}
+    drafts, methods = [], set()
+    for w in (b.get("works") or [])[:10]:
+        if not isinstance(w, dict) or not w.get("abstract"):
+            continue
+        src = f"{str(w.get('title') or '')[:120]} ({w.get('year') or 'n.d.'})"
+        ds, info = klit.draft_cards(str(w["abstract"]), src)
+        methods.add(info.get("method"))
+        for d in ds:
+            d["doi"] = str(w.get("doi") or "")[:120]
+        drafts += ds
+    if not drafts:
+        return jsonify({"ok": False, "error": "none of the ticked abstracts states anything "
+                                              "about a recipe setting"}), 400
+    return _drafted(sid, drafts, {"method": ",".join(sorted(m for m in methods if m))},
+                    "from web search")
+
+
+@app.route("/api/knowledge/set/<sid>/review", methods=["POST"])
+def api_knowledge_review(sid):
+    b = request.get_json(silent=True) or {}
+    try:
+        c = kstore.review(sid, str(b.get("card_id") or ""), str(b.get("action") or ""),
+                          b.get("edit"), _who())
+    except ValueError as exc:
+        return _kerr(exc)
+    return jsonify({"ok": True, "card": c})
+
+
+@app.route("/api/knowledge/set/<sid>/export")
+def api_knowledge_export(sid):
+    try:
+        body = kstore.export_set(sid)
+    except ValueError as exc:
+        return _kerr(exc, 404)
+    return Response(json.dumps(body, indent=2, ensure_ascii=False), mimetype="application/json",
+                    headers={"Content-Disposition": f'attachment; filename="knowledge_{sid}.json"'})
+
+
+@app.route("/api/knowledge/import", methods=["POST"])
+def api_knowledge_import():
+    try:
+        s = kstore.import_set(request.get_json(silent=True) or {}, _who())
+    except ValueError as exc:
+        return _kerr(exc)
+    return jsonify({"ok": True, "set": {"id": s["id"], "name": s["name"],
+                                        "n_drafts": len(s.get("cards") or [])}})
 
 
 @app.route("/api/search_range")

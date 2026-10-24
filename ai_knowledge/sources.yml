@@ -61,6 +61,10 @@ sources:
     path: ai_knowledge/evals
     role: exam
     shared: true
+  - id: design_sets
+    path: ai_knowledge/design
+    role: design            # Analyser next-recipe knowledge; never given to the assistant
+    shared: true
   - id: index
     path: ai_knowledge/index
     role: index
