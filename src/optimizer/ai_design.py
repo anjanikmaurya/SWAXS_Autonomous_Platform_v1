@@ -92,6 +92,56 @@ def ai_available() -> bool:
     return _client() is not None
 
 
+#: Model choices for the next-recipe AI. "" = the default from your settings
+#: (SWAXS_DESIGN_MODEL, else ANTHROPIC_MODEL). A gateway may offer only some.
+MODELS = [("", "Default (from your AI settings)"),
+          ("claude-sonnet-5-5", "Claude Sonnet 5.5 (balanced)"),
+          ("claude-opus-5-5", "Claude Opus 5.5 (most capable, slower)"),
+          ("claude-haiku-5-5", "Claude Haiku 5.5 (fastest)"),
+          ("claude-fable-5-1", "Claude Fable 5.1")]
+#: Thinking: extended thinking budget before the answer. Off keeps temperature 0.
+THINKING = {"off": 0, "standard": 2000, "deep": 8000}
+
+
+def _clean_error(exc: Exception) -> str:
+    """An error for the page: type and message, never a credential."""
+    msg = re.sub(r"(sk-[A-Za-z0-9_\-]{6,}|Bearer\s+\S+|[A-Za-z0-9_\-]{32,})", "[hidden]", str(exc))
+    return f"{type(exc).__name__}: {msg[:200]}"
+
+
+def test_connection(model: str = "", thinking: str = "off", client_factory=None) -> dict:
+    """A tiny real call to check the AI login, the gateway and the chosen model.
+    Returns {ok, model, ms, thinking, error}; never raises, never shows a secret."""
+    m = model or _model()
+    t0 = time.time()
+    client = (client_factory or _client)()
+    if client is None:
+        return {"ok": False, "model": m, "ms": 0, "thinking": thinking,
+                "error": "no AI login found (no ANTHROPIC_AUTH_TOKEN / ANTHROPIC_API_KEY, "
+                         "and none in ~/.claude/settings.json), or the anthropic package is missing"}
+    try:
+        kw = _call_kwargs(m, thinking, max_tokens=40)
+        resp = client.messages.create(system="Answer with JSON only.", timeout=25,
+                                      messages=[{"role": "user", "content": 'Reply {"ok": true}'}], **kw)
+        raw = "".join(getattr(b, "text", "") for b in resp.content)
+        ok = '"ok"' in raw.replace(" ", "")
+        return {"ok": bool(ok), "model": getattr(resp, "model", None) or m, "ms": int(1000 * (time.time() - t0)),
+                "thinking": thinking, "error": "" if ok else "the model answered, but not in JSON"}
+    except Exception as exc:                                   # noqa: BLE001
+        return {"ok": False, "model": m, "ms": int(1000 * (time.time() - t0)), "thinking": thinking,
+                "error": _clean_error(exc)}
+
+
+def _call_kwargs(model: str, thinking: str, max_tokens: int = 700) -> dict:
+    """model, max_tokens and, with thinking on, the thinking budget (temperature
+    must then be left at its default; off keeps temperature 0)."""
+    budget = THINKING.get(thinking or "off", 0)
+    if budget:
+        return {"model": model, "max_tokens": budget + max(max_tokens, 1024),
+                "thinking": {"type": "enabled", "budget_tokens": budget}}
+    return {"model": model, "max_tokens": max_tokens, "temperature": 0}
+
+
 def _model() -> str:
     return (os.environ.get("SWAXS_DESIGN_MODEL") or os.environ.get("ANTHROPIC_MODEL", "").strip()
             or "claude-sonnet-5")
@@ -111,12 +161,13 @@ class AIDesign:
 
     _OWN = {"inner", "level", "review_every", "apply", "k", "trust", "knowledge",
             "every_pick", "decisions", "pending_suggestion", "applied", "reviews_done",
-            "client_factory", "cache", "n_ai_fallbacks", "_last_decision", "chemistry", "caps"}
+            "client_factory", "cache", "n_ai_fallbacks", "_last_decision", "chemistry", "caps",
+            "model", "thinking"}
 
     def __init__(self, inner, level: str, *, review_every: int = 5, apply: str = "auto",
                  k: int = 5, trust: float = 0.25, knowledge: dict | None = None,
                  every_pick: bool = True, client_factory=None, chemistry: dict | None = None,
-                 caps: dict | None = None):
+                 caps: dict | None = None, model: str = "", thinking: str = "off"):
         if level not in LEVELS:
             raise ValueError(f"unknown AI level {level}")
         o = self.__dict__
@@ -140,6 +191,8 @@ class AIDesign:
         o["_last_decision"] = None
         o["chemistry"] = chemistry or {}
         o["caps"] = dict(caps or {})          # the reactor's hard caps (T_max, F_tot_max)
+        o["model"] = str(model or "")
+        o["thinking"] = thinking if thinking in THINKING else "off"
 
     # ── the inner optimiser's protocol ───────────────────────────────────────
     def __getattr__(self, name):
@@ -169,6 +222,7 @@ class AIDesign:
     def status(self) -> dict:
         st = self.inner.status()
         st["ai"] = {"level": self.level, "label": LABELS[self.level],
+                    "model": self.model or _model(), "thinking": self.thinking,
                     "review_every": self.review_every, "apply": self.apply,
                     "work_bounds": self.inner.work_bounds,
                     "pending_suggestion": self.pending_suggestion,
@@ -358,17 +412,19 @@ class AIDesign:
         return out
 
     def _call(self, prompt: str) -> tuple[dict | None, str]:
-        key = hashlib.sha256((_model() + "\n" + prompt).encode()).hexdigest()
+        model = self.model or _model()
+        key = hashlib.sha256((model + "|" + self.thinking + "\n" + prompt).encode()).hexdigest()
         if key in self.cache:
             return self.cache[key], ""
         client = self.client_factory()
         if client is None:
             return None, "no AI login"
         try:
-            resp = client.messages.create(model=_model(), max_tokens=700, temperature=0,
-                                          system=SYSTEM, timeout=TIMEOUT_S,
-                                          messages=[{"role": "user", "content": prompt}])
-            raw = "".join(getattr(b, "text", "") for b in resp.content)
+            resp = client.messages.create(system=SYSTEM, timeout=TIMEOUT_S + THINKING[self.thinking] / 100,
+                                          messages=[{"role": "user", "content": prompt}],
+                                          **_call_kwargs(model, self.thinking))
+            raw = "".join(getattr(b, "text", "") for b in resp.content
+                          if getattr(b, "type", "text") == "text")
             m = re.search(r"\{.*\}", raw, flags=re.S)
             ans = json.loads(m.group(0)) if m else None
         except Exception as exc:                               # noqa: BLE001
@@ -484,6 +540,7 @@ class AIDesign:
     # ── commit (under the app's lock) ────────────────────────────────────────
     def _record(self, d: dict) -> dict:
         d = {"t": time.strftime("%Y-%m-%dT%H:%M:%S"), "level": self.level,
+             "model": self.model or _model(), "thinking": self.thinking,
              "knowledge_version": self.knowledge.get("version"), **d}
         self.decisions.append(d)
         self.decisions = self.decisions[-MAX_DECISIONS:]

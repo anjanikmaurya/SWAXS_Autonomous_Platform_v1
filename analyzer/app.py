@@ -156,6 +156,7 @@ def _build_optimiser(space, goal, size_range, base_cfg, method_params=None,
         ctl = _aid.AIDesign(ctl, ai["level"], review_every=int(ai.get("review_every") or 0),
                             apply=ai.get("apply") or "auto",
                             k=int(_kh.get("shortlist_k", 5)), trust=float(_kh.get("trust", 0.25)),
+                            model=str(ai.get("model") or ""), thinking=str(ai.get("thinking") or "off"),
                             knowledge=(_campaign_meta or {}).get("knowledge") if knowledge is None else knowledge,
                             every_pick=bool(ai.get("every_pick")), chemistry=_chemistry(),
                             caps=(_space_cfg().get("safety") or {}))
@@ -2606,7 +2607,13 @@ def api_campaign_start():
                 _errs.append("AI Pilot needs a progress review every 5 or 10 runs")
             if lvl == "ai_pilot" and _ai.get("confirmed") is not True:
                 _errs.append("AI Pilot writes the recipes itself: confirm the limits first")
-            _ai = {"level": lvl, "review_every": rev,
+            _model_id = str(_ai.get("model") or "")
+            if _model_id and _model_id not in {i for i, _ in _aid.MODELS}:
+                _errs.append(f"unknown AI model '{_model_id}'")
+            _think = str(_ai.get("thinking") or "off")
+            if _think not in _aid.THINKING:
+                _errs.append(f"unknown thinking level '{_think}'")
+            _ai = {"level": lvl, "review_every": rev, "model": _model_id, "thinking": _think,
                    "apply": "ask" if _ai.get("apply") == "ask" else "auto",
                    "every_pick": bool(((b.get("knowledge") or {}).get("use") or {}).get("every_pick"))}
         if _errs:
@@ -2813,7 +2820,27 @@ def api_campaign_accept():
 
 @app.route("/api/ai/status")
 def api_ai_status():
-    return jsonify({"available": _aid.ai_available()})
+    """Is an AI login configured (no call made), the default model, the choices."""
+    return jsonify({"available": _aid.ai_available(), "default_model": _aid._model(),
+                    "models": [{"id": i, "label": lab} for i, lab in _aid.MODELS],
+                    "thinking": list(_aid.THINKING)})
+
+
+@app.route("/api/ai/test", methods=["POST"])
+def api_ai_test():
+    """One tiny real call with the chosen model: checks the login, the gateway and
+    the model name. Shows the error type, never a credential."""
+    b = request.get_json(silent=True) or {}
+    model = str(b.get("model") or "")
+    if model and model not in {i for i, _ in _aid.MODELS}:
+        return jsonify({"ok": False, "error": "unknown model"}), 400
+    thinking = str(b.get("thinking") or "off")
+    if thinking not in _aid.THINKING:
+        return jsonify({"ok": False, "error": "unknown thinking level"}), 400
+    r = _aid.test_connection(model, thinking)
+    _emit(f"🤖 AI connection test ({r['model']}, thinking {thinking}): "
+          + (f"OK in {r['ms']} ms" if r["ok"] else f"failed: {r['error']}"), "ok" if r["ok"] else "warn")
+    return jsonify(r)
 
 
 @app.route("/api/campaign/ai/suggestion", methods=["POST"])

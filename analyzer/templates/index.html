@@ -1391,13 +1391,24 @@ function updateMethodDescs(){
       +`<div><label for="ai_review">Progress review</label><select id="ai_review" onchange="checkReady()">`
         +`<option value="5">every 5 runs</option><option value="10">every 10 runs</option>${pilot?'':'<option value="0">off</option>'}</select></div>`
       +(adv?`<div><label for="ai_apply">Apply suggestions</label><select id="ai_apply"><option value="auto">automatically, if within the safety limits</option><option value="ask">ask me first</option></select></div>`:'')
-      +`</div><div class="sub" style="margin-top:6px">`
+      +`<div><label for="ai_model">Claude model</label><select id="ai_model" onchange="_aiOK=null;$('ai_test_out').textContent='';checkReady()">`
+        +(_aiInfo.models||[{id:'',label:'Default (from your AI settings)'}]).map(m=>`<option value="${esc(m.id)}">${esc(m.id?m.label:m.label+(_aiInfo.default_model?': '+_aiInfo.default_model:''))}</option>`).join('')+`</select></div>`
+      +`<div><label for="ai_think">Thinking</label><select id="ai_think" onchange="_aiOK=null;$('ai_test_out').textContent=''">`
+        +`<option value="off">off (fastest; same answer for the same state)</option><option value="standard">standard (about 2k tokens)</option><option value="deep">deep (about 8k tokens, slower)</option></select></div>`
+      +`</div><div class="btn-row"><button class="btn btn-ghost btn-sm" type="button" onclick="aiTest()">Test AI connection</button><span class="sub" id="ai_test_out"></span></div>`
+      +`<div class="sub" style="margin-top:6px">`
       +(adv?'Measuring never stops for a review. A suggested range inside the search range is applied from the next recipe and can be undone (Report, Decisions); one outside it goes back to the AI once, then is dropped.'
            :'Every AI decision, its reason and what it was based on appear in Report, Decisions. The search range, pump windows and hard caps are always enforced; anything invalid uses the optimiser\'s pick. Measuring continues while a review waits for you.')
       +(pilot?' The review cannot be turned off, and Start asks you to confirm the limits.':'')
       +`</div></div>`;
+    const pm=_aiPick.model, pt=_aiPick.think;
     $('m_opt_desc').innerHTML=html;
     if(prev && [...$('ai_review').options].some(o=>o.value===prev)) $('ai_review').value=prev;
+    if(pm!=null && [...$('ai_model').options].some(o=>o.value===pm)) $('ai_model').value=pm;
+    if(pt) $('ai_think').value=pt;
+    $('ai_model').addEventListener('change',()=>{_aiPick.model=$('ai_model').value;});
+    $('ai_think').addEventListener('change',()=>{_aiPick.think=$('ai_think').value;});
+    if(_aiTestRes) _aiShowTest(_aiTestRes);
     $('m_opt_params').innerHTML='';
     renderMethodLists();
     return;
@@ -1428,7 +1439,20 @@ const _AI_LEVELS=[
   {id:'ai_advisor', label:'AI Advisor', desc:'The optimiser picks every recipe; every few runs the AI reviews progress and may suggest a narrower working range (applied only inside the safety limits, or after you approve it).'},
   {id:'ai_copilot', label:'AI Co-pilot', desc:'The optimiser shortlists 5 recipes (its own pick first); the AI picks one and says why, citing the knowledge or the data. Anything invalid: the optimiser\'s pick.', tag:'recommended for AI'},
   {id:'ai_pilot', label:'AI Pilot', desc:'The AI writes each recipe, inside the search range, pump windows, hard caps and a trust region around the best recipe; otherwise the optimiser\'s pick. Reviews cannot be turned off.', tag:'experimental'}];
-let _aiLevel=null, _aiOK=null;
+let _aiLevel=null, _aiOK=null, _aiInfo={}, _aiTestRes=null;
+const _aiPick={model:null, think:null};
+api('/api/ai/status').then(r=>{ if(r&&!r.error){ _aiInfo=r; _aiOK=!!r.available; if(_aiLevel) updateMethodDescs(); } });
+function _aiShowTest(r){
+  const el=$('ai_test_out'); if(!el) return;
+  el.innerHTML = r.ok ? `<span class="okt">Connected: ${esc(r.model)}, answered in ${r.ms} ms (thinking ${esc(r.thinking)})</span>`
+                      : `<span class="errt">Not connected: ${esc(r.error||'unknown error')}</span>`;
+}
+async function aiTest(){
+  const el=$('ai_test_out'); el.textContent='Testing…';
+  const r=await api('/api/ai/test',{model:($('ai_model')||{}).value||'', thinking:($('ai_think')||{}).value||'off'});
+  _aiTestRes = r.error&&r.ok===undefined ? {ok:false,error:r.error} : r;
+  _aiOK=!!_aiTestRes.ok; _aiShowTest(_aiTestRes); checkReady();
+}
 function renderMethodLists(){
   const fits=_methodData.fitters||[];
   const fl=$('fitList'); if(fl) fl.innerHTML=_listHTML('fit', fits, _FIT_FAM, $('m_fitter').value);
@@ -1681,8 +1705,11 @@ function checkReady(){
     const shp=$('c_shape'); h+=li('ok','Expected shape: '+esc(shp.options[shp.selectedIndex].text));
     if(_aiLevel){
       if(_aiOK===null){ _aiOK=false; api('/api/ai/status').then(r=>{ _aiOK=!!(r&&r.available); checkReady(); }); }
-      h+= _aiOK ? li('ok', esc(_AI_LEVELS.find(a=>a.id===_aiLevel).label)+': AI login found')
-                : li('warn','No AI login found: '+esc(_AI_LEVELS.find(a=>a.id===_aiLevel).label)+' runs as the optimiser until one is set');
+      const lab=esc(_AI_LEVELS.find(a=>a.id===_aiLevel).label), mdl=esc((($('ai_model')||{}).value)||_aiInfo.default_model||'default model');
+      h+= _aiTestRes&&_aiTestRes.ok ? li('ok', `${lab}: connected (${mdl}, ${_aiTestRes.ms} ms)`)
+        : _aiTestRes ? li('warn', `${lab}: connection test failed: ${esc(_aiTestRes.error||'')}. It runs as the optimiser until this works`)
+        : _aiOK ? li('warn', `${lab}: AI login found, not tested yet: press Test AI connection`)
+                : li('warn','No AI login found: '+lab+' runs as the optimiser until one is set');
       if(_aiLevel==='ai_pilot') h+=li('warn','AI Pilot is experimental: Start asks you to confirm the limits');
     }
     const ks=_kSummary($('k_set').value);
@@ -1731,7 +1758,8 @@ async function startCampaign(){
               goal:_goal, spec_units:'diameter', ...extra, ..._coldBody()};
   body.method_params=collectOptParams();      // UCB kappa / TuRBO size / BAX tau, per the active optimiser
   if(_aiLevel){
-    body.ai={level:_aiLevel, review_every:+(($('ai_review')||{}).value||0), apply:($('ai_apply')||{}).value||'auto'};
+    body.ai={level:_aiLevel, review_every:+(($('ai_review')||{}).value||0), apply:($('ai_apply')||{}).value||'auto',
+             model:($('ai_model')||{}).value||'', thinking:($('ai_think')||{}).value||'off'};
     if(_aiLevel==='ai_pilot'){
       const b=(_range&&_range.bounds)||{}, s=(_range&&_range.safety)||{};
       const lim=Object.entries(b).map(([k,v])=>`${k} ${v[0]} to ${v[1]}`).join(', ');
@@ -1770,6 +1798,7 @@ function renderDecisions(c){
     +(ai.level!=='ai_advisor'?`<div class="kpi"><span>AI picks</span><b>${aiPicks.length} of ${picks.length}</b></div>`
       +`<div class="kpi"><span>Same as optimiser's top</span><b>${same} of ${aiPicks.length}</b></div>`:'')
     +`<div class="kpi"><span>Fallbacks</span><b>${ai.n_fallbacks}</b></div>`
+    +`<div class="kpi"><span>Model</span><b>${esc(ai.model||'default')}${ai.thinking&&ai.thinking!=='off'?' · thinking '+esc(ai.thinking):''}</b></div>`
     +`<div class="kpi"><span>Working range</span><b>${ai.work_bounds?Object.entries(ai.work_bounds).map(([k,v])=>k+' '+num(v[0],k.startsWith('x_')?2:0)+' to '+num(v[1],k.startsWith('x_')?2:0)).join(', '):'full'}</b></div>`;
   $('ai_undo').disabled=!ai.can_undo;
   const ps=ai.pending_suggestion;
@@ -1938,7 +1967,7 @@ function lockSetup(running){
   _running=running;
   ['c_target','c_tol','c_dmin','c_dmax','c_pdi','c_budget','m_fitter','m_optimiser',
    'c_shape','c_confmin','c_nspread','c_addown','k_set','k_lit','k_note','k_camp',
-   'ai_inner','ai_review','ai_apply','k_verd'].forEach(id=>{
+   'ai_inner','ai_review','ai_apply','k_verd','ai_model','ai_think'].forEach(id=>{
     const el=$(id); if(el) el.disabled=running; });
   document.querySelectorAll('#sidebar .nav-btn, #m_opt_params input, #fitList input, #optList input, #ownRows input, #ownRows button, input[name=k_for]')
     .forEach(el=>el.disabled=running);

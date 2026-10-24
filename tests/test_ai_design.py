@@ -391,3 +391,55 @@ def test_ai_state_survives_a_restart(tmp_path, monkeypatch):
     assert a2._is_ai(a2._campaign) and a2._campaign.level == "ai_advisor"
     assert a2._campaign.work_bounds["T_reac"] == (240.0, 290.0)
     assert a2._campaign.decisions == a1._campaign.decisions
+
+
+# ── model, thinking and the connection test ──────────────────────────────────
+def test_thinking_drops_temperature_and_sets_a_budget():
+    kw = _aid._call_kwargs("claude-opus-5-5", "deep")
+    assert kw["thinking"] == {"type": "enabled", "budget_tokens": 8000}
+    assert "temperature" not in kw and kw["max_tokens"] > 8000
+    assert _aid._call_kwargs("m", "off")["temperature"] == 0
+
+
+def test_chosen_model_and_thinking_are_used_and_recorded():
+    seen = {}
+
+    class Spy(FakeAI):
+        def create(self, **kw):
+            seen.update(kw)
+            if "thinking" in kw:
+                kw = {**kw, "temperature": 0}      # FakeAI asserts temperature 0
+            return super().create(**kw)
+    c = _ctl("ai_copilot", Spy({"choice": 1, "reason": "r", "cited": ["data"]}),
+             model="claude-haiku-5-5", thinking="standard")
+    _feed(c, 4)
+    assert seen["model"] == "claude-haiku-5-5" and seen["thinking"]["budget_tokens"] == 2000
+    d = c.decisions[-1]
+    assert d["model"] == "claude-haiku-5-5" and d["thinking"] == "standard"
+
+
+def test_connection_test_reports_and_never_shows_a_secret():
+    ok = _aid.test_connection("claude-sonnet-5-5", client_factory=lambda: FakeAI('{"ok": true}'))
+    assert ok["ok"] and ok["ms"] >= 0
+    bad = _aid.test_connection("x", client_factory=lambda: FakeAI(
+        RuntimeError("401 invalid key sk-ant-REALSECRET123456 for Bearer abc.def")))
+    assert not bad["ok"] and "REALSECRET" not in bad["error"] and "abc.def" not in bad["error"]
+    none = _aid.test_connection("x", client_factory=lambda: None)
+    assert not none["ok"] and "no AI login" in none["error"]
+
+
+def test_routes_validate_model_and_thinking(tmp_path, monkeypatch):
+    a = _app(tmp_path, monkeypatch, "an_ai_7", FakeAI('{"ok": true}'))
+    cl = a.app.test_client()
+    st = cl.get("/api/ai/status").get_json()
+    assert st["available"] and {"off", "standard", "deep"} <= set(st["thinking"])
+    assert any(m["id"] == "claude-opus-5-5" for m in st["models"])
+    r = cl.post("/api/ai/test", json={"model": "claude-opus-5-5"}).get_json()
+    assert r["ok"] and r["model"] == "claude-opus-5-5"
+    assert cl.post("/api/ai/test", json={"model": "gpt-9"}).status_code == 400
+    r = cl.post("/api/campaign/start", json={**BODY, "ai": {"level": "ai_copilot", "model": "gpt-9"}})
+    assert r.status_code == 400 and "model" in r.get_json()["error"]
+    assert cl.post("/api/campaign/start", json={**BODY, "ai": {"level": "ai_copilot",
+                   "model": "claude-haiku-5-5", "thinking": "standard"}}).get_json()["ok"]
+    assert a._campaign.model == "claude-haiku-5-5" and a._campaign.thinking == "standard"
+    assert a._campaign_meta["ai"]["model"] == "claude-haiku-5-5"

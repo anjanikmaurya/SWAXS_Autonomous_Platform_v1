@@ -7,6 +7,15 @@ this file is the running summary. Dates are when the work landed on `main`.
 
 ## October 2026
 
+### Analyser: choose the Claude model and thinking; test the AI connection
+
+- The AI level's box in Setup step 3 now sets the **Claude model** (default from
+  your settings, or Sonnet / Opus / Haiku 5.5, Fable 5.1) and **Thinking** (off,
+  standard, deep). Both are recorded with every decision and shown in Report.
+- **Test AI connection** (and `python tools/ai_check.py --all`) makes one tiny
+  real call and says Connected with the model and time, or the error type; a
+  credential is never shown. The Ready list uses the result.
+
 ### Analyser: verdicts, replay test and the approve-only improvement loop, Phase 4
 
 - **Verdicts**: Good call / Bad call with one line why on every run in Report,

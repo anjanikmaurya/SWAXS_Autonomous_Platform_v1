@@ -138,7 +138,15 @@ green at ≥ 0.6, amber at ≥ 0.3, otherwise low.
 | **AI Pilot** (experimental) | the AI writes the recipe | must be inside the search range, pump windows, hard caps, working range and a trust region (best ± a quarter of each span), new, and cited; one retry, then the optimiser's pick; reviews every 5 or 10 runs cannot be turned off; Start asks you to confirm the limits |
 
 The cold start is never the AI's. The AI level drives the optimiser shown in its
-detail box (Shortlist from / Fallback optimiser / Optimiser). In step 4, **For**:
+detail box (Shortlist from / Fallback optimiser / Optimiser). The box also sets the
+**Claude model** (Default = `SWAXS_DESIGN_MODEL`, else `ANTHROPIC_MODEL`; or Sonnet
+5.5, Opus 5.5, Haiku 5.5, Fable 5.1; a gateway may offer only some) and
+**Thinking** (off: temperature 0, the same answer for the same state; standard
+about 2k and deep about 8k tokens of extended thinking, slower; answers are still
+cached on the exact prompt). **Test AI connection** makes one tiny real call with
+that model and shows "Connected: model, ms" or the error type (never a
+credential); the Ready list repeats it. From a terminal: `python tools/ai_check.py
+--all`. Both are recorded with every decision. In step 4, **For**:
 **Starting recipes** (the AI does not see the cards) or **Starting recipes and
 every AI pick** (or every progress review, for the Advisor); **Your verdicts on
 past picks** (AI levels) adds your Good / Bad calls to what the AI reads. Anything invalid,
@@ -341,7 +349,7 @@ its half-width, both as radius.
 | min fit confidence | 0.5 | `confidence_min` 0.5 (0 to 1) |
 
 `ai`: `{level: ai_advisor | ai_copilot | ai_pilot, review_every: 0 | 5 | 10, apply: auto | ask,
-confirmed}` (Pilot needs `review_every` 5 or 10 and `confirmed: true`; not for
+model, thinking: off | standard | deep, confirmed}` (Pilot needs `review_every` 5 or 10 and `confirmed: true`; not for
 `benchmark`); `knowledge.use.every_pick` gives the AI the cards at every pick.
 `knowledge`: `{set_id, use: {literature, notes, campaigns}, n}`; `n` (0 to 10) recipes
 from knowledge go after your own and before the spread; an unknown set is refused.
@@ -499,7 +507,8 @@ and `*.json` there as a recipe.
 | `POST /api/campaign/preview` | the cold-start recipes a Start with this body would issue (`own` then `spread`), without starting; 400 with the reasons for a bad recipe |
 | `GET /api/search_range` | search bounds, `x_sum_max`, hard safety caps, expected-shape choices (read-only) |
 | `GET /api/guide` | the Guide pages |
-| `GET /api/ai/status` | `{available}`: is an AI login configured |
+| `GET /api/ai/status` | `{available, default_model, models, thinking}`: is an AI login configured (no call made) |
+| `POST /api/ai/test` | `{model, thinking}`: one tiny real call; `{ok, model, ms, error}` |
 | `POST /api/campaign/verdict` | `{recipe_id, call: good | bad, why}` on a measured run |
 | `POST /api/knowledge/set/<id>/verdict/<vid>/retire` | stop using a verdict |
 | `POST /api/knowledge/set/<id>/harness` | `{n_knowledge, shortlist_k, trust}` (clamped to their limits) |

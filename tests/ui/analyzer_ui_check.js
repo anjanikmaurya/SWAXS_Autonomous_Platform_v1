@@ -87,6 +87,9 @@ w.fetch=async (u)=>{
     plot:{q,I,model:MO,sigma:SG}};
   else if(u.startsWith('/api/campaign/diagnostics')) body=DIAG;
   else if(u.startsWith('/api/search_range')) body=RANGE;
+  else if(u.startsWith('/api/ai/status')) body={available:true,default_model:'claude-sonnet-5',thinking:['off','standard','deep'],
+    models:[{id:'',label:'Default (from your AI settings)'},{id:'claude-opus-5-5',label:'Claude Opus 5.5'}]};
+  else if(u.startsWith('/api/ai/test')) body={ok:true,model:'claude-opus-5-5',ms:812,thinking:'off',error:''};
   else if(u.startsWith('/api/knowledge/sets')) body={ok:true,chemistry:{product:'Pd nanoparticles'},
     sets:[{id:'pd',name:'Pd · ODE',version:4,keywords:['Pd'],n_cards:2,n_drafts:1,n_campaigns:1,matches_chemistry:true}]};
   else if(u.startsWith('/api/knowledge/set/pd/review')) body={ok:true,card:{}};
@@ -285,6 +288,11 @@ const w=dom.window;
   ok(/Shortlist from/.test($('m_opt_desc').textContent) && $('ai_inner').value==='gp_ei','Co-pilot shows the optimiser it shortlists from');
   ok($('k_for').style.display==='' && /every AI pick/.test($('k_for').textContent),'the For choice appears with an AI level');
   ok([...$('ai_review').options].some(o=>o.value==='0'),'Co-pilot review can be off');
+  ok($('ai_model').options.length===2 && /claude-sonnet-5/.test($('ai_model').options[0].textContent),'model choice lists the default and the models');
+  $('ai_model').value='claude-opus-5-5'; $('ai_model').dispatchEvent(new w.Event('change'));
+  await w.aiTest();
+  ok(/Connected: claude-opus-5-5/.test($('ai_test_out').textContent) && /connected \(claude-opus-5-5/.test($('readyList').textContent),'connection test shown in the box and the ready list');
+  ok(!!$('ai_think') && $('ai_think').options.length===3,'thinking levels offered');
   ok(/AI Co-pilot \(Bayesian GP \+ EI\)/.test($('pairHint').textContent),'the column shows the AI level and its optimiser');
   w.document.querySelector('#optList input[value="ai_pilot"]').click(); await new Promise(r=>setTimeout(r,30));
   ok(![...$('ai_review').options].some(o=>o.value==='0'),'Pilot cannot turn the review off');
