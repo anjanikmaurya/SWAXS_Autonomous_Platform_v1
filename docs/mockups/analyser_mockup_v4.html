@@ -1,0 +1,1664 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Autonomous Analyser · SWAXS</title>
+       <!-- per-app tab icon, from apps.yml (src/favicon.py) -->
+<style>/* SWAXS Platform icon accents.
+ *
+ * Two ways to use these, pick one:
+ *
+ * 1. --swaxs-x        single value, ~4.3:1 on both #0d1117 and #fff. Clears the
+ *                     WCAG 1.4.11 bar for non-text contrast (3:1) in either theme
+ *                     with no swap. No single hex can reach 4.5:1 against both
+ *                     backgrounds at once, so if you want that, use option 2.
+ * 2. --swaxs-x-dark / --swaxs-x-light   per-theme pair, ~6.4:1 each, which meets
+ *                     the stricter 4.5:1 text-grade bar Carbon applies to icons.
+ *                     The light-dark() block below wires them up automatically.
+ */
+:root {
+  color-scheme: light dark;
+
+  --swaxs-calibration: #ed1632;
+  --swaxs-reduction: #2374ee;
+  --swaxs-visualisation: #0b8c47;
+  --swaxs-subtraction: #ab43f1;
+  --swaxs-quality: #0a8783;
+  --swaxs-analysis: #a56d0c;
+  --swaxs-autofit: #815ef3;
+  --swaxs-synthesis: #0d81b2;
+  --swaxs-guinier: #e011a2;
+  --swaxs-watch: #dc4011;
+
+  --swaxs-calibration-light: #be0e26;  /* 6.4:1 on #fff   */
+  --swaxs-calibration-dark:  #f4677a;  /* 6.37:1 on #0d1117 */
+  --swaxs-reduction-light: #0f59c7;  /* 6.41:1 on #fff   */
+  --swaxs-reduction-dark:  #5a97f3;  /* 6.45:1 on #0d1117 */
+  --swaxs-visualisation-light: #086e38;  /* 6.37:1 on #fff   */
+  --swaxs-visualisation-dark:  #0dad57;  /* 6.43:1 on #0d1117 */
+  --swaxs-subtraction-light: #8d11e0;  /* 6.38:1 on #fff   */
+  --swaxs-subtraction-dark:  #c175f5;  /* 6.43:1 on #0d1117 */
+  --swaxs-quality-light: #086a67;  /* 6.43:1 on #fff   */
+  --swaxs-quality-dark:  #0da7a2;  /* 6.37:1 on #0d1117 */
+  --swaxs-analysis-light: #83570a;  /* 6.3:1 on #fff   */
+  --swaxs-analysis-dark:  #cd870f;  /* 6.37:1 on #0d1117 */
+  --swaxs-autofit-light: #6136f0;  /* 6.37:1 on #fff   */
+  --swaxs-autofit-dark:  #9e84f6;  /* 6.38:1 on #0d1117 */
+  --swaxs-synthesis-light: #0b678e;  /* 6.28:1 on #fff   */
+  --swaxs-synthesis-dark:  #11a0de;  /* 6.4:1 on #0d1117 */
+  --swaxs-guinier-light: #b20d81;  /* 6.43:1 on #fff   */
+  --swaxs-guinier-dark:  #f35ac5;  /* 6.38:1 on #0d1117 */
+  --swaxs-watch-light: #af330d;  /* 6.36:1 on #fff   */
+  --swaxs-watch-dark:  #f16f47;  /* 6.4:1 on #0d1117 */
+
+  /* Hub chrome: structural icons stay neutral so they don't compete with the
+     ten coloured app marks. Colour is reserved for status. */
+  --swaxs-chrome-light: #586170;  /* 6.25:1 on #fff   */
+  --swaxs-chrome-dark:  #98a3b3;  /* 7.41:1 on #0d1117 */
+  --swaxs-chrome-strong-light: #12161c;  /* 18.15:1 on #fff   */
+  --swaxs-chrome-strong-dark:  #e6edf3;  /* 16.02:1 on #0d1117 */
+  --swaxs-status-running-light: #086e33;  /* 6.39:1 on #fff   */
+  --swaxs-status-running-dark:  #0dad50;  /* 6.41:1 on #0d1117 */
+  --swaxs-status-stopped-light: #55606d;  /* 6.4:1 on #fff   */
+  --swaxs-status-stopped-dark:  #8c97a4;  /* 6.38:1 on #0d1117 */
+  --swaxs-status-warning-light: #7b5909;  /* 6.41:1 on #fff   */
+  --swaxs-status-warning-dark:  #c38d0f;  /* 6.43:1 on #0d1117 */
+  --swaxs-status-error-light: #ba1f0e;  /* 6.38:1 on #fff   */
+  --swaxs-status-error-dark:  #f36b5c;  /* 6.37:1 on #0d1117 */
+
+  /* Unsuffixed names, which is what components should reference.
+     Dark values are the default; the blocks below switch them. */
+  --swaxs-chrome: #98a3b3;
+  --swaxs-chrome-strong: #e6edf3;
+  --swaxs-status-running: #0dad50;
+  --swaxs-status-stopped: #8c97a4;
+  --swaxs-status-warning: #c38d0f;
+  --swaxs-status-error: #f36b5c;
+}
+
+/* Fallback for engines without light-dark(). */
+@media (prefers-color-scheme: light) {
+  :root {
+    --swaxs-calibration: #be0e26;
+    --swaxs-reduction: #0f59c7;
+    --swaxs-visualisation: #086e38;
+    --swaxs-subtraction: #8d11e0;
+    --swaxs-quality: #086a67;
+    --swaxs-analysis: #83570a;
+    --swaxs-autofit: #6136f0;
+    --swaxs-synthesis: #0b678e;
+    --swaxs-guinier: #b20d81;
+    --swaxs-watch: #af330d;
+    --swaxs-chrome: #586170;
+    --swaxs-chrome-strong: #12161c;
+    --swaxs-status-running: #086e33;
+    --swaxs-status-stopped: #55606d;
+    --swaxs-status-warning: #7b5909;
+    --swaxs-status-error: #ba1f0e;
+  }
+}
+
+/* Option 2: resolve per theme automatically. */
+@supports (color: light-dark(#000, #fff)) {
+  :root {
+    --swaxs-calibration: light-dark(var(--swaxs-calibration-light), var(--swaxs-calibration-dark));
+    --swaxs-reduction: light-dark(var(--swaxs-reduction-light), var(--swaxs-reduction-dark));
+    --swaxs-visualisation: light-dark(var(--swaxs-visualisation-light), var(--swaxs-visualisation-dark));
+    --swaxs-subtraction: light-dark(var(--swaxs-subtraction-light), var(--swaxs-subtraction-dark));
+    --swaxs-quality: light-dark(var(--swaxs-quality-light), var(--swaxs-quality-dark));
+    --swaxs-analysis: light-dark(var(--swaxs-analysis-light), var(--swaxs-analysis-dark));
+    --swaxs-autofit: light-dark(var(--swaxs-autofit-light), var(--swaxs-autofit-dark));
+    --swaxs-synthesis: light-dark(var(--swaxs-synthesis-light), var(--swaxs-synthesis-dark));
+    --swaxs-guinier: light-dark(var(--swaxs-guinier-light), var(--swaxs-guinier-dark));
+    --swaxs-watch: light-dark(var(--swaxs-watch-light), var(--swaxs-watch-dark));
+    --swaxs-chrome: light-dark(var(--swaxs-chrome-light), var(--swaxs-chrome-dark));
+    --swaxs-chrome-strong: light-dark(var(--swaxs-chrome-strong-light), var(--swaxs-chrome-strong-dark));
+    --swaxs-status-running: light-dark(var(--swaxs-status-running-light), var(--swaxs-status-running-dark));
+    --swaxs-status-stopped: light-dark(var(--swaxs-status-stopped-light), var(--swaxs-status-stopped-dark));
+    --swaxs-status-warning: light-dark(var(--swaxs-status-warning-light), var(--swaxs-status-warning-dark));
+    --swaxs-status-error: light-dark(var(--swaxs-status-error-light), var(--swaxs-status-error-dark));
+  }
+}
+
+/* A dark-only surface must pin the scheme, or light-dark() follows the OS and
+ * hands a dark page the light values:
+ *     :root { color-scheme: dark; }
+ */
+/* Icons inherit colour, so a card needs only:
+ *   .card--reduction .card__icon   { color: var(--swaxs-reduction); }
+ *   .card--reduction .card__stripe { background: var(--swaxs-reduction); }
+ *
+ * Stroke scales with size: the set is drawn at 2px on a 24px canvas (1/12 of the
+ * icon size). At 16px use ~1.33, at 20px ~1.67, at 32px ~2.67 — or set
+ * vector-effect:non-scaling-stroke if you prefer a fixed rendered width.
+ */
+
+/* ── Shared inline icon ─────────────────────────────────────────────────────
+ * Every in-UI icon is a sprite symbol: <svg class="ico"><use href="#swaxs-ui-…"/></svg>
+ * It sizes to the surrounding text and takes its colour from `color`, so the
+ * same markup works in buttons, headings and pills, in both themes. Emoji are
+ * not used as icons anywhere: they render differently on every OS and do not
+ * follow the theme.
+ */
+.ico { width: 1em; height: 1em; display: inline-block; vertical-align: -0.14em;
+       flex: none; overflow: visible; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * ONE light/dark palette and ONE page chrome for every app (October 2026)
+ * ═══════════════════════════════════════════════════════════════════════════
+ * Every app used to own a :root palette, and they had drifted: different
+ * greys, a dark-only top bar in three apps, semantic text colours that were
+ * never redefined for dark mode. This block is the single source of truth.
+ *
+ * The selectors are deliberately one step more specific than an app's own
+ * (`html:root…` beats `:root…`), so these values win over any leftover app
+ * palette without every template having to be edited in lockstep. Change a
+ * colour HERE, run tools/build_icon_sprite.py, and every app follows.
+ *
+ * Theme is chosen by `data-theme` on <html>, set before first paint by
+ * templates/_theme_boot.html: the saved choice (localStorage `swaxs-theme`,
+ * shared by every app) wins, otherwise the OS preference.
+ */
+html:root:not([data-theme="dark"]) {
+  color-scheme: light;
+  --bg:#f5f7fa; --surface:#ffffff; --surface2:#f0f2f5;
+  --border:#e5e7eb; --border-strong:#c3c9d1;
+  --txt:#1f2937; --txt-strong:#111827; --muted:#4b5563; --faint:#6b7280; --disabled:#9ca3af;
+  --text:var(--txt); --text-strong:var(--txt-strong);
+  --accent:#B1040E; --accent-d:#8C1515; --accent-lt:#fee2e2; --accent-l:#fbe9ea; --accent-text:#B1040E;
+  --teal:#B83A4B; --teal-lt:#fee2e2;
+  --ok:#16a34a;   --ok-lt:#dcfce7;   --ok-text:#15803d;
+  --warn:#d97706; --warn-lt:#fef3c7; --warn-text:#b45309;
+  --err:#dc2626;  --err-lt:#fee2e2;  --err-text:#b91c1c;
+  --info:#1d4ed8; --info-lt:#dbeafe; --info-text:#1d4ed8;
+  --violet:#7c3aed; --violet-lt:#ede9fe; --violet-text:#6d28d9;
+  --blue:#1d4ed8; --green:#16a34a; --red:#dc2626; --yellow:#b45309;
+  --hint-info:#eff6ff; --hint-warn:#fffbeb; --hint-err:#fef2f2;
+  --panel2:var(--surface2);
+  --sidebar:#eef1f5; --sidebar-h:#e3e7ed; --sf:31,41,55;
+  --sidebar-active-bg:rgba(177,4,14,.10); --sidebar-active-fg:#8C1515;
+  --ai-bg:#f9fafb; --ai-border:#e5e7eb; --user-bg:#eff6ff; --user-border:#bfdbfe;
+  --shadow:0 4px 18px rgba(15,23,42,.10);
+}
+html:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg:#15161a; --surface:#1f2126; --surface2:#272a31;
+  --border:#343842; --border-strong:#4c515c;
+  --txt:#e7e9ee; --txt-strong:#f5f7fa; --muted:#a4abb6; --faint:#8a919c; --disabled:#5a606b;
+  --text:var(--txt); --text-strong:var(--txt-strong);
+  /* --accent is a FILL (white text on it 4.66:1); text in the accent colour uses
+     --accent-text, which a dark surface needs lighter (6.5:1). */
+  --accent:#cc4450; --accent-d:#b1040e; --accent-lt:#3a2023; --accent-l:#3a2023; --accent-text:#ff7b8a;
+  --teal:#d44a55; --teal-lt:#3a2023;
+  --ok:#4ade80;   --ok-lt:#16301f;   --ok-text:#6ee7a0;
+  --warn:#d8a657; --warn-lt:#33270f; --warn-text:#f0c46b;
+  --err:#f87171;  --err-lt:#371a1c;  --err-text:#fca5a5;
+  --info:#7da9d8; --info-lt:#13243b; --info-text:#93c5fd;
+  --violet:#a78bfa; --violet-lt:#241c3a; --violet-text:#c4b5fd;
+  --blue:#60a5fa; --green:#3fb950; --red:#f85149; --yellow:#d29922;
+  --hint-info:#13243b; --hint-warn:#33270f; --hint-err:#371a1c;
+  --panel2:var(--surface2);
+  --sidebar:#1f2126; --sidebar-h:#2a2d34; --sf:231,233,238;
+  --sidebar-active-bg:rgba(212,74,85,.22); --sidebar-active-fg:#f0a6ab;
+  --ai-bg:#23252b; --ai-border:#343842; --user-bg:#1c2a3f; --user-border:#2d456b;
+  --shadow:0 4px 22px rgba(0,0,0,.45);
+}
+html body { background:var(--bg); color:var(--txt); }
+
+/* ── page chrome: top bar, theme toggle, tab rows ─────────────────────────── */
+html body .topbar {
+  display:flex; align-items:center; flex-wrap:wrap; gap:12px 14px;
+  min-height:56px; height:auto; padding:8px 20px; flex-shrink:0;
+  background:var(--surface); color:var(--txt); border-bottom:1px solid var(--border);
+}
+html body .topbar h1 { font-size:20px; font-weight:700; margin:0; line-height:1.2;
+  color:var(--txt-strong); white-space:nowrap; }
+html body .topbar h1 span { color:var(--accent-text); font-weight:700; }
+html body .topbar .app-mark { width:26px; height:26px; flex-shrink:0; }
+html body .topbar a { color:var(--accent-text); text-decoration:none; }
+html body .topbar a:hover { text-decoration:underline; }
+html body .topbar .sub, html body .topbar .topbar-sub { font-size:14px; color:var(--muted); white-space:nowrap; }
+html body .topbar .proj { color:var(--muted); }
+html body .theme-toggle {
+  display:inline-flex; align-items:center; justify-content:center; width:34px; height:30px;
+  padding:0; border:1px solid var(--border-strong); border-radius:7px;
+  background:var(--surface); color:var(--txt); cursor:pointer; font-size:15px; line-height:1;
+}
+html body .theme-toggle:hover { background:var(--surface2); }
+html body .toptabbar, html body .cattabbar {
+  display:flex; align-items:center; gap:2px; padding:0 16px; flex-shrink:0;
+  background:var(--surface2); border-bottom:2px solid var(--border);
+}
+html body .toptab, html body .cattabbar .navtab {
+  display:inline-flex; align-items:center; gap:7px; padding:10px 16px; margin-bottom:-2px;
+  border:none; border-bottom:3px solid transparent; border-radius:0; background:transparent;
+  color:var(--muted); font-size:15px; font-weight:600; cursor:pointer; white-space:nowrap;
+}
+html body .toptabbar .toptab:hover, html body .cattabbar .navtab:hover { color:var(--txt); background:transparent; }
+html body .toptabbar .toptab.active, html body .cattabbar .navtab.active {
+  color:var(--accent-text); font-weight:700; border-bottom-color:var(--accent); background:transparent;
+}
+/* a status pill anywhere in the bar: neutral surface, theme text */
+html body .topbar .conn-pill {
+  display:inline-flex; align-items:center; gap:7px; padding:3px 11px; border-radius:999px;
+  background:var(--surface2); border:1px solid var(--border); color:var(--muted); font-size:13px; white-space:nowrap;
+}
+
+/* ── Left-column layout (reduction, calibration, watchdog, average, analysis,
+ *    background) ─────────────────────────────────────────────────────────────
+ * The operator's preferred shell for multi-section apps: a left column with the
+ * app's logo and name on top, its sections as a list, and connection status +
+ * Port · ← Hub at the bottom; a slim bar over the content for the project path
+ * and the theme switch; each section's task tabs inside the page. Scoped to
+ * these ids, so the top-bar apps (analyzer, reactor, quality, assistant) are
+ * untouched. Colours come from the themed --sidebar tokens above. */
+html body #app { display:flex; flex-direction:row; height:100vh; overflow:hidden; }
+html body #sidebar { width:236px; flex-shrink:0; display:flex; flex-direction:column; overflow-y:auto;
+  background:var(--sidebar); border-right:1px solid var(--border); }
+html body #logo { padding:18px 16px 14px; border-bottom:1px solid rgba(var(--sf),.10); }
+html body #logo-badge { font-size:12px; font-weight:700; letter-spacing:.14em; text-transform:uppercase;
+  color:rgba(var(--sf),.6); margin-bottom:6px; }
+html body #logo .app-lockup { display:flex; align-items:center; gap:10px; }
+html body #logo .app-mark { width:28px; height:28px; flex-shrink:0; }
+html body #logo-name { font-size:20px; font-weight:700; line-height:1.15; color:rgba(var(--sf),.95); }
+html body #logo-sub { font-size:14px; margin-top:4px; color:rgba(var(--sf),.6); }
+html body #sidebar .nav-section-label { padding:14px 16px 5px; font-size:13px; font-weight:700;
+  letter-spacing:.12em; text-transform:uppercase; color:rgba(var(--sf),.5); }
+html body #sidebar .nav-btn { display:flex; align-items:center; gap:10px; width:100%; margin:0;
+  padding:11px 16px; border:none; border-left:3px solid transparent; border-radius:0; background:transparent;
+  color:rgba(var(--sf),.80); font-size:16px; font-weight:500; text-align:left; cursor:pointer;
+  transition:background .15s,color .15s; }
+html body #sidebar .nav-btn:hover { background:var(--sidebar-h); color:var(--sidebar-active-fg); }
+html body #sidebar .nav-btn.active { background:var(--sidebar-active-bg); color:var(--sidebar-active-fg);
+  border-left-color:var(--accent); font-weight:700; }
+html body #sidebar .nav-icon { width:22px; display:inline-flex; justify-content:center; flex-shrink:0; }
+html body #sidebar .nav-hint { padding:8px 16px 4px; font-size:13px; line-height:1.5; color:rgba(var(--sf),.7); }
+html body #sidebar-foot { margin-top:auto; padding:12px 16px; font-size:13px; line-height:1.6;
+  color:rgba(var(--sf),.65); border-top:1px solid rgba(var(--sf),.10); }
+html body #sidebar-foot a { color:inherit; text-decoration:underline; }
+html body #sse-row { display:flex; align-items:center; gap:7px; margin-bottom:4px; }
+html body #sse-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; background:rgba(var(--sf),.3);
+  transition:background .3s,box-shadow .3s; }
+html body #sse-dot.live { background:var(--ok); box-shadow:0 0 6px var(--ok); }
+html body #main { flex:1; display:flex; flex-direction:column; overflow:hidden; min-width:0; }
+html body #topbar { display:flex; align-items:center; flex-wrap:wrap; gap:10px 14px; min-height:48px; height:auto;
+  padding:6px 22px; flex-shrink:0; background:var(--surface); border-bottom:1px solid var(--border); }
+html body #topbar-path, html body #topbar .proj { flex:1; min-width:0; font-family:var(--mono); font-size:14px;
+  color:var(--accent-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+html body #topbar .bar-title { font-weight:700; font-size:16px; color:var(--txt-strong); white-space:nowrap; }
+html body #topbar .bar-detail { font-size:14px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+/* ── Left-column apps share the SAME top bar as every other app ─────────────
+ * Operator's choice (October 2026): every app has the identical full-width
+ * header.topbar (logo + name, status, project path, theme switch, Port · ← Hub);
+ * the six multi-section apps add the left column of sections UNDER it. The page
+ * body is marked `swaxs-shell` so it stacks: top bar, then the column + content row. */
+html body.swaxs-shell { display:flex; flex-direction:column; height:100vh; overflow:hidden; margin:0; }
+html body.swaxs-shell > #app { flex:1; min-height:0; height:auto; }
+html body.swaxs-shell #sidebar { padding-top:6px; }
+html body .topbar .spacer { flex:1; }
+/* project folder sits on the RIGHT, just before the theme switch (operator, Oct 2026):
+   margin-left:auto pushes it and everything after it to the right edge. */
+html body .topbar #topbar-path, html body .topbar .proj { flex:0 1 auto; margin-left:auto; max-width:42%;
+  min-width:0; font-family:var(--mono); font-size:14px; color:var(--muted);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+html body .topbar > .project-pill { margin-left:auto; }
+html body .topbar #sse-row { margin:0; }
+html body .topbar #sb-status { margin:0; padding:3px 11px; border-radius:999px; font-size:13px;
+  line-height:1.4; white-space:nowrap; word-break:normal; border:1px solid var(--border); }
+html body .topbar .bar-detail { font-size:14px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:30ch; }
+
+/* ── One text size and one heading size for every app (operator: 18px) ─────
+ * html:root outranks each app's own html{font-size}, and body is reset to 1rem
+ * so apps that pinned body to 16px follow too. All rem-based sizes scale with it. */
+html:root { font-size:18px; }
+html body { font-size:1rem; }
+html body .card-hd, html body .section-title { font-size:15px; }
+/* One card heading style everywhere: uppercase, accent text, a rule underneath.
+ * Covers .card-hd and analysis' bare .card > h3 so no app drifts on its own. */
+html body .card-hd, html body .card > h3 {
+  font-size:15px; font-weight:700; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--accent-text); margin:0 0 14px; padding-bottom:10px;
+  border-bottom:1px solid var(--border); }
+/* project path in the top bar: a folder icon in front makes it read as a location */
+html body .topbar .proj:not(:empty)::before, html body .topbar #topbar-path:not(:empty)::before,
+html body .topbar .pill.path::before {
+  content:''; display:inline-block; width:14px; height:14px; margin-right:6px; vertical-align:-2px;
+  background:currentColor; opacity:.75; -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 width=%2224%22 height=%2224%22 fill=%22none%22 stroke=%22black%22 stroke-width=%222.0%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E %3Cpath d=%22M3.2 18.4V6.2A1.8 1.8 0 0 1 5 4.4h4.3l2.1 2.6h7.6a1.8 1.8 0 0 1 1.8 1.8v9.6a1.8 1.8 0 0 1-1.8 1.8H5a1.8 1.8 0 0 1-1.8-1.8z%22/%3E %3C/svg%3E ") center/contain no-repeat; mask:url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 width=%2224%22 height=%2224%22 fill=%22none%22 stroke=%22black%22 stroke-width=%222.0%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E %3Cpath d=%22M3.2 18.4V6.2A1.8 1.8 0 0 1 5 4.4h4.3l2.1 2.6h7.6a1.8 1.8 0 0 1 1.8 1.8v9.6a1.8 1.8 0 0 1-1.8 1.8H5a1.8 1.8 0 0 1-1.8-1.8z%22/%3E %3C/svg%3E ") center/contain no-repeat; }
+html body .topbar > .topbar-sub { padding-left:12px; border-left:1px solid var(--border); }
+
+/* ── Uniform top row (October 2026) ──────────────────────────────────────────
+ * Same order in every app:  logo + name │ status │ project folder │ app extras │
+ * theme │ Port · ← Hub.  The project folder takes the free width, so the extras
+ * always sit in one fixed place, just left of the theme switch. */
+html body .topbar .bar-status { display:inline-flex; align-items:center; gap:7px; padding:3px 11px;
+  border-radius:999px; border:1px solid var(--border); background:var(--surface2);
+  color:var(--muted); font-size:13px; white-space:nowrap; }
+html body .topbar .bar-status .dot { width:8px; height:8px; border-radius:50%; background:var(--faint); }
+html body .topbar .bar-status.ok .dot { background:var(--ok); box-shadow:0 0 5px var(--ok); }
+html body .topbar .bar-status.down .dot { background:var(--err); }
+html body .topbar .bar-status.down { color:var(--err-text); }
+html body .topbar .bar-extras { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+html body .topbar .bar-operator { display:inline-flex; align-items:center; gap:7px; font-size:14px;
+  color:var(--muted); white-space:nowrap; }
+html body .topbar .bar-operator input { width:150px; padding:5px 9px; font-size:14px; border-radius:6px;
+  border:1px solid var(--border-strong); background:var(--surface); color:var(--txt); }
+
+/* ── Every status chip in the top bar has ONE shape (operator, Oct 2026) ─────
+ * Standard status pill, reduction/calibration connection, watchdog status,
+ * analyzer pills, reactor live/state pills, assistant API badge: same height,
+ * padding, radius, border and type size. Each keeps its own state colours. */
+html body .topbar > .bar-status, html body .topbar > .conn-pill, html body .topbar > #sb-status,
+html body .topbar > .pill, html body .topbar > .live-pill, html body .topbar > .badge,
+html body .topbar .bar-extras > .pill, html body .topbar .bar-extras > .live-pill,
+html body .topbar .bar-extras > .state-pill {
+  display:inline-flex; align-items:center; gap:7px; height:28px; padding:0 12px; margin:0;
+  border-radius:999px; border:1px solid var(--border); font-size:13px; font-weight:600;
+  line-height:1; white-space:nowrap; box-sizing:border-box;
+}
+/* Label beside input forms (.fg in reduction, calibration) stack the label
+ * above the input on a narrow window, so inputs are never squeezed. */
+/* ── Label beside its box, in every app (operator, October 2026) ──────────────
+ * One line per setting: label on the left, the box on the right, as in
+ * reduction. Covers the three form patterns the apps use:
+ *   .fg            label / .cell pairs (reduction, calibration, average)
+ *   .field         a label followed by ONE box (background, quality)
+ *   .grid2/.grid3  cells holding a label and ONE box (analyzer, reactor)
+ * Checkboxes, radios and sliders keep their own inline layout. Narrow windows
+ * stack the label above the box again so nothing is squeezed. */
+html body .fg {
+  display:grid; grid-template-columns:minmax(150px,max-content) minmax(0,1fr);
+  gap:8px 16px; align-items:center; }
+html body .fg > label { text-align:right; margin:0; padding-top:0; line-height:1.3; }
+html body .fg > .cell { min-width:0; }
+html body .field:has(> label + input:not([type=checkbox]):not([type=radio]):not([type=range])),
+html body .field:has(> label + select),
+html body .field:has(> .browse-row) {
+  display:grid; grid-template-columns:minmax(110px,max-content) minmax(0,1fr);
+  gap:4px 12px; align-items:center; }
+html body .field:has(> label + input:not([type=checkbox]):not([type=radio]):not([type=range])) > label,
+html body .field:has(> label + select) > label,
+html body .field:has(> .browse-row) > label { text-align:right; margin:0; padding-top:0; line-height:1.3; }
+html body .field:has(> .browse-row) > :not(label),
+html body .field:has(> label + input:not([type=checkbox]):not([type=radio]):not([type=range])) > :not(label):not(input),
+html body .field:has(> label + select) > :not(label):not(select) { grid-column:2; }
+html body :is(.grid2, .grid3) > div:has(> label + input:not([type=checkbox]):not([type=radio]):not([type=range])),
+html body :is(.grid2, .grid3) > div:has(> label + select) {
+  display:grid; grid-template-columns:170px minmax(0,1fr);
+  gap:4px 10px; align-items:center; }
+/* a fixed label column, so the boxes in a two- or three-per-line form line up */
+html body .grid3 > div:has(> label + input, > label + select) { grid-template-columns:110px minmax(0,1fr); }
+html body :is(.grid2, .grid3) > div:has(> label + input:not([type=checkbox]):not([type=radio]):not([type=range])) > label,
+html body :is(.grid2, .grid3) > div:has(> label + select) > label { text-align:right; margin:0; line-height:1.3; }
+html body :is(.grid2, .grid3) > div:has(> label + input, > label + select) > :not(label):not(input):not(select) { grid-column:2; }
+@media (max-width: 1100px) {
+  html body .fg, html body .field, html body :is(.grid2, .grid3) > div { grid-template-columns:1fr !important; }
+  html body .fg > label, html body .field > label, html body :is(.grid2, .grid3) > div > label { text-align:left !important; }
+  html body .field > *, html body :is(.grid2, .grid3) > div > * { grid-column:1 !important; }
+}
+/* ── Shared folder picker (swaxsBrowse in _icon_helpers.html) ─────────────── */
+html body .swx-pick-bd { position:fixed; inset:0; z-index:10000; background:rgba(0,0,0,.45);
+  display:flex; align-items:center; justify-content:center; }
+html body .swx-pick { width:min(640px,92vw); max-height:80vh; display:flex; flex-direction:column;
+  background:var(--surface); color:var(--txt); border:1px solid var(--border);
+  border-radius:10px; box-shadow:0 12px 40px rgba(0,0,0,.35); overflow:hidden; }
+html body .swx-pick-hd { display:flex; align-items:center; justify-content:space-between;
+  padding:12px 16px; border-bottom:1px solid var(--border); }
+html body .swx-pick-x { background:none; border:0; color:var(--muted); cursor:pointer; padding:4px; }
+html body .swx-pick-path { display:flex; gap:8px; padding:10px 16px; border-bottom:1px solid var(--border); }
+html body .swx-pick-path .swx-cur { flex:1; min-width:0; font-family:var(--mono); font-size:14px; }
+html body .swx-pick-list { flex:1; overflow:auto; padding:6px 8px; min-height:160px; }
+html body .swx-dir { display:flex; align-items:center; gap:8px; width:100%; text-align:left;
+  background:none; border:0; border-radius:6px; padding:7px 10px; color:var(--txt);
+  font:inherit; cursor:pointer; }
+html body .swx-dir:hover, html body .swx-dir:focus-visible { background:var(--surface2); outline:none; }
+html body .swx-empty { color:var(--muted); padding:10px; }
+html body .swx-pick-ft { display:flex; justify-content:flex-end; gap:8px; padding:10px 16px;
+  border-top:1px solid var(--border); }
+
+/* ── One path row for apps without a form grid: label | path | Browse… [Set] ── */
+html body .path-row { display:grid; grid-template-columns:minmax(110px,max-content) minmax(0,1fr);
+  gap:6px 14px; align-items:center; }
+html body .path-row > label { font-size:15px; font-weight:600; color:var(--muted);
+  white-space:nowrap; margin:0; line-height:1.3; text-transform:none; letter-spacing:0; }
+html body .path-row input, html body .swx-pick .swx-cur {
+  padding:7px 10px; font-size:.9375rem; color:var(--txt); background:var(--surface2);
+  border:1px solid var(--border-strong); border-radius:6px; }
+html body .path-row input:focus, html body .swx-pick .swx-cur:focus {
+  outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(140,21,21,.15); }
+html body .path-row .browse-row { display:flex; gap:6px; align-items:center; min-width:0; }
+html body .path-row .browse-row input { flex:1; min-width:0; }
+html body .path-row > .path-note { grid-column:2; }
+@media (max-width: 700px) {
+  html body .path-row { grid-template-columns:1fr; }
+  html body .path-row > .path-note { grid-column:1; }
+}
+/* Button fallbacks for apps that never defined these variants (zero
+ * specificity via :where, so an app's own .btn-ghost etc. always wins). */
+:where(.btn.btn-ghost) { background:transparent; border:1px solid var(--border-strong); color:var(--txt); }
+:where(.btn.btn-ghost):hover { background:var(--surface2); }
+:where(.btn.btn-sm) { padding:4px 10px; font-size:14px; }
+:where(.btn.btn-primary) { background:var(--accent); border:1px solid var(--accent); color:#fff; }
+/* the picker's own buttons look the same in every app */
+html body .swx-pick .btn { display:inline-flex; align-items:center; gap:6px; border-radius:6px;
+  padding:6px 12px; font-family:inherit; font-weight:600; font-size:14px; line-height:1.2; cursor:pointer; white-space:nowrap; }
+html body .swx-pick .btn-ghost { background:transparent; border:1px solid var(--border-strong); color:var(--txt); }
+html body .swx-pick .btn-ghost:hover { background:var(--surface2); }
+html body .swx-pick .btn-ghost:disabled { opacity:.45; cursor:default; }
+html body .swx-pick .btn-primary { background:var(--accent); border:1px solid var(--accent); color:#fff; }
+html body .path-row .btn { white-space:nowrap; flex:none; }
+</style>
+<script>
+/* Platform theme boot (generated by tools/build_icon_sprite.py — do not edit). */
+(function(){var d;try{
+/* Each app runs on its own port, and the browser keeps saved settings per port,
+   so a theme chosen in one app does not exist in another. Links between apps
+   carry ?theme=…; adopt it here so moving between apps keeps the theme. */
+var q=new URLSearchParams(location.search).get('theme');
+if(q==='dark'||q==='light'){localStorage.setItem('swaxs-theme',q);}
+var s=localStorage.getItem('swaxs-theme');
+d=s?s==='dark':!!(window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches);}catch(e){d=true;}
+document.documentElement.setAttribute('data-theme',d?'dark':'light');})();
+</script>
+
+<style>
+/* ── SWAXS shared design system ──────────────────────────────────────────── */
+html{font-size:18px}          /* larger base — matches reactor / assistant readability */
+:root{
+  /* ── SWAXS shared design system — Light theme (canonical: reduction) ── */
+  --bg:#f5f7fa; --surface:#ffffff; --surface2:#f0f2f5;
+  --sidebar:#eef1f5; --sidebar-h:#e3e7ed; --sf:31,41,55;
+  --sidebar-active-bg:rgba(177,4,14,.10); --sidebar-active-fg:#8C1515;
+  --accent:#B1040E; --accent-d:#8C1515; --accent-lt:#fee2e2;
+  --teal:#B83A4B; --teal-lt:#fee2e2;
+  --ok:#16a34a; --ok-lt:#dcfce7; --warn:#d97706; --warn-lt:#fef3c7; --err:#dc2626; --err-lt:#fee2e2;
+  --ok-text:#15803d; --warn-text:#b45309; --err-text:#b91c1c; --info-text:#1d4ed8;
+  --txt:#1f2937; --txt-strong:#111827; --muted:#4b5563; --faint:#6b7280; --disabled:#9ca3af;
+  --border:#e5e7eb; --border-strong:#c3c9d1;
+  --font:'Inter','Segoe UI',system-ui,-apple-system,sans-serif;
+  --mono:'JetBrains Mono','Fira Code','Cascadia Code',ui-monospace,Menlo,Consolas,monospace;
+  --fs-2xs:.72rem; --fs-xs:.82rem; --fs-sm:.94rem; --fs-md:1.05rem;
+  --fs-base:1rem; --fs-lg:1.45rem; --fs-xl:1.6rem; --fs-2xl:1.9rem;
+  --fw-regular:400; --fw-medium:500; --fw-semibold:600; --fw-bold:700;
+  --lh-tight:1.25; --lh-snug:1.4; --lh-normal:1.5; --ls-label:.06em;
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:24px; --sp-6:32px;
+  --radius:8px;
+  /* legacy aliases used throughout analyzer CSS — map onto the shared tokens
+     so every existing var(--text)/var(--info) resolves (and follows dark mode) */
+  --text:var(--txt); --info:var(--info-text);
+}
+:root[data-theme="dark"]{
+  --bg:#15161a;--surface:#1f2126;--surface2:#272a31;--border:#343842;--border-strong:#4c515c;
+  --txt:#e7e9ee;--txt-strong:#f5f7fa;--muted:#a4abb6;--faint:#7d848f;--disabled:#5a606b;
+  --accent:#d44a55;--accent-d:#b1040e;--accent-lt:#3a2023;--teal:#d44a55;--teal-lt:#3a2023;
+  --sidebar:#1f2126;--sidebar-h:#2a2d34;--sf:231,233,238;
+  --sidebar-active-bg:rgba(212,74,85,.22);--sidebar-active-fg:#f0a6ab;
+  /* brighter semantics so the dark log / pills stay legible */
+  --ok:#4ade80;--warn:#d8a657;--err:#f87171;--info-text:#7da9d8;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:var(--font);background:var(--bg);color:var(--text);font-size:1.02rem}
+.topbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 18px;background:var(--surface);border-bottom:1px solid var(--border)}
+.topbar h1{font-size:var(--fs-lg);font-weight:700;margin:0;color:var(--txt-strong);white-space:nowrap}
+.topbar h1 span{color:var(--accent);font-weight:500}
+.topbar .sub{font-size:var(--fs-xs);color:var(--muted)}
+.topbar a{color:var(--accent);text-decoration:none}
+.theme-toggle{width:34px;height:30px;border:1px solid var(--border-strong);border-radius:7px;background:transparent;color:var(--txt);cursor:pointer;font-size:1rem}
+.theme-toggle:hover{background:var(--surface2)}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;margin-bottom:14px}
+/* Shared heading spec (reduction · average · background): 15px uppercase accent
+   with a rule under it. Keeps the analyzer's panel furniture identical to the
+   rest of the platform. */
+.card-hd{font-size:15px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--accent);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border);
+  display:flex;align-items:center;gap:8px}
+.card-hd .hd-right{margin-left:auto;display:flex;gap:6px;align-items:center;font-weight:400}
+label{font-size:var(--fs-xs);color:var(--muted);font-weight:600;display:block;margin-bottom:3px}
+input,select{width:100%;background:var(--surface2);border:1px solid var(--border-strong);border-radius:6px;color:var(--text);padding:6px 9px;font-size:var(--fs-sm)}
+input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 25%,transparent)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.btn{padding:7px 12px;border:none;border-radius:var(--radius);font-size:var(--fs-sm);font-weight:600;cursor:pointer;color:#fff;background:var(--surface2)}
+.btn-accent{background:var(--accent)} .btn-ghost{background:var(--surface2);border:1px solid var(--border-strong);color:var(--text)}
+.btn-sm{padding:4px 9px;font-size:var(--fs-xs)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn:hover:not(:disabled){filter:brightness(1.12)}
+.btn-row,.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:flex-end}
+.sub{font-size:var(--fs-xs);color:var(--muted)}
+/* Plain-language explainer block (optimiser physics) — shared-token styling. */
+.explain{margin-top:12px;padding:11px 13px;background:var(--surface2);
+  border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:8px}
+.explain-hd{font-size:var(--fs-xs);font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--accent);margin-bottom:6px}
+.explain p{margin:0 0 7px;font-size:var(--fs-sm);line-height:1.5;color:var(--muted)}
+.explain p:last-child{margin-bottom:0}
+.explain .eq{font-family:var(--mono);font-size:var(--fs-sm);color:var(--text);
+  background:var(--surface);border:1px solid var(--border);border-radius:6px;
+  padding:7px 10px;overflow-x:auto}
+/* Sits in .btn-row where the Continue button would be, saying why it is not. */
+.hint{font-size:var(--fs-xs);color:var(--muted);align-self:center;line-height:1.4}
+.log{max-height:170px;overflow-y:auto;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 11px;font-family:var(--mono);font-size:var(--fs-xs);line-height:1.55}
+
+/* ── status strip: the whole state of the loop, at a glance ───────────────── */
+/* Status pills now live INSIDE the dark top bar — an inline group, not a strip. */
+.statusbar{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
+.pill{display:inline-flex;align-items:center;gap:7px;font-size:var(--fs-sm);
+  padding:5px 13px;border-radius:999px;white-space:nowrap;
+  background:var(--surface2);border:1px solid var(--border);color:var(--txt)}
+.pill b{font-weight:700;color:var(--txt-strong)}
+.pill .led{width:9px;height:9px;border-radius:50%;background:var(--faint);flex:none}
+.pill.on .led{background:var(--ok)} .pill.off .led{background:var(--err)}
+.pill.warn .led{background:var(--warn)}
+.pill.off{border-color:var(--err)}
+.pill.path{font-family:var(--mono);max-width:44ch;overflow:hidden;text-overflow:ellipsis}
+
+/* ── layout ──────────────────────────────────────────────────────────────── */
+/* ── top tabs: Setup · Fitting · Report (the analysis-app pattern) ───────── */
+.toptabbar{display:flex;gap:4px;padding:0 32px;background:var(--surface);
+  border-bottom:2px solid var(--border);position:sticky;top:0;z-index:5}
+.toptab{padding:11px 20px;border:none;background:transparent;color:var(--muted);
+  font-size:var(--fs-md);font-weight:600;cursor:pointer;border-bottom:3px solid transparent;
+  margin-bottom:-2px;display:flex;align-items:center;gap:7px}
+.toptab:hover{color:var(--text)}
+.toptab.active{color:var(--accent);font-weight:700;border-bottom-color:var(--accent)}
+.page{display:none}
+.page.active{display:block}
+
+/* Single full-width column: every panel spans the page, left to right. */
+.wrap{padding:14px 32px 40px;display:flex;flex-direction:column}
+/* Profiles table (left) beside the fit plot (right) in one row, so a profile
+   can be picked and its fit seen side by side. Stacks on a narrow window. */
+.fitrow{display:grid;grid-template-columns:minmax(300px,380px) minmax(0,1fr);
+  gap:14px;align-items:stretch}
+.fitrow>.card{margin-bottom:14px}
+/* Left (profiles) card fills the row's full height so its table matches the fit
+   figure's height — the table grows and scrolls instead of being capped short. */
+.fitrow>.card:first-child{display:flex;flex-direction:column}
+.fitrow>.card:first-child .tablewrap{flex:1;max-height:none}
+/* Right (fit) card: the plot grows to fill the card instead of a fixed 340px
+   box, so there is no dead grey space below the figure. drawPlot() measures the
+   available height. */
+.fitrow>.card:last-child{display:flex;flex-direction:column}
+.fitrow>.card:last-child .plotwrap{flex:1;min-height:300px;display:flex;flex-direction:column}
+.fitrow>.card:last-child #plot{flex:1;height:auto}
+@media (max-width:1100px){.fitrow{grid-template-columns:1fr}
+  .fitrow>.card:first-child .tablewrap{max-height:340px}
+  .fitrow>.card:last-child .plotwrap{min-height:380px}}
+
+/* collapsible cards — the log and the setup form do not need to be open all day */
+.fold>.card-hd{cursor:pointer;user-select:none}
+.fold>.card-hd .chev{transition:transform .15s;display:inline-block;color:var(--muted)}
+.fold.shut>.card-hd .chev{transform:rotate(-90deg)}
+.fold.shut>.foldbody{display:none}
+/* Method details & maths explainer */
+.mblk{margin-bottom:12px}
+.mblk:last-child{margin-bottom:0}
+.mhd{font-size:var(--fs-xs);font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--accent);margin-bottom:5px}
+.mblk p{margin:0 0 6px;font-size:var(--fs-sm);line-height:1.5;color:var(--muted)}
+.mblk .eq{font-family:var(--mono);font-size:var(--fs-sm);color:var(--text);
+  background:var(--surface2);border:1px solid var(--border);border-radius:6px;
+  padding:6px 9px;overflow-x:auto;white-space:nowrap;margin:0 0 6px}
+.mintro{font-size:var(--fs-sm);line-height:1.5;color:var(--text);margin:0 0 10px}
+.mblk p.note, .mlist .note{font-size:var(--fs-xs);color:var(--faint);font-style:italic}
+.mlist{margin:0;padding-left:18px}
+.mlist li{font-size:var(--fs-sm);line-height:1.5;color:var(--muted);margin-bottom:7px}
+.mlist li:last-child{margin-bottom:0}
+.mlist .note{display:block;margin-top:2px}
+.advtoggle{margin-top:10px;background:none;border:none;color:var(--accent);cursor:pointer;
+  font-size:var(--fs-sm);font-weight:600;padding:2px 0}
+.advtoggle:hover{text-decoration:underline}
+
+/* ── KPI tiles ───────────────────────────────────────────────────────────── */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:8px;margin:4px 0 11px}
+.kpi{background:var(--surface2);border-radius:8px;padding:7px 10px;min-width:0}
+.kpi span{display:block;font-size:var(--fs-xs);color:var(--muted);white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+.kpi b{font-size:var(--fs-md);font-weight:700;font-variant-numeric:tabular-nums}
+.kpi.hit b{color:var(--ok)} .kpi.miss b{color:var(--warn)}
+
+/* ── campaign progress ───────────────────────────────────────────────────── */
+.bar{height:7px;border-radius:999px;background:var(--surface2);overflow:hidden;margin:8px 0 4px}
+.bar i{display:block;height:100%;background:var(--accent);width:0;transition:width .3s}
+.bar.done i{background:var(--ok)}
+#spark{display:block;width:100%;height:96px;background:var(--surface2);border-radius:8px}
+
+/* ── results table ───────────────────────────────────────────────────────── */
+table{width:100%;border-collapse:collapse;font-size:var(--fs-sm)}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--border)}
+th{color:var(--muted);font-size:var(--fs-xs);font-weight:600}
+th.sortable{cursor:pointer;user-select:none;white-space:nowrap}
+th.sortable:hover{color:var(--text)}
+th .arrow{opacity:.45;font-size:.7rem}
+tbody tr{cursor:pointer} tbody tr:hover{background:var(--surface2)}
+tbody tr.sel{background:var(--surface2);box-shadow:inset 3px 0 0 var(--accent)}
+/* fixed layout so the file column can actually truncate instead of stretching
+   the table off the side of the card */
+.tablewrap table{table-layout:fixed}
+.tablewrap th:nth-child(1){width:44%} .tablewrap th:nth-child(2){width:15%}
+.tablewrap th:nth-child(3){width:14%} .tablewrap th:nth-child(4){width:13%}
+td.name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.badge{display:inline-block;padding:1px 8px;border-radius:999px;font-size:var(--fs-xs);font-weight:700}
+.b-hi{background:var(--ok-lt);color:var(--ok-text)}.b-mid{background:var(--warn-lt);color:var(--warn-text)}.b-lo{background:var(--surface2);color:var(--muted)}
+/* a long campaign produces hundreds of rows — contain them instead of letting
+   the page grow to thousands of pixels (that scroll cost is felt as "lag" too) */
+.tablewrap{max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:8px}
+.tablewrap th{position:sticky;top:0;background:var(--surface);z-index:1}
+.tablewrap td,.tablewrap th{padding:5px 8px}
+.rowsnote{font-size:var(--fs-xs);color:var(--muted);margin-top:6px;display:flex;gap:8px;align-items:center}
+.rowsnote kbd{font-family:var(--mono);font-size:.72rem;border:1px solid var(--border-strong);
+  border-radius:4px;padding:0 4px;background:var(--surface2)}
+.nums{display:flex;gap:18px;flex-wrap:wrap;margin:6px 0 10px}
+.nums div{font-size:var(--fs-xs);color:var(--muted)}
+.nums b{display:block;font-size:var(--fs-md);color:var(--text);font-weight:700}
+/* ── fit plot ─────────────────────────────────────────────────────────────── */
+.plotwrap{position:relative;background:var(--surface2);border:1px solid var(--border);
+  border-radius:10px;padding:4px}
+#plot{display:block;width:100%;height:340px}
+#resid{display:block;width:100%;height:78px;margin-top:2px}
+.legend{font-size:var(--fs-xs);color:var(--muted);margin-top:6px;display:flex;
+  gap:16px;flex-wrap:wrap;align-items:center}
+.dot{display:inline-block;width:9px;height:9px;border-radius:2px;vertical-align:middle;margin-right:5px}
+.dot.line{width:16px;height:3px;border-radius:2px}
+/* scale selector */
+.scalebar{display:flex;gap:0;margin:2px 0 8px;border:1px solid var(--border-strong);
+  border-radius:8px;overflow:hidden;width:fit-content}
+.scalebar button{border:0;background:transparent;color:var(--muted);font:inherit;
+  font-size:var(--fs-xs);padding:5px 12px;cursor:pointer;white-space:nowrap}
+.scalebar button:hover{background:var(--surface2);color:var(--text)}
+.scalebar button.on{background:var(--accent);color:#fff;font-weight:700}
+.plottools{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.plottools label{font-size:var(--fs-xs);color:var(--muted);display:flex;gap:5px;
+  align-items:center;cursor:pointer}
+/* crosshair readout */
+#readout{position:absolute;pointer-events:none;background:var(--surface);
+  border:1px solid var(--border-strong);border-radius:6px;padding:3px 7px;
+  font-family:var(--mono);font-size:var(--fs-xs);color:var(--text);display:none;
+  white-space:nowrap;z-index:5}
+
+/* ── parameter-space panel (now under the fit plot, where it has the width) ── */
+.pspace figure{margin:0}
+.pspace img{width:100%;display:block;border-radius:8px;background:#fff;cursor:zoom-in}
+.pspace .ph{min-height:150px;display:flex;align-items:center;justify-content:center;
+  color:var(--muted);font-size:var(--fs-xs);background:var(--surface2);
+  border-radius:8px;text-align:center;padding:16px}
+.selrow{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:9px}
+.selrow select{width:auto;padding:5px 8px;font-size:var(--fs-xs)}
+.viewtabs{display:flex;border:1px solid var(--border-strong);border-radius:8px;
+  overflow:hidden;width:fit-content}
+.viewtabs button{border:0;background:transparent;color:var(--muted);font:inherit;
+  font-size:var(--fs-xs);padding:5px 12px;cursor:pointer;white-space:nowrap}
+.viewtabs button:hover{background:var(--surface2);color:var(--text)}
+.viewtabs button.on{background:var(--accent);color:#fff;font-weight:700}
+.diag{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:8px;margin-top:10px}
+.diag div{background:var(--surface2);border-radius:8px;padding:7px 10px}
+.diag span{display:block;font-size:var(--fs-xs);color:var(--muted)}
+.diag b{font-size:var(--fs-md);font-weight:700;font-variant-numeric:tabular-nums}
+/* click-to-enlarge: these figures are 11 in wide and unreadable in a card */
+#lightbox{position:fixed;inset:0;overflow:auto;background:rgba(0,0,0,.85);
+  display:none;z-index:50;padding:24px;align-items:flex-start;
+  justify-content:center;cursor:zoom-out}
+#lightbox.open{display:flex}
+#lightbox img{max-width:100%;height:auto;border-radius:10px;background:#fff}
+/* Restart notice — two visually distinct tiers so a genuine loss stays loud */
+.restart-banner{display:none;margin:10px 32px 0;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);line-height:1.4;font-size:var(--fs-sm)}
+.restart-banner.show{display:block}
+.restart-banner.restored{background:var(--surface2);color:var(--info);border-color:var(--info)}
+.restart-banner.lost{background:var(--surface2);color:var(--err);font-weight:700;border:2px solid var(--err)}
+.restart-banner .rb-x{float:right;cursor:pointer;opacity:.6;font-weight:700;margin-left:12px}
+
+/* ── App mark ─────────────────────────────────────────────────────────────
+   This app's own icon beside its wordmark — the SAME artwork as its hub card
+   and its browser tab, so the three agree. Colour comes from the accent token
+   in swaxs-tokens.css; the art is drawn with stroke="currentColor", so the
+   `color` below is the only thing that paints it. Generated partial: see
+   tools/build_icon_sprite.py. */
+.app-mark { width:26px; height:26px; flex-shrink:0; color:var(--swaxs-autofit); }
+.app-lockup { display:flex; align-items:center; gap:10px; min-width:0 }
+.acqbox { margin-top:6px; padding:7px 9px; border:1px solid var(--border);
+          border-radius:7px; background:var(--panel2,rgba(127,127,127,.06));
+          font-size:var(--fs-xs); line-height:1.5 }
+.acqbox .acqf { display:block; margin-top:3px; padding:4px 6px; border-radius:5px;
+          background:rgba(127,127,127,.12); font-family:var(--mono);
+          font-size:var(--fs-xs); white-space:normal; word-break:break-word; color:var(--text) }
+.acqbox .acqp { margin-top:3px; color:var(--muted,#8a93a3) }
+/* Setup is one top-to-bottom flow of numbered steps (goal → spec → methods). */
+.step { padding:12px 0; border-top:1px solid var(--border) }
+.step:first-of-type { border-top:0; padding-top:4px }
+.step-h { font-size:var(--fs-sm); font-weight:700; color:var(--text);
+          margin-bottom:8px; display:flex; align-items:center; gap:8px }
+.step-n { display:inline-flex; align-items:center; justify-content:center;
+          width:1.4em; height:1.4em; border-radius:50%; font-size:var(--fs-xs);
+          background:var(--swaxs-autofit,#7c6cf0); color:#fff; flex-shrink:0 }
+.step-sub { font-weight:400; color:var(--muted,#8a93a3) }
+/* Setup: form (left) beside live progress + score reference (right) on a wide
+   screen; one stacked column when narrow. The side column sticks while the form
+   scrolls. Cards already carry their own bottom margin. */
+.setup-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,380px);
+  gap:16px;align-items:start}
+.setup-side{position:sticky;top:64px}
+@media (max-width:1000px){ .setup-grid{grid-template-columns:1fr} .setup-side{position:static} }
+</style><style>
+.card-hd .hd-right{text-transform:none;letter-spacing:normal;font-weight:400;font-size:13px}
+body.swaxs-shell #main{overflow-y:auto}
+.mk-two{display:grid;grid-template-columns:minmax(0,1fr) minmax(260px,330px);gap:14px;align-items:start}
+.mk-fit{display:grid;grid-template-columns:minmax(320px,440px) minmax(0,1fr);gap:14px;align-items:start}
+@media (max-width:1100px){.mk-two,.mk-fit{grid-template-columns:1fr}}
+.mk-ok{color:var(--ok-text);font-size:13px;white-space:nowrap;align-self:center}
+.mk-read{margin-top:8px;padding:8px 10px;border-radius:8px;background:var(--surface2);font-size:14px}
+.mk-choose{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:900px){.mk-choose{grid-template-columns:1fr}}
+.mk-colh{font-weight:700;font-size:15px;margin:2px 0 6px}
+.mk-list{border:1px solid var(--border);border-radius:10px;padding:4px 0}
+.mk-fam{padding:8px 12px 2px;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.mk-opt{display:flex!important;gap:10px;align-items:flex-start;padding:7px 12px;margin:0;cursor:pointer;grid-template-columns:none!important}
+.mk-opt:hover{background:var(--surface2)}
+.mk-start{max-width:720px}.mk-start .mk-n{width:70px}.mk-tot td{border-top:1px solid var(--border)}
+.mk-own{display:grid;grid-template-columns:repeat(5,minmax(0,1fr)) auto;gap:6px;margin:4px 0;max-width:720px}
+.mk-range{font-family:var(--mono);font-size:14px}
+.mk-warn{color:var(--warn-text);font-size:13px}
+.mk-note{border:1px solid var(--warn);border-radius:8px;padding:6px 10px;margin:0 0 8px;font-size:13px}
+.mk-danger{color:var(--err-text)!important}
+.mk-cont{margin-left:8px}
+.mk-opt input{margin-top:4px;flex-shrink:0;width:auto}
+.mk-opt>span{display:block}.mk-opt>span>.sub{display:none;margin-top:2px;line-height:1.4}
+.mk-opt.on{background:color-mix(in srgb,var(--accent) 10%,transparent)}.mk-opt.on>span>.sub{display:block}
+.mk-tag{font-style:normal;font-size:11px;padding:0 6px;margin-left:6px;border-radius:999px;border:1px solid var(--border);color:var(--muted)}
+.mk-tag.rec{border-color:var(--ok);color:var(--ok-text)}.mk-tag.warn{border-color:#b45309;color:var(--warn-text,#b45309)}
+.mk-detail{margin-top:10px}.mk-detail:empty{display:none}
+.mk-detail .box{border:1px dashed var(--border);border-radius:10px;padding:10px 12px;margin-top:8px;font-size:14px;line-height:1.5}
+.mk-detail code{display:block;margin:3px 0;white-space:pre-wrap}
+.mk-check{list-style:none;padding:0;margin:0 0 8px}.mk-check li{padding:5px 0 5px 24px;position:relative;font-size:14px}
+.mk-check li .ico{position:absolute;left:0;top:7px;width:16px;height:16px}
+.mk-check li.ok .ico{color:var(--ok-text)}.mk-check li.warn .ico{color:var(--warn-text,#b45309)}
+.mk-tbl{width:100%;border-collapse:collapse;font-size:14px}.mk-tbl th,.mk-tbl td{padding:5px 6px;border-bottom:1px solid var(--border);text-align:left}
+.mk-tbl tr.sel td{background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.mk-conf{padding:1px 7px;border-radius:999px;font-weight:700}.mk-conf.hi{color:var(--ok-text)}.mk-conf.mid{color:var(--warn-text,#b45309)}.mk-conf.lo{color:var(--err-text)}
+.mk-plot{width:100%;height:auto;margin:6px 0 10px}
+.card .card.fold{margin:8px 0 0;padding:10px 12px}
+.ph{display:flex;align-items:center;justify-content:center;height:180px;border:1px dashed var(--border);border-radius:8px;color:var(--muted);margin-top:8px}
+.scalebar .on,.viewtabs .on{color:var(--accent);font-weight:700}
+.mk-know{margin-top:12px;border:1px solid var(--border);border-radius:10px;padding:10px 14px}
+.mk-know-h{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+.mk-ktbl{width:100%;border-collapse:collapse;font-size:14px}.mk-ktbl th{text-align:left;font-weight:700;color:var(--muted);width:130px;padding:6px 8px 6px 0;vertical-align:top}
+.mk-ktbl td{padding:6px 0;vertical-align:top}.mk-ktbl td:last-child{text-align:right;width:80px}
+.mk-use{display:grid;grid-template-columns:56px minmax(0,1fr);gap:8px;align-items:start;margin:8px 0}.mk-use .mk-colh{margin:0}
+.mk-usel{display:flex;flex-direction:column;gap:4px}
+.mk-tick{display:inline-flex!important;gap:6px;align-items:center;margin:0 14px 0 0;grid-template-columns:none!important;font-weight:400!important}
+.mk-tick input{width:auto}
+.mk-cards{margin:0;padding-left:18px;font-size:13px;line-height:1.6}
+.kn-meta{display:block;font-size:12px;font-weight:400}.kn-n{float:right;font-size:12px;color:var(--muted)}
+.kn-foot{padding:10px 14px;line-height:1.45}
+.kn-head{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-bottom:8px}.kn-head h3{margin:0;font-size:18px}
+.kn-hbtn{margin-left:auto;display:flex;gap:6px}
+.kn-chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 8px}
+.kn-f{border:1px solid var(--border);background:transparent;color:var(--txt);border-radius:999px;padding:2px 10px;font-size:13px;cursor:pointer}
+.kn-f.on{border-color:var(--accent);color:var(--accent-text);font-weight:700}
+.kn-src{font-size:12px;padding:1px 8px;border-radius:999px;background:var(--surface2);white-space:nowrap}
+.kn-sub2{margin:12px 0 6px;font-weight:700}
+.mk-dq{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin:6px 0 10px}
+.kn-form{margin-top:14px;padding:10px 12px;border:1px dashed var(--border);border-radius:10px}
+.kn-item{display:grid;grid-template-columns:110px minmax(0,1fr) auto;gap:12px;align-items:start;padding:10px 0;border-bottom:1px solid var(--border);font-size:14px;line-height:1.5}
+.kn-kind{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.kn-act{display:flex;gap:6px;flex-wrap:wrap}
+.mk-kset{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:4px 0 8px}
+.mk-src{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;margin:6px 0 10px}
+.mk-srcbox{border:1px solid var(--border);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+.mk-srcbox>*{max-width:100%}.mk-srcbox .cell,.mk-srcbox textarea,.mk-drop{width:100%;box-sizing:border-box}
+.mk-srcbox b{display:flex;gap:6px;align-items:center}
+.mk-drop{border:1.5px dashed var(--border);border-radius:8px;padding:14px;text-align:center;color:var(--muted);font-size:14px}
+.mk-hit{display:flex;gap:6px;align-items:flex-start;font-size:13px;margin:2px 0}.mk-hit input{width:auto;margin-top:3px}
+.mk-rv{border:1px solid var(--border);border-radius:10px;padding:8px 12px;margin:8px 0}
+#mkKnow .mk-colh{margin-top:10px}
+.mk-verdict{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0 4px;font-size:14px}
+.mk-verdict .lbl{color:var(--muted);font-weight:700}
+.mk-mini{padding:2px 8px;font-size:12px}
+.mk-i{color:var(--accent-text);text-decoration:none;font-size:13px;white-space:nowrap;font-weight:600}
+.mk-i:hover{text-decoration:underline}
+.gd{display:grid;grid-template-columns:240px minmax(0,1fr);gap:14px;align-items:start}
+@media (max-width:900px){.gd{grid-template-columns:1fr}}
+.gd-nav{border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);padding:6px 0;position:sticky;top:0}
+.gd-grp{padding:10px 14px 3px;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.gd-item{display:block;width:100%;text-align:left;border:none;border-left:3px solid transparent;background:transparent;color:var(--txt);padding:6px 14px;font-size:14px;cursor:pointer}
+.gd-item:hover{background:var(--surface2)}.gd-item.on{border-left-color:var(--accent);color:var(--accent-text);font-weight:700}
+.gd-page h3{margin:0 0 10px;font-size:18px}.gd-page dl{margin:0;display:grid;grid-template-columns:130px minmax(0,1fr);gap:8px 14px}
+.gd-page dt{font-weight:700;color:var(--muted);font-size:14px}.gd-page dd{margin:0;font-size:14px;line-height:1.55}
+.gd-page pre{margin:0;padding:8px 10px;border-radius:8px;background:var(--surface2);white-space:pre-wrap;font-size:13px}
+.fam{font-size:12px;padding:1px 8px;border-radius:999px;border:1px solid currentColor;margin-left:6px;color:var(--accent-text);vertical-align:middle}
+</style></head>
+<body class="swaxs-shell">
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+  <!-- Generated by tools/build_icon_sprite.py from
+       assets/icons/swaxs-icons-svg/. Do not edit by hand: edit the
+       source icon and re-run the script. -->
+  <symbol id="swaxs-analysis" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4.8 3.4v16.4h16.4" stroke-width="1.5" opacity="0.55" />
+  <path d="M6.4 6 20.4 15.6" />
+  <circle cx="8.2" cy="7.3" r="1.35" fill="currentColor" stroke="none" />
+  <circle cx="12" cy="9.9" r="1.35" fill="currentColor" stroke="none" />
+  <circle cx="15.8" cy="12.5" r="1.35" fill="currentColor" stroke="none" />
+  <circle cx="19.6" cy="15.1" r="1.35" fill="currentColor" stroke="none" />
+  </symbol>
+  <symbol id="swaxs-autofit" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2.8 4.4L4.4 4.6L5.9 5.3L7.4 6.4L8.7 7.9L9.9 9.6L10.9 11.4L13.3 17.8L14.0 18.9L14.5 18.9L16.3 17.4L17.5 17.0L18.8 17.3L21.2 18.7" />
+  <circle cx="3.9" cy="3.5" r="1.25" fill="currentColor" stroke="none" />
+  <circle cx="6.5" cy="4.1" r="1.25" fill="currentColor" stroke="none" />
+  <circle cx="9.0" cy="8.0" r="1.25" fill="currentColor" stroke="none" />
+  <circle cx="11.6" cy="13.7" r="1.25" fill="currentColor" stroke="none" />
+  <circle cx="14.4" cy="20.4" r="1.25" fill="currentColor" stroke="none" />
+  <circle cx="17.3" cy="17.2" r="1.25" fill="currentColor" stroke="none" />
+  <circle cx="20.1" cy="17.4" r="1.25" fill="currentColor" stroke="none" />
+  </symbol>
+  <symbol id="swaxs-calibration" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="5.2" />
+  <circle cx="12" cy="12" r="9.0" stroke-width="1.5" opacity="0.55" stroke-dasharray="10 3.6" stroke-dashoffset="5" />
+  <circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none" />
+  </symbol>
+  <symbol id="swaxs-guinier-ai" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3.4" y="4.2" width="17.2" height="11.6" rx="2.8" />
+  <path d="M8.8 15.8 8 20.6l4.6-4.8" />
+  <path d="M6.4 7.2L7.8 7.3L9.2 7.6L10.5 8.1L11.7 8.7L12.6 9.4L13.4 10.3L14.0 11.2L14.8 12.8" stroke-width="1.5" />
+  <path d="M17.4 6.3c.28 1.5.83 2.05 2.29 2.33-1.46.28-2.01.83-2.29 2.33-.28-1.5-.83-2.05-2.29-2.33 1.46-.28 2.01-.83 2.29-2.33z" fill="currentColor" stroke-width=".9" />
+  </symbol>
+  <symbol id="swaxs-quality" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2.6 4.2L3.3 4.3L3.9 4.5L4.5 5.0L5.1 5.5L6.0 6.9L7.0 9.4L7.3 9.8L7.6 9.8L8.3 9.1L8.8 9.0L9.3 9.2L10.5 9.7L11.2 9.8" stroke-width="1.5" />
+  <path d="M14.6 6.4 16.4 8.2l3.6-4" />
+  <path d="m2.6 17.6 1.9-2.8 1.7 3.4 1.9-3.2 1.9 2.6" stroke-width="1.5" />
+  <path d="m15.2 14.8 4.6 4.6M19.8 14.8l-4.6 4.6" />
+  </symbol>
+  <symbol id="swaxs-reduction" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M5.70 7.58A5.4 5.4 0 0 1 5.70 16.42" stroke-width="2.0" />
+  <path d="M8.89 5.01A9.4 9.4 0 0 1 8.89 18.99" stroke-width="1.5" opacity="0.55" />
+  <circle cx="2.6" cy="12" r="1" fill="currentColor" stroke="none" />
+  <path d="M13.0 4.6L13.7 4.8L14.4 5.5L15.1 6.6L15.8 8.1L16.7 11.7L17.9 18.1L18.2 19.3L18.4 19.4L18.5 19.3L19.3 17.9L19.6 17.6L19.8 17.5L20.1 17.6L20.5 17.8L21.4 18.9" />
+  </symbol>
+  <symbol id="swaxs-subtraction" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2.8 3.4L4.3 3.6L5.8 4.2L7.2 5.1L8.5 6.5L9.5 7.9L10.4 9.5L12.5 14.8L13.0 15.5L13.4 15.5L15.0 13.9L16.0 13.5L17.3 13.8L19.8 15.4L20.4 15.6L21.2 15.5" />
+  <path d="M3 15.8c5.2.5 9.4 2.2 18 3.8" stroke-width="1.5" opacity="0.55" stroke-dasharray="2.6 2.4" />
+  <path d="M16.4 4.6h4.6" />
+  </symbol>
+  <symbol id="swaxs-synthesis" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3.2 5.4h2.8M3.2 9.6h2.8M3.2 13.8h2.8M3.2 18h2.8" stroke-width="1.5" opacity="0.55" />
+  <path d="M6 5.4v12.6" />
+  <path d="M6 11.7h13.4" stroke-width="1.5" opacity="0.55" />
+  <path d="m18.4 9.1 2.6 2.6-2.6 2.6" />
+  <circle cx="10.6" cy="11.7" r="1.5" fill="currentColor" stroke="none" />
+  <circle cx="15.4" cy="11.7" r="1.5" fill="currentColor" stroke="none" />
+  </symbol>
+  <symbol id="swaxs-ui-ai" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M11 3.4l1.9 5.2 5.2 1.9-5.2 1.9L11 17.6l-1.9-5.2-5.2-1.9 5.2-1.9z" />
+  <path d="M18.6 15.4v4.6M16.3 17.7h4.6" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-bars" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3.6 20.4h16.8" />
+  <path d="M6.2 20.4v-6M10.4 20.4V7.6M14.6 20.4v-9M18.8 20.4V4.6" />
+  </symbol>
+  <symbol id="swaxs-ui-beam" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2.8 12h8" />
+  <path d="M12 12l8.4-5.6M12 12h8.4M12 12l8.4 5.6" stroke-width="1.5" />
+  <circle cx="12" cy="12" r="1.7" fill="currentColor" stroke="none" />
+  </symbol>
+  <symbol id="swaxs-ui-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M6 16.4V10.6a6 6 0 0 1 12 0v5.8l1.6 1.8H4.4z" />
+  <path d="M10 20.6a2.2 2.2 0 0 0 4 0" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-bus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3 16.4h18" />
+  <path d="M6.2 16.4v-3.8M12 16.4v-3.8M17.8 16.4v-3.8" stroke-width="1.5" />
+  <circle cx="6.2" cy="10.8" r="1.7" fill="currentColor" stroke="none" />
+  <circle cx="12" cy="10.8" r="1.7" fill="currentColor" stroke="none" />
+  <circle cx="17.8" cy="10.8" r="1.7" fill="currentColor" stroke="none" />
+  </symbol>
+  <symbol id="swaxs-ui-chart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3.6 3.6v16.8h16.8" />
+  <path d="m7.4 15 3.8-4.4 3 2.8 5-6" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-clear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="8.8" />
+  <path d="M9.2 9.2 14.8 14.8M14.8 9.2 9.2 14.8" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M6.2 6.2 17.8 17.8M17.8 6.2 6.2 17.8" />
+  </symbol>
+  <symbol id="swaxs-ui-collect" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4.6 7.6h3l1.6-2.4h5.6l1.6 2.4h3a1.8 1.8 0 0 1 1.8 1.8v8.8a1.8 1.8 0 0 1-1.8 1.8H4.6a1.8 1.8 0 0 1-1.8-1.8V9.4a1.8 1.8 0 0 1 1.8-1.8z" />
+  <circle cx="12" cy="13.4" r="3.4" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-document" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M14 3.4H7a1.8 1.8 0 0 0-1.8 1.8v13.6A1.8 1.8 0 0 0 7 20.6h10a1.8 1.8 0 0 0 1.8-1.8V8.2z" />
+  <path d="M14 3.4v4.8h4.8" />
+  <path d="M8.8 12.6h6.4M8.8 16.2h4.4" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 3.6v11.2" />
+  <path d="m7.4 10.4 4.6 4.6 4.6-4.6" />
+  <path d="M4 18.2v.8a1.6 1.6 0 0 0 1.6 1.6h12.8A1.6 1.6 0 0 0 20 19v-.8" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-drive" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="2.8" y="5.2" width="18.4" height="13.6" rx="2.4" />
+  <path d="M2.8 12.6h18.4" stroke-width="1.5" />
+  <circle cx="6.6" cy="15.8" r="1.15" fill="currentColor" stroke="none" />
+  <circle cx="10.4" cy="15.8" r="1.15" fill="currentColor" stroke="none" />
+  </symbol>
+  <symbol id="swaxs-ui-edit" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M15.6 4.4l4 4L8.4 19.6l-4.8.8.8-4.8z" />
+  <path d="M13.4 6.6l4 4" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-estop" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M8.4 2.8h7.2l5.6 5.6v7.2l-5.6 5.6H8.4l-5.6-5.6V8.4z" />
+  <path d="M8.2 12h7.6" />
+  </symbol>
+  <symbol id="swaxs-ui-eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2.6 12S6 5.6 12 5.6 21.4 12 21.4 12 18 18.4 12 18.4 2.6 12 2.6 12z" stroke-width="1.5" />
+  <path d="M4.2 4.2l15.6 15.6" />
+  </symbol>
+  <symbol id="swaxs-ui-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2.6 12S6 5.6 12 5.6 21.4 12 21.4 12 18 18.4 12 18.4 2.6 12 2.6 12z" />
+  <circle cx="12" cy="12" r="2.8" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-filter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3.4 4.6h17.2l-6.6 7.8v6.2l-4 2v-8.2z" />
+  </symbol>
+  <symbol id="swaxs-ui-flag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M5.4 21V3.6" />
+  <path d="M5.4 4.6h11.4l-2.2 4 2.2 4H5.4z" />
+  </symbol>
+  <symbol id="swaxs-ui-flask" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M9.4 3.4h5.2" />
+  <path d="M10.2 3.4v6L4.8 18.6a1.4 1.4 0 0 0 1.2 2h12a1.4 1.4 0 0 0 1.2-2L13.8 9.4v-6" />
+  <path d="M7.4 14.6h9.2" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-flow-next" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 12h14.4" />
+  <path d="m14.4 8 4.4 4-4.4 4" />
+  </symbol>
+  <symbol id="swaxs-ui-flow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 3.4s-6.2 6.8-6.2 11a6.2 6.2 0 0 0 12.4 0c0-4.2-6.2-11-6.2-11z" />
+  <path d="M9.4 15a2.6 2.6 0 0 0 2.6 2.6" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-folder-change" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3.4 9.2h13.2l-3-3" />
+  <path d="M20.6 14.8H7.4l3 3" />
+  </symbol>
+  <symbol id="swaxs-ui-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3.2 18.4V6.2A1.8 1.8 0 0 1 5 4.4h4.3l2.1 2.6h7.6a1.8 1.8 0 0 1 1.8 1.8v9.6a1.8 1.8 0 0 1-1.8 1.8H5a1.8 1.8 0 0 1-1.8-1.8z" />
+  </symbol>
+  <symbol id="swaxs-ui-gauge" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3.6 16.8a8.6 8.6 0 1 1 16.8 0" />
+  <path d="m12 15.4 4-5" stroke-width="1.5" />
+  <circle cx="12" cy="15.6" r="1.4" fill="currentColor" stroke="none" />
+  </symbol>
+  <symbol id="swaxs-ui-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3.6" y="3.6" width="16.8" height="16.8" rx="1.8" />
+  <path d="M3.6 9.2h16.8M3.6 14.8h16.8M9.2 3.6v16.8M14.8 3.6v16.8" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="8.8" />
+  <path d="M12 11v5.6" stroke-width="1.5" />
+  <circle cx="12" cy="7.8" r="1.15" fill="currentColor" stroke="none" />
+  </symbol>
+  <symbol id="swaxs-ui-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="4.6" y="10.4" width="14.8" height="10.2" rx="1.8" />
+  <path d="M8 10.4V7.6a4 4 0 0 1 8 0v2.8" />
+  <circle cx="12" cy="15.5" r="1.2" fill="currentColor" stroke="none" />
+  </symbol>
+  <symbol id="swaxs-ui-log" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3.6 7.2h16.8" />
+  <path d="M3.6 12h12.4" stroke-width="1.5" />
+  <path d="M3.6 16.8h7.6" stroke-width="1.5" />
+  <circle cx="15.6" cy="16.8" r="1.5" fill="currentColor" stroke="none" />
+  </symbol>
+  <symbol id="swaxs-ui-mark-bare" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4.2 4.8L5.5 5.0L6.8 5.7L8.0 6.8L9.2 8.3L10.1 9.9L10.9 11.7L11.7 13.9L12.9 17.9L13.4 18.9L13.7 19.0L13.9 18.9L14.9 17.7L15.4 17.2L15.9 17.0L16.4 16.9L17.3 17.2L19.3 18.6L20.2 19.0" />
+  <circle cx="4.2" cy="4.8" r="1.6" fill="currentColor" stroke="none" />
+  </symbol>
+  <symbol id="swaxs-ui-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="2.8" y="2.8" width="18.4" height="18.4" rx="4.4" />
+  <path d="M6.8 7.6L7.7 7.7L8.6 8.1L9.5 8.7L10.3 9.5L11.0 10.4L11.6 11.4L13.2 15.1L13.6 15.7L13.8 15.8L14.1 15.8L15.0 15.1L15.7 14.9L16.4 14.9L17.2 15.3" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="9" y="3.2" width="6" height="11" rx="3" />
+  <path d="M5.6 11.4a6.4 6.4 0 0 0 12.8 0" />
+  <path d="M12 17.8v3" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-mode-autonomous" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M20.6 12a8.6 8.6 0 0 0-8.6-8.6 8.6 8.6 0 0 0-6.4 2.8L3.4 8.4" />
+  <path d="M3.4 3.8v4.6H8" />
+  <path d="M3.4 12a8.6 8.6 0 0 0 8.6 8.6 8.6 8.6 0 0 0 6.4-2.8l2.2-2.2" />
+  <path d="M20.6 20.2v-4.6H16" />
+  </symbol>
+  <symbol id="swaxs-ui-mode-standard" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M6.8 12h3.6M13.6 12h3.6" />
+  <circle cx="4.2" cy="12" r="2.2" fill="currentColor" stroke="none" />
+  <circle cx="12" cy="12" r="2.2" fill="currentColor" stroke="none" />
+  <circle cx="19.8" cy="12" r="2.2" fill="currentColor" stroke="none" />
+  </symbol>
+  <symbol id="swaxs-ui-model" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="8.4" />
+  <ellipse cx="12" cy="12" rx="8.4" ry="3.2" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M20 14.4A8.4 8.4 0 1 1 9.6 4a6.6 6.6 0 0 0 10.4 10.4z" />
+  </symbol>
+  <symbol id="swaxs-ui-next" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="m9.4 5.6 6.4 6.4-6.4 6.4" />
+  </symbol>
+  <symbol id="swaxs-ui-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M14.2 3.8h6v6" />
+  <path d="M20.2 3.8 11.4 12.6" />
+  <path d="M18 14v5a1.8 1.8 0 0 1-1.8 1.8H5.6A1.8 1.8 0 0 1 3.8 19V8.4a1.8 1.8 0 0 1 1.8-1.8h5" />
+  </symbol>
+  <symbol id="swaxs-ui-parent-dir" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M5.6 3.8h12.8" stroke-width="1.5" />
+  <path d="M12 20.6V8.2" />
+  <path d="m6.8 13.4 5.2-5.2 5.2 5.2" />
+  </symbol>
+  <symbol id="swaxs-ui-pass" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2.8 7.2L3.8 7.3L4.7 7.7L5.7 8.3L6.6 9.1L7.2 10.0L7.9 11.0L8.5 12.3L9.6 14.6L10.1 15.3L10.3 15.4L10.5 15.4L11.5 14.7L12.1 14.5L12.6 14.5L13.2 14.6" stroke-width="1.5" />
+  <path d="m14.6 12.6 2.6 2.6 4.2-6.6" />
+  </symbol>
+  <symbol id="swaxs-ui-pause" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M8.4 5.4v13.2M15.6 5.4v13.2" />
+  </symbol>
+  <symbol id="swaxs-ui-peak" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3.4 19.4h17.2" />
+  <path d="M3.4 17.4c3 0 3.6-1.4 5-1.4 1.6 0 2-11.2 3.6-11.2S13.6 16 15.2 16s2.4 1.4 5.4 1.4" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-ports" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M9 3.4v4.2M15 3.4v4.2" stroke-width="1.5" />
+  <path d="M6.2 7.6h11.6v3.2a5.8 5.8 0 0 1-11.6 0z" />
+  <path d="M12 16.6v4" />
+  </symbol>
+  <symbol id="swaxs-ui-pr" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3.4 19.4h17.2" />
+  <path d="M4.6 19.4c2.6 0 3.2-12.6 7.4-12.6s4.8 12.6 7.4 12.6" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-prev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="m14.6 5.6-6.4 6.4 6.4 6.4" />
+  </symbol>
+  <symbol id="swaxs-ui-ruler" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="2.8" y="7.6" width="18.4" height="8.8" rx="1.8" />
+  <path d="M6.6 7.6v3.2M10.4 7.6v4.4M14.2 7.6v3.2M18 7.6v4.4" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="10.6" cy="10.6" r="6.4" />
+  <path d="m15.4 15.4 5 5" />
+  </symbol>
+  <symbol id="swaxs-ui-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M10.4 2.8h3.2l.5 2.4 1.9.8 2.1-1.3 2.2 2.2-1.3 2.1.8 1.9 2.4.5v3.2l-2.4.5-.8 1.9 1.3 2.1-2.2 2.2-2.1-1.3-1.9.8-.5 2.4h-3.2l-.5-2.4-1.9-.8-2.1 1.3-2.2-2.2 1.3-2.1-.8-1.9-2.4-.5v-3.2l2.4-.5.8-1.9-1.3-2.1 2.2-2.2 2.1 1.3 1.9-.8z" />
+  <circle cx="12" cy="12" r="3" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-sliders" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 6.6h16M4 12h16M4 17.4h16" stroke-width="1.5" />
+  <circle cx="8.6" cy="6.6" r="2.1" fill="currentColor" stroke="none" />
+  <circle cx="15.4" cy="12" r="2.1" fill="currentColor" stroke="none" />
+  <circle cx="10.4" cy="17.4" r="2.1" fill="currentColor" stroke="none" />
+  </symbol>
+  <symbol id="swaxs-ui-start" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M8.6 5.4 19 12 8.6 18.6z" />
+  </symbol>
+  <symbol id="swaxs-ui-status-running" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none" />
+  <path d="M17.4 7.1a6.9 6.9 0 0 1 0 9.8M6.6 16.9a6.9 6.9 0 0 1 0-9.8" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-status-stopped" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="2.4" stroke-width="1.5" />
+  <circle cx="12" cy="12" r="7.4" stroke-width="1.5" opacity="0.55" />
+  </symbol>
+  <symbol id="swaxs-ui-stop-all" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="8.8" />
+  <rect x="8.5" y="8.5" width="7" height="7" rx="1.8" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-stop" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="6" y="6" width="12" height="12" rx="2.4" />
+  </symbol>
+  <symbol id="swaxs-ui-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="4" />
+  <path d="M12 2.6v2.2M12 19.2v2.2M2.6 12h2.2M19.2 12h2.2M5.4 5.4l1.5 1.5M17.1 17.1l1.5 1.5M5.4 18.6l1.5-1.5M17.1 6.9l1.5-1.5" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-tag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3.4 12.6V4.8a1.4 1.4 0 0 1 1.4-1.4h7.8l8 8a1.6 1.6 0 0 1 0 2.2l-6.6 6.6a1.6 1.6 0 0 1-2.2 0z" />
+  <circle cx="8" cy="8" r="1.4" fill="currentColor" stroke="none" />
+  </symbol>
+  <symbol id="swaxs-ui-target" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="8.6" />
+  <circle cx="12" cy="12" r="4.6" stroke-width="1.5" />
+  <circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none" />
+  </symbol>
+  <symbol id="swaxs-ui-thermometer" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M14.4 13.8V5a2.4 2.4 0 0 0-4.8 0v8.8a4.4 4.4 0 1 0 4.8 0z" />
+  <path d="M12 16.6V9" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-timer" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="13.4" r="7.4" />
+  <path d="M12 13.4V9.6" stroke-width="1.5" />
+  <path d="M9.6 2.8h4.8M12 2.8v3.2" />
+  </symbol>
+  <symbol id="swaxs-ui-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 6.6h16" />
+  <path d="M9.2 6.6V4.4h5.6v2.2" />
+  <path d="M6.2 6.6l.9 12.4a1.8 1.8 0 0 0 1.8 1.6h6.2a1.8 1.8 0 0 0 1.8-1.6l.9-12.4" />
+  <path d="M10.2 10.6v6M13.8 10.6v6" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-truncate" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="6.4" cy="6.6" r="2.6" />
+  <circle cx="6.4" cy="17.4" r="2.6" />
+  <path d="M8.6 8.2 20 18M8.6 15.8 20 6" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-vent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 3.6v9.6" />
+  <path d="m8 9.4 4 4 4-4" />
+  <path d="M4.6 17.4h14.8M7.4 20.6h9.2" stroke-width="1.5" />
+  </symbol>
+  <symbol id="swaxs-ui-warning" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M13.5 4.2a1.7 1.7 0 0 0-3 0L2.9 18.4A1.7 1.7 0 0 0 4.4 21h15.2a1.7 1.7 0 0 0 1.5-2.6z" />
+  <path d="M12 9.6v4.2" stroke-width="1.5" />
+  <circle cx="12" cy="17.4" r="1.15" fill="currentColor" stroke="none" />
+  </symbol>
+  <symbol id="swaxs-ui-wrench" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M14.8 3.6a4.8 4.8 0 0 0-4.4 6.6l-6.2 6.2a1.9 1.9 0 0 0 2.7 2.7l6.2-6.2a4.8 4.8 0 0 0 6.6-4.4l-2.8 2.8-2.9-.6-.6-2.9z" />
+  </symbol>
+  <symbol id="swaxs-visualisation" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2.8 3.6L4.3 3.8L5.8 4.2L7.2 5.0L8.5 6.0L9.6 7.2L10.5 8.5L11.4 10.0L12.9 12.8L13.4 13.5L13.7 13.6L14.0 13.5L15.1 12.7L15.7 12.3L16.8 12.1L17.9 12.3L20.1 13.3L21.2 13.6" stroke-width="1.5" opacity="0.55" />
+  <path d="M2.8 10.0L4.3 10.2L5.8 10.6L7.2 11.4L8.5 12.4L9.6 13.6L10.5 14.9L11.4 16.4L12.9 19.2L13.4 19.9L13.7 20.0L14.0 19.9L15.1 19.1L15.7 18.7L16.8 18.5L17.9 18.7L20.1 19.7L21.2 20.0" stroke-width="1.5" opacity="0.55" />
+  <path d="M2.8 6.8L4.3 7.0L5.8 7.4L7.2 8.2L8.5 9.2L10.5 11.7L12.9 16.0L13.4 16.7L14.0 16.7L15.7 15.5L16.8 15.3L17.9 15.5L20.1 16.5L21.2 16.8" />
+  </symbol>
+  <symbol id="swaxs-watch" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 4a8 8 0 1 1-5.66 2.34" />
+  <path d="M9.8 2.3 12 4l-1.7 2.3" />
+  <path d="M6.8 12.2h2.6l1.8-3.6 2.3 6 1.6-2.4h2.1" stroke-width="1.5" />
+  </symbol>
+</svg>
+
+<script>
+/* Platform icon helpers (generated by tools/build_icon_sprite.py — do not edit). */
+function icoSvg(n){return '<svg class="ico" aria-hidden="true"><use href="#swaxs-ui-'+n+'"/></svg>';}
+function setIco(el,n,text){if(!el)return;el.innerHTML=icoSvg(n)+' ';el.appendChild(document.createTextNode(text==null?'':String(text)));}
+/* Keep every open SWAXS tab on one theme: a toggle in any app is saved under the
+   shared key, and the others follow through the storage event. */
+window.addEventListener('storage',function(e){if(e.key!=='swaxs-theme'||!e.newValue)return;
+  if(document.documentElement.getAttribute('data-theme')!==e.newValue&&typeof window.toggleTheme==='function')window.toggleTheme();});
+/* Charts follow the theme too. swaxsPlotTheme() = current palette for a chart;
+   swaxsRethemePlots() re-colours every Plotly chart on the page, and runs on its
+   own whenever data-theme changes, so no app has to remember to redraw. */
+function swaxsPlotTheme(){var c=getComputedStyle(document.documentElement),
+  g=function(n,d){return (c.getPropertyValue(n)||'').trim()||d;};
+  return {bg:g('--surface','#fff'),fg:g('--txt','#1f2937'),muted:g('--muted','#4b5563'),
+    grid:g('--border','#e5e7eb'),line:g('--border-strong','#c3c9d1'),legend:g('--surface','#fff'),
+    err:g('--err-text','#b91c1c'),accent:g('--accent','#B1040E')};}
+function swaxsRethemePlots(){if(!window.Plotly)return;var T=swaxsPlotTheme();
+  var clear=function(v){return !v||v==='transparent'||/rgba\([^)]*,\s*0\)/.test(String(v));};
+  document.querySelectorAll('.js-plotly-plot').forEach(function(el){try{
+    var L=el.layout||{},u={'font.color':T.fg,'title.font.color':T.fg,'legend.bgcolor':T.legend,'legend.bordercolor':T.grid};
+    if(!clear(L.plot_bgcolor))u.plot_bgcolor=T.bg; if(!clear(L.paper_bgcolor))u.paper_bgcolor=T.bg;
+    Object.keys(L).forEach(function(k){if(/^[xy]axis\d*$/.test(k)){u[k+'.gridcolor']=T.grid;u[k+'.linecolor']=T.line;u[k+'.color']=T.muted;}});
+    window.Plotly.relayout(el,u);}catch(e){}});}
+/* Carry the theme along on every link to another SWAXS app (hub Open buttons,
+   ← Hub links): add ?theme=<current> just before the browser follows it. */
+document.addEventListener('click',function(e){var a=e.target&&e.target.closest&&e.target.closest('a[href]');if(!a)return;
+  try{var u=new URL(a.href,location.href);if(!/^(localhost|127\.0\.0\.1)$/.test(u.hostname)||u.port===location.port)return;
+    u.searchParams.set('theme',document.documentElement.getAttribute('data-theme')||'light');a.href=u.toString();}catch(_){}},true);
+/* Uniform top bar: apps without their own live status / project display carry
+   the standard placeholders (#barStatus, #barProject); fill them from the app's
+   own /api/health and /api/project so every bar shows the same information. */
+(function(){
+  function stat(){var el=document.getElementById('barStatus');if(!el)return;var t=el.querySelector('.bar-status-txt');
+    fetch('/api/health',{cache:'no-store'}).then(function(r){el.classList.toggle('ok',r.ok);el.classList.toggle('down',!r.ok);
+      if(t)t.textContent=r.ok?'Connected':'Offline';}).catch(function(){el.classList.remove('ok');el.classList.add('down');if(t)t.textContent='Offline';});}
+  function proj(){var el=document.getElementById('barProject');if(!el)return;
+    fetch('/api/project',{cache:'no-store'}).then(function(r){return r.ok?r.json():{};}).then(function(d){
+      var p=(d&&(d.project_root||d.root||d.project))||'';el.textContent=p||'no project selected';
+      el.title=p?('Project folder: '+p):'No project selected in the hub';}).catch(function(){});}
+  function go(){stat();proj();setInterval(stat,5000);setInterval(proj,30000);}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',go);else go();
+})();
+/* Shared folder picker for every Browse… button: swaxsBrowse('inputId', after).
+   Lists folders through the app's own GET /api/browse ({current,parent,dirs}),
+   starts at the folder already typed (relative paths open inside the project),
+   writes the chosen path into the input, fires its change event, then calls
+   after() if given (e.g. the app's Set). Names go in as TEXT, never as HTML. */
+function swaxsBrowse(id,after){var inp=document.getElementById(id);if(!inp)return;
+  var bd=document.createElement('div');bd.className='swx-pick-bd';
+  var m=document.createElement('div');m.className='swx-pick';m.setAttribute('role','dialog');m.setAttribute('aria-label','Choose a folder');
+  m.innerHTML='<div class="swx-pick-hd"><b>Choose a folder</b><button type="button" class="swx-pick-x" aria-label="Close">'+icoSvg('close')+'</button></div>'
+   +'<div class="swx-pick-path"><button type="button" class="btn btn-ghost btn-sm swx-up">↑ Up</button><input type="text" class="swx-cur" spellcheck="false"></div>'
+   +'<div class="swx-pick-list"></div>'
+   +'<div class="swx-pick-ft"><button type="button" class="btn btn-ghost btn-sm swx-can">Cancel</button><button type="button" class="btn btn-primary btn-sm swx-ok">Select this folder</button></div>';
+  bd.appendChild(m);document.body.appendChild(bd);
+  var cur=m.querySelector('.swx-cur'),list=m.querySelector('.swx-pick-list'),up=m.querySelector('.swx-up'),par=null;
+  function close(){document.removeEventListener('keydown',key,true);bd.remove();}
+  function key(e){if(e.key==='Escape'){e.stopPropagation();close();}}
+  function load(path){list.textContent='Loading…';
+    fetch('/api/browse?path='+encodeURIComponent(path||''),{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+      cur.value=d.current||'';par=d.parent;up.disabled=!par;list.textContent='';
+      (d.dirs||[]).forEach(function(n){var b=document.createElement('button');b.type='button';b.className='swx-dir';
+        b.innerHTML=icoSvg('folder')+' ';b.appendChild(document.createTextNode(n));
+        b.onclick=function(){load((d.current||'').replace(/[\\/]+$/,'')+'/'+n);};
+        list.appendChild(b);});
+      if(!(d.dirs||[]).length){var e=document.createElement('div');e.className='swx-empty';e.textContent='No sub-folders here.';list.appendChild(e);}
+    }).catch(function(){list.textContent='Could not list this folder.';});}
+  m.querySelector('.swx-pick-x').onclick=close;m.querySelector('.swx-can').onclick=close;
+  bd.addEventListener('mousedown',function(e){if(e.target===bd)close();});
+  up.onclick=function(){if(par)load(par);};
+  cur.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();load(cur.value);}});
+  m.querySelector('.swx-ok').onclick=function(){inp.value=cur.value;close();
+    inp.dispatchEvent(new Event('input',{bubbles:true}));inp.dispatchEvent(new Event('change',{bubbles:true}));
+    if(typeof after==='function')after();};
+  document.addEventListener('keydown',key,true);load(inp.value);}
+if(window.MutationObserver)new MutationObserver(function(){swaxsRethemePlots();})
+  .observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+</script>
+
+<div class="topbar">
+  <div class="app-lockup">
+    <!-- analyzer: its own mark, the same artwork as its hub card and
+     tab icon. Generated by tools/build_icon_sprite.py from
+     assets/icons/swaxs-icons-svg/swaxs-autofit.svg — do not edit. -->
+<svg class="app-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.8 4.4L4.4 4.6L5.9 5.3L7.4 6.4L8.7 7.9L9.9 9.6L10.9 11.4L13.3 17.8L14.0 18.9L14.5 18.9L16.3 17.4L17.5 17.0L18.8 17.3L21.2 18.7"/>
+  <circle cx="3.9" cy="3.5" r="1.25" fill="currentColor" stroke="none"/>
+  <circle cx="6.5" cy="4.1" r="1.25" fill="currentColor" stroke="none"/>
+  <circle cx="9.0" cy="8.0" r="1.25" fill="currentColor" stroke="none"/>
+  <circle cx="11.6" cy="13.7" r="1.25" fill="currentColor" stroke="none"/>
+  <circle cx="14.4" cy="20.4" r="1.25" fill="currentColor" stroke="none"/>
+  <circle cx="17.3" cy="17.2" r="1.25" fill="currentColor" stroke="none"/>
+  <circle cx="20.1" cy="17.4" r="1.25" fill="currentColor" stroke="none"/></svg>
+
+    <h1>Autonomous <span>Analyser</span></h1>
+  </div>
+  <span class="pill" id="p_conn"><i class="led"></i><span>connecting…</span></span>
+  <div class="bar-extras">
+    <span class="pill" id="p_camp"><i class="led"></i><span>campaign idle</span></span>
+    <span class="pill" id="p_count">0 profiles fitted</span>
+    <span class="pill" id="p_best">best n/a</span>
+  </div>
+  <span class="proj" id="barProject" title="Project folder">No project selected</span>
+  <button class="theme-toggle" id="themeBtn" onclick="toggleTheme()" title="Light or dark theme"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-moon"/></svg></button>
+  <span class="topbar-sub">Port 5107 · <a href="http://localhost:5100">← Hub</a></span>
+</div>
+
+<div id="app"><nav id="sidebar"><div class="nav-section-label">Goal</div><button class="nav-btn active" data-goal="target-hit"><span class="nav-icon"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-target"/></svg></span> Hit a size</button><button class="nav-btn" data-goal="level-set"><span class="nav-icon"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-grid"/></svg></span> Map the in-spec region</button><button class="nav-btn" data-goal="pareto"><span class="nav-icon"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-chart"/></svg></span> Size vs PDI trade-off</button><button class="nav-btn" data-goal="benchmark"><span class="nav-icon"><svg class="ico" aria-hidden="true"><use href="#swaxs-quality"/></svg></span> Compare methods</button><div class="nav-hint" id="mkHint"></div><div class="nav-hint" id="mkPair"></div><div class="nav-hint">Mockup: layout only. Nothing runs or saves.</div></nav><div id="main"><div class="toptabbar"><button class="toptab active" data-tab="setup" onclick="showTab('setup')">Setup</button><button class="toptab" data-tab="fitting" onclick="showTab('fitting')">Fitting</button><button class="toptab" data-tab="report" onclick="showTab('report')">Report</button><button class="toptab" data-tab="knowledge" onclick="showTab('knowledge')">Knowledge</button><button class="toptab" data-tab="guide" onclick="showTab('guide')">Guide</button></div><div class="wrap">
+  <section class="page active" id="page-setup">
+   <div class="mk-two">
+    <div class="card">
+      <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-mode-autonomous"/></svg> <span id="mkGoalTitle">Hit a size</span> <span class="hd-right sub"><span id="mkGoalLine"></span> <a href="#" class="mk-i" id="mkGoalI" data-guide="target-hit">About this goal →</a></span></div>
+
+      <div class="step"><div class="step-h"><span class="step-n">1</span> Data folders</div>
+        <div class="fg mk-live"><label>Watched profiles</label><div class="cell"><div class="browse-row"><input value="1D/SAXS/Subtracted/Good"><button class="btn btn-ghost btn-sm">Browse…</button></div></div></div>
+        <div class="fg mk-live"><label>Conditions</label><div class="cell"><div class="browse-row"><input value="1D/SAXS/Conditions" readonly><span class="mk-ok">same as the reactor</span></div></div></div>
+        <div class="sub mk-race" style="display:none">Compare methods runs on the simulator only: no folders, no reactor.</div>
+      </div>
+
+      <div class="step"><div class="step-h"><span class="step-n">2</span> Target &amp; limits <span class="step-sub"><a href="#" class="mk-i" data-guide="score">How the score works →</a></span></div>
+        <div class="grid2">
+          <div class="fg g-target"><label>Target diameter (nm)</label><div class="cell"><input type="number" value="5"></div></div>
+          <div class="fg g-target"><label>Tolerance ± (nm)</label><div class="cell"><input type="number" value="0.6"></div></div>
+          <div class="fg g-range" style="display:none"><label>Min diameter (nm)</label><div class="cell"><input type="number" value="2"></div></div>
+          <div class="fg g-range" style="display:none"><label>Max diameter (nm)</label><div class="cell"><input type="number" value="10"></div></div>
+          <div class="fg"><label>Max PDI (σ/R̄, from the SAXS fit)</label><div class="cell"><input type="number" value="0.1"></div></div>
+          <div class="fg mk-live"><label>Expected shape</label><div class="cell"><select><option>sphere (core-shell counts)</option><option>sphere only</option><option>any shape (equivalent size)</option></select></div></div>
+          <div class="fg mk-live"><label>Min fit confidence</label><div class="cell"><input type="number" value="0.5" step="0.1"></div></div>
+          <div class="fg"><label id="mkBudgetLbl">Max experiments</label><div class="cell"><input type="number" value="30"></div></div>
+          <div class="fg g-race" style="display:none"><label>Repeats per method</label><div class="cell"><input type="number" value="5"></div></div>
+        </div>
+        <div class="fg mk-live"><label>Search range</label><div class="cell"><span class="mk-range">T 180 to 300 °C · F_tot 40 to 120 µL/min · x_ODE, x_TOP, x_oley each 0 to 0.3, sum ≤ 0.9</span>
+          <span class="sub">from reactor/config.yml (bounds); hard safety caps T 320 °C, F_tot 150 µL/min. Change them in the Reactor app.</span></div></div>
+        <div class="mk-read" id="mkRead"></div></div>
+
+      <div class="step"><div class="step-h"><span class="step-n">3</span> How it fits &amp; searches</div>
+        <div class="mk-choose">
+          <div id="mkFitCol"><div class="mk-colh">Fitting</div><div class="mk-list" id="mkFitList"><div class="mk-fam" data-fam-f="standard">Standard</div><label class="mk-opt" data-kind="fit" data-id="catalogue_bic"><input type="radio" name="mk-fit"><span><b>Catalogue + BIC</b> <i class="mk-tag rec">recommended</i><span class="sub">Fits every structure in the catalogue (sphere, core-shell, ellipsoid, cylinder, mass fractal, plus structure factors) and keeps the best by BIC. No AI. Reports an equivalent radius. <a href="#" class="mk-i" data-guide="catalogue_bic">Details in the Guide →</a></span></span></label><label class="mk-opt" data-kind="fit" data-id="ls_sphere"><input type="radio" name="mk-fit"><span><b>Least-squares sphere</b> <i class="mk-tag ">fastest</i><span class="sub">Polydisperse-sphere form-factor fit by least squares (Schulz / log-normal); physics-based and interpretable. <a href="#" class="mk-i" data-guide="ls_sphere">Details in the Guide →</a></span></span></label><div class="mk-fam" data-fam-f="ml">ML</div><label class="mk-opt" data-kind="fit" data-id="ml_regressor"><input type="radio" name="mk-fit"><span><b>ML regressor (k-NN)</b> <i class="mk-tag ">spheres only</i><span class="sub">A trained model predicts size / PDI directly from the curve: near-instant, spheres of radius 1 to 18 nm only. <a href="#" class="mk-i" data-guide="ml_regressor">Details in the Guide →</a></span></span></label><div class="mk-fam" data-fam-f="agentic">Agentic</div><label class="mk-opt" data-kind="fit" data-id="llm_assisted"><input type="radio" name="mk-fit"><span><b>AI-assisted structure</b><span class="sub">The AI reads the curve&#x27;s features, the sample context and the knowledge base, proposes up to 3 structures from the catalogue; each is fitted and the best by BIC wins. Falls back to Catalogue + BIC with no AI login. <a href="#" class="mk-i" data-guide="llm_assisted">Details in the Guide →</a></span></span></label></div></div>
+          <div><div class="mk-colh" id="mkOptH">Next recipe</div><div class="mk-list" id="mkOptList"><div class="mk-fam" data-fam-h="standard">Standard</div><label class="mk-opt" data-kind="opt" data-id="random"><input type="radio" name="mk-opt"><span><b>Random / Sobol search</b> <i class="mk-tag ">baseline</i><span class="sub">Space-filling Sobol baseline with no model. The honest reference: a method must beat this to earn its cost. <a href="#" class="mk-i" data-guide="random">Details in the Guide →</a></span></span></label><div class="mk-fam" data-fam-h="ml">ML</div><label class="mk-opt" data-kind="opt" data-id="gp_ei"><input type="radio" name="mk-opt"><span><b>Bayesian GP + EI</b> <i class="mk-tag rec">recommended</i><span class="sub">Gaussian-process surrogate with Expected Improvement. Balanced explore / exploit, and the default. <a href="#" class="mk-i" data-guide="gp_ei">Details in the Guide →</a></span></span></label><label class="mk-opt" data-kind="opt" data-id="gp_ucb"><input type="radio" name="mk-opt"><span><b>Bayesian GP + UCB</b><span class="sub">GP surrogate with a confidence-bound acquisition and an explicit explore / exploit knob (kappa). <a href="#" class="mk-i" data-guide="gp_ucb">Details in the Guide →</a></span></span></label><label class="mk-opt" data-kind="opt" data-id="turbo"><input type="radio" name="mk-opt"><span><b>TuRBO (trust-region BO)</b><span class="sub">Trust-region local BO: searches near the best point and grows or shrinks the region. Scales better in higher dimensions. <a href="#" class="mk-i" data-guide="turbo">Details in the Guide →</a></span></span></label><label class="mk-opt" data-kind="opt" data-id="bax"><input type="radio" name="mk-opt"><span><b>BAX (Bayesian Alg. eXecution)</b><span class="sub">Goal-aware (Bayesian Algorithm eXecution): maps the whole acceptance band (target size at low PDI), not just one optimum. <a href="#" class="mk-i" data-guide="bax">Details in the Guide →</a></span></span></label><label class="mk-opt" data-kind="opt" data-id="pareto_ehvi"><input type="radio" name="mk-opt"><span><b>Pareto GP + EHVI (size vs PDI)</b><span class="sub">Goal-aware (Expected Hypervolume Improvement): maps the size vs PDI trade-off across a diameter range. The real multi-objective acquisition for the Pareto goal. <a href="#" class="mk-i" data-guide="pareto_ehvi">Details in the Guide →</a></span></span></label><div class="mk-fam" data-fam-h="agentic">Agentic</div><label class="mk-opt" data-kind="opt" data-id="ai_advisor"><input type="radio" name="mk-opt"><span><b>AI Advisor</b><span class="sub">The AI suggests the starting bounds and reviews progress; the optimiser picks every recipe. <a href="#" class="mk-i" data-guide="ai_advisor">Details in the Guide →</a></span></span></label><label class="mk-opt" data-kind="opt" data-id="ai_copilot"><input type="radio" name="mk-opt"><span><b>AI Co-pilot</b> <i class="mk-tag rec">recommended for AI</i><span class="sub">The optimiser proposes its 5 best recipes; the AI picks one and says why. <a href="#" class="mk-i" data-guide="ai_copilot">Details in the Guide →</a></span></span></label><label class="mk-opt" data-kind="opt" data-id="ai_pilot"><input type="radio" name="mk-opt"><span><b>AI Pilot</b> <i class="mk-tag warn">experimental</i><span class="sub">The AI proposes each recipe itself, within the bounds; the optimiser is the fallback. <a href="#" class="mk-i" data-guide="ai_pilot">Details in the Guide →</a></span></span></label></div></div>
+        </div>
+        <div class="mk-detail" id="mkDetail"></div>
+      </div>
+
+      <div class="step" id="mkKnow"><div class="step-h"><span class="step-n">4</span> Knowledge for this campaign
+          <span class="step-sub"><a href="#" class="mk-i" data-guide="knowledge">How it is used →</a></span></div>
+        <div class="fg"><label>Knowledge set</label><div class="cell mk-kset">
+          <select id="mkKset" style="width:auto;min-width:260px" onchange="mkRecheck()"><option>Pd · ODE · oleylamine (10 cards)</option><option>Au rods · water (2 cards)</option><option>None</option></select>
+          <a href="#" class="mk-i mk-tab" data-tab="knowledge">Add or edit in the Knowledge tab →</a></div></div>
+        <div class="mk-use"><div class="mk-colh">Use</div><div class="mk-usel">
+          <label class="mk-tick"><input type="checkbox" checked> Literature <span class="sub">4 cards · off: no paper-based starting range</span></label>
+          <label class="mk-tick"><input type="checkbox" checked> Your notes <span class="sub">2 cards · off: your own observations are ignored</span></label>
+          <label class="mk-tick k-ai"><input type="checkbox" checked> Your verdicts on past picks <span class="sub">3 · the AI learns which moves worked</span></label>
+          <label class="mk-tick" id="mkPast"><input type="checkbox" checked> Past campaigns <span class="sub">Run 1, Run 2 · off: the optimiser starts cold</span></label>
+        </div></div>
+        <div class="mk-use"><div class="mk-colh">For</div><div class="mk-usel">
+          <label class="mk-tick"><input type="radio" name="mk-kuse" checked> Starting recipes</label>
+          <label class="mk-tick k-ai"><input type="radio" name="mk-kuse"> <span id="mkForAI">Starting recipes and every AI pick</span></label>
+        </div></div>
+        <div class="mk-colh">Starting recipes</div>
+        <table class="mk-tbl mk-start"><thead><tr><th>Kind</th><th>How many</th><th>Where they go</th></tr></thead><tbody>
+          <tr><td>From knowledge</td><td><input type="number" class="mk-n" id="mkNseed" value="3" min="0" max="10"></td><td class="sub">inside the range the ticked cards suggest</td></tr>
+          <tr><td>Spread out</td><td><input type="number" class="mk-n" id="mkNsob" value="7" min="0" max="20"></td><td class="sub">evenly over the full search range (step 2), so a wrong card cannot trap the search</td></tr>
+          <tr><td>Your own</td><td><input type="number" class="mk-n" id="mkNown" value="0" min="0" max="5" readonly></td><td class="sub">exact recipes you type, e.g. repeat Run 2's best as a check <button class="btn btn-ghost btn-sm mk-mini" onclick="mkAddOwn()">Add recipe</button></td></tr>
+          <tr class="mk-tot"><td><b>Total</b></td><td><b id="mkNtot">10</b></td><td class="sub" id="mkNmsg">then the optimiser picks from the measured results</td></tr>
+        </tbody></table>
+        <div id="mkOwn"></div>
+        <div class="btn-row"><button class="btn btn-ghost btn-sm" onclick="mkSuggest()">Preview starting recipes</button>
+          <span class="sub">Optional. Shows the first recipes the reactor will make, before any data exists, and which cards chose them. Check them for a misread card (wrong units, odd temperature) before the pumps start; Start makes the same recipes whether or not you look.</span></div>
+        <div id="mkStartPt"></div>
+        <div class="sub">Frozen when the campaign starts, so every decision uses the same knowledge. Knowledge can only narrow the search range, never widen it; the reactor limits always apply.</div>
+      </div>
+
+      <div class="btn-row"><button class="btn btn-accent" id="mkStart"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-start"/></svg> <span id="mkStartLbl">Start campaign</span></button>
+        <a href="#" class="mk-i mk-live mk-cont" onclick="return false">or continue Run 3 (14 of 30 runs, knowledge v4 frozen; the set is now v5: keep v4 or switch)</a></div>
+    </div>
+
+    <div>
+      <div class="card"><div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-pass"/></svg> Ready to start?</div>
+        <ul class="mk-check" id="mkCheck"></ul>
+        <div class="sub">Start stays disabled until every essential is green, and says which one is not.</div></div>
+    </div>
+   </div>
+  </section>
+  <section class="page" id="page-fitting">
+    <div class="mk-fit">
+      <div class="card">
+        <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-analysis"/></svg> Analysed profiles
+          <span class="hd-right"><button class="btn btn-ghost btn-sm">Analyse existing profiles</button><button class="btn btn-ghost btn-sm">CSV</button></span></div>
+        <input placeholder="Filter by file, recipe or model">
+        <div class="tablewrap"><table class="mk-tbl"><thead><tr><th>Recipe</th><th>Model</th><th>D (nm)</th><th>PDI (σ/R̄)</th><th>Conf.</th><th>Scored</th></tr></thead>
+          <tbody><tr class="sel" title="r014_sample_sub.dat"><td>r014</td><td>sphere</td><td>4.96</td><td>0.09</td><td><span class="mk-conf hi">0.86</span></td><td class="sub" title="">yes</td></tr><tr class="" title="r013_sample_sub.dat"><td>r013</td><td>sphere</td><td>5.42</td><td>0.12</td><td><span class="mk-conf hi">0.81</span></td><td class="sub" title="">yes</td></tr><tr class="" title="r012_sample_sub.dat"><td>r012</td><td>core-shell</td><td>6.10*</td><td>0.11</td><td><span class="mk-conf hi">0.64</span></td><td class="sub" title="shell 0.8 nm">yes</td></tr><tr class="" title="r011_sample_sub.dat"><td>r011</td><td>sphere + sticky HS</td><td>7.20</td><td>0.18</td><td><span class="mk-conf mid">0.47</span></td><td class="mk-warn" title="aggregation">no: confidence</td></tr><tr class="" title="r010_sample_sub.dat"><td>r010</td><td>sphere</td><td>4.24</td><td>0.08</td><td><span class="mk-conf hi">0.88</span></td><td class="sub" title="">yes</td></tr><tr class="" title="r009_sample_sub.dat"><td>r009</td><td>cylinder</td><td>13.80*</td><td>0.14</td><td><span class="mk-conf mid">0.52</span></td><td class="mk-warn" title="rod-like">no: shape</td></tr></tbody></table></div>
+        <div class="sub">* equivalent diameter (2·√(5/3)·Rg) for non-spheres. A fit of another shape than expected, or below the confidence limit (Setup step 2), is not scored until you accept it. ↑ ↓ step through fits.</div>
+      </div>
+      <div class="card">
+        <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-autofit"/></svg> r014_sample_sub.dat <span class="hd-right"><select><option>Re-fit with…</option><option>Catalogue + BIC</option><option>AI-assisted structure</option><option>ML regressor</option></select></span></div>
+        <div class="kpis">
+          <div class="kpi"><span>Model</span><b>sphere</b></div>
+          <div class="kpi"><span>Diameter</span><b>4.96 nm</b></div>
+          <div class="kpi"><span>PDI (σ/R̄)</span><b>0.09</b></div>
+          <div class="kpi"><span>Confidence</span><b>0.86</b></div>
+          <div class="kpi"><span>R<sub>g</sub> (Guinier)</span><b>1.95 nm</b></div>
+        </div>
+        <div class="plottools"><div class="scalebar"><button class="on">Log-log</button><button>Kratky</button><button>Guinier</button><button>Semilog Y</button><button>Linear</button></div>
+          <label><input type="checkbox" checked> Residuals</label><label><input type="checkbox"> Error bars</label></div>
+        <svg viewBox="0 0 560 300" class="mk-plot"><rect x="36" y="36" width="488" height="228" fill="none" stroke="var(--border)"/><g fill="var(--muted)"><circle cx="36.0" cy="48.3" r="1.8"/><circle cx="43.0" cy="48.8" r="1.8"/><circle cx="50.0" cy="47.2" r="1.8"/><circle cx="57.1" cy="48.8" r="1.8"/><circle cx="64.1" cy="48.4" r="1.8"/><circle cx="71.1" cy="48.0" r="1.8"/><circle cx="78.1" cy="49.0" r="1.8"/><circle cx="85.2" cy="48.5" r="1.8"/><circle cx="92.2" cy="48.5" r="1.8"/><circle cx="99.2" cy="48.9" r="1.8"/><circle cx="106.2" cy="48.5" r="1.8"/><circle cx="113.2" cy="49.0" r="1.8"/><circle cx="120.3" cy="50.1" r="1.8"/><circle cx="127.3" cy="48.0" r="1.8"/><circle cx="134.3" cy="50.9" r="1.8"/><circle cx="141.3" cy="49.2" r="1.8"/><circle cx="148.3" cy="49.2" r="1.8"/><circle cx="155.4" cy="50.1" r="1.8"/><circle cx="162.4" cy="50.6" r="1.8"/><circle cx="169.4" cy="51.6" r="1.8"/><circle cx="176.4" cy="50.9" r="1.8"/><circle cx="183.5" cy="52.0" r="1.8"/><circle cx="190.5" cy="52.2" r="1.8"/><circle cx="197.5" cy="52.4" r="1.8"/><circle cx="204.5" cy="54.2" r="1.8"/><circle cx="211.5" cy="52.6" r="1.8"/><circle cx="218.6" cy="53.8" r="1.8"/><circle cx="225.6" cy="54.5" r="1.8"/><circle cx="232.6" cy="53.7" r="1.8"/><circle cx="239.6" cy="56.4" r="1.8"/><circle cx="246.6" cy="56.7" r="1.8"/><circle cx="253.7" cy="58.4" r="1.8"/><circle cx="260.7" cy="59.0" r="1.8"/><circle cx="267.7" cy="62.0" r="1.8"/><circle cx="274.7" cy="61.5" r="1.8"/><circle cx="281.8" cy="63.0" r="1.8"/><circle cx="288.8" cy="66.6" r="1.8"/><circle cx="295.8" cy="68.3" r="1.8"/><circle cx="302.8" cy="71.3" r="1.8"/><circle cx="309.8" cy="73.2" r="1.8"/><circle cx="316.9" cy="76.8" r="1.8"/><circle cx="323.9" cy="79.6" r="1.8"/><circle cx="330.9" cy="84.9" r="1.8"/><circle cx="337.9" cy="89.8" r="1.8"/><circle cx="344.9" cy="93.7" r="1.8"/><circle cx="352.0" cy="99.8" r="1.8"/><circle cx="359.0" cy="108.0" r="1.8"/><circle cx="366.0" cy="116.8" r="1.8"/><circle cx="373.0" cy="127.2" r="1.8"/><circle cx="380.1" cy="139.5" r="1.8"/><circle cx="387.1" cy="154.9" r="1.8"/><circle cx="394.1" cy="170.4" r="1.8"/><circle cx="401.1" cy="186.1" r="1.8"/><circle cx="408.1" cy="191.5" r="1.8"/><circle cx="415.2" cy="184.2" r="1.8"/><circle cx="422.2" cy="177.5" r="1.8"/><circle cx="429.2" cy="173.7" r="1.8"/><circle cx="436.2" cy="172.7" r="1.8"/><circle cx="443.3" cy="177.1" r="1.8"/><circle cx="450.3" cy="182.6" r="1.8"/><circle cx="457.3" cy="194.2" r="1.8"/><circle cx="464.3" cy="207.5" r="1.8"/><circle cx="471.3" cy="219.8" r="1.8"/><circle cx="478.4" cy="225.5" r="1.8"/><circle cx="485.4" cy="223.8" r="1.8"/><circle cx="492.4" cy="221.6" r="1.8"/><circle cx="499.4" cy="223.9" r="1.8"/><circle cx="506.4" cy="232.5" r="1.8"/><circle cx="513.5" cy="241.8" r="1.8"/><circle cx="520.5" cy="250.2" r="1.8"/></g><polyline points="36.0,48.4 39.5,48.5 43.0,48.5 46.5,48.5 50.0,48.5 53.6,48.5 57.1,48.6 60.6,48.6 64.1,48.6 67.6,48.6 71.1,48.7 74.6,48.7 78.1,48.7 81.6,48.8 85.2,48.8 88.7,48.9 92.2,48.9 95.7,48.9 99.2,49.0 102.7,49.0 106.2,49.1 109.7,49.2 113.2,49.2 116.7,49.3 120.3,49.3 123.8,49.4 127.3,49.5 130.8,49.6 134.3,49.6 137.8,49.7 141.3,49.8 144.8,49.9 148.3,50.0 151.9,50.1 155.4,50.3 158.9,50.4 162.4,50.5 165.9,50.6 169.4,50.8 172.9,50.9 176.4,51.1 179.9,51.3 183.5,51.4 187.0,51.6 190.5,51.8 194.0,52.0 197.5,52.3 201.0,52.5 204.5,52.8 208.0,53.0 211.5,53.3 215.1,53.6 218.6,53.9 222.1,54.2 225.6,54.6 229.1,55.0 232.6,55.4 236.1,55.8 239.6,56.2 243.1,56.7 246.6,57.2 250.2,57.7 253.7,58.3 257.2,58.9 260.7,59.5 264.2,60.1 267.7,60.8 271.2,61.6 274.7,62.4 278.2,63.2 281.8,64.1 285.3,65.0 288.8,66.0 292.3,67.1 295.8,68.2 299.3,69.4 302.8,70.7 306.3,72.0 309.8,73.5 313.4,75.0 316.9,76.6 320.4,78.4 323.9,80.3 327.4,82.2 330.9,84.4 334.4,86.6 337.9,89.1 341.4,91.7 344.9,94.5 348.5,97.5 352.0,100.8 355.5,104.3 359.0,108.1 362.5,112.2 366.0,116.7 369.5,121.5 373.0,126.8 376.5,132.7 380.1,139.0 383.6,146.0 387.1,153.7 390.6,162.0 394.1,170.7 397.6,179.3 401.1,186.6 404.6,191.0 408.1,191.7 411.7,189.3 415.2,185.5 418.7,181.6 422.2,178.2 425.7,175.7 429.2,174.0 432.7,173.2 436.2,173.4 439.7,174.4 443.3,176.4 446.8,179.3 450.3,183.1 453.8,187.9 457.3,193.6 460.8,200.2 464.3,207.4 467.8,214.4 471.3,220.4 474.8,224.1 478.4,225.1 481.9,224.3 485.4,222.8 488.9,221.7 492.4,221.5 495.9,222.5 499.4,224.8 502.9,228.4 506.4,232.9 510.0,238.1 513.5,243.3 517.0,247.7 520.5,250.5 524.0,252.1" fill="none" stroke="var(--accent)" stroke-width="2"/><text x="280.0" y="292" text-anchor="middle" font-size="12" fill="var(--muted)">q (nm⁻¹), log</text><text x="12" y="150.0" font-size="12" fill="var(--muted)" transform="rotate(-90 12 150.0)" text-anchor="middle">I(q), log</text></svg>
+        <div class="mk-verdict"><span class="lbl">Your verdict</span>
+          <button class="btn btn-ghost btn-sm">Agree</button>
+          <select class="mk-mini" style="width:auto"><option>Wrong model…</option><option>is core-shell</option><option>is cylinder</option><option>is aggregated</option><option>other (add note)</option></select>
+          <button class="btn btn-ghost btn-sm">Add note</button>
+          <a href="#" class="mk-i mk-ext" style="margin-left:auto">Ask Guinier about this fit ↗</a></div>
+        <div class="sub">Your verdict is saved as a fitting case in the shared SAXS knowledge: the AI fitter and Guinier see similar cases next time.</div>
+        <div class="card fold"><div class="card-hd" onclick="this.parentElement.classList.toggle('shut')"><span class="chev">▾</span> Why this model</div>
+          <div class="foldbody"><table class="mk-tbl"><thead><tr><th>Candidate</th><th>χ² (reduced)</th><th>BIC</th><th>R<sub>eq</sub></th></tr></thead><tbody>
+            <tr class="sel"><td>sphere</td><td>1.06</td><td>337</td><td>2.48</td></tr>
+            <tr><td>sphere@hardsphere</td><td>1.05</td><td>341 (+4)</td><td>2.47</td></tr>
+            <tr><td>core-shell sphere</td><td>1.06</td><td>348 (+11)</td><td>2.49</td></tr>
+            <tr><td>ellipsoid</td><td>1.10</td><td>352 (+15)</td><td>2.51</td></tr></tbody></table>
+            <div class="sub" style="margin-top:6px"><b>AI (Agentic):</b> evenly spaced minima, first at q·R = 4.49, Porod −4, flat low-q: compact spheres; core-shell kept as an alternative.</div></div></div>
+        <div class="card fold shut"><div class="card-hd" onclick="this.parentElement.classList.toggle('shut')"><span class="chev">▾</span> Parameters ± errors</div>
+          <div class="foldbody"><div class="sub">radius 2.48 ± 0.02 nm · radius_pd 0.09 ± 0.01 · scale and background solved exactly</div></div></div>
+        <div class="card fold shut"><div class="card-hd" onclick="this.parentElement.classList.toggle('shut')"><span class="chev">▾</span> Curve features</div>
+          <div class="foldbody"><div class="sub">minima at q = 1.81, 3.20, 4.43 nm⁻¹ · Porod n = −3.9 · low-q slope −0.05 · Kratky peak at q·Rg 1.70</div></div></div>
+      </div>
+    </div>
+  </section>
+  <section class="page" id="page-report">
+    <div class="card">
+      <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-gauge"/></svg> Campaign <span class="hd-right sub"><span id="mkRepLine"></span> · knowledge v4 (frozen)
+        <button class="btn btn-ghost btn-sm">Pause</button><button class="btn btn-ghost btn-sm mk-danger" onclick="confirm('Abort Run 3? The reactor finishes the current recipe and flushes.')"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-stop"/></svg> Abort</button></span></div>
+      <div class="bar"><i style="width:47%"></i></div>
+      <div class="kpis">
+        <div class="kpi"><span>Status</span><b>running</b></div>
+        <div class="kpi"><span>Runs</span><b>14 / 30</b></div>
+        <div class="kpi hit"><span>Best diameter</span><b>4.96 nm</b></div>
+        <div class="kpi"><span>Δ to target</span><b>−0.04 nm</b></div>
+        <div class="kpi hit"><span>Best PDI</span><b>0.09</b></div>
+        <div class="kpi"><span>Best recipe</span><b>r014</b></div>
+      </div>
+    </div>
+    <div class="card"><div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-chart"/></svg> Views <span class="hd-right"><a href="#" class="mk-i" data-guide="views">What each view shows →</a></span></div>
+      <div class="viewtabs" id="mkViews"></div>
+      <div class="ph">figure for the selected view</div></div>
+    <div class="card"><div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-log"/></svg> Decisions <span class="hd-right"><a href="#" class="mk-i" data-guide="harness">How AI decisions are checked →</a></span></div>
+      <div class="kpis mk-dq">
+        <div class="kpi"><span>AI picked</span><b>6 of 14</b></div>
+        <div class="kpi"><span>Same as optimiser's top</span><b>4 of 6</b></div>
+        <div class="kpi"><span>Fallbacks</span><b>0</b></div>
+        <div class="kpi"><span>AI picks beat prediction</span><b>3 of 6</b></div>
+        <div class="kpi"><span>Knowledge</span><b>Pd v4</b></div>
+      </div>
+      <table class="mk-tbl"><thead><tr><th>Recipe</th><th>Chosen by</th><th>Why</th><th>Based on</th><th>Result</th><th>Your verdict</th></tr></thead><tbody>
+        <tr><td>after r010</td><td>AI Advisor (review)</td><td>widen x_TOP 0.10 to 0.25 → 0.10 to 0.30: PDI stuck at 0.12</td><td><b>L32</b> Smith 2021</td><td>within limits: applied automatically</td>
+          <td><button class="btn btn-ghost btn-sm mk-mini">Undo</button></td></tr>
+        <tr><td>r014</td><td>GP + EI</td><td>EI 0.42, near the best recipe</td><td class="sub">acquisition</td><td>4.96 nm, PDI 0.09</td>
+          <td class="sub">n/a</td></tr>
+        <tr><td>r013</td><td>AI Co-pilot (5 shortlisted)</td><td>lower T to reduce PDI; same flow</td><td><b>L12</b> Smith 2021 · Run 2 r009</td><td>5.42 nm, PDI 0.12</td>
+          <td><button class="btn btn-ghost btn-sm mk-mini">Good call</button> <button class="btn btn-ghost btn-sm mk-mini">Bad call</button> <a href="#" class="mk-i mk-ext">Ask Guinier ↗</a></td></tr></tbody></table>
+      <div class="sub">Good call or Bad call (with one line why) is saved to the campaign's knowledge set (Knowledge tab).</div></div>
+    <div class="card"><div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-quality"/></svg> Did the knowledge help? <span class="hd-right"><a href="#" class="mk-i" data-guide="harness">How this is tested →</a></span></div>
+      <div class="mk-note">Only 2 past campaigns (tuned on Run 1, judged on Run 2): indicative only until there are more.</div>
+      <table class="mk-tbl"><thead><tr><th>Method</th><th>Runs to reach spec (replay)</th><th>Best score after 10</th><th>Simulator race (20 seeds)</th><th>Fallbacks</th></tr></thead><tbody>
+        <tr><td>GP + EI</td><td class="sub">placeholder</td><td class="sub">placeholder</td><td class="sub">placeholder</td><td class="sub">n/a</td></tr>
+        <tr><td>GP + EI + past campaigns</td><td class="sub">placeholder</td><td class="sub">placeholder</td><td class="sub">placeholder</td><td class="sub">n/a</td></tr>
+        <tr><td>AI Co-pilot + cards</td><td class="sub">placeholder</td><td class="sub">placeholder</td><td class="sub">placeholder</td><td class="sub">placeholder</td></tr>
+        <tr><td>AI Pilot + cards</td><td class="sub">placeholder</td><td class="sub">placeholder</td><td class="sub">placeholder</td><td class="sub">placeholder</td></tr></tbody></table></div>
+    <div class="card"><div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-download"/></svg> Downloads</div>
+      <div class="btn-row"><button class="btn btn-ghost btn-sm">history.csv</button><button class="btn btn-ghost btn-sm">Figures</button><button class="btn btn-ghost btn-sm">All fit records</button><button class="btn btn-ghost btn-sm">Fitter benchmark</button></div>
+      <div class="sub">From 1D/SAXS/Results/campaign_&lt;id&gt;/ and Results/Fit/.</div></div>
+  </section>
+  <section class="page" id="page-knowledge">
+    <div class="gd"><nav class="gd-nav">
+      <div class="gd-grp">Knowledge sets</div><button class="gd-item kn-set on">Pd · ODE · oleylamine</button><button class="gd-item kn-set">Au rods · water</button>
+      <button class="gd-item sub">+ New set</button>
+      <div class="gd-grp">This set</div><button class="gd-item kn-sec on" data-k="add">Add knowledge</button><button class="gd-item kn-sec" data-k="cards">Cards <span class="kn-n">10</span></button><button class="gd-item kn-sec" data-k="cases">Your verdicts <span class="kn-n">3</span></button><button class="gd-item kn-sec" data-k="camps">Campaigns <span class="kn-n">2</span></button><button class="gd-item kn-sec" data-k="drafts">Drafts <span class="kn-n">1</span></button><button class="gd-item kn-sec" data-k="help">Evaluation</button>
+      <div class="kn-foot sub">Design knowledge only. General SAXS knowledge (rules, catalogue, literature, fitting cases) stays shared with Guinier.</div>
+    </nav><div class="card gd-body">
+      <div class="kn-head"><h3>Pd · ODE · oleylamine</h3>
+        <span class="sub">version 4 · used by Run 2, Run 3</span>
+        <span class="kn-hbtn"><button class="btn btn-ghost btn-sm">Export</button><button class="btn btn-ghost btn-sm">Import</button></span></div>
+
+      <div class="kn-page" id="kn-add">
+        <div class="mk-src">
+          <div class="mk-srcbox"><b><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-search"/></svg> Search the web for a target</b>
+            <div class="cell"><input value="Pd nanoparticles 5 nm low PDI ODE oleylamine flow synthesis"></div>
+            <div class="sub">Made from the target and chemistry.yml. Reads abstracts; full text only if open access.</div>
+            <button class="btn btn-ghost btn-sm" onclick="mkWeb()">Search</button><div id="mkWebRes"></div></div>
+          <div class="mk-srcbox"><b><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-document"/></svg> Papers</b>
+            <div class="mk-drop">Drop PDFs here, or paste DOIs</div>
+            <div class="sub">The AI reads them and drafts cards.</div></div>
+          <div class="mk-srcbox"><b><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-log"/></svg> Your notes</b>
+            <textarea rows="3" placeholder="above 300 °C the ODE boils in the coil"></textarea>
+            <div class="sub">One line, one card. The AI matches each line to a recipe setting (T_reac, F_tot, x_ODE, x_TOP, x_oley).</div></div>
+        </div>
+        <div class="btn-row"><button class="btn btn-accent btn-sm" onclick="mkBuild()">Make cards</button>
+          <span class="sub" id="mkBuildMsg">New cards go to Drafts for your approval.</span></div>
+      </div>
+
+      <div class="kn-page" id="kn-cards" style="display:none">
+        <div class="kn-chips"><button class="kn-f on" data-f="">All</button><button class="kn-f" data-f="literature">Literature</button><button class="kn-f" data-f="note">Your notes</button></div>
+        <div class="sub">Every range is checked against the reactor limits. A card can narrow the search, never widen it; a safety limit belongs in the reactor limits, not in a card.</div>
+        <table class="mk-tbl" id="knTbl"><thead><tr><th>ID</th><th>Parameter</th><th>Effect</th><th>Range</th><th>From</th><th>Source</th></tr></thead><tbody>
+          <tr data-src="literature"><td>L12</td><td>T_reac</td><td>higher → larger particles, about +0.3 nm per 10 °C; PDI rises above 290 °C</td><td>240 to 300 °C</td><td><span class="kn-src">literature</span></td><td>Smith 2021, Fig. 3</td></tr>
+          <tr data-src="literature"><td>L18</td><td>x_oley</td><td>more → smaller, narrower particles</td><td>0.05 to 0.30</td><td><span class="kn-src">literature</span></td><td>Lee 2019, Table 2</td></tr>
+          <tr data-src="literature"><td>L32</td><td>x_TOP</td><td>more TOP narrows the distribution at 260 °C</td><td>0.10 to 0.40 <span class="mk-warn">clipped to 0.10 to 0.30 (reactor limit)</span></td><td><span class="kn-src">literature</span></td><td>Smith 2021, Fig. 4</td></tr>
+          <tr data-src="literature"><td>L40</td><td>T_reac</td><td>seed-mediated growth above 280 °C widens PDI</td><td>above 280 °C</td><td><span class="kn-src">literature</span></td><td>Chen 2023 (web search)</td></tr>
+          <tr data-src="note"><td>N01</td><td>F_tot</td><td>below 50 µL/min: residence time too long, aggregation</td><td>50 to 120 µL/min</td><td><span class="kn-src">your note</span></td><td>Run 1, r007</td></tr>
+          <tr data-src="note"><td>N02</td><td>T_reac</td><td>above 300 °C the ODE boils in the coil</td><td>max 300 °C <span class="mk-warn">sounds like a limit</span> <button class="btn btn-ghost btn-sm mk-mini" onclick="alert('Opens the reactor limits with T_reac max = 300 °C for you to confirm.')">Make it a reactor limit</button></td><td><span class="kn-src">your note</span></td><td>A. Maurya</td></tr></tbody></table>
+      </div>
+
+      <div class="kn-page" id="kn-cases" style="display:none">
+        <table class="mk-tbl"><thead><tr><th>Recipe</th><th>Chosen by</th><th>Verdict</th><th>Why</th></tr></thead><tbody>
+          <tr><td>r013</td><td>AI Co-pilot</td><td>bad call</td><td>lower T did not narrow PDI (0.12, over spec)</td></tr>
+          <tr><td>r011</td><td>AI Co-pilot</td><td>bad call</td><td>F_tot too low, aggregated (see N01)</td></tr>
+          <tr><td>r006</td><td>GP + EI</td><td>good call</td><td>moved towards 5 nm at PDI 0.08</td></tr></tbody></table>
+        <div class="sub">From Report → Decisions (Good call / Bad call). Your own verdicts count straight away.</div>
+      </div>
+
+      <div class="kn-page" id="kn-camps" style="display:none">
+        <table class="mk-tbl"><thead><tr><th>Campaign</th><th>Runs</th><th>Best</th><th>Project</th><th>Use</th></tr></thead><tbody>
+          <tr><td>Run 2</td><td>24</td><td>4.96 nm, PDI 0.09</td><td>this project</td><td>✓</td></tr>
+          <tr><td>Run 1</td><td>18</td><td>5.30 nm, PDI 0.14</td><td>this project</td><td>✓</td></tr></tbody></table>
+        <div class="btn-row"><button class="btn btn-ghost btn-sm">Add a campaign from another project…</button></div>
+        <div class="sub">Finished campaigns join the set automatically. They give the ML optimisers a warm start and the AI its experience.</div>
+      </div>
+
+      <div class="kn-page" id="kn-drafts" style="display:none">
+        <div class="kn-item"><div class="kn-kind">Draft card</div>
+          <div><b>x_TOP</b>: raising TOP:Pd from 2 to 6 narrows the PDI (0.18 → 0.09) at 260 °C
+            <div class="sub">drafted by the AI from Smith et al. 2021, Fig. 4</div></div>
+          <div class="kn-act"><button class="btn btn-accent btn-sm">Approve</button><button class="btn btn-ghost btn-sm">Edit</button><button class="btn btn-ghost btn-sm">Reject</button></div></div>
+        <div class="sub">Only AI drafts wait here; nothing is used until approved. Each draft shows the passage it came from, so you can check it.</div>
+      </div>
+
+      <div class="kn-page" id="kn-help" style="display:none">
+        <details class="kn-adv"><summary><b>Advanced: harness settings</b> <span class="sub">version 4 · design_harness.yml · locked while Run 3 runs</span></summary>
+        <div class="grid2">
+          <div class="fg"><label>Shortlist size</label><div class="cell"><input type="number" value="5"></div></div>
+          <div class="fg"><label>Cards per decision</label><div class="cell"><input type="number" value="3"></div></div>
+          <div class="fg"><label>Cases per decision</label><div class="cell"><input type="number" value="3"></div></div>
+          <div class="fg"><label>Pilot trust region</label><div class="cell"><select><option>inside GP 95 % band</option><option>within 20 % of the best recipe</option></select></div></div>
+          <div class="fg"><label>Prompt version</label><div class="cell"><input value="design-1" readonly></div></div>
+          <div class="fg"><label>AI model</label><div class="cell"><select><option>gateway default</option></select></div></div>
+        </div></details>
+        <div class="btn-row"><button class="btn btn-accent btn-sm">Run evaluation</button>
+          <button class="btn btn-ghost btn-sm">Propose improvement</button>
+          <a href="#" class="mk-i mk-tab" data-tab="report">Results in Report →</a></div>
+        <div class="sub">Replays past campaigns with and without each part of the knowledge. A proposed change is kept only if it does better on a campaign it was not tuned on, and only after you approve it. Settings are locked while a campaign runs.</div>
+      </div>
+    </div></div>
+  </section>
+  <section class="page" id="page-guide">
+    <div class="gd"><nav class="gd-nav"><div class="gd-grp">Scoring</div><button class="gd-item" data-g="score">How the score works</button><div class="gd-grp">Goals</div><button class="gd-item" data-g="target-hit">Hit a size</button><button class="gd-item" data-g="level-set">Map the in-spec region</button><button class="gd-item" data-g="pareto">Size vs PDI trade-off</button><button class="gd-item" data-g="benchmark">Compare methods</button><div class="gd-grp">Fitting</div><button class="gd-item" data-g="catalogue_bic">Catalogue + BIC</button><button class="gd-item" data-g="ls_sphere">Least-squares sphere</button><button class="gd-item" data-g="ml_regressor">ML regressor (k-NN)</button><button class="gd-item" data-g="llm_assisted">AI-assisted structure</button><div class="gd-grp">Next recipe</div><button class="gd-item" data-g="random">Random / Sobol search</button><button class="gd-item" data-g="gp_ei">Bayesian GP + EI</button><button class="gd-item" data-g="gp_ucb">Bayesian GP + UCB</button><button class="gd-item" data-g="turbo">TuRBO (trust-region BO)</button><button class="gd-item" data-g="bax">BAX (Bayesian Alg. eXecution)</button><button class="gd-item" data-g="pareto_ehvi">Pareto GP + EHVI (size vs PDI)</button><div class="gd-grp">AI next recipe</div><button class="gd-item" data-g="ai_advisor">AI Advisor</button><button class="gd-item" data-g="ai_copilot">AI Co-pilot</button><button class="gd-item" data-g="ai_pilot">AI Pilot</button><div class="gd-grp">Knowledge</div><button class="gd-item" data-g="knowledge">Knowledge for campaigns</button><button class="gd-item" data-g="harness">How the design agent is harnessed</button><div class="gd-grp">Report</div><button class="gd-item" data-g="views">Report views</button></nav><div class="card gd-body"><div class="gd-page" id="gd-score" style="display:none"><h3>How the score works </h3><dl><dt>What it does</dt><dd>Every measured recipe gets one number, lower is better, that the next-recipe method tries to minimise. PDI here is σ/R̄ of the fitted Schulz distribution, not the DLS polydispersity index. A fit of another shape than expected, or below the confidence limit, is not scored until you accept it.</dd><dt>When to use</dt><dd>Hit a size. The region and trade-off goals use the same size error but judge it against a band or a front.</dd><dt>The maths</dt><dd><pre>score = ((R − R_t) / tol)² + w · (PDI / cap)
+R_t = target diameter / 2,  tol = diameter tolerance / 2  (the optimiser works in radius)
+one tolerance off the target counts as 1</pre></dd><dt>Read more</dt><dd class='sub'>docs/PARAMETER_SPACE_AND_CONVERGENCE.md</dd></dl></div><div class="gd-page" id="gd-target-hit" style="display:none"><h3>Hit a size </h3><dl><dt>What it does</dt><dd>Find one recipe whose particles meet the target diameter within the tolerance and the PDI cap, then stop.</dd><dt>When to use</dt><dd>You know the size you want.</dd><dt>When not to</dt><dd>You want to know every recipe that works: use Map the in-spec region.</dd></dl></div><div class="gd-page" id="gd-level-set" style="display:none"><h3>Map the in-spec region </h3><dl><dt>What it does</dt><dd>Find the whole set of recipes that meet the spec, not just one.</dd><dt>When to use</dt><dd>You want a robust operating window.</dd><dt>When not to</dt><dd>You only need one good recipe; Hit a size is faster.</dd></dl></div><div class="gd-page" id="gd-pareto" style="display:none"><h3>Size vs PDI trade-off </h3><dl><dt>What it does</dt><dd>Map the lowest PDI achievable at each size across a range: the Pareto front.</dd><dt>When to use</dt><dd>You want to know what is possible before choosing a target.</dd></dl></div><div class="gd-page" id="gd-benchmark" style="display:none"><h3>Compare methods </h3><dl><dt>What it does</dt><dd>Race next-recipe methods on the ground-truth simulator: same recipes, same score, several repeats.</dd><dt>When to use</dt><dd>Before a beamtime, to choose a method with evidence.</dd><dt>When not to</dt><dd>It never drives the reactor.</dd></dl></div><div class="gd-page" id="gd-catalogue_bic" style="display:none"><h3>Catalogue + BIC <span class="fam">Standard</span></h3><dl><dt>What it does</dt><dd>Fits every structure in the catalogue (sphere, core-shell, ellipsoid, cylinder, mass fractal, plus structure factors) and keeps the best by BIC. No AI. Reports an equivalent radius.</dd><dt>When to use</dt><dd>Default. Particles that may not be plain spheres.</dd><dt>When not to</dt><dd>You need sub-second fits per curve: use the sphere fit.</dd><dt>The maths</dt><dd><pre>Each catalogue model is fitted; scale a and background b are solved exactly:  I ≈ a·F(q) + b
+BIC = χ² + k·ln n   (lowest wins; k counts every free parameter)
+R_eq = √(5/3)·R_g of the fitted shape  (= R for a sphere)</pre></dd><dt>How it scored</dt><dd>Clean held-out: 100 % shapes, 0.3 % median size error. Hard held-out: 55 % shapes, 52 % sizes within 10 %. About 9 s per curve.</dd><dt>Read more</dt><dd class='sub'>docs/benchmarks/FITTER_BENCHMARK_2026-10.md · Schwarz (1978), Ann. Stat. 6, 461 (BIC)</dd></dl></div><div class="gd-page" id="gd-ls_sphere" style="display:none"><h3>Least-squares sphere <span class="fam">Standard</span></h3><dl><dt>What it does</dt><dd>Polydisperse-sphere form-factor fit by least squares (Schulz / log-normal); physics-based and interpretable.</dd><dt>When to use</dt><dd>You know the particles are spheres and want speed.</dd><dt>When not to</dt><dd>Rods, core-shell or aggregates: the size it reports is then meaningless.</dd><dt>The maths</dt><dd><pre>P(q) = [3 (sin qR − qR cos qR) / (qR)³]², averaged over a Schulz or log-normal size distribution; least squares in log I</pre></dd><dt>How it scored</dt><dd>Spheres: about 0 % size error. Other shapes: 50 % to 3000 % error. 0.2 s per curve.</dd><dt>Read more</dt><dd class='sub'>docs/benchmarks/FITTER_BENCHMARK_2026-10.md</dd></dl></div><div class="gd-page" id="gd-ml_regressor" style="display:none"><h3>ML regressor (k-NN) <span class="fam">ML</span></h3><dl><dt>What it does</dt><dd>A trained model predicts size / PDI directly from the curve: near-instant, spheres of radius 1 to 18 nm only.</dd><dt>When to use</dt><dd>A quick first look at sphere-like samples.</dd><dt>When not to</dt><dd>Sizes outside its library (radius 1 to 18 nm, so diameter 2 to 36 nm) or non-spheres.</dd><dt>The maths</dt><dd><pre>k-nearest neighbours against a library of Schulz-sphere curves; confidence from the absolute fit residual</pre></dd><dt>How it scored</dt><dd>Hard held-out: 20 % shapes (spheres only), 31 % median size error.</dd><dt>Read more</dt><dd class='sub'>docs/benchmarks/FITTER_BENCHMARK_2026-10.md</dd></dl></div><div class="gd-page" id="gd-llm_assisted" style="display:none"><h3>AI-assisted structure <span class="fam">Agentic</span></h3><dl><dt>What it does</dt><dd>The AI reads the curve&#x27;s features, the sample context and the knowledge base, proposes up to 3 structures from the catalogue; each is fitted and the best by BIC wins. Falls back to Catalogue + BIC with no AI login.</dd><dt>When to use</dt><dd>Unusual curves, interactions or aggregation, where expert judgement helps.</dd><dt>When not to</dt><dd>Without an AI login it runs as Catalogue + BIC.</dd><dt>The maths</dt><dd><pre>features + context + plot → AI names up to 3 catalogue models → each fitted → lowest BIC wins
+(the AI never sets the numbers)</pre></dd><dt>How it scored</dt><dd>Not yet measured with the real AI: python tools/fitter_benchmark.py --split hard_heldout --methods llm_assisted</dd><dt>Read more</dt><dd class='sub'>docs/design/LLM_FITTER_PLAN.md · SasAgent, arXiv 2509.05363</dd></dl></div><div class="gd-page" id="gd-random" style="display:none"><h3>Random / Sobol search <span class="fam">Standard</span></h3><dl><dt>What it does</dt><dd>Space-filling Sobol baseline with no model. The honest reference: a method must beat this to earn its cost.</dd><dt>When to use</dt><dd>As the reference every method must beat.</dd><dt>When not to</dt><dd>A real campaign.</dd><dt>The maths</dt><dd><pre>none (Sobol space-filling)
+next = quasi-random point in the valid box (no model)
+picks even coverage, the baseline every model must beat</pre></dd><dt>How it scored</dt><dd>Measure it: Compare methods.</dd></dl></div><div class="gd-page" id="gd-gp_ei" style="display:none"><h3>Bayesian GP + EI <span class="fam">ML</span></h3><dl><dt>What it does</dt><dd>Gaussian-process surrogate with Expected Improvement. Balanced explore / exploit, and the default.</dd><dt>When to use</dt><dd>Hit a size; 5 to 30 runs; up to about 6 recipe parameters.</dd><dt>When not to</dt><dd>Many parameters or long campaigns: TuRBO.</dd><dt>The maths</dt><dd><pre>Expected Improvement
+EI(x) = (f*−μ)·Φ(z) + σ·φ(z),   z = (f*−μ)/σ;   next = argmax EI
+picks the recipe expected to beat the current best by the most</pre></dd><dt>How it scored</dt><dd>Measure it: Compare methods.</dd><dt>Read more</dt><dd class='sub'>Jones, Schonlau, Welch (1998), J. Global Optim. 13, 455</dd></dl></div><div class="gd-page" id="gd-gp_ucb" style="display:none"><h3>Bayesian GP + UCB <span class="fam">ML</span></h3><dl><dt>What it does</dt><dd>GP surrogate with a confidence-bound acquisition and an explicit explore / exploit knob (kappa).</dd><dt>When to use</dt><dd>You want an explicit exploration knob (κ).</dd><dt>When not to</dt><dd>You have no reason to tune κ; GP + EI needs no setting.</dd><dt>The maths</dt><dd><pre>Lower Confidence Bound
+LCB(x) = μ(x) − κ·σ(x);   next = argmin LCB
+picks low predicted loss, with κ buying extra exploration</pre></dd><dt>Settings</dt><dd>UCB κ (exploration): default 2.0 (higher = more exploration, lower = more exploitation)</dd><dt>How it scored</dt><dd>Measure it: Compare methods.</dd><dt>Read more</dt><dd class='sub'>Srinivas et al. (2010), ICML</dd></dl></div><div class="gd-page" id="gd-turbo" style="display:none"><h3>TuRBO (trust-region BO) <span class="fam">ML</span></h3><dl><dt>What it does</dt><dd>Trust-region local BO: searches near the best point and grows or shrinks the region. Scales better in higher dimensions.</dd><dt>When to use</dt><dd>More parameters or a long campaign; searches near the best recipe.</dd><dt>When not to</dt><dd>Very few runs: the trust region has no time to adapt.</dd><dt>The maths</dt><dd><pre>Expected Improvement in a trust region
+next = argmax EI(x)  for x in trust region R;  R grows on a win, shrinks on a miss
+picks the best EI point near the current best; the box adapts</pre></dd><dt>Settings</dt><dd>Trust-region size (init): default 0.5 (fraction of the box the local search starts from)</dd><dt>How it scored</dt><dd>Measure it: Compare methods.</dd><dt>Read more</dt><dd class='sub'>Eriksson et al. (2019), NeurIPS</dd></dl></div><div class="gd-page" id="gd-bax" style="display:none"><h3>BAX (Bayesian Alg. eXecution) <span class="fam">ML</span></h3><dl><dt>What it does</dt><dd>Goal-aware (Bayesian Algorithm eXecution): maps the whole acceptance band (target size at low PDI), not just one optimum.</dd><dt>When to use</dt><dd>Map the in-spec region.</dd><dt>When not to</dt><dd>Hit a size: it spends runs on the band edge, not on one hit.</dd><dt>The maths</dt><dd><pre>Band-membership entropy (InfoBAX)
+p(x) = P(f≤τ) = Φ((τ−μ)/σ);   H = −p·ln p − (1−p)·ln(1−p);   next = argmax H
+picks where &#x27;in-spec?&#x27; is least certain, sharpening the band edge</pre></dd><dt>Settings</dt><dd>Acceptance-band threshold (loss): default 2.0 (a recipe is &#x27;in spec&#x27; when its loss ≤ this; BAX maps that set)</dd><dt>How it scored</dt><dd>Measure it: Compare methods.</dd><dt>Read more</dt><dd class='sub'>Neiswanger, Wang, Ermon (2021), ICML (InfoBAX)</dd></dl></div><div class="gd-page" id="gd-pareto_ehvi" style="display:none"><h3>Pareto GP + EHVI (size vs PDI) <span class="fam">ML</span></h3><dl><dt>What it does</dt><dd>Goal-aware (Expected Hypervolume Improvement): maps the size vs PDI trade-off across a diameter range. The real multi-objective acquisition for the Pareto goal.</dd><dt>When to use</dt><dd>Size vs PDI trade-off.</dd><dt>When not to</dt><dd>A single target.</dd><dt>The maths</dt><dd><pre>Expected Hypervolume Improvement
+EHVI(x) = E[ HV(P ∪ {f(x)}) − HV(P) ]  over two GPs (size, PDI);   next = argmax EHVI
+picks the recipe expected to widen the size–PDI Pareto front most</pre></dd><dt>How it scored</dt><dd>Measure it: Compare methods.</dd><dt>Read more</dt><dd class='sub'>Emmerich, Giannakoglou, Naujoks (2006), IEEE TEC</dd></dl></div><div class="gd-page" id="gd-ai_advisor" style="display:none"><h3>AI Advisor <span class="fam">Agentic</span></h3><dl><dt>What it does</dt><dd>The AI suggests the starting bounds and reviews progress every few runs; the optimiser picks every recipe. A suggestion inside the safety limits (reactor limits and search bounds) is applied automatically from the next recipe, logged and undoable; one outside them goes back to the AI with the limits, and is dropped if the second answer is still outside. Choose &quot;ask me first&quot; to approve each one instead. Measuring never stops for a review.</dd><dt>When to use</dt><dd>You want AI judgement with no change to how recipes are chosen.</dd><dt>How it scored</dt><dd>Not built yet.</dd></dl></div><div class="gd-page" id="gd-ai_copilot" style="display:none"><h3>AI Co-pilot <span class="fam">Agentic</span></h3><dl><dt>What it does</dt><dd>The optimiser proposes its 5 best recipes; the AI picks one, using the chemistry and past results, and says why.</dd><dt>When to use</dt><dd>The recommended AI level: the acquisition maths still bounds every choice.</dd><dt>The maths</dt><dd><pre>candidates = top-k by acquisition;  choice = AI(candidates, history, chemistry);  fallback = top-1</pre></dd><dt>How it scored</dt><dd>Not built yet; will be raced against GP + EI in Compare methods.</dd></dl></div><div class="gd-page" id="gd-ai_pilot" style="display:none"><h3>AI Pilot <span class="fam">Agentic</span></h3><dl><dt>What it does</dt><dd>The AI writes each recipe itself, within the bounds; the optimiser is the fallback.</dd><dt>When to use</dt><dd>Experiments in method research only.</dd><dt>When not to</dt><dd>A beamtime, until it beats Random in Compare methods.</dd><dt>How it scored</dt><dd>Not built yet.</dd></dl></div><div class="gd-page" id="gd-knowledge" style="display:none"><h3>Knowledge for campaigns </h3><dl><dt>What it does</dt><dd>One knowledge set per chemistry, kept in the Knowledge tab: cards from literature (web search, papers) and your notes, your verdicts on past AI picks, and past campaigns. You add knowledge there; AI-drafted cards wait in Drafts until you approve them. Setup step 4 only chooses which set and which parts a campaign uses, and freezes them at Start. AI fitting uses the general SAXS knowledge instead.</dd><dt>When to use</dt><dd>Starting recipes: any method. Every pick: AI Advisor, Co-pilot or Pilot only. Verdicts are used by the AI only.</dd><dt>When not to</dt><dd>Safety limits. Those live only in the reactor limits; a card can narrow the search but never widen it. Text from papers or web pages is never passed to the AI as an instruction: only approved cards (setting, effect, numeric range, source) are.</dd><dt>The maths</dt><dd><pre>per decision:  pick the 5 most relevant pieces (chemistry match, similarity to this curve or recipe)
+→ the AI must name the pieces it used  → shown in Report, Decisions</pre></dd><dt>How it scored</dt><dd>Each source stays on only if replaying past campaigns with it reaches good recipes faster than without it.</dd><dt>Read more</dt><dd class='sub'>Design knowledge: Analyser → Knowledge tab, one set per chemistry system. General SAXS knowledge for fitting: shared with Guinier.</dd></dl></div><div class="gd-page" id="gd-harness" style="display:none"><h3>How the design agent is harnessed </h3><dl><dt>What it does</dt><dd>The AI next-recipe levels work inside a fixed harness, the same one the AI fitter uses: a fixed answer format, code-chosen knowledge, validation with a safe fallback, a version stamp and a full record of every decision.</dd><dt>When to use</dt><dd>Always, whenever an AI level chooses recipes.</dd><dt>The maths</dt><dd><pre>Co-pilot:  shortlist = top-k by acquisition  →  AI returns {index, cited IDs, reason, expected size and PDI}
+Pilot:     AI returns a recipe; it must pass ParameterSpace.valid, the pump limits and the trust region
+invalid, uncited or timed out  →  the optimiser&#x27;s top-1 is used and the fallback is logged</pre></dd><dt>How it scored</dt><dd>Offline: replay of past real campaigns (tuned on one, judged on another) and the simulator race. Online: Report, Decisions shows how often the AI agreed with the optimiser, fell back, and beat its own prediction.</dd><dt>Read more</dt><dd class='sub'>Meta-Harness (Lee et al., arXiv 2603.28052): keep full traces and accept a harness change only on held-out improvement.</dd></dl></div><div class="gd-page" id="gd-views" style="display:none"><h3>Report views </h3><dl><dt>What it does</dt><dd>Convergence: best score so far. Surrogate: the GP&#x27;s prediction and uncertainty across two recipe parameters. Trajectory: every recipe tried. Level set: the predicted in-spec region. Pareto front: best PDI per size.</dd><dt>Read more</dt><dd class='sub'>docs/PARAMETER_SPACE_AND_CONVERGENCE.md</dd></dl></div></div></div>
+  </section><div class="card fold" id="fold-log"><div class="card-hd" onclick="this.parentElement.classList.toggle('shut')"><span class="chev">▾</span> Log</div><div class="foldbody"><div class="log sub">14:02 ✓ r014_sample_sub.dat: R=2.48 PDI=0.09 conf=0.86 (sphere)<br>14:02 → next recipe r015 (GP + EI)</div></div></div></div></div></div><script>
+(function(){
+const D={"fit": {"ls_sphere": {"label": "Least-squares sphere", "fam": "standard"}, "ml_regressor": {"label": "ML regressor (k-NN)", "fam": "ml"}, "llm_assisted": {"label": "AI-assisted structure", "fam": "agentic"}, "catalogue_bic": {"label": "Catalogue + BIC", "fam": "standard"}}, "opt": {"gp_ei": {"label": "Bayesian GP + EI", "fam": "ml", "acq": {"name": "Expected Improvement", "formula": "EI(x) = (f*\u2212\u03bc)\u00b7\u03a6(z) + \u03c3\u00b7\u03c6(z),   z = (f*\u2212\u03bc)/\u03c3;   next = argmax EI", "picks": "the recipe expected to beat the current best by the most"}, "params": []}, "random": {"label": "Random / Sobol search", "fam": "standard", "acq": {"name": "none (Sobol space-filling)", "formula": "next = quasi-random point in the valid box (no model)", "picks": "even coverage, the baseline every model must beat"}, "params": []}, "gp_ucb": {"label": "Bayesian GP + UCB", "fam": "ml", "acq": {"name": "Lower Confidence Bound", "formula": "LCB(x) = \u03bc(x) \u2212 \u03ba\u00b7\u03c3(x);   next = argmin LCB", "picks": "low predicted loss, with \u03ba buying extra exploration"}, "params": [{"key": "kappa", "label": "UCB \u03ba (exploration)", "default": 2.0, "min": 0.0, "max": 10.0, "step": 0.5, "help": "higher = more exploration, lower = more exploitation"}]}, "turbo": {"label": "TuRBO (trust-region BO)", "fam": "ml", "acq": {"name": "Expected Improvement in a trust region", "formula": "next = argmax EI(x)  for x in trust region R;  R grows on a win, shrinks on a miss", "picks": "the best EI point near the current best; the box adapts"}, "params": [{"key": "tr_init", "label": "Trust-region size (init)", "default": 0.5, "min": 0.1, "max": 1.0, "step": 0.1, "help": "fraction of the box the local search starts from"}]}, "bax": {"label": "BAX (Bayesian Alg. eXecution)", "fam": "ml", "acq": {"name": "Band-membership entropy (InfoBAX)", "formula": "p(x) = P(f\u2264\u03c4) = \u03a6((\u03c4\u2212\u03bc)/\u03c3);   H = \u2212p\u00b7ln p \u2212 (1\u2212p)\u00b7ln(1\u2212p);   next = argmax H", "picks": "where 'in-spec?' is least certain, sharpening the band edge"}, "params": [{"key": "tau", "label": "Acceptance-band threshold (loss)", "default": 2.0, "min": 0.1, "max": 10.0, "step": 0.1, "help": "a recipe is 'in spec' when its loss \u2264 this; BAX maps that set"}]}, "pareto_ehvi": {"label": "Pareto GP + EHVI (size vs PDI)", "fam": "ml", "acq": {"name": "Expected Hypervolume Improvement", "formula": "EHVI(x) = E[ HV(P \u222a {f(x)}) \u2212 HV(P) ]  over two GPs (size, PDI);   next = argmax EHVI", "picks": "the recipe expected to widen the size\u2013PDI Pareto front most"}, "params": []}, "ai_advisor": {"label": "AI Advisor", "fam": "agentic"}, "ai_copilot": {"label": "AI Co-pilot", "fam": "agentic"}, "ai_pilot": {"label": "AI Pilot", "fam": "agentic"}}, "optLabel": {"gp_ei": "Bayesian GP + EI", "random": "Random / Sobol search", "gp_ucb": "Bayesian GP + UCB", "turbo": "TuRBO (trust-region BO)", "bax": "BAX (Bayesian Alg. eXecution)", "pareto_ehvi": "Pareto GP + EHVI (size vs PDI)"}, "goals": {"target-hit": {"label": "Hit a size", "desc": "Find one recipe inside the spec, then stop.", "kind": "target"}, "level-set": {"label": "Map the in-spec region", "desc": "Find every recipe that meets the spec.", "kind": "range"}, "pareto": {"label": "Size vs PDI trade-off", "desc": "Map the best achievable PDI across a size range.", "kind": "range"}, "benchmark": {"label": "Compare methods", "desc": "Race methods on the simulator. No reactor, no beam.", "kind": "race"}}, "goalMethods": {"target-hit": ["gp_ei", "gp_ucb", "turbo", "random"], "level-set": ["bax"], "pareto": ["pareto_ehvi"], "benchmark": ["gp_ei", "gp_ucb", "turbo", "random", "bax", "pareto_ehvi"]}, "mlByGoal": {"target-hit": ["gp_ei", "gp_ucb", "turbo"], "level-set": ["bax"], "pareto": ["pareto_ehvi"], "benchmark": ["gp_ei", "gp_ucb", "turbo", "bax", "pareto_ehvi"]}, "views": {"target-hit": ["Convergence", "Surrogate", "Trajectory"], "level-set": ["Level set", "Convergence", "Trajectory"], "pareto": ["Pareto front", "Convergence", "Trajectory"], "benchmark": ["Comparison", "Convergence per method"]}, "famName": {"standard": "Standard", "ml": "ML", "agentic": "Agentic"}}, $=id=>document.getElementById(id);
+const esc=s=>String(s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'})[c]);
+let goal='target-hit', fit='catalogue_bic', opt='gp_ei';
+window.showTab=function(t){document.querySelectorAll('.toptab').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));
+  document.querySelectorAll('.page').forEach(p=>p.classList.toggle('active',p.id==='page-'+t));};
+window.toggleTheme=window.toggleTheme||function(){const h=document.documentElement;h.dataset.theme=h.dataset.theme==='dark'?'light':'dark';};
+function mark(){
+  document.querySelectorAll('.mk-opt').forEach(l=>{const on=(l.dataset.kind==='fit'?fit:opt)===l.dataset.id;
+    l.classList.toggle('on',on);l.querySelector('input').checked=on;});
+  const usesAI = fit==='llm_assisted' || opt.startsWith('ai_');
+  $('mkKnow').style.display = goal!=='benchmark' ? '' : 'none';
+  // verdicts and the second "For" need an AI next-recipe level (an AI fitter alone cannot read design cards)
+  const aiNext=opt.startsWith('ai_');
+  document.querySelectorAll('#mkKnow .k-ai').forEach(r=>r.style.display=aiNext?'':'none');
+  if(!aiNext){const r=document.querySelector('input[name=mk-kuse]');if(r)r.checked=true;}
+  // Random uses no data, so past campaigns cannot help it
+  $('mkPast').style.display=opt==='random'?'none':'';
+  // Advisor reviews progress; the optimiser still picks every recipe
+  $('mkForAI').textContent=opt==='ai_advisor'?'Starting recipes and every progress review':'Starting recipes and every AI pick';
+  document.querySelectorAll('.mk-ai-only').forEach(e=>e.style.display=usesAI&&goal!=='benchmark'?'':'none');
+  // detail for the chosen next-recipe method
+  let h='';
+  if(opt.startsWith('ai_')){
+    const ml=D.mlByGoal[goal]||[], lbl=opt==='ai_copilot'?'Shortlist from':(opt==='ai_pilot'?'Fallback optimiser':'Optimiser');
+    h='<div class="box"><div class="grid2"><div class="fg"><label>'+lbl+'</label><div class="cell"><select>'+
+      ml.map(m=>'<option>'+esc(D.optLabel[m])+'</option>').join('')+'</select></div></div>'+
+      (opt==='ai_advisor'
+        ?'<div class="fg"><label>Progress review</label><div class="cell"><select><option>every 5 runs</option><option>every 10 runs</option><option>off</option></select></div></div>'+
+         '<div class="fg"><label>Apply suggestions</label><div class="cell"><select><option>automatically, if within the safety limits</option><option>ask me first</option></select></div></div></div>'+
+         '<div class="sub">Measuring never stops for a review. Each suggestion is checked against the reactor limits and the search bounds. Within them: applied from the next recipe and logged in Report, Decisions, with Undo. Outside them: the AI is asked again, given the limits; if the second answer is still outside, the suggestion is dropped and the current settings stay.</div></div>'
+        :'<div class="fg"><label>Progress review</label><div class="cell"><select><option>every 5 runs; measuring continues while it waits for you</option><option>every 10 runs; measuring continues while it waits for you</option>'+(opt==='ai_pilot'?'':'<option>off</option>')+'</select></div></div></div>'+
+         '<div class="sub">Every AI decision and its reason appears in Report, Decisions. Bounds and pump limits are always enforced'+
+         (opt==='ai_pilot'?'; the review cannot be turned off while the AI writes the recipes, and on the real rig Start asks you to confirm the limits first.':'.')+'</div></div>');
+  } else { const m=D.opt[opt]||{};
+    if(m.acq&&m.acq.formula) h='<div class="box"><b>'+esc(m.label)+'</b>: acquisition '+esc(m.acq.name)+'<code>'+esc(m.acq.formula)+'</code>'+
+      (m.params||[]).map(p=>'<div class="fg"><label>'+esc(p.label)+'</label><div class="cell"><input type="number" value="'+p.default+'"></div></div>').join('')+'</div>'; }
+  $('mkDetail').innerHTML=h;
+  $('mkPair').innerHTML='<b>Fitting</b>: '+esc(D.fit[fit].label)+' ('+D.famName[D.fit[fit].fam]+')<br><b>Next recipe</b>: '+esc(D.opt[opt].label)+' ('+D.famName[D.opt[opt].fam]+')';
+  checklist(usesAI);
+}
+function checklist(usesAI){
+  const race=goal==='benchmark', li=(c,t)=>'<li class="'+c+'"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-'+(c==='ok'?'pass':'warning')+'"/></svg>'+t+'</li>';
+  let h=race?li('ok','Simulator ready (ground truth from reactor/config.yml)')+li('ok','Methods to race: tick them in step 3 (AI Co-pilot and Pilot need the AI login)')
+    :li('ok','Watched folder found: 14 profiles')+li('ok','Reactor reads the same Conditions folder')+li('ok','Reactor connected, Simulation mode');
+  if(!race) h+=li('ok','Knowledge: Pd · ODE · oleylamine, 10 cards')+li('warn','1 new card waiting for approval in the Knowledge tab (not used until approved)');
+  if(!race){const ks=($('mkKset')||{}).value||'';
+    h+=ks.startsWith('None')?li('ok','No knowledge set: the optimiser starts cold')
+      :(ks.startsWith('Pd')?li('ok','Knowledge set matches chemistry.yml (Pd · ODE · oleylamine)')
+      :li('warn','Knowledge set "'+ks.split(' (')[0]+'" does not match chemistry.yml (Pd · ODE · oleylamine)'));
+    h+=li('warn','1 new card waiting for approval in the Knowledge tab (not used until approved)');
+    if(opt==='ai_pilot') h+=li('warn','AI Pilot is experimental: Start asks you to confirm the reactor limits');}
+  h+=li('ok','Fitting method available');
+  if(usesAI) h+=li('warn','No AI login found: the AI parts run without AI (Catalogue + BIC for fitting, the optimiser\'s own pick for the next recipe)');
+  $('mkCheck').innerHTML=h;
+}
+window.mkRecheck=function(){checklist(fit==='llm_assisted'||opt.startsWith('ai_'));};
+window.mkWeb=function(){const hits=[['Size control of Pd nanocrystals in a continuous-flow reactor','2021','open access'],
+  ['Oleylamine and TOP as ligands for monodisperse Pd','2019','abstract only'],['Seed-mediated Pd growth in ODE: temperature effects','2023','open access']];
+  $('mkWebRes').innerHTML=hits.map(h=>'<label class="mk-hit"><input type="checkbox" checked><span>'+h[0]+' <span class="sub">'+h[1]+' · '+h[2]+'</span></span></label>').join('');};
+function mkCount(){const g=id=>Math.max(0,+(($(id)||{}).value)||0),k=g('mkNseed'),s=g('mkNsob'),o=g('mkNown'),n=k+s+o;
+  $('mkNtot').textContent=n;
+  $('mkNmsg').textContent=n<5?'Too few: the optimiser needs about 10 (2 × the 5 settings) to learn the trends':(n>20?'Many: more than a third of a 30-run budget spent before the optimiser aims':(s<Math.ceil(n/2)?'Keep at least half spread out, so a wrong card cannot trap the search':'then the optimiser picks from the measured results'));
+  $('mkNmsg').className=(n<5||n>20||s<Math.ceil(n/2))?'mk-warn':'sub';return {k,s,o,n};}
+document.querySelectorAll('.mk-n').forEach(i=>i.oninput=mkCount);
+window.mkAddOwn=function(){const box=$('mkOwn');if(box.children.length>=5)return;
+  box.insertAdjacentHTML('beforeend','<div class="mk-own"><input placeholder="T (180 to 300 °C)"><input placeholder="F_tot (40 to 120)"><input placeholder="x_ODE (0 to 0.3)"><input placeholder="x_TOP (0 to 0.3)"><input placeholder="x_oley (0 to 0.3)"><button class="btn btn-ghost btn-sm mk-mini" onclick="mkDelOwn(this)">Remove</button></div>');
+  $('mkNown').value=box.children.length;mkCount();};
+window.mkDelOwn=function(b){b.parentElement.remove();$('mkNown').value=$('mkOwn').children.length;mkCount();};
+window.mkSuggest=function(){const c=mkCount();
+  $('mkStartPt').innerHTML='<div class="mk-read"><b>'+c.n+' starting recipes:</b> '+c.k+' in T 240 to 290 °C · F_tot 60 to 90 µL/min, '+c.s+' spread over the full search range'+(c.o?', '+c.o+' of your own':'')+
+  '<div class="sub">'+(c.k?'the '+c.k+' from cards L12, N01, N02 and campaign Run 2 (r009, r014); ':'')+'the spread ones from a Sobol sequence; every recipe checked against the reactor limits</div>'+
+  '<div class="btn-row"><button class="btn btn-accent btn-sm">Accept</button><button class="btn btn-ghost btn-sm">Edit</button></div></div>';};
+window.mkBuild=function(){$('mkBuildMsg').textContent='4 new cards drafted. Approve them in Drafts.';
+  const n=document.querySelector('.kn-sec[data-k=drafts] .kn-n');if(n)n.textContent='5';};
+document.querySelectorAll('.kn-f').forEach(b=>b.onclick=()=>{document.querySelectorAll('.kn-f').forEach(x=>x.classList.toggle('on',x===b));
+  document.querySelectorAll('#knTbl tbody tr').forEach(r=>r.style.display=!b.dataset.f||r.dataset.src===b.dataset.f?'':'none');});
+function setGoal(g){goal=g;const G=D.goals[g],allowed=(g==='benchmark'?['random','gp_ei','gp_ucb','turbo']:(D.goalMethods[g]||[]));
+  document.querySelectorAll('#sidebar .nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.goal===g));
+  $('mkGoalTitle').textContent=G.label;$('mkGoalI').dataset.guide=g;$('mkHint').textContent=G.desc;$('mkGoalLine').textContent=G.desc;
+  document.querySelectorAll('.g-target').forEach(e=>e.style.display=G.kind==='target'?'':'none');
+  document.querySelectorAll('.g-range').forEach(e=>e.style.display=G.kind==='target'?'none':'');
+  document.querySelectorAll('.g-race').forEach(e=>e.style.display=G.kind==='race'?'':'none');
+  document.querySelectorAll('.mk-live').forEach(e=>e.style.display=G.kind==='race'?'none':'');
+  document.querySelectorAll('.mk-race').forEach(e=>e.style.display=G.kind==='race'?'':'none');
+  $('mkBudgetLbl').textContent=G.kind==='race'?'Experiments per run':'Max experiments';
+  $('mkStartLbl').textContent=G.kind==='race'?'Run comparison':'Start campaign';
+  $('mkOptH').textContent=G.kind==='race'?'Methods to race':'Next recipe';
+  // the simulator race scores recipes against the ground truth directly, so no curve is fitted
+  $('mkFitCol').style.display=G.kind==='race'?'none':'';
+  $('mkRead').textContent=G.kind==='target'?'Aiming for 5.0 ± 0.6 nm diameter, PDI below 0.10, at most 30 runs.'
+    :(G.kind==='race'?'Racing the ticked methods on simulated campaigns, 30 runs each, 5 repeats.':'Mapping diameters 2 to 10 nm with PDI below 0.10, at most 30 runs.');
+  // only the next-recipe methods that suit this goal; AI levels for any live goal
+  document.querySelectorAll('.mk-opt[data-kind=opt]').forEach(l=>{const id=l.dataset.id,ai=id.startsWith('ai_');
+    l.style.display=(ai?(G.kind!=='race'||id!=='ai_advisor'):allowed.includes(id))?'':'none';
+    l.querySelector('input').type=G.kind==='race'?'checkbox':'radio';});
+  document.querySelectorAll('[data-fam-h]').forEach(h=>{const fam=h.dataset.famH;
+    h.style.display=[...document.querySelectorAll('.mk-opt[data-kind=opt]')].some(l=>D.opt[l.dataset.id].fam===fam&&l.style.display!=='none')?'':'none';});
+  if(!(allowed.includes(opt)||(opt.startsWith('ai_')&&G.kind!=='race'))) opt=allowed.find(m=>D.opt[m].fam==='ml')||allowed[0];
+  if(G.kind==='race'){opt='gp_ei';setTimeout(()=>document.querySelectorAll('.mk-opt[data-kind=opt]').forEach(l=>{if(l.dataset.id==='random'||l.dataset.id==='gp_ei'){l.classList.add('on');l.querySelector('input').checked=true;}}),0);}
+  $('mkViews').innerHTML=(D.views[g]||[]).map((v,i)=>'<button'+(i?'':' class="on"')+'>'+esc(v)+'</button>').join('');
+  $('mkRepLine').textContent=G.label;
+  mark();}
+function guide(id){document.querySelectorAll('#page-guide .gd-item').forEach(b=>b.classList.toggle('on',b.dataset.g===id));
+  document.querySelectorAll('.gd-page').forEach(p=>p.style.display=p.id==='gd-'+id?'':'none');}
+document.querySelectorAll('#page-guide .gd-item').forEach(b=>b.onclick=()=>guide(b.dataset.g));
+document.querySelectorAll('.kn-sec').forEach(b=>b.onclick=()=>{document.querySelectorAll('.kn-sec').forEach(x=>x.classList.toggle('on',x===b));
+  document.querySelectorAll('.kn-page').forEach(p=>p.style.display=p.id==='kn-'+b.dataset.k?'':'none');});
+document.querySelectorAll('.kn-set').forEach(b=>b.onclick=()=>document.querySelectorAll('.kn-set').forEach(x=>x.classList.toggle('on',x===b)));
+document.addEventListener('click',e=>{const i=e.target.closest('.mk-i');if(!i)return;e.preventDefault();e.stopPropagation();
+  if(i.classList.contains('mk-ext')){alert('Opens Guinier (port 5109) with this item loaded.');return;}
+  if(i.classList.contains('mk-tab')){showTab(i.dataset.tab);return;}
+  showTab('guide');guide(i.dataset.guide);},true);
+guide('catalogue_bic');
+document.querySelectorAll('#sidebar .nav-btn').forEach(b=>b.onclick=()=>setGoal(b.dataset.goal));
+document.querySelectorAll('.mk-opt').forEach(l=>l.onclick=e=>{e.preventDefault();
+  if(l.dataset.kind==='fit')fit=l.dataset.id;else opt=l.dataset.id;mark();});
+setGoal('target-hit');
+})();
+</script></body></html>
