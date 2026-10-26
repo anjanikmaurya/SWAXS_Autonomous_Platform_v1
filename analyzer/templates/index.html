@@ -326,6 +326,13 @@ body.swaxs-shell #main{overflow-y:auto}
 .ready li{display:flex;gap:8px;align-items:flex-start;padding:4px 0;font-size:var(--fs-sm);line-height:1.4}
 .ready li.ok .ico{color:var(--ok-text)} .ready li.warn .ico{color:var(--warn-text)} .ready li.bad .ico{color:var(--err-text)}
 .btn.danger{color:var(--err-text)}
+.fkcols{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:6px}
+@media (max-width:760px){.fkcols{grid-template-columns:1fr}}
+.fkcols .tick{margin:3px 0}
+.fkcols .tick .d{display:block;color:var(--muted);font-size:var(--fs-xs)}
+.fvbox{margin-top:8px;padding:8px 11px;border:1px solid var(--border);border-radius:8px;font-size:var(--fs-sm);display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.fvbox select,.fvbox input{width:auto;min-width:9em}
+.fvbox .fvnow{flex-basis:100%;color:var(--muted)}
 .heldbox{margin-top:8px;padding:8px 11px;border:1px solid var(--warn);border-radius:8px;font-size:var(--fs-sm)}
 .scored-held{color:var(--warn-text);font-weight:600} .scored-weak{color:var(--muted)}
 /* knowledge step */
@@ -493,6 +500,7 @@ body.swaxs-shell #main{overflow-y:auto}
         </div>
         <div id="m_opt_desc" class="mdetail live-only"></div>
         <div id="m_opt_params" class="grid2 live-only" style="margin-top:8px"></div>
+        <div id="fk_box" class="mdetail live-only"></div>
         <div class="sub" id="m_hint" style="margin-top:6px"></div>
       </div>
 
@@ -659,6 +667,7 @@ body.swaxs-shell #main{overflow-y:auto}
         </div>
         <div class="sub" id="llmNote" style="margin-top:8px"></div>
         <div class="heldbox" id="heldBox" style="display:none"></div>
+        <div class="fvbox" id="fvBox" style="display:none"></div>
       </div>
     </div>
   </section>
@@ -753,7 +762,11 @@ body.swaxs-shell #main{overflow-y:auto}
         <button class="gd-item kn-sec" data-k="verdicts" type="button">Your verdicts <span class="kn-n" id="kn_n_verdicts"></span></button>
         <button class="gd-item kn-sec" data-k="camps" type="button">Campaigns <span class="kn-n" id="kn_n_camps"></span></button>
         <button class="gd-item kn-sec" data-k="eval" type="button">Evaluation</button>
-        <div class="kn-foot sub">Design knowledge for the next recipe only. General SAXS knowledge for fitting stays with Guinier.</div>
+        <div class="gd-grp">Fitting knowledge (AI fitter)</div>
+        <button class="gd-item kn-sec" data-k="fk_notes" type="button">Project notes <span class="kn-n" id="fk_n_notes"></span></button>
+        <button class="gd-item kn-sec" data-k="fk_fits" type="button">Judged fits <span class="kn-n" id="fk_n_fits"></span></button>
+        <button class="gd-item kn-sec" data-k="fk_eval" type="button">Fitting evaluation</button>
+        <div class="kn-foot sub">Knowledge sets steer the next recipe. Fitting knowledge belongs to this project and helps the AI fitter; Guinier's general SAXS knowledge is chosen in Setup, step 3.</div>
       </nav>
       <div class="card gd-body">
         <div class="kn-head"><h3 id="kn_title">No knowledge set yet</h3>
@@ -813,6 +826,32 @@ body.swaxs-shell #main{overflow-y:auto}
             <span class="sub" id="kn_eval_state"></span></div>
           <div id="kn_prop"></div><div class="sub" id="kn_prop_note"></div>
           <div class="sub">The test replays this set's finished campaigns, each against an emulator fitted to its own measured runs, with and without each source of knowledge. Propose improvement tunes the settings on the older campaigns and proposes a change only if it also does better on the most recent one, which it was not tuned on. Nothing changes until you approve it.</div>
+        </div>
+        <div class="kn-page" id="kn-fk_notes" style="display:none">
+          <div class="ksbox"><b>Add notes about this project</b>
+            <textarea id="fk_note_text" rows="3" placeholder="the cores are CdSe, about 3 nm; ignore q below 0.1 nm⁻¹ (beamstop)"></textarea>
+            <div class="btn-row"><button class="btn btn-ghost btn-sm" type="button" onclick="fkAddNote()">Add notes</button></div>
+            <div class="sub">One line, one note. Your notes are used straight away; notes drafted from your verdicts wait here for your approval.</div></div>
+          <table id="fk_ntbl"><thead><tr><th>ID</th><th>Note</th><th>Status</th><th>By</th><th></th></tr></thead><tbody></tbody></table>
+        </div>
+        <div class="kn-page" id="kn-fk_fits" style="display:none">
+          <table id="fk_ftbl"><thead><tr><th>ID</th><th>File</th><th>Fitted as</th><th>Call</th><th>Right model</th><th>Note</th><th></th></tr></thead><tbody></tbody></table>
+          <div class="sub">From the Fitting tab (Right / Wrong model under the plot). For each new curve the AI fitter is shown the most similar judged curves (by the shape of log I(q)) as precedent; a curve never sees its own call. A new call on the same file replaces the old one.</div>
+        </div>
+        <div class="kn-page" id="kn-fk_eval" style="display:none">
+          <div class="kn-sub2">Settings</div>
+          <div class="grid2">
+            <div><label for="fk_nf">Similar judged fits shown per curve</label><input id="fk_nf" type="number" min="0" max="8" step="1"></div>
+            <div><label for="fk_np">Literature passages per curve</label><input id="fk_np" type="number" min="1" max="6" step="1"></div>
+          </div>
+          <div class="btn-row"><button class="btn btn-ghost btn-sm" type="button" onclick="fkSaveSettings()">Save settings</button></div>
+          <div class="kn-sub2">Did the fitting knowledge help?</div>
+          <div id="fk_eval_body" class="sub">No test yet.</div>
+          <div class="btn-row"><button class="btn btn-accent btn-sm" type="button" onclick="fkEval('evaluate')">Run test</button>
+            <button class="btn btn-ghost btn-sm" type="button" onclick="fkEval('propose')">Propose improvement</button>
+            <span class="sub" id="fk_eval_state"></span></div>
+          <div id="fk_prop"></div>
+          <div class="sub">The test refits this project's judged curves (those that name the right model) with Catalogue + BIC and with the AI fitter given Guinier's knowledge only, plus the project notes, plus the notes and judged fits, and counts how often each finds the right model. Each curve is fitted without its own call. It calls the AI once per curve and arm (cached afterwards). Propose improvement tries other settings on half the curves and proposes a change only if it also does better on the other half; nothing changes until you approve it.</div>
         </div>
         <div class="kn-page" id="kn-camps" style="display:none">
           <table id="kn_ctbl"><thead><tr><th>Campaign</th><th>Runs</th><th>Best</th><th>Ended</th><th>Project</th></tr></thead><tbody></tbody></table>
@@ -1030,6 +1069,7 @@ async function select(name){
   $('n-r').textContent=s.radius!=null?s.radius+' nm'+(mdl&&!_isSphere(mdl)?' (equivalent)':''):'—';
   $('n-d').textContent=s.diameter!=null?s.diameter+' nm'+(mdl&&!_isSphere(mdl)?' (equivalent)':''):'—';
   renderHeldBox(name);
+  renderFitVerdict(name, s.model||'polydisperse_sphere', d.fit_verdict);
   $('n-pdi').textContent=s.pdi??'—';
   $('n-conf').innerHTML=badge(s.confidence);
   $('n-phase').textContent=(d.full.phase&&d.full.phase.phase)||'—';
@@ -1319,7 +1359,7 @@ async function setFolder(){
   const r=await api('/api/folder',{folder:f});
   if(r.error){ $('resolved').textContent='Could not set the folder: '+r.error; return; }
   $('resolved').textContent=r.resolved?'Watching: '+r.resolved:'';
-  _folderInfo=r; checkReady();
+  _folderInfo=r; checkReady(); _fkSel=null; fkLoad();
   setPill('p_watch','', r.resolved);
   $('setupHint').textContent=(r.resolved||'').split('/').slice(-2).join('/');
 }
@@ -1470,6 +1510,7 @@ function renderMethodLists(){
     if(i.name==='m_opt') _aiLevel=null;
     const sel=$(i.name==='m_fit'?'m_fitter':'m_optimiser'); sel.value=i.value; setMethods(); kForShow();
   });
+  fkSetup();
   if(_running) lockSetup(true);
   // Random uses no data, so past campaigns cannot warm-start it
   const kr=$('k_camp_row'); if(kr) kr.style.display = $('m_optimiser').value==='random' ? 'none' : '';
@@ -1700,6 +1741,11 @@ function checkReady(){
     h+=_range ? li('ok','Search range read from the reactor config') : li('warn','Search range not read yet');
     const fit=_methodFor(_methodData.fitters,$('m_fitter').value);
     h+=fit.id ? li('ok','Fitting: '+esc(fit.id==='llm_assisted'?'AI-assisted structure (falls back to Catalogue + BIC without an AI login)':fit.label)) : li('warn','Choose a fitting method');
+    if(fit.id==='llm_assisted' && _fk){
+      const src=fkChosen(), sm=_fk.summary||{};
+      h+=li('ok','AI fitter knowledge: '+src.length+' source(s)'+(src.includes('notes')?', '+(sm.n_notes||0)+' project note(s)':'')+(src.includes('fits')?', '+(sm.n_fits||0)+' judged fit(s)':''));
+      if(sm.n_drafts) h+=li('warn',sm.n_drafts+' drafted fitting note(s) wait for approval in Knowledge, Project notes (not used until approved)');
+    }
     const n=+$('c_ninit').textContent||0, b=+$('c_budget').value||0;
     h+= (n>=1 && (!b || n<=b)) ? li(n<5||(b&&n>b/3)?'warn':'ok', `Cold start: ${n} recipe(s)`) : li('bad','Cold start does not fit the budget');
     const shp=$('c_shape'); h+=li('ok','Expected shape: '+esc(shp.options[shp.selectedIndex].text));
@@ -1757,6 +1803,7 @@ async function startCampaign(){
   const body={target_size, tolerance, pdi_cap:pdi, budget, confidence_min:cm,
               goal:_goal, spec_units:'diameter', ...extra, ..._coldBody()};
   body.method_params=collectOptParams();      // UCB kappa / TuRBO size / BAX tau, per the active optimiser
+  if($('m_fitter').value==='llm_assisted' && _fk) body.fit_knowledge={sources:fkChosen()};
   if(_aiLevel){
     body.ai={level:_aiLevel, review_every:+(($('ai_review')||{}).value||0), apply:($('ai_apply')||{}).value||'auto',
              model:($('ai_model')||{}).value||'', thinking:($('ai_think')||{}).value||'off'};
@@ -2260,6 +2307,10 @@ async function kOpen(id, quiet){
 function kSection(k){
   document.querySelectorAll('.kn-sec').forEach(b=>b.classList.toggle('on',b.dataset.k===k));
   document.querySelectorAll('.kn-page').forEach(p=>p.style.display=p.id==='kn-'+k?'':'none');
+  const fkp=k.startsWith('fk_');
+  const hd=document.querySelector('.kn-head'); if(hd) hd.style.display=fkp?'none':'';
+  $('kn_msg').textContent='';
+  if(fkp) fkLoad();
 }
 function _rangeTxt(r){ if(!r) return '—'; const f=v=>v==null?'':(+v).toString();
   return r[0]==null?`up to ${f(r[1])}`:(r[1]==null?`from ${f(r[0])}`:`${f(r[0])} to ${f(r[1])}`); }
@@ -2425,6 +2476,142 @@ async function kImport(inp){
 document.querySelectorAll('.kn-sec').forEach(b=>b.onclick=()=>kSection(b.dataset.k));
 document.querySelectorAll('.kn-f').forEach(b=>b.onclick=()=>{ _kfilter=b.dataset.f;
   document.querySelectorAll('.kn-f').forEach(x=>x.classList.toggle('on',x===b)); kRender(); });
+
+
+/* ── knowledge for the AI fitter (Setup step 3, Fitting verdicts, Knowledge tab) ── */
+let _fk=null, _fkSel=null;
+async function fkLoad(){
+  const r=await api('/api/fitknowledge'); if(!r||r.error) return;
+  _fk=r; if(!_fkSel) _fkSel=[...(r.sources||[])];
+  fkSetup(); fkRender(); checkReady();
+}
+function fkChosen(){ return [...new Set(['catalogue',...(_fkSel||[])])]; }
+function fkSetup(){
+  const box=$('fk_box'); if(!box) return;
+  if(!_fk || $('m_fitter').value!=='llm_assisted'){ box.innerHTML=''; return; }
+  const sel=new Set(fkChosen()), sm=_fk.summary||{};
+  const tick=(e,cnt,why)=>{ const dis=e.always||e.available===false;
+    return `<label class="tick"><input type="checkbox" class="fk_src" value="${esc(e.id)}"${sel.has(e.id)&&e.available!==false?' checked':''}${dis?' disabled':''}>`
+      +`<span><b>${esc(e.label)}</b>${cnt!=null?' ('+cnt+')':''}${e.always?' <i class="mtag base">always</i>':''}<span class="d">${esc(why||e.desc||'')}</span></span></label>`; };
+  const shared=(_fk.shared||[]).map(e=>tick(e,e.count,e.available===false?(e.why||'none yet'):e.desc)).join('');
+  const proj=(_fk.project_sources||[]).map(e=>tick(e, e.id==='notes'?(sm.n_notes||0):(sm.n_fits||0), e.desc)).join('');
+  const fz=_fk.frozen;
+  box.innerHTML=`<div class="acqbox aibox"><div><b>Knowledge for the AI fitter</b> <a href="#" class="glink" data-guide="fit_knowledge">How it is used →</a></div>`
+    +`<div class="fkcols"><div><div class="colh">Guinier's knowledge (shared)</div>${shared}</div>`
+    +`<div><div class="colh">This project's knowledge</div>${_fk.project?proj:'<div class="sub">Set the project folder first.</div>'}`
+    +`<div class="sub">Add notes and see judged fits in Knowledge, Fitting knowledge. Judge a fit under its plot in the Fitting tab.</div></div></div>`
+    +`<div class="sub" style="margin-top:6px">Frozen at Start: every fit of the campaign uses the same knowledge and records its version. Between campaigns the AI fitter uses what is ticked here.`
+    +(fz?` Campaign uses version ${esc(fz.hash)}.`:'')+`</div></div>`;
+  box.querySelectorAll('.fk_src').forEach(c=>c.onchange=async()=>{
+    _fkSel=[...box.querySelectorAll('.fk_src:checked')].map(x=>x.value);
+    if(_fk.project){ const r=await api('/api/fitknowledge/use',{sources:fkChosen()}); if(r&&r.sources) _fk.sources=r.sources; }
+    checkReady(); });
+  if(_running) box.querySelectorAll('input').forEach(i=>i.disabled=true);
+}
+function renderFitVerdict(name, model, v){
+  const box=$('fvBox'); if(!box) return;
+  if(!_fk||!_fk.project){ box.style.display='none'; return; }
+  box.style.display='flex';
+  const opts=(_fk.models||[]).map(m=>`<option value="${esc(m)}">${esc(m)}</option>`).join('')
+    +(_fk.structure_factors||[]).flatMap(sf=>['sphere','core_shell_sphere','ellipsoid','cylinder'].filter(m=>(_fk.models||[]).includes(m)).map(m=>`<option value="${esc(m+'@'+sf)}">${esc(m+' + '+sf)}</option>`)).join('');
+  const now=v?`Your call (${esc(v.id)}): ${v.verdict==='right'?'right model':'wrong model'}${v.verdict==='wrong'&&v.label?', it is '+esc(v.label):''}${v.note?'; '+esc(v.note):''}. A new call replaces it.`
+             :'Not judged yet. Your call teaches the AI fitter about this project.';
+  box.innerHTML=`<b>Right model?</b>`
+    +`<button class="btn btn-ghost btn-sm" type="button" id="fv_right">Right: ${esc(model.replace('polydisperse_sphere','sphere'))}</button>`
+    +`<span>or wrong, it is</span><select id="fv_model" aria-label="the right model"><option value="">choose…</option>${opts}</select>`
+    +`<input id="fv_note" placeholder="note (optional)" maxlength="300">`
+    +`<button class="btn btn-ghost btn-sm" type="button" id="fv_wrong">Save: wrong model</button>`
+    +`<span class="fvnow" id="fv_now">${now}</span>`;
+  $('fv_right').onclick=()=>fitVerdict(name,'right');
+  $('fv_wrong').onclick=()=>fitVerdict(name,'wrong');
+}
+async function fitVerdict(name, verdict){
+  const body={name, verdict, note:$('fv_note').value||''};
+  if(verdict==='wrong') body.correct_model=$('fv_model').value||'';
+  const r=await api('/api/fitknowledge/verdict', body);
+  if(r.error||r.ok===false){ $('fv_now').textContent='✗ '+(r.error||'could not save'); return; }
+  await fkLoad();
+  const s=(r.drafted||[]).length;
+  renderFitVerdict(name, r.verdict.fitted_model, r.verdict);
+  if(s) $('fv_now').textContent+=` ${s} note(s) drafted from your calls: approve them in Knowledge, Project notes.`;
+}
+function fkRender(){
+  if(!_fk) return;
+  const notes=_fk.notes||[], fits=(_fk.fits||[]).filter(f=>f.status!=='retired');
+  $('fk_n_notes').textContent=notes.filter(n=>n.status!=='retired').length||'';
+  $('fk_n_fits').textContent=fits.length||'';
+  const nb=document.querySelector('#fk_ntbl tbody');
+  if(nb) nb.innerHTML=notes.filter(n=>n.status!=='retired').map(n=>`<tr><td>${esc(n.id)}</td><td>${esc(n.text)}</td><td>${n.status==='draft'?'<i class="mtag">draft</i>':'used'}</td><td>${esc(n.who||'')}</td>`
+      +`<td>${n.status==='draft'?`<button class="btn btn-ghost btn-sm" type="button" onclick="fkNote('${esc(n.id)}','approve')">Approve</button> <button class="btn btn-ghost btn-sm" type="button" onclick="fkNote('${esc(n.id)}','discard')">Discard</button>`
+                                :`<button class="btn btn-ghost btn-sm" type="button" onclick="fkNote('${esc(n.id)}','retire')">Retire</button>`}</td></tr>`).join('')
+      || '<tr><td colspan="5" class="sub">No notes yet.</td></tr>';
+  const fb=document.querySelector('#fk_ftbl tbody');
+  if(fb) fb.innerHTML=fits.slice().reverse().map(f=>`<tr><td>${esc(f.id)}</td><td>${esc(f.file)}</td><td>${esc((f.fitted_model||'').replace('polydisperse_sphere','sphere'))}</td>`
+      +`<td>${f.verdict==='right'?'right':'wrong'}</td><td>${esc(f.label||'—')}</td><td>${esc(f.note||'')}</td>`
+      +`<td><button class="btn btn-ghost btn-sm" type="button" onclick="fkRetireFit('${esc(f.id)}')">Retire</button></td></tr>`).join('')
+      || '<tr><td colspan="7" class="sub">No judged fits yet: judge a fit under its plot in the Fitting tab.</td></tr>';
+  const st=_fk.settings||{}; if($('fk_nf')) { $('fk_nf').value=st.n_fits; $('fk_np').value=st.n_passages; }
+  fkShowEval(_fk.job&&_fk.job.state?_fk.job:{state:'done',result:_fk.evaluation});
+  const p=_fk.proposal;
+  $('fk_prop').innerHTML=p?`<div class="heldbox"><b>Proposed:</b> ${esc(Object.entries(p.settings).map(([k,v])=>k+' '+(p.from||{})[k]+' → '+v).join(', '))}. Right model on the practice half ${_pc(p.practice[0])} → ${_pc(p.practice[1])}, held-out half ${_pc(p.heldout[0])} → ${_pc(p.heldout[1])}.
+      <button class="btn btn-accent btn-sm" type="button" onclick="fkProposal(true)">Approve</button> <button class="btn btn-ghost btn-sm" type="button" onclick="fkProposal(false)">Discard</button></div>`:'';
+}
+const _pc=v=>v==null?'—':Math.round(v*100)+'%';
+function fkShowEval(job){
+  const el=$('fk_eval_body'), stt=$('fk_eval_state'); if(!el) return;
+  if(job.state==='running'){ stt.textContent=`${job.kind==='propose'?'Proposing':'Testing'}… (started ${esc(job.started||'')})`; return; }
+  stt.textContent= job.state==='error' ? '✗ '+(job.error||'failed') : '';
+  const ev=job.kind==='propose'?null:job.result;
+  if(job.kind==='propose'&&job.result){ stt.textContent=job.result.note||''; }
+  const last=ev||(_fk&&_fk.evaluation);
+  if(!last){ el.textContent='No test yet.'; return; }
+  el.innerHTML=(last.rows&&last.rows.length?`<table><thead><tr><th>Arm</th><th>Right model</th><th>Practice</th><th>Held out</th><th>Curves</th><th>AI fell back</th></tr></thead><tbody>`
+    +last.rows.map(r=>`<tr><td>${esc(r.label)}</td><td><b>${_pc(r.all)}</b></td><td>${_pc(r.practice)}</td><td>${_pc(r.heldout)}</td><td>${r.n}</td><td>${r.arm==='catalogue_bic'?'—':r.fallbacks}</td></tr>`).join('')+'</tbody></table>':'')
+    +`<div class="sub">${esc(last.note||'')} ${last.at?'('+esc(last.at)+')':''}</div>`;
+}
+async function fkPoll(){
+  for(let i=0;i<600;i++){
+    await new Promise(r=>setTimeout(r,2000));
+    const r=await api('/api/fitknowledge'); if(!r||r.error) return;
+    _fk=r; if(!(r.job&&r.job.state==='running')){ fkRender(); return; }
+    fkShowEval(r.job);
+  }
+}
+async function fkEval(kind){
+  const r=await api('/api/fitknowledge/'+kind,{});
+  if(r.error||r.ok===false){ $('fk_eval_state').textContent='✗ '+(r.error||'could not start'); return; }
+  fkShowEval({state:'running',kind,started:new Date().toTimeString().slice(0,8)}); fkPoll();
+}
+async function fkAddNote(){
+  const r=await api('/api/fitknowledge/note',{text:$('fk_note_text').value});
+  if(r.error&&r.ok===undefined){ $('kn_msg').textContent='✗ '+r.error; return; }
+  if(r.ok===false&&!(r.errors||[]).length){ $('kn_msg').textContent='✗ '+(r.error||'could not add'); return; }
+  $('fk_note_text').value=''; $('kn_msg').textContent=(r.added||[]).length+' note(s) added'+((r.errors||[]).length?'; skipped: '+r.errors.join('; '):'');
+  fkLoad();
+}
+async function fkNote(id, action){
+  if(action!=='approve' && !confirm((action==='retire'?'Retire ':'Discard ')+id+'? It stays in the file, marked retired, and is no longer used.')) return;
+  const r=await api('/api/fitknowledge/note/'+encodeURIComponent(id),{action});
+  if(r.error||r.ok===false){ $('kn_msg').textContent='✗ '+(r.error||'failed'); return; }
+  fkLoad();
+}
+async function fkRetireFit(id){
+  if(!confirm('Retire judged fit '+id+'? It stays in the file and is no longer shown to the AI.')) return;
+  const r=await api('/api/fitknowledge/fit/'+encodeURIComponent(id)+'/retire',{});
+  if(r.error||r.ok===false){ $('kn_msg').textContent='✗ '+(r.error||'failed'); return; }
+  fkLoad();
+}
+async function fkSaveSettings(){
+  const r=await api('/api/fitknowledge/settings',{n_fits:+$('fk_nf').value, n_passages:+$('fk_np').value});
+  $('kn_msg').textContent= r.error||r.ok===false ? '✗ '+(r.error||'failed') : 'Saved: used from the next campaign (and by fits outside a campaign now).';
+  fkLoad();
+}
+async function fkProposal(approve){
+  const r=await api('/api/fitknowledge/proposal',{approve});
+  $('kn_msg').textContent= r.error||r.ok===false ? '✗ '+(r.error||'failed') : (approve?'Approved: used from the next campaign.':'Discarded.');
+  fkLoad();
+}
+fkLoad();
 
 /* ── Guide tab ───────────────────────────────────────────────────────────── */
 let _guidePages=[];

@@ -70,6 +70,23 @@ const KSET={id:'pd',name:'Pd · ODE',version:4,chemistry:{keywords:['Pd']},match
          {id:'N1',param:'T_reac',effect:'above 300 °C the ODE boils',range:[null,300],kind:'note',source:'note',status:'approved',limit_like:true,check:{range:[180,300]}},
          {id:'L2',param:'x_TOP',effect:'more TOP narrows',range:[0.1,0.4],kind:'literature',source:'S',status:'draft',passage:'More TOP narrows the PDI.',check:{range:[0.1,0.3],clipped:true,note:'clipped to 0.1 to 0.3 (search range)'}}],
   campaigns:[{campaign_id:'c1',run_tag:'Run2',n:24,runs:[{}],best:{size:2.48,pdi:.09},ended:'2026-10-20T10:00',project:'/p'}]};
+const FK={project:true,shared:[{id:'catalogue',label:'Model catalogue',desc:'always',always:true,available:true,count:null},
+  {id:'corrections',label:'Operator corrections',desc:'c',available:true,count:2},{id:'sops',label:'Group SOPs',desc:'s',available:true,count:5},
+  {id:'guidelines',label:'SAXS guidelines',desc:'g',available:true,count:null},
+  {id:'literature',label:'Literature passages',desc:'l',available:false,count:null,why:'the literature index is not built here'},
+  {id:'cases',label:'Expert cases',desc:'e',available:false,count:0}],
+  project_sources:[{id:'notes',label:'Project notes',desc:'n'},{id:'fits',label:'Judged fits',desc:'f'}],
+  sources:['catalogue','corrections','sops','guidelines','notes','fits'],
+  summary:{version:3,n_notes:1,n_drafts:1,n_fits:2,n_labelled:2,settings:{n_fits:3,n_passages:3}},
+  notes:[{id:'FN1',text:'cores are CdSe',status:'active',who:'ak'},{id:'FN2',text:'In this project, curves fitted as sphere were judged core_shell_sphere',status:'draft',who:''}],
+  fits:[{id:'FV1',file:'a.dat',fitted_model:'sphere',verdict:'wrong',label:'core_shell_sphere',note:'',status:'active'},
+        {id:'FV2',file:'b.dat',fitted_model:'polydisperse_sphere',verdict:'right',label:'sphere',note:'',status:'active'}],
+  settings:{n_fits:3,n_passages:3},limits:{n_fits:[0,8],n_passages:[1,6]},
+  evaluation:{at:'2026-10-25',n_cases:6,note:'Best on these 6 curves',rows:[{arm:'catalogue_bic',label:'Catalogue + BIC',all:.5,practice:.33,heldout:.67,n:6,errors:0,fallbacks:0},
+    {arm:'ai_project',label:'AI, plus project notes and judged fits',all:.83,practice:.67,heldout:1,n:6,errors:0,fallbacks:1}]},
+  proposal:{settings:{n_fits:5,n_passages:3},from:{n_fits:3,n_passages:3},practice:[.67,1],heldout:[.67,1]},
+  job:{},models:['core_shell_sphere','cylinder','ellipsoid','sphere'],structure_factors:['hardsphere'],frozen:null,active_fitter:'llm_assisted'};
+const FKPOST=[];
 function stub(w){
 /* canvas: record instead of raster (jsdom has no 2d context) */
 w.HTMLCanvasElement.prototype.getContext=function(){
@@ -80,9 +97,11 @@ w.HTMLCanvasElement.prototype.getContext=function(){
     return typeof k==='string' ? (t[k]||noop) : noop;
   }, set:()=>true});
 };
-w.fetch=async (u)=>{
+w.fetch=async (u,o)=>{
   let body={};
-  if(u.startsWith('/api/result/')) body={summary:ROWS[ROWS.length-1],
+  if(u.startsWith('/api/fitknowledge')){ if(o&&o.method==='POST') FKPOST.push([u,JSON.parse(o.body||'{}')]);
+    body = u==='/api/fitknowledge' ? FK : (u.endsWith('/verdict') ? {ok:true,verdict:{id:'FV3',verdict:'wrong',label:'cylinder',note:'',fitted_model:'sphere'},drafted:[{id:'FN3'}]} : {ok:true,sources:FK.sources}); }
+  else if(u.startsWith('/api/result/')) body={summary:ROWS[ROWS.length-1],
     full:{phase:{phase:null},llm:{summary:'fit is well constrained',flags:[]}},
     plot:{q,I,model:MO,sigma:SG}};
   else if(u.startsWith('/api/campaign/diagnostics')) body=DIAG;
@@ -273,6 +292,16 @@ const w=dom.window;
   w.kSection('eval'); await new Promise(r=>setTimeout(r,60));
   ok($('kh_n').value==='3' && /GP \+ EI/.test($('kn_eval_body').textContent),'evaluation: harness settings and the last replay');
   w.kSection('verdicts');
+  w.kSection('fk_notes'); await new Promise(r=>setTimeout(r,40));
+  ok(w.document.querySelector('.kn-head').style.display==='none','fitting pages hide the knowledge-set header');
+  ok(/Approve/.test(w.document.querySelector('#fk_ntbl tbody').textContent) && /cores are CdSe/.test(w.document.querySelector('#fk_ntbl tbody').textContent),'project notes with drafts to approve');
+  w.kSection('fk_fits');
+  ok(w.document.querySelectorAll('#fk_ftbl tbody tr').length===2,'judged fits listed');
+  w.kSection('fk_eval');
+  ok(/83%/.test($('fk_eval_body').textContent) && /Approve/.test($('fk_prop').textContent),'fitting evaluation and proposal shown');
+  ok($('fk_nf').value==='3','fitting settings filled');
+  w.kSection('add');
+  ok(w.document.querySelector('.kn-head').style.display==='','set header back on set pages');
   ok(/No verdict yet/.test($('kn_vtbl').textContent),'verdicts section');
   await w.kSearch();
   ok(w.document.querySelectorAll('#kn_hits .khit').length===1 && /open access/.test($('kn_hits').textContent),'web search results listed');
@@ -304,6 +333,19 @@ const w=dom.window;
   w.document.querySelector('#optList input[value="gp_ei"]').click(); await new Promise(r=>setTimeout(r,30));
   ok($('k_for').style.display==='none' && !w.kBody().use.every_pick,'back to the optimiser: no AI, no every-pick');
   ok(!!w.document.querySelector('#studyMethods input[value="ai_copilot"]'),'AI Co-pilot can be raced');
+  /* knowledge for the AI fitter in Setup step 3 */
+  ok($('fk_box').textContent==='','no fitter knowledge box for a statistics fitter');
+  w.document.querySelector('#fitList input[value="llm_assisted"]').click(); await new Promise(r=>setTimeout(r,30));
+  ok(/Knowledge for the AI fitter/.test($('fk_box').textContent) && /Guinier's knowledge/.test($('fk_box').textContent),'AI fitter shows its knowledge choice');
+  const cat=w.document.querySelector('.fk_src[value="catalogue"]'), lit=w.document.querySelector('.fk_src[value="literature"]');
+  ok(cat.checked && cat.disabled && lit.disabled && !lit.checked,'catalogue always on; missing literature index cannot be ticked');
+  const sops=w.document.querySelector('.fk_src[value="sops"]'); sops.checked=false; sops.dispatchEvent(new w.Event('change'));
+  await new Promise(r=>setTimeout(r,20));
+  const up=FKPOST.filter(p=>p[0]==='/api/fitknowledge/use').pop();
+  ok(up && !up[1].sources.includes('sops') && up[1].sources.includes('catalogue') && up[1].sources.includes('fits'),'unticking a source saves the choice');
+  ok(/AI fitter knowledge: 5 source/.test($('readyList').textContent) && /drafted fitting note/.test($('readyList').textContent),'ready list shows the fitter knowledge and drafts');
+  w.document.querySelector('#fitList input[value="catalogue_bic"]').click(); await new Promise(r=>setTimeout(r,30));
+  ok($('fk_box').textContent==='','box hides again for Catalogue + BIC');
   /* Decisions in Report */
   ES.last.emit({results:[],logs:[],campaign:{...CAMP, ai:{level:'ai_copilot',label:'AI Co-pilot',n_fallbacks:1,can_undo:false,
     work_bounds:null,pending_suggestion:null,decisions:[
@@ -345,6 +387,13 @@ const w=dom.window;
   ok(/PAUSED/.test($('c_status').textContent) && /held/.test($('r_status').textContent),'pause and held count in the status lines');
   ok(w.document.querySelector('#sidebar .nav-btn').disabled===true,'goal locked while running');
   await w.select(heldName);
+  /* AI fitter knowledge: verdict under the plot */
+  ok($('fvBox').style.display==='flex' && /Right model\?/.test($('fvBox').textContent),'fit offers a Right / Wrong-model call');
+  ok([...$('fv_model').options].some(o=>o.value==='sphere@hardsphere'),'wrong-model list includes structure factors');
+  $('fv_model').value='cylinder'; $('fv_wrong').click(); await new Promise(r=>setTimeout(r,40));
+  const vp=FKPOST.find(p=>p[0]==='/api/fitknowledge/verdict');
+  ok(vp && vp[1].verdict==='wrong' && vp[1].correct_model==='cylinder' && vp[1].name===heldName,'wrong-model call posts the right model');
+  ok(/drafted/.test($('fv_now').textContent),'drafted notes are announced');
   ok($('heldBox').style.display==='block' && /Accept/.test($('heldBox').textContent),'held fit offers Accept');
   /* Compare methods: simulator only */
   ES.last.emit({results:[],logs:[],campaign:{status:'idle'},total:25,seq:25,reset:false});

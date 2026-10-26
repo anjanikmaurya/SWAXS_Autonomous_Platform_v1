@@ -129,6 +129,32 @@ a confirmation. Plot scales: **Log-log**, **Semilog Y**, **Semilog X**,
 QC note appears under the plot when AI credentials are set. Confidence badges:
 green at ≥ 0.6, amber at ≥ 0.3, otherwise low.
 
+Under the plot, **Right model?** records your call on the fit: **Right** (the
+fitted model is right), or the right model from the catalogue (optionally with a
+structure factor), plus a note, then **Save: wrong model**. Calls are this
+project's **judged fits** (`<project>/fit_knowledge.json`); a new call on the same
+file replaces the old one. Two or more calls saying the same correction (X is
+really Y) draft a project note that waits for your approval.
+
+### Knowledge for the AI fitter (Setup step 3, AI-assisted structure)
+
+When the fitting method is **AI-assisted structure**, a box chooses what the AI
+reads before it names the shapes to fit. **Guinier's knowledge** (shared with the
+assistant, `ai_knowledge/`): Model catalogue (always on), Operator corrections,
+Group SOPs, SAXS guidelines, Literature passages (the most relevant passages from
+the assistant's index, found per curve; only when the index is built here) and
+Expert cases (`ai_knowledge/cases/*.json`; none yet). **This project's
+knowledge**: Project notes and Judged fits; for each curve the AI is shown up to 3
+of the most similar judged curves (rms difference of mean-centred log I on a
+shared log-q grid, at most 0.6 decades), never the curve's own call. Order of
+authority: corrections, then project notes, then SOPs, then guidelines. Notes,
+passages and cases are passed as data, never as instructions; the AI still only
+proposes, every candidate is fitted and BIC picks the winner. The choice is saved
+with the project; at Start it is frozen (`.swaxs_state/fit_knowledge/<hash>.json`)
+and every fit records the version (`llm_structure.knowledge`: hash, sources,
+judged fits and passages used). Between campaigns, fits use the current choice.
+Logic: `src/fitting/fit_knowledge.py`.
+
 ### AI next-recipe levels (Setup step 3, Agentic)
 
 | Level | Who picks each recipe | The AI's part |
@@ -164,7 +190,9 @@ reproducible. Logic: `src/optimizer/ai_design.py`.
 
 Design knowledge for the next recipe, one **knowledge set** per chemistry
 (`ai_knowledge/design/<set_id>.json`, in git). The assistant (Guinier) does not
-read it; general SAXS knowledge for fitting stays with Guinier.
+read it. Below the sets, **Fitting knowledge** holds this project's notes and
+judged fits for the AI fitter; Guinier's general SAXS knowledge is chosen in
+Setup step 3.
 
 - **Add knowledge**: **Search the web** (OpenAlex; only the query is sent; the
   query starts from `chemistry.yml` and the target; tick papers, then **Draft
@@ -200,6 +228,21 @@ read it; general SAXS knowledge for fitting stays with Guinier.
     `src/design_knowledge/replay.py`.
 - **Export** downloads the set; **Import** makes a new set from an export, with
   every card as a draft to review.
+- **Fitting knowledge (AI fitter)**, this project only, not a set:
+  - **Project notes**: add notes (one line, one note, used at once); drafted
+    notes from your calls show **Approve** / **Discard**; **Retire** stops using a
+    note (it stays in the file).
+  - **Judged fits**: every call from the Fitting tab, with **Retire**.
+  - **Fitting evaluation**: settings (similar judged fits shown per curve, 0 to
+    8, default 3; literature passages per curve, 1 to 6, default 3), **Run test**
+    and **Propose improvement**. Run test refits the judged curves that name the
+    right model (at least 4, the latest 20) with Catalogue + BIC and with the AI
+    fitter given Guinier's knowledge only, plus the project notes, plus the notes
+    and judged fits (each curve without its own call), and counts how often each
+    finds the right model, on two halves (practice and held out). Without an AI
+    login only the baseline runs. Propose improvement tries other settings on the
+    practice half and proposes one only if it is also better on the held-out
+    half; **Approve** applies it from the next campaign.
 
 How the AI drafts cards: with an AI login the AI reads the text as data (never
 as instructions) and must quote, for each card, a sentence that is really in
@@ -529,4 +572,11 @@ and `*.json` there as a recipe.
 | `GET /api/campaign/diagnostics` | read-only learning and convergence summary |
 | `GET /api/campaign/plot/<view>.png` | `slice` (`x`, `y`, `anchor`), `convergence`, `trajectory`, `levelset`, `pareto` |
 | `POST /api/study`, `GET /api/study/plot.png` | in-silico method comparison |
+| `GET /api/fitknowledge` | the AI fitter's knowledge: Guinier's sources with what is there, the project's sources, the saved choice, notes, judged fits, settings, last evaluation, proposal, job, catalogue models, the running campaign's frozen version |
+| `POST /api/fitknowledge/use` | `{sources}`: the ticked sources (the catalogue is always added) |
+| `POST /api/fitknowledge/note`, `/note/<id>` | add notes `{text}` (one per line); `{action: approve, retire, discard}` |
+| `POST /api/fitknowledge/verdict` | `{name, verdict: right | wrong, correct_model, note}` on a fit; returns the drafted notes |
+| `POST /api/fitknowledge/fit/<id>/retire` | stop using a judged fit |
+| `POST /api/fitknowledge/settings` | `{n_fits, n_passages}` (clamped) |
+| `POST /api/fitknowledge/evaluate`, `/propose`, `/proposal` | test and improvement (background; state in `GET /api/fitknowledge` `job`); `{approve}` |
 | `GET /api/restart_notice` | whether an interrupted campaign needs a manual Continue |

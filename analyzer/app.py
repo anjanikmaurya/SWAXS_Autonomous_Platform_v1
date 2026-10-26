@@ -56,6 +56,7 @@ from src.design_knowledge.campaigns import entry_from_campaign          # noqa: 
 from src.design_knowledge.freeze import for_campaign as _knowledge_for  # noqa: E402
 from src.design_knowledge import replay as kreplay                     # noqa: E402
 import src.fitting as fitting                                           # noqa: E402  (pluggable fitting registry)
+from src.fitting import fit_knowledge as fk                            # noqa: E402  (AI fitter knowledge)
 from src.optimizer.io import (to_param_file, match_recipe_id,           # noqa: E402
                               recipe_id_from_filename)
 from src.runstate import (save_state, load_state, clear_state,             # noqa: E402
@@ -1696,8 +1697,9 @@ def _analyze_file(path: Path, drive_loop: bool = True) -> None:
             q = q * 10.0                       # Å⁻¹ → nm⁻¹
         # path + project root let a context-aware fitter (LLM-assisted) gather
         # what the pipeline knows about this curve; the others ignore them
+        _fo = {"fit_knowledge": _fk_snapshot()} if _active_fitter == "llm_assisted" else {}
         res = fitting.get(_active_fitter).fit(q, I, sigma, dist="auto", path=str(path),
-                                              project_root=_project_root)
+                                              project_root=_project_root, **_fo)
     except Exception as exc:
         _emit(f"✗ {path.name}: {exc}", "error")
         return
@@ -1752,7 +1754,7 @@ def _analyze_file(path: Path, drive_loop: bool = True) -> None:
                        if res.get("guinier") and res["guinier"].get("Rg") else None),
         "ts": time.strftime("%H:%M:%S"),
     }
-    entry = {"summary": summary, "full": res,
+    entry = {"summary": summary, "full": res, "path": str(path),
              "plot": {"q": _downsample(q), "I": _downsample(I),
                       "model": _downsample(model) if model is not None else None,
                       "sigma": _downsample(sig) if sig is not None else None}}
@@ -2411,7 +2413,8 @@ def api_result(name):
         e = _results.get(name)
     if not e:
         return jsonify({"error": "not found"}), 404
-    return jsonify({"summary": e["summary"], "full": e["full"], "plot": e["plot"]})
+    return jsonify({"summary": e["summary"], "full": e["full"], "plot": e["plot"],
+                    "fit_verdict": _fk_verdict_for(name)})
 
 
 def _campaign_status() -> dict:
@@ -2447,6 +2450,8 @@ def _campaign_status() -> dict:
         st["runs"] = _runs_summary() if _campaign is not None else []
     if (_campaign_meta or {}).get("size_range"):
         st["size_range"] = _campaign_meta["size_range"]
+    if (_campaign_meta or {}).get("fit_knowledge"):
+        st["fit_knowledge"] = _campaign_meta["fit_knowledge"]
     return st
 
 
@@ -2591,6 +2596,12 @@ def api_campaign_start():
         if not (0.0 <= _conf_min <= 1.0):
             _errs.append("the minimum fit confidence must be between 0 and 1")
         _ai = b.get("ai") or None
+        # the AI fitter's knowledge: the sources ticked in Setup (frozen below)
+        _fk_src = None
+        if isinstance(b.get("fit_knowledge"), dict) and isinstance(b["fit_knowledge"].get("sources"), list):
+            _fk_src = fk.clean_sources([str(x) for x in b["fit_knowledge"]["sources"]])
+            if _project_root:
+                fk.set_sources(_project_root, _fk_src, _who())
         if _ai:
             lvl = str(_ai.get("level") or "")
             try:
@@ -2699,6 +2710,12 @@ def api_campaign_start():
             _campaign_meta["expected_shape"] = _shape
             if _ai:
                 _campaign_meta["ai"] = _ai
+            if _active_fitter == "llm_assisted" or _fk_src is not None:
+                _fz = fk.freeze(_project_root or None, _fk_src)
+                _campaign_meta["fit_knowledge"] = {
+                    "hash": _fz["hash"], "sources": _fz["sources"],
+                    "project_version": _fz["project_version"], "n_notes": len(_fz["notes"]),
+                    "n_fits": len(_fz["fits"]), "settings": _fz["settings"]}
             if _seeds:
                 _campaign_meta["seeds"] = _seeds
                 _campaign_meta["seed_kinds"] = (["own"] * _kn["n_own"]
@@ -2714,6 +2731,10 @@ def api_campaign_start():
                   f"{_n_init} ({_kn['n_own']} of your own, {len(_seeds) - _kn['n_own']} from "
                   f"knowledge, {_n_init - len(_seeds)} spread out), "
                   f"expected shape: {EXPECTED_SHAPES[_shape]['label']}", "ok")
+            if _campaign_meta.get("fit_knowledge"):
+                _fkm = _campaign_meta["fit_knowledge"]
+                _emit(f"🧩 AI fitter knowledge {_fkm['hash']}: " + ", ".join(_fkm["sources"])
+                      + f"; {_fkm['n_notes']} project note(s), {_fkm['n_fits']} judged fit(s)", "info")
             if _kn.get("frozen"):
                 _fz = _kn["frozen"]
                 _emit(f"📚 knowledge: {_fz['name']} v{_fz['version']}, {len(_fz['cards'])} "
@@ -3393,6 +3414,237 @@ def api_stream():
     return Response(gen(), mimetype="text/event-stream",
                     headers={"Cache-Control": "no-cache",
                              "X-Accel-Buffering": "no"})
+
+
+# ── knowledge for the AI fitter (src/fitting/fit_knowledge.py) ──────────────
+# Guinier's shared knowledge, chosen part by part, plus this project's notes and
+# judged fits (<project>/fit_knowledge.json). A campaign freezes its snapshot at
+# Start; outside a campaign every AI fit uses the current choice.
+_fk_cache: dict = {}
+_fk_jobs: dict = {}
+_fk_lock = threading.Lock()
+
+
+def _fk_snapshot() -> dict | None:
+    meta = _campaign_meta or {}
+    fm = meta.get("fit_knowledge") or {}
+    running = _campaign is not None and getattr(_campaign, "status_str", "") == "running"
+    if running and fm.get("hash"):
+        snap = _fk_cache.get(fm["hash"]) or fk.load_frozen(_project_root, fm["hash"])
+        if snap:
+            _fk_cache[fm["hash"]] = snap
+            return snap
+    try:
+        return fk.freeze(_project_root or None)
+    except Exception:                                         # noqa: BLE001
+        return None
+
+
+def _fk_verdict_for(name: str) -> dict | None:
+    if not _project_root:
+        return None
+    for f in reversed(fk.load(_project_root).get("fits") or []):
+        if f.get("file") == name and f.get("status") != "retired":
+            return {k: f.get(k) for k in ("id", "verdict", "label", "note", "fitted_model", "at")}
+    return None
+
+
+def _fk_need_project():
+    if not _project_root:
+        return jsonify({"ok": False, "error": "set the project folder first (Setup, Data folders)"}), 400
+    return None
+
+
+def _fk_loader(path):
+    hdr, q, I, sigma, _m = read_dat_data_metadata(Path(path))
+    q = np.asarray(q, float)
+    if _q_is_angstrom(hdr):
+        q = q * 10.0
+    return q, np.asarray(I, float), (np.asarray(sigma, float) if sigma is not None else None)
+
+
+@app.route("/api/fitknowledge")
+def api_fitknowledge():
+    d = fk.load(_project_root) if _project_root else fk._empty()
+    models, sfs = fk.catalogue_names()
+    with _fk_lock:
+        job = dict(_fk_jobs.get("job") or {})
+    return jsonify({
+        "project": bool(_project_root), "shared": fk.shared_status(),
+        "project_sources": list(fk.PROJECT), "sources": d["sources"],
+        "summary": fk.summary(_project_root) if _project_root else None,
+        "notes": d["notes"],
+        "fits": [{k: f.get(k) for k in ("id", "file", "fitter", "fitted_model", "verdict", "label",
+                                         "note", "status", "who", "at")} for f in d["fits"]],
+        "settings": d["settings"], "limits": fk.SETTINGS_LIMITS,
+        "evaluation": (d.get("evaluations") or [None])[-1], "proposal": d.get("proposal"),
+        "job": job, "models": sorted(models), "structure_factors": sorted(sfs),
+        "frozen": (_campaign_meta or {}).get("fit_knowledge"),
+        "active_fitter": _active_fitter})
+
+
+@app.route("/api/fitknowledge/use", methods=["POST"])
+def api_fitknowledge_use():
+    e = _fk_need_project()
+    if e:
+        return e
+    src = (request.get_json(silent=True) or {}).get("sources")
+    if not isinstance(src, list):
+        return jsonify({"ok": False, "error": "sources must be a list"}), 400
+    return jsonify({"ok": True, "sources": fk.set_sources(_project_root, [str(x) for x in src], _who())})
+
+
+@app.route("/api/fitknowledge/note", methods=["POST"])
+def api_fitknowledge_note():
+    e = _fk_need_project()
+    if e:
+        return e
+    b = request.get_json(silent=True) or {}
+    added, errs = [], []
+    for line in str(b.get("text") or "").splitlines():
+        if line.strip():
+            try:
+                added.append(fk.add_note(_project_root, line, _who()))
+            except ValueError as exc:
+                errs.append(f"{line.strip()[:40]}: {exc}")
+    if not added and not errs:
+        return jsonify({"ok": False, "error": "write the note first"}), 400
+    return jsonify({"ok": bool(added), "added": added, "errors": errs})
+
+
+@app.route("/api/fitknowledge/note/<nid>", methods=["POST"])
+def api_fitknowledge_note_review(nid):
+    e = _fk_need_project()
+    if e:
+        return e
+    try:
+        n = fk.review_note(_project_root, nid, str((request.get_json(silent=True) or {}).get("action") or ""), _who())
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    return jsonify({"ok": True, "note": n})
+
+
+@app.route("/api/fitknowledge/verdict", methods=["POST"])
+def api_fitknowledge_verdict():
+    """The operator's Right / Wrong-model call on one fit in the Fitting tab."""
+    e = _fk_need_project()
+    if e:
+        return e
+    b = request.get_json(silent=True) or {}
+    name = str(b.get("name") or "")
+    with _results_lock:
+        ent = _results.get(name)
+        ent = dict(ent) if ent else None
+    if not ent:
+        return jsonify({"ok": False, "error": "no fit with that name"}), 404
+    path = ent.get("path")
+    try:
+        q, I, _s = _fk_loader(path) if path and Path(path).is_file() else (
+            ent["plot"]["q"], ent["plot"]["I"], None)
+    except Exception:                                         # noqa: BLE001
+        q, I = ent["plot"]["q"], ent["plot"]["I"]
+    full, summ = ent.get("full") or {}, ent.get("summary") or {}
+    feats = {"rg": summ.get("guinier_rg"),
+             "porod_n": ((full.get("features") or {}).get("porod") or {}).get("n")}
+    try:
+        f = fk.add_fit_verdict(_project_root, file=name, path=path, q=q, I=I,
+                               fitted_model=summ.get("model") or "polydisperse_sphere",
+                               verdict=str(b.get("verdict") or ""),
+                               correct_model=b.get("correct_model") or None,
+                               note=str(b.get("note") or ""),
+                               fitter=str((full.get("diagnostics") or {}).get("method") or _active_fitter), features=feats,
+                               who=_who())
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    drafts = fk.draft_notes_from_fits(_project_root, _who())
+    _emit(f"🧩 {name}: fit judged {f['verdict']}" + (f", right model {f['label']}" if f["verdict"] == "wrong" and f.get("label") else "")
+          + (f"; {len(drafts)} note(s) drafted for approval (Knowledge, Fitting knowledge)" if drafts else ""), "info")
+    return jsonify({"ok": True, "verdict": {k: f.get(k) for k in ("id", "verdict", "label", "note", "fitted_model", "at")},
+                    "drafted": drafts})
+
+
+@app.route("/api/fitknowledge/fit/<fid>/retire", methods=["POST"])
+def api_fitknowledge_fit_retire(fid):
+    e = _fk_need_project()
+    if e:
+        return e
+    ok = fk.retire_fit(_project_root, fid, _who())
+    return (jsonify({"ok": True}) if ok else (jsonify({"ok": False, "error": "unknown judged fit"}), 404))
+
+
+@app.route("/api/fitknowledge/settings", methods=["POST"])
+def api_fitknowledge_settings():
+    e = _fk_need_project()
+    if e:
+        return e
+    b = request.get_json(silent=True) or {}
+    try:
+        new = {k: int(b[k]) for k in fk.SETTINGS_LIMITS if k in b}
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "settings must be whole numbers"}), 400
+    return jsonify({"ok": True, "settings": fk.set_settings(_project_root, new, _who())})
+
+
+def _fk_worker(kind: str) -> None:
+    try:
+        if kind == "evaluate":
+            res = fk.evaluate(_project_root, loader=_fk_loader)
+        else:
+            res = fk.propose_improvement(_project_root, loader=_fk_loader)
+        with _fk_lock:
+            _fk_jobs["job"] = {"state": "done", "kind": kind, "result": res,
+                               "finished": time.strftime("%H:%M:%S")}
+        _emit(f"🧩 fitting knowledge {kind}: {res.get('note', '')}", "ok")
+    except Exception as exc:                                  # noqa: BLE001
+        with _fk_lock:
+            _fk_jobs["job"] = {"state": "error", "kind": kind, "error": f"{type(exc).__name__}: {exc}"}
+        _emit(f"⚠ fitting knowledge {kind} failed: {exc}", "warn")
+
+
+def _fk_start(kind: str):
+    e = _fk_need_project()
+    if e:
+        return e
+    with _fk_lock:
+        if (_fk_jobs.get("job") or {}).get("state") == "running":
+            return jsonify({"ok": False, "error": "a fitting-knowledge test is already running"}), 409
+        _fk_jobs["job"] = {"state": "running", "kind": kind, "started": time.strftime("%H:%M:%S")}
+    threading.Thread(target=_fk_worker, args=(kind,), daemon=True, name=f"fk-{kind}").start()
+    return jsonify({"ok": True, "state": "running"})
+
+
+def _fk_wait(timeout: float = 120.0) -> None:
+    """Tests and tools: wait for the fitting-knowledge job to finish."""
+    t_end = time.time() + timeout
+    while time.time() < t_end:
+        with _fk_lock:
+            if (_fk_jobs.get("job") or {}).get("state") != "running":
+                return
+        time.sleep(0.05)
+
+
+@app.route("/api/fitknowledge/evaluate", methods=["POST"])
+def api_fitknowledge_evaluate():
+    """Refit this project's judged curves with and without each kind of knowledge."""
+    return _fk_start("evaluate")
+
+
+@app.route("/api/fitknowledge/propose", methods=["POST"])
+def api_fitknowledge_propose():
+    """Tune the settings on the practice half; propose only if the held-out half improves."""
+    return _fk_start("propose")
+
+
+@app.route("/api/fitknowledge/proposal", methods=["POST"])
+def api_fitknowledge_proposal():
+    e = _fk_need_project()
+    if e:
+        return e
+    try:
+        r = fk.decide_proposal(_project_root, bool((request.get_json(silent=True) or {}).get("approve")), _who())
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 409
+    return jsonify({"ok": True, **r})
 
 
 if __name__ == "__main__":

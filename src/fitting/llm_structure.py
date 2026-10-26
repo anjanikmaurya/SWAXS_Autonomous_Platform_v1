@@ -16,7 +16,9 @@ The LLM-assisted fitting method (docs/design/LLM_FITTER_PLAN.md, Phase 4):
 
 The knowledge bundle (model catalogue, operator corrections, group SOPs, SAXS
 guidelines) is fixed and versioned by content hash; every fit records the
-version. Proposals are cached by (curve, context, bundle, prompt version, AI
+version. The Analyser can pass a frozen snapshot instead (``fit_knowledge=``,
+src/fitting/fit_knowledge.py): which of Guinier's sources to use, plus this
+project's notes and its most similar judged fits as precedent. Proposals are cached by (curve, context, bundle, prompt version, AI
 model), so re-analysing a file costs nothing. Every decision is written to the
 assistant traces (kind "fitter"). With no AI login, a timeout or an invalid
 answer, it falls back to Catalogue + BIC (statistics only) and says so.
@@ -272,10 +274,27 @@ class LLMStructure:
                 ctx = collect(opts["path"], opts.get("project_root"))
             except Exception:                               # noqa: BLE001
                 ctx = {}
-        bundle, version = knowledge_bundle()
+        # Knowledge: a snapshot frozen by the Analyser (src/fitting/fit_knowledge.py)
+        # chooses Guinier's sources and adds this project's notes and judged
+        # fits; without one, the original four files exactly as before.
+        snap = opts.get("fit_knowledge")
+        extra_text, used = "", {}
+        if isinstance(snap, dict) and snap.get("sources"):
+            from src.fitting import fit_knowledge as fk
+            bundle, version = fk.system_bundle(snap)
+            version = f"{fk.KNOWLEDGE_PROMPT_VERSION}-{version}"
+            excl = opts.get("exclude_file") or (Path(opts["path"]).name if opts.get("path") else None)
+            extra_text, used = fk.per_curve(snap, q, I, feats, ctx, exclude_file=excl)
+        else:
+            bundle, version = knowledge_bundle()
         info = {"status": "ai", "bundle_version": version, "prompt_version": PROMPT_VERSION,
                 "ai_model": _ai_model(), "cached": False, "rounds": 0, "usage": []}
-        key = _cache_key(q, I, s, ctx, version)
+        if isinstance(snap, dict) and snap.get("sources"):
+            info["knowledge"] = {"hash": snap.get("hash"), "sources": snap.get("sources"),
+                                 "project_version": snap.get("project_version"),
+                                 "n_notes": len(snap.get("notes") or []) if "notes" in snap["sources"] else 0,
+                                 "fits": used.get("fits") or [], "passages": used.get("passages") or []}
+        key = _cache_key(q, I, s, dict(ctx, _knowledge=extra_text) if extra_text else ctx, version)
         cdir = _cache_dir(opts.get("project_root"))
         cached = _cache_get(cdir, key)
 
@@ -294,7 +313,8 @@ class LLMStructure:
                                             .get("absolute_units") else "relative"}},
                                   default=str)
                 try:
-                    proposal, usage = _ask(client, bundle, "Curve to classify:\n" + user,
+                    proposal, usage = _ask(client, bundle, "Curve to classify:\n" + user
+                                           + ("\n\n" + extra_text if extra_text else ""),
                                            curve_png(q, I, s))
                     info["usage"].append(usage)
                     info["rounds"] = 1
@@ -319,7 +339,8 @@ class LLMStructure:
                 res = analyze_profile(q, I, s, dist=opts.get("dist", "auto"))
             res["llm_structure"] = info
             res["llm_assist"] = {"summary": "", "flags": []}
-            self._trace(traces, info, [], res, t0)
+            if opts.get("trace", True):
+                self._trace(traces, info, [], res, t0)
             return res
 
         seeds = seeds_from_features(feats)
@@ -370,13 +391,15 @@ class LLMStructure:
         res["llm_assist"] = {"summary": str((proposal or {}).get("summary", ""))[:400],
                              "flags": [f for f in (proposal or {}).get("flags", [])
                                        if f in ALLOWED_FLAGS]}
-        self._trace(traces, info, cands, res, t0)
+        if opts.get("trace", True):
+            self._trace(traces, info, cands, res, t0)
         return res
 
     @staticmethod
     def _trace(traces, info, cands, res, t0):
         traces.record("fitter", method="llm_assisted", status=info.get("status"),
                       cached=info.get("cached"), bundle_version=info.get("bundle_version"),
+                      knowledge=info.get("knowledge"),
                       proposed=[f"{c['model']}@{c['structure_factor']}" if c.get("structure_factor")
                                 else c["model"] for c in cands],
                       winner=res.get("model"), confidence=res.get("confidence"),

@@ -176,6 +176,25 @@ PAGES = {
                "campaigns the result is indicative; if every method reaches an easy spec in the "
                "cold start, the test cannot tell them apart.",
         "refs": "src/design_knowledge/replay.py · Meta-Harness, arXiv 2603.28052"},
+    "fit_knowledge": {"title": "Knowledge for the AI fitter", "group": "Fitting",
+        "what": "AI-assisted structure reads knowledge before it names the shapes to fit. Setup step 3 "
+                "chooses it part by part. Guinier's knowledge (shared with the assistant): the model "
+                "catalogue (always), operator corrections, group SOPs, SAXS guidelines, literature "
+                "passages found for each curve, expert cases. This project's knowledge "
+                "(fit_knowledge.json in the project folder): your notes about the samples and data, and "
+                "your judged fits, the Right / Wrong-model calls under the plot in the Fitting tab. For "
+                "each curve the AI is shown the most similar judged curves, never the curve's own call. "
+                "Two or more calls saying the same correction draft a note, used only once you approve it.",
+        "maths": "order of authority: corrections > project notes > SOPs > guidelines\n"
+                 "similar = rms difference of mean-centred log I on a shared log-q grid (<= 0.6 decades)\n"
+                 "the AI only proposes; every candidate is fitted and BIC picks the winner",
+        "when": "Frozen at Start, with a version stamp on every fit. Knowledge, Fitting evaluation refits "
+                "your judged curves with and without each kind of knowledge and counts how often each "
+                "finds the right model; Propose improvement changes a setting only if it also wins on "
+                "the held-out half and you approve it.",
+        "not": "A way to force a model: the data still decide. Text from notes, papers and cases is "
+               "passed as data, never as instructions.",
+        "refs": "src/fitting/fit_knowledge.py · docs/design/LLM_FITTER_PLAN.md"},
     "views": {"title": "Report views", "group": "Report",
         "what": "Convergence: best score so far. Surrogate: the GP's prediction and uncertainty "
                 "across two recipe parameters. Trajectory: every recipe tried. Level set: the "

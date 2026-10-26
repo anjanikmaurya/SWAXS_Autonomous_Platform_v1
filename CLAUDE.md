@@ -78,6 +78,8 @@ SWAXS_Autonomous_Platform_v1/
 │   ├── quality/core.py         # grade_profile, score_metrics
 │   ├── analysis/               # core.py · io.py · atsas.py · nanoparticle.py · guidelines.py
 │   ├── fitting/                # fitter registry: ls_sphere · ml_regressor · llm_assisted
+│   │                           #   · fit_knowledge.py (what the AI fitter reads: Guinier's
+│   │                           #   sources + this project's notes and judged fits)
 │   ├── optimizer/              # campaign.py · space.py · gp.py · io.py · study.py
 │   │                           #   · intake_rules.py (held results, starting-recipe checks)
 │   │                           #   · guide.py (the Analyser's Guide tab)
@@ -147,7 +149,7 @@ monitor loop, `src.runstate`. Apps without their own folder browser import
 | `background` | `src.background.core` (subtraction maths), `src.backlog`, `src.manifest`, `src.utils.read_dat_metadata`, `src.reactor.intake` (decide_intake), `src.loop_naming` |
 | `quality` | `src.quality` (grade_profile, score_metrics), `src.manifest`, `src.utils.read_dat_metadata` |
 | `analysis` | `src.analysis.core`, `src.analysis.io`, `src.analysis.atsas`, `src.manifest`, `src.utils.read_dat_metadata` |
-| `analyzer` | `src.analysis.nanoparticle`, `src.fitting`, `src.optimizer` (campaign, methods, study, io, diagnostics, plots, intake_rules, guide, ai_design), `src.design_knowledge`, `src.ai.loop_advice`, `src.reactor` (load_config, intake, recipe), `src.simulator.ground_truth`, `src.plot_lock`, `src.operator_id`, `src.manifest` |
+| `analyzer` | `src.analysis.nanoparticle`, `src.fitting` (incl. `fit_knowledge`), `src.optimizer` (campaign, methods, study, io, diagnostics, plots, intake_rules, guide, ai_design), `src.design_knowledge`, `src.ai.loop_advice`, `src.reactor` (load_config, intake, recipe), `src.simulator.ground_truth`, `src.plot_lock`, `src.operator_id`, `src.manifest` |
 | `reactor` | `src.reactor` (ReactorController, load_config, checks, config, recipe, intake), `src.loop_naming`, `src.manifest`; `src.beamline` only indirectly, via `src/reactor/controller.py`; no longer imports `src.notify` (moved to watchdog) |
 | `assistant` | `src.ai.assistant`, `src.ai.hints` |
 | `watchdog` | `src.watchdog` (policy, settings, transport, messages, expectations, probes, diagnose), `src.loop_naming` |
@@ -205,6 +207,7 @@ Apps read and write data from a user-selected project folder:
 │   ├── WAXS/                       # same tree
 ├── config.yml                      # reduction configuration
 ├── reactor_limits.json             # persisted pump limits / calibration
+├── fit_knowledge.json              # AI fitter: project notes, judged fits, settings (Analyser)
 ├── manifest.db                     # cross-app provenance (SQLite, source of truth)
 ├── manifest.json                   # JSON export of the same, written on every save
 ├── .manifest_snapshots/            # rotating manifest.db snapshots

@@ -24,6 +24,11 @@
 > login, so it is run on the operator's machine (command in
 > `docs/benchmarks/FITTER_BENCHMARK_2026-10.md`).
 > Phase 5 is NEVER BUILT yet.
+> Knowledge, 2026-10-25: the bundle is now chosen per campaign in the Analyser
+> (`src/fitting/fit_knowledge.py`): Guinier's sources part by part, plus this
+> project's notes and judged fits, frozen at Start with a hash, with a
+> with/without evaluation on the project's judged curves. Without a snapshot the
+> fixed bundle below is used unchanged.
 
 ## Goal
 

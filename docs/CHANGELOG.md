@@ -7,6 +7,25 @@ this file is the running summary. Dates are when the work landed on `main`.
 
 ## October 2026
 
+### Analyser: knowledge for the AI fitter
+
+- Setup step 3, with **AI-assisted structure**, now chooses what the AI fitter
+  reads: **Guinier's knowledge** part by part (model catalogue, always; operator
+  corrections; group SOPs; SAXS guidelines; literature passages found per curve,
+  when the index is built; expert cases) and **this project's knowledge**
+  (`<project>/fit_knowledge.json`): your notes and your judged fits.
+- **Fitting tab**: Right / Wrong-model call under the plot, with the right
+  catalogue model and a note. For each new curve the AI sees the most similar
+  judged curves (never its own). Repeated corrections draft a note that waits for
+  approval.
+- Frozen at Start with a content hash; every fit records the version and what it
+  used. Without a snapshot the fitter behaves exactly as before.
+- **Knowledge, Fitting knowledge**: Project notes, Judged fits, and Fitting
+  evaluation (refits the judged curves with Catalogue + BIC and with the AI given
+  Guinier's knowledge only, plus notes, plus notes and judged fits; leave one
+  out; approve-only improvement that must also win on the held-out half).
+  `src/fitting/fit_knowledge.py`; tests `tests/test_fit_knowledge.py`.
+
 ### Analyser: choose the Claude model and thinking; test the AI connection
 
 - The Analyser (and the AI fitter, knowledge drafting and loop advice) now log in
