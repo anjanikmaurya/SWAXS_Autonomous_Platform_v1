@@ -143,11 +143,17 @@ recorded only. The status line shows each recipe being collected. 0 min keeps
 the old rule (the first batch trains the model at once).
 
 With **AI-assisted structure**, each live profile is fitted at once with
-Catalogue + BIC, so the loop never waits on the AI; the AI fit then runs in a
-background worker (one at a time, queue of 200) and replaces the result, and the
-batch value the model will learn if the recipe is still being collected. The
-status line counts the AI refits waiting. Analyse existing profiles still uses
-the AI fit directly.
+Catalogue + BIC (seconds), and the AI fit then runs in a background worker (one
+at a time, queue of 200). The design loop learns from the **better of the two
+fits**: the AI fit replaces the quick one only when the statistics prefer it
+(lower BIC on the same data, the rule the fitters use between models); a losing
+AI proposal is kept beside the result (`ai_refit`) and logged. The model does not
+learn before the profile's AI fit has finished (at most 10 min from the profile,
+`SWAXS_AI_REFIT_MAX_WAIT_S`; after that the quick fit is used and the AI fit is
+recorded only). With one profile per recipe this means: the model learns at the
+later of 3 min after the run ended and the AI fit finishing. The status line
+counts the AI fits still running. Analyse existing profiles still uses the AI fit
+directly.
 
 Knowledge tests (design loop and fitter Evaluation) are refused while a campaign
 runs, so they never compete with live fitting.

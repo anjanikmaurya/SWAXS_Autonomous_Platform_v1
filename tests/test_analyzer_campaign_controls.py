@@ -495,3 +495,63 @@ def test_knowledge_tests_are_refused_while_a_campaign_runs(an, tmp_path, monkeyp
     r = cl.post(f"/api/knowledge/set/{sid}/fitter/evaluate")
     assert r.status_code == 409 and "after" in r.get_json()["error"]
     assert cl.post(f"/api/knowledge/set/{sid}/evaluate", json={}).status_code == 409
+
+
+# ── the design loop learns from the BEST fit of the profile ─────────────────
+def _fake_fitters(an, monkeypatch, ai_bic, quick_bic=100.0, ai_delay=0.0):
+    import time as _t
+    from types import SimpleNamespace
+
+    def fake_get(fid):
+        def fit(q, I, sigma=None, **kw):
+            ai = fid == "llm_assisted"
+            if ai and ai_delay:
+                _t.sleep(ai_delay)
+            return {"size": {"radius": 4.0 if ai else 3.0}, "pdi": 0.07,
+                    "confidence": 0.9 if ai else 0.6, "model": "core_shell_sphere" if ai else "sphere",
+                    "fit": {"bic": ai_bic if ai else quick_bic},
+                    "llm_structure": {"status": "ai"} if ai else {}, "llm_assist": {"summary": "s", "flags": []}}
+        return SimpleNamespace(fit=fit)
+    monkeypatch.setattr(an.fitting, "get", fake_get)
+
+
+def _profile(tmp_path, rid):
+    import numpy as np
+    sub = tmp_path / "1D" / "SAXS" / "Subtracted"
+    sub.mkdir(parents=True, exist_ok=True)
+    f = sub / f"{rid}_SAXS_subtracted.dat"
+    q = np.geomspace(0.05, 5, 80)
+    f.write_text("\n".join(f"{a:.6g} {1 / (1 + (a * 3) ** 4):.6g} 0.01" for a in q))
+    return f
+
+
+def test_an_ai_fit_that_fits_worse_does_not_replace_the_quick_fit(an, tmp_path, monkeypatch):
+    _cl, rid = _settle_campaign(an)
+    an._active_fitter = "llm_assisted"
+    _fake_fitters(an, monkeypatch, ai_bic=250.0)          # worse than the quick fit's 100
+    f = _profile(tmp_path, rid)
+    an._analyze_file(f)
+    an._ai_fit_wait(30)
+    item = an._batches[rid]["items"][f.name]
+    assert item["size"] == 3.0 and item["model"] == "sphere"            # the better fit stays
+    full = an._results[f.name]["full"]
+    assert full["ai_refit"]["model"] == "core_shell_sphere" and full["ai_refit"]["bic"] == 250.0
+
+
+def test_the_model_learns_only_after_the_ai_refit(an, tmp_path, monkeypatch):
+    import time as _t
+    _cl, rid = _settle_campaign(an)
+    an._active_fitter = "llm_assisted"
+    _fake_fitters(an, monkeypatch, ai_bic=50.0, ai_delay=0.6)          # better, and slow
+    fb = tmp_path / "reactor" / "feedback"
+    fb.mkdir(parents=True, exist_ok=True)
+    (fb / f"{rid}.done.json").write_text("{}")
+    f = _profile(tmp_path, rid)
+    an._analyze_file(f)
+    an._batches[rid]["last"] = _t.time() - 600                          # settled long ago
+    an._settle_tick()
+    assert len(an._campaign.history) == 0, "must wait for the AI refit"
+    an._ai_fit_wait(30)
+    an._settle_tick()
+    h = an._campaign.history[-1]
+    assert h["size"] == 4.0 and h["model"] == "core_shell_sphere"

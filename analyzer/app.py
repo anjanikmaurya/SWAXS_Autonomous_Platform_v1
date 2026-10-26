@@ -1211,6 +1211,12 @@ def _settle_tick() -> None:
                 _batches.pop(rid, None)
                 continue
             quiet = now - b["last"]
+            # the design loop learns from the BEST fit: wait for a profile's AI
+            # refit (at most _AI_REFIT_MAX_WAIT_S from its first profile)
+            refit_wait = (any(n in _refits_pending for n in b["items"])
+                          and (now - b["first"]) < _AI_REFIT_MAX_WAIT_S)
+            if refit_wait:
+                continue
             if (quiet >= settle and _run_done(rid)) or (now - b["first"]) >= _BATCH_MAX_WAIT_S:
                 _finalize_batches(rid, why="settled" if quiet >= settle else "max wait")
                 told = True
@@ -1587,7 +1593,8 @@ def _feed_campaign(name: str, res: dict) -> None:
             b = _batches.setdefault(rid, {"first": time.time(), "last": time.time(), "items": {}})
             refit = name in b["items"]
             b["items"][name] = it
-            b["last"] = time.time()
+            if not refit:                # an AI refit does not restart the settle time
+                b["last"] = time.time()
             bn, _bi = _best_batch(b["items"])
             _emit(f"📥 {rid}: {'AI refit of' if refit else 'batch'} {name} conf={it['confidence']:.2f} "
                   f"({len(b['items'])} so far, best {bn == name and 'this one' or bn}); "
@@ -1869,6 +1876,8 @@ def _analyze_file(path: Path, drive_loop: bool = True, _refine: bool = False) ->
     except Exception as exc:
         _emit(f"✗ {path.name}: {exc}", "error")
         return
+    if _refine and not _ai_refit_wins(path.name, res):
+        return                                   # the quick fit stays: it fits better
     # model overlay for the plot (only when a real form-factor fit succeeded)
     q = np.asarray(q, float); I = np.asarray(I, float)
     m = np.isfinite(q) & np.isfinite(I) & (q > 0) & (I > 0)
@@ -1997,6 +2006,42 @@ def _analyze_file(path: Path, drive_loop: bool = True, _refine: bool = False) ->
         _emit(f"⚠ could not publish fit.complete: {exc}", "warn")
 
 
+def _bic_of(res: dict):
+    try:
+        v = (res.get("fit") or {}).get("bic")
+        return float(v) if v is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _ai_refit_wins(name: str, ai_res: dict) -> bool:
+    """The design loop gets the BEST fit of a profile: the AI refit replaces the
+    quick Catalogue + BIC fit only when the statistics prefer it (lower BIC on the
+    same data), as the fitters themselves decide between models. A refit that
+    loses is kept beside the result for the record. Without a BIC on either side
+    the AI fit is used when it really ran (it saw the knowledge)."""
+    with _results_lock:
+        prev = _results.get(name)
+    if not prev:
+        return True
+    pb, ab = _bic_of(prev.get("full") or {}), _bic_of(ai_res)
+    ran = (ai_res.get("llm_structure") or {}).get("status") == "ai"
+    wins = (ab < pb) if (pb is not None and ab is not None) else ran
+    if not wins:
+        prev.setdefault("full", {})["ai_refit"] = {
+            "model": ai_res.get("model"), "bic": ab, "confidence": ai_res.get("confidence"),
+            "status": (ai_res.get("llm_structure") or {}).get("status"),
+            "summary": (ai_res.get("llm_assist") or {}).get("summary")}
+        prev["full"].pop("refining", None)
+        _emit(f"🧩 {name}: the AI proposal ({ai_res.get('model')}, BIC {ab if ab is None else round(ab, 1)}) "
+              f"did not fit better than Catalogue + BIC ({(prev.get('summary') or {}).get('model')}, "
+              f"BIC {pb if pb is None else round(pb, 1)}); the design loop keeps the better fit", "info")
+    else:
+        _emit(f"🧩 {name}: AI fit {ai_res.get('model')} replaces the quick fit"
+              + (f" (BIC {round(ab, 1)} < {round(pb, 1)})" if (ab is not None and pb is not None) else ""), "info")
+    return wins
+
+
 # ── AI-assisted refits in the background (audit AN3) ─────────────────────────
 import queue as _queue                                                  # noqa: E402
 _AI_FIT_QUEUE_MAX = 200
@@ -2004,9 +2049,14 @@ _ai_fit_q: "_queue.Queue" = _queue.Queue(maxsize=_AI_FIT_QUEUE_MAX)
 _ai_fit_thread: dict = {"t": None}
 
 
+_refits_pending: set = set()      # profile names whose AI refit has not finished
+_AI_REFIT_MAX_WAIT_S = float(os.environ.get("SWAXS_AI_REFIT_MAX_WAIT_S", 600.0))
+
+
 def _queue_ai_fit(path: Path) -> None:
     try:
         _ai_fit_q.put_nowait(str(path))
+        _refits_pending.add(Path(path).name)
     except _queue.Full:
         _emit(f"⚠ AI refit queue full ({_AI_FIT_QUEUE_MAX}); {Path(path).name} keeps its Catalogue + BIC fit", "warn")
         return
@@ -2030,7 +2080,9 @@ def _ai_fit_worker() -> None:
             _emit(f"⚠ AI refit of {Path(p).name} failed ({type(exc).__name__}: {exc}); "
                   f"the Catalogue + BIC fit stands", "warn")
         finally:
+            _refits_pending.discard(Path(p).name)
             _ai_fit_q.task_done()
+            _settle_tick()               # the recipe may now be ready to learn
 
 
 def _ai_fit_wait(timeout: float = 60.0) -> None:
@@ -2675,7 +2727,7 @@ def _campaign_status() -> dict:
                          "best_conf": round(_best_batch(b["items"])[1]["confidence"], 2) if b.get("items") else None,
                          "quiet_s": round(_now - b.get("last", _now)), "run_done": _run_done(rid)}
                         for rid, b in list(_batches.items())]
-    st["ai_fits_waiting"] = _ai_fit_q.qsize() if "_ai_fit_q" in globals() else 0
+    st["ai_fits_waiting"] = len(_refits_pending) if "_refits_pending" in globals() else 0
     return st
 
 

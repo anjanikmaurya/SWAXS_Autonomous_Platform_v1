@@ -24,6 +24,9 @@ this file is the running summary. Dates are when the work landed on `main`.
   options, default 3 min), then the model learns once from the best batch; the AI
   fitter no longer holds up the loop (Catalogue + BIC at once, the AI refines in
   the background); knowledge tests wait until a campaign has finished.
+- The design loop learns from the better fit of each profile: it waits for the
+  AI fit (at most 10 min), which replaces the quick Catalogue + BIC fit only when
+  its BIC is lower.
 
 ### Analyser: clearer Setup, named knowledge bases with a Fitter part
 
