@@ -2136,6 +2136,7 @@ function renderCampaign(c){
   (c.collecting||[]).forEach(b=>{ txt += ` · ${b.recipe_id}: ${b.n} batch(es), best conf ${num(b.best_conf,2)}, `
     + (b.run_done ? `learns when no batch comes for ${Math.round((c.batch_settle_s||0)/60)} min` : 'waiting for the run to end'); });
   if(c.ai_fits_waiting) txt += ` · ${c.ai_fits_waiting} AI refit(s) running in the background`;
+  if(c.ai_fitter && !c.ai_fitter.allowed) txt += ` · AI FITTER PAUSED: ${c.ai_fitter.why}`;
   $('c_status').textContent=txt;
   $('c_status').style.color = c.conditions_folder_mismatch ? 'var(--err-text)' : '';
   $('r_status').textContent = `${label} · ${c.n_evaluations} of ${c.budget} runs · ${txt}`;

@@ -41,7 +41,9 @@ PROMPT_VERSION = "1"
 MAX_CANDIDATES = 3
 MAX_EXTRA = 2
 CHECK_CHI2 = 2.0
-TIMEOUT_S = 60.0
+TIMEOUT_S = 45.0          # per AI call, and the client does not retry: a stuck call
+                          # costs at most this, never minutes of retries
+DEADLINE_S = 90.0         # no second AI round once the fit has taken this long
 ALLOWED_FLAGS = ("aggregation_upturn", "interparticle_interference", "polydisperse",
                  "possible_mixture", "subtraction_issue", "low_q_missing",
                  "high_q_missing", "low_signal", "ambiguous_model")
@@ -153,6 +155,11 @@ def _ask(client, bundle: str, user_text: str, png: str | None) -> tuple[dict | N
     system = [{"type": "text", "text": SYSTEM},
               {"type": "text", "text": "# Knowledge bundle\n\n" + bundle,
                "cache_control": {"type": "ephemeral"}}]
+    if hasattr(client, "with_options"):            # no automatic retries for the fitter
+        try:
+            client = client.with_options(max_retries=0)
+        except Exception:                           # noqa: BLE001
+            pass
     resp = client.messages.create(model=_ai_model(), max_tokens=900, system=system,
                                   messages=[{"role": "user", "content": content}],
                                   timeout=TIMEOUT_S)
@@ -392,7 +399,8 @@ class LLMStructure:
                 for c in cands]
         ranked = sorted((f for f in fits if "error" not in f), key=lambda f: f["bic"])
 
-        if ranked and ranked[0]["chi2"] > CHECK_CHI2 and extra is None and not info["cached"]:
+        if (ranked and ranked[0]["chi2"] > CHECK_CHI2 and extra is None and not info["cached"]
+                and time.perf_counter() - t0 < DEADLINE_S):
             client = self._client_factory()
             if client is not None:
                 try:

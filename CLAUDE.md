@@ -80,6 +80,7 @@ SWAXS_Autonomous_Platform_v1/
 │   ├── fitting/                # fitter registry: ls_sphere · ml_regressor · llm_assisted
 │   │                           #   · fit_knowledge.py (what the AI fitter reads: the Fitter part
 │   │                           #   of a knowledge base: Guinier's sources, notes, judged fits)
+│   │                           #   · ai_guard.py (AI fitter circuit breaker + call budget)
 │   ├── optimizer/              # campaign.py · space.py · gp.py · io.py · study.py
 │   │                           #   · intake_rules.py (held results, starting-recipe checks)
 │   │                           #   · guide.py (the Analyser's Guide tab)

@@ -1578,8 +1578,8 @@ def _feed_campaign(name: str, res: dict) -> None:
             # operator never saw; surface it (once) so the loop's blind spot shows.
             carried = recipe_id_from_filename(name)
             if carried and carried in _told_recently:
-                _emit(f"ℹ {name}: another batch of {carried}, which the model has already "
-                      f"learned; recorded, not used", "info")
+                _emit(f"ℹ {name}: arrived after {carried} was already learned (a late AI "
+                      f"fit or another batch); recorded, not used by the design loop", "info")
                 return
             if carried:
                 _emit(f"⚠ measured profile {name} carries recipe_id "
@@ -1868,9 +1868,18 @@ def _analyze_file(path: Path, drive_loop: bool = True, _refine: bool = False) ->
         # collecting batches, the value the model will learn).
         _defer = (_active_fitter == "llm_assisted" and drive_loop and not _refine)
         _fid = "catalogue_bic" if _defer else _active_fitter
+        if _fid == "llm_assisted" and not _ai_guard.allow()[0]:
+            _guard_note()
+            _fid = "catalogue_bic"               # AI paused or over budget: no AI call
+            if _refine:
+                return
         _fo = {"fit_knowledge": _fk_snapshot()} if _fid == "llm_assisted" else {}
+        _t_fit = time.time()
         res = fitting.get(_fid).fit(q, I, sigma, dist="auto", path=str(path),
                                     project_root=_project_root, **_fo)
+        if _fid == "llm_assisted":
+            _ai_guard.record(res.get("llm_structure"), time.time() - _t_fit)
+            _guard_note()
         if _defer:
             res["refining"] = True
     except Exception as exc:
@@ -2044,16 +2053,30 @@ def _ai_refit_wins(name: str, ai_res: dict) -> bool:
 
 # ── AI-assisted refits in the background (audit AN3) ─────────────────────────
 import queue as _queue                                                  # noqa: E402
-_AI_FIT_QUEUE_MAX = 200
+_AI_FIT_QUEUE_MAX = 20
 _ai_fit_q: "_queue.Queue" = _queue.Queue(maxsize=_AI_FIT_QUEUE_MAX)
 _ai_fit_thread: dict = {"t": None}
 
 
 _refits_pending: set = set()      # profile names whose AI refit has not finished
-_AI_REFIT_MAX_WAIT_S = float(os.environ.get("SWAXS_AI_REFIT_MAX_WAIT_S", 600.0))
+_AI_REFIT_MAX_WAIT_S = float(os.environ.get("SWAXS_AI_REFIT_MAX_WAIT_S", 180.0))
+from src.fitting.ai_guard import AIGuard                                # noqa: E402
+_ai_guard = AIGuard()
+
+
+def _guard_note() -> None:
+    ch = _ai_guard.state_change()
+    if ch:
+        _emit(("⛔ AI fitter " + ch + ". Check the AI login (Setup, Test AI connection) "
+               "and the log.") if ch.startswith("paused") else "✅ AI fitter allowed again",
+              "error" if ch.startswith("paused") else "ok")
 
 
 def _queue_ai_fit(path: Path) -> None:
+    ok, why = _ai_guard.allow()
+    if not ok:                                   # paused or over budget: no AI call, no token
+        _guard_note()
+        return
     try:
         _ai_fit_q.put_nowait(str(path))
         _refits_pending.add(Path(path).name)
@@ -2074,7 +2097,18 @@ def _ai_fit_worker() -> None:
         except _queue.Empty:
             return                               # idle: the next refit starts a new worker
         try:
-            if _active_fitter == "llm_assisted" and Path(p).is_file():
+            rid = (match_recipe_id(Path(p).name, list(_told_recently))
+                   or recipe_id_from_filename(Path(p).name))
+            ok, _why = _ai_guard.allow()
+            if not ok:
+                _guard_note()
+            elif rid and _campaign_running() and rid in _told_recently and rid not in _batches:
+                # its recipe was already learned (the AI took longer than the
+                # cap): the AI fit can no longer help the design loop, so spend
+                # no tokens on it
+                _emit(f"⏭ AI refit of {Path(p).name} skipped: its recipe was already learned "
+                      f"from the quick fit", "info")
+            elif _active_fitter == "llm_assisted" and Path(p).is_file():
                 _analyze_file(Path(p), drive_loop=True, _refine=True)
         except Exception as exc:                  # noqa: BLE001
             _emit(f"⚠ AI refit of {Path(p).name} failed ({type(exc).__name__}: {exc}); "
@@ -2728,6 +2762,8 @@ def _campaign_status() -> dict:
                          "quiet_s": round(_now - b.get("last", _now)), "run_done": _run_done(rid)}
                         for rid, b in list(_batches.items())]
     st["ai_fits_waiting"] = len(_refits_pending) if "_refits_pending" in globals() else 0
+    if _active_fitter == "llm_assisted" and "_ai_guard" in globals():
+        st["ai_fitter"] = _ai_guard.status()
     return st
 
 

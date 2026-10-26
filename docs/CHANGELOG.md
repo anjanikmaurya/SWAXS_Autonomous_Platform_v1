@@ -27,6 +27,11 @@ this file is the running summary. Dates are when the work landed on `main`.
 - The design loop learns from the better fit of each profile: it waits for the
   AI fit (at most 10 min), which replaces the quick Catalogue + BIC fit only when
   its BIC is lower.
+- AI fitter safety: the design loop waits at most 3 min for an AI fit; each AI
+  call times out after 45 s with no retries; after 3 failed AI fits in a row
+  (errors, timeouts, unusable or hallucinated answers, very slow fits) the AI
+  fitter pauses for 30 min (Catalogue + BIC only, no tokens); at most 60 AI calls
+  an hour; refits too late to help are skipped (`src/fitting/ai_guard.py`).
 
 ### Analyser: clearer Setup, named knowledge bases with a Fitter part
 

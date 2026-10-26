@@ -148,15 +148,35 @@ at a time, queue of 200). The design loop learns from the **better of the two
 fits**: the AI fit replaces the quick one only when the statistics prefer it
 (lower BIC on the same data, the rule the fitters use between models); a losing
 AI proposal is kept beside the result (`ai_refit`) and logged. The model does not
-learn before the profile's AI fit has finished (at most 10 min from the profile,
-`SWAXS_AI_REFIT_MAX_WAIT_S`; after that the quick fit is used and the AI fit is
-recorded only). With one profile per recipe this means: the model learns at the
-later of 3 min after the run ended and the AI fit finishing. The status line
+learn before the profile's AI fit has finished, but it waits at most 3 min from
+the profile (`SWAXS_AI_REFIT_MAX_WAIT_S`); after that the quick fit is used. With
+one profile per recipe the model therefore learns 3 min after the profile
+arrives, from the AI fit if it was done and better, else from the quick fit. The status line
 counts the AI fits still running. Analyse existing profiles still uses the AI fit
 directly.
 
 Knowledge tests (design loop and fitter Evaluation) are refused while a campaign
 runs, so they never compete with live fitting.
+
+### Safety: when the AI fitter is wrong, stuck or broken
+
+The AI is never trusted with a number, and it can never stall the loop or run up
+the token bill (`src/fitting/ai_guard.py`, `src/fitting/llm_structure.py`):
+
+| Case | What happens |
+|---|---|
+| **Hallucination** (shapes not in the catalogue, unreadable or empty answer) | Off-catalogue shapes are dropped; an answer with nothing usable falls back to Catalogue + BIC (status `fallback_invalid_answer`). A plausible but wrong shape is fitted like any other and loses on BIC; the design loop always gets the lower-BIC fit. |
+| **Stuck or slow** | Each AI call times out after 45 s, with no automatic retries; a second AI round is skipped once the fit has taken 90 s. The design loop waits at most 3 min for an AI fit, then uses the quick fit; a refit that would arrive after its recipe was learned is skipped (no tokens spent). A fit slower than 150 s counts as a failure. |
+| **Broken** (no login, gateway down, errors) | Falls back to Catalogue + BIC at once. |
+| **Repeated failures** | After 3 failed AI fits in a row (any case above), the AI fitter **pauses for 30 min**: every profile gets Catalogue + BIC only, no AI call, no token. The log says why (once) and the status line shows "AI FITTER PAUSED". After the pause one trial fit is made; another failure pauses again, a good fit clears it. |
+| **Runaway use** | At most 60 AI calls per hour (`SWAXS_FITTER_AI_MAX_PER_HOUR`); above that the AI is skipped until the hour rolls over. Each call is capped at 900 output tokens, and an AI fit makes at most 2 calls. Cached answers cost nothing. |
+| **Backlog** | At most 20 AI refits wait; beyond that a profile keeps its Catalogue + BIC fit. |
+
+Settings: `SWAXS_FITTER_AI_MAX_FAILURES` (3), `SWAXS_FITTER_AI_COOLDOWN_S` (1800),
+`SWAXS_FITTER_AI_SLOW_S` (150). The pause lives in memory: a restart allows one
+trial fit again. The AI next-recipe levels have their own guards (validation,
+the optimiser's pick as fallback, 45 s timeouts, every decision logged); see
+"AI next-recipe levels".
 
 ### Fitting tab
 

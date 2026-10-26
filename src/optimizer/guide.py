@@ -196,6 +196,20 @@ PAGES = {
         "not": "A way to force a model: the data still decide. Text from notes, papers and cases is "
                "passed as data, never as instructions.",
         "refs": "src/fitting/fit_knowledge.py · docs/design/LLM_FITTER_PLAN.md"},
+    "ai_safety": {"title": "When the AI fitter is wrong, stuck or broken", "group": "Fitting",
+        "what": "The AI only names shapes; physics fits them and BIC chooses, so a wrong (hallucinated) "
+                "shape loses to a better one, and shapes outside the catalogue are dropped. Each AI "
+                "call times out after 45 s with no retries; the design loop waits at most 3 min for an "
+                "AI fit, then uses the quick Catalogue + BIC fit. After 3 failed AI fits in a row "
+                "(errors, timeouts, unusable answers, fits over 150 s) the AI fitter pauses for 30 min "
+                "and every profile gets Catalogue + BIC only, with no AI call and no token spent; the "
+                "status line says AI FITTER PAUSED and why. At most 60 AI calls an hour.",
+        "maths": "pause after 3 failures in a row, for 30 min; then one trial fit\n"
+                 "per call: 45 s, no retries, at most 900 output tokens; at most 2 calls per fit\n"
+                 "design loop waits at most 3 min for the AI fit",
+        "when": "Always on with AI-assisted structure; nothing to set. Limits can be changed with the "
+                "SWAXS_FITTER_AI_* settings.",
+        "refs": "src/fitting/ai_guard.py · src/fitting/llm_structure.py"},
     "views": {"title": "Report views", "group": "Report",
         "what": "Convergence: best score so far. Surrogate: the GP's prediction and uncertainty "
                 "across two recipe parameters. Trajectory: every recipe tried. Level set: the "
