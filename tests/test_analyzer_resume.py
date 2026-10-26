@@ -267,8 +267,11 @@ def test_fit_recs_collapse_to_one_per_recipe(tmp_path, monkeypatch):
     recs = az._fit_recs_by_recipe(fit_recs)
     rids = sorted(r["recipe_id"] for r in recs)
     assert rids == ["Run8_r004", "Run8_r005"]   # 2 distinct recipes, not 7 files
-    # first (oldest) record per recipe is kept
-    assert next(r for r in recs if r["recipe_id"] == "Run8_r004")["written"] == "01"
+    # the highest-confidence record per recipe is kept, the latest on a tie,
+    # as the live loop now does (audit AN2)
+    assert next(r for r in recs if r["recipe_id"] == "Run8_r004")["written"] == "04"
+    best = az._fit_recs_by_recipe([dict(fit_recs[0], confidence=0.9), *fit_recs[1:4]])
+    assert best[0]["written"] == "01"
 
 
 # ── 2. Continue an incomplete Run9 ─────────────────────────────────────────────

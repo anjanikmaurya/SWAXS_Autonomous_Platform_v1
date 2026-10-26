@@ -363,3 +363,135 @@ def test_continue_refuses_when_the_fitter_is_missing(an, monkeypatch):
     with pytest.raises(RuntimeError, match="no_such_fitter"):
         an._continue_run()
     assert an._campaign is None and an._active_fitter == "ls_sphere"
+
+
+# ── which batch trains the model (audit AN2 / O7) ────────────────────────────
+def _settle_campaign(an, settle=60.0):
+    an._BATCH_SETTLE_S = settle
+    cl = an.app.test_client()
+    assert cl.post("/api/campaign/start", json={
+        "target_size": 2.5, "tolerance": 0.3, "pdi_cap": 0.1, "budget": 20, "n_init": 3}).get_json()["ok"]
+    return cl, next(iter(an._pending))
+
+
+def _res(r, conf, model="sphere"):
+    return {"size": {"radius": r}, "pdi": 0.08, "confidence": conf, "model": model}
+
+
+def test_batches_settle_then_the_best_one_trains_the_model(an, tmp_path):
+    import time as _t
+    cl, rid = _settle_campaign(an)
+    for i, (r, c) in enumerate(((3.0, 0.5), (3.4, 0.9), (3.2, 0.7)), 1):
+        an._feed_campaign(f"{rid}_batch{i:03d}_SAXS_subtracted.dat", _res(r, c))
+    assert len(an._campaign.history) == 0 and len(an._batches[rid]["items"]) == 3
+    st = cl.get("/api/campaign").get_json()
+    assert st["collecting"][0]["recipe_id"] == rid and st["collecting"][0]["n"] == 3
+    an._settle_tick()                                   # run not ended yet: keep waiting
+    assert len(an._campaign.history) == 0
+    fb = tmp_path / "reactor" / "feedback"
+    fb.mkdir(parents=True)
+    (fb / f"{rid}.done.json").write_text("{}")
+    an._settle_tick()                                   # ended, but a batch came just now
+    assert len(an._campaign.history) == 0
+    an._batches[rid]["last"] = _t.time() - 61
+    an._settle_tick()
+    h = an._campaign.history[-1]
+    assert len(an._campaign.history) == 1 and h["size"] == 3.4 and h["recipe_id"] == rid
+    assert h["source_file"].endswith("batch002_SAXS_subtracted.dat")
+    assert rid not in an._pending and rid not in an._batches and len(an._pending) == 1
+    # a straggler batch of a recipe already learned is recorded, not used
+    an._feed_campaign(f"{rid}_batch004_SAXS_subtracted.dat", _res(9.9, 0.99))
+    assert len(an._campaign.history) == 1
+
+
+def test_a_tie_goes_to_the_latest_batch_and_no_marker_means_max_wait(an):
+    import time as _t
+    _cl, rid = _settle_campaign(an)
+    an._feed_campaign(f"{rid}_batch001_SAXS_subtracted.dat", _res(3.0, 0.8))
+    an._feed_campaign(f"{rid}_batch002_SAXS_subtracted.dat", _res(3.3, 0.8))
+    an._batches[rid]["items"][f"{rid}_batch001_SAXS_subtracted.dat"]["t"] -= 5
+    an._settle_tick()
+    assert len(an._campaign.history) == 0               # no done marker, not yet max wait
+    an._batches[rid]["first"] = _t.time() - an._BATCH_MAX_WAIT_S - 1
+    an._settle_tick()
+    assert an._campaign.history[-1]["size"] == 3.3
+
+
+def test_a_timed_out_condition_with_batches_is_told_not_failed(an):
+    import time as _t
+    _cl, rid = _settle_campaign(an)
+    an._feed_campaign(f"{rid}_batch001_SAXS_subtracted.dat", _res(3.1, 0.7))
+    an._pending_at[rid] = _t.time() - an._PENDING_TIMEOUT_S - 1
+    an._expire_pending()
+    h = an._campaign.history[-1]
+    assert h["size"] == 3.1 and not h.get("expired")
+
+
+def test_collected_batches_survive_a_restart(tmp_path, monkeypatch):
+    pytest.importorskip("scipy")
+    (tmp_path / "1D" / "SAXS" / "Conditions").mkdir(parents=True)
+    monkeypatch.setenv("SWAXS_PROJECT", str(tmp_path))
+    monkeypatch.setenv("SWAXS_RESUME", "1")
+    monkeypatch.setenv("SWAXS_BATCH_SETTLE_S", "60")
+    a1 = _load("an_batch_r1")
+    _cl, rid = _settle_campaign(a1)
+    a1._feed_campaign(f"{rid}_batch001_SAXS_subtracted.dat", _res(3.6, 0.85))
+    a2 = _load("an_batch_r2")
+    a2._restore_campaign()
+    assert list(a2._batches[rid]["items"].values())[0]["size"] == 3.6
+
+
+def test_settle_time_from_setup_and_zero_keeps_the_first_batch_rule(an):
+    cl = an.app.test_client()
+    bad = cl.post("/api/campaign/start", json={"target_size": 2.5, "tolerance": 0.3, "pdi_cap": 0.1,
+                                               "budget": 20, "n_init": 3, "batch_settle_s": 99999})
+    assert bad.status_code == 400 and "settle" in bad.get_json()["error"]
+    assert cl.post("/api/campaign/start", json={"target_size": 2.5, "tolerance": 0.3, "pdi_cap": 0.1,
+                                                "budget": 20, "n_init": 3, "batch_settle_s": 0}).get_json()["ok"]
+    an._BATCH_SETTLE_S = 600                             # the campaign's own 0 wins
+    rid = next(iter(an._pending))
+    an._feed_campaign(f"{rid}_batch001_SAXS_subtracted.dat", _res(3.0, 0.4))
+    assert len(an._campaign.history) == 1
+
+
+# ── AN3: a fast fit drives the loop, the AI refines in the background ────────
+def test_the_ai_fit_refines_in_the_background(an, tmp_path, monkeypatch):
+    import numpy as np
+    from types import SimpleNamespace
+    _cl, rid = _settle_campaign(an)
+    an._active_fitter = "llm_assisted"
+    seen = []
+
+    def fake_get(fid):
+        def fit(q, I, sigma=None, **kw):
+            seen.append(fid)
+            ai = fid == "llm_assisted"
+            return {"size": {"radius": 4.0 if ai else 3.0, "diameter": 8.0 if ai else 6.0},
+                    "pdi": 0.07, "confidence": 0.9 if ai else 0.6, "model": "sphere",
+                    "llm_structure": {"status": "ai"} if ai else {}, "llm_assist": {"summary": "", "flags": []}}
+        return SimpleNamespace(fit=fit)
+    monkeypatch.setattr(an.fitting, "get", fake_get)
+    sub = tmp_path / "1D" / "SAXS" / "Subtracted"
+    sub.mkdir(parents=True, exist_ok=True)
+    f = sub / f"{rid}_batch001_SAXS_subtracted.dat"
+    q = np.geomspace(0.05, 5, 80)
+    f.write_text("\n".join(f"{a:.6g} {1 / (1 + (a * 3) ** 4):.6g} 0.01" for a in q))
+    an._analyze_file(f)
+    assert seen[0] == "catalogue_bic"                  # the loop never waited on the AI
+    an._ai_fit_wait(30)
+    assert seen == ["catalogue_bic", "llm_assisted"]
+    item = an._batches[rid]["items"][f.name]
+    assert item["confidence"] == 0.9 and item["refined"] is True and len(an._batches[rid]["items"]) == 1
+    assert an._results[f.name]["summary"]["confidence"] == 0.9
+
+
+# ── AN4: knowledge tests wait for the campaign ───────────────────────────────
+def test_knowledge_tests_are_refused_while_a_campaign_runs(an, tmp_path, monkeypatch):
+    monkeypatch.setenv("SWAXS_DESIGN_KNOWLEDGE_DIR", str(tmp_path / "design"))
+    from src.design_knowledge import store
+    sid = store.create_set("Pd")["id"]
+    _cl, _rid = _settle_campaign(an)
+    cl = an.app.test_client()
+    r = cl.post(f"/api/knowledge/set/{sid}/fitter/evaluate")
+    assert r.status_code == 409 and "after" in r.get_json()["error"]
+    assert cl.post(f"/api/knowledge/set/{sid}/evaluate", json={}).status_code == 409

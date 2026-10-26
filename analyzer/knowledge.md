@@ -108,7 +108,8 @@ Numbered steps, top to bottom:
    made first.
 
 Case-by-case settings sit under **More options** in their step: Min fit
-confidence (Target & limits, default 0.5), optimiser tuning and AI settings
+confidence (Target & limits, default 0.5), **Wait for more batches** (Target &
+limits, default 3 min, 0 to 60), optimiser tuning and AI settings
 (Design loop), your own recipes (Starting recipes).
 
 The **Ready to start?** card on the right checks the folders, the search range,
@@ -125,6 +126,31 @@ diameter, Δ to target, Best PDI, Runs and a diameter-per-run chart.
 the search bounds (box, composition sum, each pump's flow window) and under the
 reactor's hard caps (`T_max`, `F_tot_max`); otherwise Start and Preview refuse
 with the reason, and nothing is cleared or started.
+
+### Which batch trains the model
+
+A recipe yields several batch profiles (the average app writes batch001,
+batch002, ...). The Analyser fits each one as it arrives, but the model learns
+from a recipe once: when the reactor has written `<recipe_id>.done.json` and no
+new batch has come for **Wait for more batches** (default 3 min), it uses the
+highest-confidence batch (the latest on a tie) and logs which one. Without a
+done marker it learns after 20 min from the first batch
+(`SWAXS_BATCH_MAX_WAIT_S`), so a missing marker never stalls the loop. A
+condition that times out with batches is learned from them, not scored as
+failed. The batches collected so far survive a restart, and Continue replays the
+same choice. A batch that arrives after its recipe was learned is fitted and
+recorded only. The status line shows each recipe being collected. 0 min keeps
+the old rule (the first batch trains the model at once).
+
+With **AI-assisted structure**, each live profile is fitted at once with
+Catalogue + BIC, so the loop never waits on the AI; the AI fit then runs in a
+background worker (one at a time, queue of 200) and replaces the result, and the
+batch value the model will learn if the recipe is still being collected. The
+status line counts the AI refits waiting. Analyse existing profiles still uses
+the AI fit directly.
+
+Knowledge tests (design loop and fitter Evaluation) are refused while a campaign
+runs, so they never compete with live fitting.
 
 ### Fitting tab
 

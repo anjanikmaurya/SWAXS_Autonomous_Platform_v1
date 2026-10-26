@@ -492,6 +492,8 @@ details.more>.more-b{margin-top:8px}
         <details class="more live-only"><summary>More options</summary><div class="more-b grid2">
           <div><label for="c_confmin" title="A fit below this confidence cannot be the answer or end the run; it still informs the model, with a low weight">Min fit confidence</label>
             <input id="c_confmin" type="number" value="0.5" step="0.05" min="0" max="1"></div>
+          <div><label for="c_settle" title="A recipe gives several batch profiles. The model learns once the reactor says the run ended and no new batch has come for this long, from the highest-confidence batch. 0 = learn from the first batch at once.">Wait for more batches (min)</label>
+            <input id="c_settle" type="number" value="3" step="0.5" min="0" max="60"></div>
         </div></details>
       </div>
 
@@ -1831,8 +1833,10 @@ async function startCampaign(){
   }
   const cm=+$('c_confmin').value;
   if(!(cm>=0&&cm<=1)){ $('c_status').textContent='✗ Min fit confidence must be between 0 and 1.'; return; }
+  const settle=+$('c_settle').value;
+  if(!(settle>=0&&settle<=60)){ $('c_status').textContent='✗ Wait for more batches must be 0 to 60 min.'; return; }
   const body={target_size, tolerance, pdi_cap:pdi, budget, confidence_min:cm,
-              goal:_goal, spec_units:'diameter', ...extra, ..._coldBody()};
+              goal:_goal, spec_units:'diameter', batch_settle_s:settle*60, ...extra, ..._coldBody()};
   body.method_params=collectOptParams();      // UCB kappa / TuRBO size / BAX tau, per the active optimiser
   if(_aiLevel){
     body.ai={level:_aiLevel, review_every:+(($('ai_review')||{}).value||0), apply:($('ai_apply')||{}).value||'auto',
@@ -2043,7 +2047,7 @@ function lockSetup(running){
   // would not affect the live run and only misleads. Lock them until it ends.
   _running=running;
   ['c_target','c_tol','c_dmin','c_dmax','c_pdi','c_budget','m_fitter','m_optimiser',
-   'c_shape','c_confmin','c_nspread','c_addown','k_set',
+   'c_shape','c_confmin','c_settle','c_nspread','c_addown','k_set',
    'ai_inner','ai_review','ai_apply','ai_model','ai_think'].forEach(id=>{
     const el=$(id); if(el) el.disabled=running; });
   document.querySelectorAll('#sidebar .nav-btn, #m_opt_params input, #fitList input, #optList input, #ownRows input, #ownRows button')
@@ -2129,6 +2133,9 @@ function renderCampaign(c){
   if(c.ai_busy && c.ai_busy.pick) txt += ' · the AI is choosing the next recipe';
   const nh=(c.held||[]).length;
   if(nh) txt += ` · ${nh} held result(s) waiting in Fitting`;
+  (c.collecting||[]).forEach(b=>{ txt += ` · ${b.recipe_id}: ${b.n} batch(es), best conf ${num(b.best_conf,2)}, `
+    + (b.run_done ? `learns when no batch comes for ${Math.round((c.batch_settle_s||0)/60)} min` : 'waiting for the run to end'); });
+  if(c.ai_fits_waiting) txt += ` · ${c.ai_fits_waiting} AI refit(s) running in the background`;
   $('c_status').textContent=txt;
   $('c_status').style.color = c.conditions_folder_mismatch ? 'var(--err-text)' : '';
   $('r_status').textContent = `${label} · ${c.n_evaluations} of ${c.budget} runs · ${txt}`;

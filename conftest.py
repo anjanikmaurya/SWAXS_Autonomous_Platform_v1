@@ -37,6 +37,12 @@ os.environ.setdefault("SWAXS_NO_BUS", "1")
 # the auto-start for the suite; explicit /api/monitor/start still works.
 os.environ.setdefault("SWAXS_NO_WATCH", "1")
 
+# The analyzer collects a recipe's batch profiles until they settle before the
+# model learns (audit AN2). Tests written for one profile per recipe feed the
+# campaign directly and expect it told at once, which is the settle-0 rule; the
+# tests of the settling itself set the settle time explicitly.
+os.environ.setdefault("SWAXS_BATCH_SETTLE_S", "0")
+
 # Assistant answer traces (src/ai/traces.py) go to a throwaway folder during
 # tests, never into the repo's logs/assistant_traces/.
 import tempfile as _tempfile  # noqa: E402

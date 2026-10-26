@@ -19,6 +19,11 @@ this file is the running summary. Dates are when the work landed on `main`.
 - Fixed AN6, AN8, AN9 (disk over long runs): frozen fitter snapshots are written
   only at Start and pruned; the AI fitter cache keeps 5,000 entries / 30 days;
   trace files are kept 90 days.
+- Fixed AN2 (= O7), AN3, AN4: a recipe's batches are collected until its run has
+  ended and no batch came for the settle time (Setup, Target & limits, More
+  options, default 3 min), then the model learns once from the best batch; the AI
+  fitter no longer holds up the loop (Catalogue + BIC at once, the AI refines in
+  the background); knowledge tests wait until a campaign has finished.
 
 ### Analyser: clearer Setup, named knowledge bases with a Fitter part
 

@@ -961,6 +961,7 @@ def _save_campaign() -> None:
             "pending": _pending,
             "pending_at": _pending_at,
             "handled": _snapshot_handled(),
+            "batches": {k: v for k, v in _batches.items() if k in _pending},
         })
     except Exception as exc:
         _emit(f"⚠ could not save the campaign state: {exc}", "warn")
@@ -1078,6 +1079,11 @@ def _restore_campaign() -> None:
             _campaign_cfg = cfg
             _paused = bool(st.get("paused")) or bool(_fit_problem)
             _pending.clear(); _pending.update(st.get("pending") or {})
+            # batches already collected for a pending recipe survive a restart
+            # (their files are handled, so they would not be fed again)
+            _batches.clear()
+            _batches.update({k: v for k, v in (st.get("batches") or {}).items()
+                             if k in _pending and isinstance(v, dict) and v.get("items")})
             # Restart the expiry clock NOW for every pending condition (audit
             # Q19). The saved proposal times include the downtime, so a restart
             # after an hour expired every in-flight condition on the first poll,
@@ -1124,6 +1130,104 @@ def _restore_campaign() -> None:
 _PENDING_TIMEOUT_S = float(os.environ.get("SWAXS_PENDING_TIMEOUT_S", 3600.0))
 _pending_at: dict = {}          # recipe_id -> time the condition was proposed
 
+# ── which batch of a recipe trains the model (audit AN2 / register O7) ───────
+# One recipe yields several batch profiles (the average app writes batch001,
+# batch002, ...). The first used to train the model, and it is the least settled
+# flow. Now a recipe's batches are collected until the reactor has written its
+# <recipe_id>.done.json AND no new batch has arrived for the settle time; then the
+# model is told ONCE, with the highest-confidence batch (the latest wins a tie).
+# Without a done marker the recipe is told after _BATCH_MAX_WAIT_S from its first
+# batch, so a missing marker never stalls the loop. A settle time of 0 keeps the
+# old rule: the first batch trains the model at once.
+_BATCH_SETTLE_S = float(os.environ.get("SWAXS_BATCH_SETTLE_S", 180.0))
+_BATCH_MAX_WAIT_S = float(os.environ.get("SWAXS_BATCH_MAX_WAIT_S", 1200.0))
+_batches: dict = {}             # recipe_id -> {"first", "last", "items": {name: {...}}}
+_told_recently: "collections.deque" = collections.deque(maxlen=200)
+
+
+def _settle_s() -> float:
+    v = (_campaign_meta or {}).get("batch_settle_s")
+    try:
+        return max(0.0, float(v)) if v is not None else _BATCH_SETTLE_S
+    except (TypeError, ValueError):
+        return _BATCH_SETTLE_S
+
+
+def _batch_item(res: dict) -> dict:
+    sz = res.get("size") or {}
+    return {"size": sz.get("radius"), "pdi": res.get("pdi"),
+            "confidence": float(res.get("confidence") or 0.0),
+            "model": res.get("model") or "polydisperse_sphere", "t": time.time(),
+            "refined": bool((res.get("llm_structure") or {}).get("status") == "ai")}
+
+
+def _best_batch(items: dict) -> tuple:
+    """(name, item) with the highest confidence; the latest wins a tie."""
+    return max(items.items(), key=lambda kv: (kv[1]["confidence"], kv[1]["t"]))
+
+
+def _feedback_dir() -> Path:
+    """Where the reactor writes <recipe_id>.done.json: folders.feedback in the
+    reactor config (default reactor/feedback), against the project root.
+    Re-read at most once a minute (the settle tick asks every poll)."""
+    now = time.time()
+    if _fb_cache.get("root") == _project_root and now - _fb_cache.get("t", 0) < 60:
+        return _fb_cache["path"]
+    try:
+        rel = ((load_config() or {}).get("folders") or {}).get("feedback") or "reactor/feedback"
+    except Exception:                                         # noqa: BLE001
+        rel = "reactor/feedback"
+    p = Path(rel)
+    p = p if p.is_absolute() else Path(_project_root or ".") / p
+    _fb_cache.update(t=now, root=_project_root, path=p)
+    return p
+
+
+_fb_cache: dict = {}
+
+
+def _run_done(rid: str) -> bool:
+    if not _project_root:
+        return False
+    try:
+        return (_feedback_dir() / f"{rid}.done.json").is_file()
+    except OSError:
+        return False
+
+
+def _settle_tick() -> None:
+    """Tell the campaign about every recipe whose batches have settled. Called
+    from the watcher loop and from expiry; cheap (one stat per collecting recipe)."""
+    if not _batches:
+        return
+    told = False
+    with _campaign_lock:
+        if _campaign is None or _campaign.status_str != "running":
+            return
+        now, settle = time.time(), _settle_s()
+        for rid in list(_batches):
+            b = _batches[rid]
+            if rid not in _pending:
+                _batches.pop(rid, None)
+                continue
+            quiet = now - b["last"]
+            if (quiet >= settle and _run_done(rid)) or (now - b["first"]) >= _BATCH_MAX_WAIT_S:
+                _finalize_batches(rid, why="settled" if quiet >= settle else "max wait")
+                told = True
+    if told:
+        _save_campaign()
+
+
+def _finalize_batches(rid: str, why: str = "") -> None:
+    """Lock held. Tell the campaign once, with the recipe's best batch."""
+    b = _batches.pop(rid, None)
+    if not b or not b.get("items"):
+        return
+    name, it = _best_batch(b["items"])
+    n = len(b["items"])
+    _tell_recipe(rid, name, it, note=f"best of {n} batch{'es' if n != 1 else ''}: {name}"
+                 + (f", {why}" if why else ""))
+
 
 def _expire_pending() -> None:
     """Time out proposals whose measurement never appeared, so the autonomous
@@ -1137,6 +1241,9 @@ def _expire_pending() -> None:
             return
         stale = [rid for rid, t in list(_pending_at.items())
                  if rid in _pending and (now - t) > _PENDING_TIMEOUT_S]
+        for rid in [r for r in stale if r in _batches]:
+            _finalize_batches(rid, why="condition timed out with data")   # measured: tell it
+        stale = [r for r in stale if r in _pending]
         for rid in stale:
             params = _pending.pop(rid, None)
             _pending_at.pop(rid, None)
@@ -1247,7 +1354,7 @@ def _load_fit_records_for_campaign(campaign_id: str, run_tag: str = "") -> list:
 
 
 def _fit_recs_by_recipe(fit_recs: list) -> list:
-    """Collapse fit records to ONE per recipe_id, keeping the first (oldest).
+    """Collapse fit records to ONE per recipe_id, keeping the highest-confidence one.
 
     The run budget counts optimizer evaluations — i.e. distinct recipes — not Fit
     files. A single condition yields several batch/scan profiles (and a past
@@ -1257,10 +1364,14 @@ def _fit_recs_by_recipe(fit_recs: list) -> list:
     pending entry is cleared); keeping the first record per recipe_id here makes
     the count and the resume replay match that. Records with no recipe_id are
     dropped — the live loop never fed those either."""
+    # The live loop trains on a recipe's highest-confidence batch (the latest
+    # wins a tie, audit AN2), so the replay keeps the same one.
     seen: dict = {}
     for fr in fit_recs:
         rid = fr.get("recipe_id") or ""
-        if rid and rid not in seen:
+        if not rid:
+            continue
+        if rid not in seen or float(fr.get("confidence") or 0) >= float(seen[rid].get("confidence") or 0):
             seen[rid] = fr
     return list(seen.values())
 
@@ -1434,7 +1545,7 @@ def _accept_late_result(name: str, res: dict) -> bool:
         # it and withdraw whatever is still queued for this campaign.
         _clear_conditions_for_new_campaign(
             why=f"the campaign {_campaign.status_str} on a late result")
-        _pending.clear(); _pending_at.clear()
+        _pending.clear(); _pending_at.clear(); _batches.clear()
         _advance_campaign()
     _save_campaign()      # safe under _campaign_lock: it takes only _intake_lock
     return True
@@ -1460,24 +1571,44 @@ def _feed_campaign(name: str, res: dict) -> None:
             # naming mismatch. Silently dropping it meant a fed-but-lost result the
             # operator never saw; surface it (once) so the loop's blind spot shows.
             carried = recipe_id_from_filename(name)
+            if carried and carried in _told_recently:
+                _emit(f"ℹ {name}: another batch of {carried}, which the model has already "
+                      f"learned; recorded, not used", "info")
+                return
             if carried:
                 _emit(f"⚠ measured profile {name} carries recipe_id "
                       f"'{carried}' but no matching pending condition "
                       f"(expired or already fed) — not driving the loop", "warn")
             return
+        it = _batch_item(res)
+        if _settle_s() <= 0:
+            _tell_recipe(rid, name, it)          # the old rule: the first batch trains
+        else:
+            b = _batches.setdefault(rid, {"first": time.time(), "last": time.time(), "items": {}})
+            refit = name in b["items"]
+            b["items"][name] = it
+            b["last"] = time.time()
+            bn, _bi = _best_batch(b["items"])
+            _emit(f"📥 {rid}: {'AI refit of' if refit else 'batch'} {name} conf={it['confidence']:.2f} "
+                  f"({len(b['items'])} so far, best {bn == name and 'this one' or bn}); "
+                  f"the model learns once the run has ended and no batch came for "
+                  f"{_settle_s() / 60:.0f} min", "info")
+    _save_campaign()
+
+
+def _tell_recipe(rid: str, name: str, it: dict, note: str = "") -> None:
+    """Lock held. Tell the campaign one result for a pending recipe and advance."""
+    if True:
         params = _pending.pop(rid)
         t_issued = _pending_at.pop(rid, None)
-        sz = res.get("size") or {}
-        size = sz.get("radius")
-        pdi = res.get("pdi")
-        conf = res.get("confidence", 0.0)
-        model = res.get("model") or "polydisperse_sphere"
+        size, pdi, conf, model = it["size"], it["pdi"], it["confidence"], it["model"]
         # A fit of another structure than the campaign expects is HELD: it uses
         # its budget slot but does not steer the search until the operator
         # accepts it (src/optimizer/intake_rules.py).
         held = held_reason(model, _expected_shape())
         try:
             _campaign.tell(params, size, pdi, conf, recipe_id=rid, held=held, model=model)
+            _campaign.history[-1]["source_file"] = name
         except Exception as exc:
             # Put the condition back so expiry can still account for it, rather
             # than losing both the measurement and the pending slot.
@@ -1486,8 +1617,9 @@ def _feed_campaign(name: str, res: dict) -> None:
             _emit(f"❌ could not record {rid} in the campaign ({type(exc).__name__}: "
                   f"{exc}); left pending", "error")
             return
+        _told_recently.append(rid)
         _emit(f"📊 told campaign {rid}: R={size} PDI={pdi} conf={conf} "
-              f"(loss={_campaign.history[-1]['loss']:.3f})", "info")
+              f"(loss={_campaign.history[-1]['loss']:.3f})" + (f" [{note}]" if note else ""), "info")
         if _is_ai(_campaign) and _campaign.review_due():
             _kick_ai("review")
         if held:
@@ -1503,7 +1635,6 @@ def _feed_campaign(name: str, res: dict) -> None:
             _emit(f"❌ could not issue the next condition after {rid} "
                   f"({type(exc).__name__}: {exc}); the loop is stalled until "
                   f"this is fixed and the campaign is continued", "error")
-    _save_campaign()
 
 
 #: fits at or below this confidence get flagged as "suspect" downstream
@@ -1705,7 +1836,7 @@ def _is_simulated(meta, header_lines) -> bool:
     return "simulated" in " ".join(header_lines or []).lower()
 
 
-def _analyze_file(path: Path, drive_loop: bool = True) -> None:
+def _analyze_file(path: Path, drive_loop: bool = True, _refine: bool = False) -> None:
     """Fit one subtracted profile, store the result, write the durable Fit
     record and manifest entry.
 
@@ -1724,9 +1855,17 @@ def _analyze_file(path: Path, drive_loop: bool = True) -> None:
             q = q * 10.0                       # Å⁻¹ → nm⁻¹
         # path + project root let a context-aware fitter (LLM-assisted) gather
         # what the pipeline knows about this curve; the others ignore them
-        _fo = {"fit_knowledge": _fk_snapshot()} if _active_fitter == "llm_assisted" else {}
-        res = fitting.get(_active_fitter).fit(q, I, sigma, dist="auto", path=str(path),
-                                              project_root=_project_root, **_fo)
+        # AI-assisted structure on the live path (audit AN3): fit at once with
+        # Catalogue + BIC so the loop never waits on the AI, then the AI fit runs
+        # in the background and replaces the result (and, if the recipe is still
+        # collecting batches, the value the model will learn).
+        _defer = (_active_fitter == "llm_assisted" and drive_loop and not _refine)
+        _fid = "catalogue_bic" if _defer else _active_fitter
+        _fo = {"fit_knowledge": _fk_snapshot()} if _fid == "llm_assisted" else {}
+        res = fitting.get(_fid).fit(q, I, sigma, dist="auto", path=str(path),
+                                    project_root=_project_root, **_fo)
+        if _defer:
+            res["refining"] = True
     except Exception as exc:
         _emit(f"✗ {path.name}: {exc}", "error")
         return
@@ -1838,12 +1977,14 @@ def _analyze_file(path: Path, drive_loop: bool = True) -> None:
     # below sees only the previous recipe's history and always reported None.
     if drive_loop:
         _feed_campaign(path.name, res)      # drive the closed loop, if a campaign is running
+    if res.get("refining"):
+        _queue_ai_fit(path)
 
     try:
         rid = recipe_id_from_filename(path.name)
         suspect = (conf or 0.0) <= QC_CONF_THRESHOLD
         png = _write_fit_record(path, q, I, sig, model, summary, res)
-        if drive_loop and _bus is not None:
+        if drive_loop and not _refine and _bus is not None:   # once per profile
             _bus.publish("fit.complete", {
                 "recipe_id": rid, "file": path.name,
                 "size": summary["radius"], "pdi": summary["pdi"],
@@ -1854,6 +1995,49 @@ def _analyze_file(path: Path, drive_loop: bool = True) -> None:
             })
     except Exception as exc:
         _emit(f"⚠ could not publish fit.complete: {exc}", "warn")
+
+
+# ── AI-assisted refits in the background (audit AN3) ─────────────────────────
+import queue as _queue                                                  # noqa: E402
+_AI_FIT_QUEUE_MAX = 200
+_ai_fit_q: "_queue.Queue" = _queue.Queue(maxsize=_AI_FIT_QUEUE_MAX)
+_ai_fit_thread: dict = {"t": None}
+
+
+def _queue_ai_fit(path: Path) -> None:
+    try:
+        _ai_fit_q.put_nowait(str(path))
+    except _queue.Full:
+        _emit(f"⚠ AI refit queue full ({_AI_FIT_QUEUE_MAX}); {Path(path).name} keeps its Catalogue + BIC fit", "warn")
+        return
+    t = _ai_fit_thread["t"]
+    if t is None or not t.is_alive():
+        t = threading.Thread(target=_ai_fit_worker, daemon=True, name="ai-refit")
+        _ai_fit_thread["t"] = t
+        t.start()
+
+
+def _ai_fit_worker() -> None:
+    while True:
+        try:
+            p = _ai_fit_q.get(timeout=30)
+        except _queue.Empty:
+            return                               # idle: the next refit starts a new worker
+        try:
+            if _active_fitter == "llm_assisted" and Path(p).is_file():
+                _analyze_file(Path(p), drive_loop=True, _refine=True)
+        except Exception as exc:                  # noqa: BLE001
+            _emit(f"⚠ AI refit of {Path(p).name} failed ({type(exc).__name__}: {exc}); "
+                  f"the Catalogue + BIC fit stands", "warn")
+        finally:
+            _ai_fit_q.task_done()
+
+
+def _ai_fit_wait(timeout: float = 60.0) -> None:
+    """Tests and tools: wait for the AI refit queue to drain."""
+    t_end = time.time() + timeout
+    while time.time() < t_end and _ai_fit_q.unfinished_tasks:
+        time.sleep(0.05)
 
 
 # ── folder watcher ─────────────────────────────────────────────────────────────
@@ -2083,6 +2267,7 @@ def _watcher() -> None:
     while True:
         try:
             _watch_once()
+            _settle_tick()
         except Exception as exc:
             now = time.time()
             msg = f"{type(exc).__name__}: {exc}"
@@ -2484,6 +2669,13 @@ def _campaign_status() -> dict:
         st["size_range"] = _campaign_meta["size_range"]
     if (_campaign_meta or {}).get("fit_knowledge"):
         st["fit_knowledge"] = _campaign_meta["fit_knowledge"]
+    _now = time.time()
+    st["batch_settle_s"] = _settle_s()
+    st["collecting"] = [{"recipe_id": rid, "n": len(b.get("items") or {}),
+                         "best_conf": round(_best_batch(b["items"])[1]["confidence"], 2) if b.get("items") else None,
+                         "quiet_s": round(_now - b.get("last", _now)), "run_done": _run_done(rid)}
+                        for rid, b in list(_batches.items())]
+    st["ai_fits_waiting"] = _ai_fit_q.qsize() if "_ai_fit_q" in globals() else 0
     return st
 
 
@@ -2636,6 +2828,14 @@ def api_campaign_start():
         if not (0.0 <= _conf_min <= 1.0):
             _errs.append("the minimum fit confidence must be between 0 and 1")
         _ai = b.get("ai") or None
+        _settle_req = None
+        if b.get("batch_settle_s") is not None:
+            try:
+                _settle_req = float(b["batch_settle_s"])
+            except (TypeError, ValueError):
+                _settle_req = -1.0
+            if not (0.0 <= _settle_req <= 3600.0):
+                _errs.append("the batch settle time must be 0 to 60 min")
         # the AI fitter's knowledge: the Fitter part of the chosen base (frozen below)
         _fk_set = str((b.get("knowledge") or {}).get("set_id") or "") or None
         if _ai:
@@ -2673,7 +2873,7 @@ def api_campaign_start():
             if _campaign is not None and _campaign.status_str == "running":
                 return jsonify({"ok": False, "error": "a campaign is already "
                                 "running — abort it before starting a new one"}), 409
-            _pending.clear()
+            _pending.clear(); _batches.clear()
             # Producer owns staleness: a new campaign invalidates any conditions
             # left queued from a previous/aborted run, so set them aside before we
             # propose the first one. (The reactor no longer clears on boot — this
@@ -2744,6 +2944,8 @@ def api_campaign_start():
                 _campaign_meta["size_range"] = _size_range
             # what steers the search, recorded so resume and Continue keep it
             _campaign_meta["expected_shape"] = _shape
+            if _settle_req is not None:
+                _campaign_meta["batch_settle_s"] = _settle_req
             if _ai:
                 _campaign_meta["ai"] = _ai
             if _active_fitter == "llm_assisted":
@@ -2820,7 +3022,7 @@ def api_campaign_abort():
             _campaign = None
             _campaign_id = ""; _campaign_cfg = {}; _campaign_meta = {}
             _run_tag = ""; _run_seq = 0
-            _pending.clear(); _pending_at.clear()
+            _pending.clear(); _pending_at.clear(); _batches.clear()
             # RESEED, never just clear: the next Start is a fresh Target Run, and
             # a bare clear would have the watcher re-fit every profile this run
             # (and every earlier one) left in Subtracted/, starving the new run's
@@ -2873,7 +3075,7 @@ def api_campaign_accept():
             # the accepted result ended the run (a confident in-spec hit)
             _clear_conditions_for_new_campaign(
                 why=f"the campaign {_campaign.status_str} on an accepted result")
-            _pending.clear(); _pending_at.clear()
+            _pending.clear(); _pending_at.clear(); _batches.clear()
             _advance_campaign()
     _save_campaign()
     return jsonify({"ok": True, "campaign": _campaign_status()})
@@ -3224,6 +3426,8 @@ def _eval_worker(sid: str, kind: str, opts: dict) -> None:
 
 def _eval_start(sid: str, kind: str):
     b = request.get_json(silent=True) or {}
+    if _campaign is not None and getattr(_campaign, "status_str", "") == "running":   # AN4
+        return jsonify({"ok": False, "error": "a campaign is running: run the test after it has finished"}), 409
     try:
         kstore.load_set(sid)
     except ValueError as exc:
@@ -3723,6 +3927,8 @@ def _fk_start(sid: str, kind: str):
     _d, e = _fk_part(sid)
     if e:
         return e
+    if _campaign_running():                     # audit AN4: never compete with live fits
+        return jsonify({"ok": False, "error": "a campaign is running: run the test after it has finished"}), 409
     with _fk_lock:
         if (_fk_jobs.get(sid) or {}).get("state") == "running":
             return jsonify({"ok": False, "error": "a fitter test is already running for this base"}), 409

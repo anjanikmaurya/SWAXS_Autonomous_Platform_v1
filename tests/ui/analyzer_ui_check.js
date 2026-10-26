@@ -376,6 +376,13 @@ const w=dom.window;
   ok(/2 judged fit/.test($('k_sum').textContent),'Setup summary shows the fitter part once the AI fitter is chosen');
   w.document.querySelector('#fitList input[value="catalogue_bic"]').click(); await new Promise(r=>setTimeout(r,30));
   ok($('fk_line').textContent==='','line hides again for Catalogue + BIC');
+  /* batches being collected for a recipe (audit AN2) */
+  ok($('c_settle').closest('details.more')!==null && $('c_settle').value==='3','batch settle time is a More option, 3 min by default');
+  ES.last.emit({results:[],logs:[],campaign:{...CAMP, batch_settle_s:180, ai_fits_waiting:1,
+    collecting:[{recipe_id:'Run3_r012',n:2,best_conf:0.84,quiet_s:20,run_done:true}]},total:25,seq:25,reset:false});
+  await new Promise(r=>setTimeout(r,30));
+  ok(/Run3_r012: 2 batch\(es\), best conf 0.84, learns when no batch comes for 3 min/.test($('c_status').textContent),'status shows the batches being collected: '+$('c_status').textContent);
+  ok(/1 AI refit/.test($('c_status').textContent),'status shows AI refits in the background');
   /* Decisions in Report */
   ES.last.emit({results:[],logs:[],campaign:{...CAMP, ai:{level:'ai_copilot',label:'AI Co-pilot',n_fallbacks:1,can_undo:false,
     work_bounds:null,pending_suggestion:null,decisions:[
