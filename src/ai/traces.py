@@ -92,6 +92,45 @@ def note(key: str, value) -> None:
         r[key] = value
 
 
+KEEP_DAYS = 90
+_pruned_on: dict = {}
+
+
+def keep_days() -> int:
+    try:
+        return max(1, int(os.environ.get("SWAXS_TRACES_KEEP_DAYS", KEEP_DAYS)))
+    except ValueError:
+        return KEEP_DAYS
+
+
+def prune(d: Path | None = None, days: int | None = None, today: datetime | None = None) -> int:
+    """Remove dated trace files (YYYY-MM-DD.jsonl) older than ``days`` (audit
+    AN9; SWAXS_TRACES_KEEP_DAYS, default 90). Other files are left alone.
+    Returns how many were removed. Never raises."""
+    try:
+        d = Path(d or traces_dir())
+        days = keep_days() if days is None else int(days)
+        cutoff = (today or datetime.now()).date().toordinal() - days
+        n = 0
+        for p in d.glob("????-??-??.jsonl"):
+            try:
+                if datetime.strptime(p.stem, "%Y-%m-%d").date().toordinal() < cutoff:
+                    p.unlink()
+                    n += 1
+            except (ValueError, OSError):
+                pass
+        return n
+    except Exception:                                    # noqa: BLE001
+        return 0
+
+
+def _maybe_prune(d: Path) -> None:
+    day = datetime.now().strftime("%Y-%m-%d")
+    if _pruned_on.get(str(d)) != day:                     # at most once a day per folder
+        _pruned_on[str(d)] = day
+        prune(d)
+
+
 def record(kind: str, **fields) -> Path | None:
     """Write one standalone trace line (not a chat turn), e.g. kind="fitter"
     for each structure-fitter decision. Same folder, same rules, never raises."""
@@ -106,6 +145,7 @@ def record(kind: str, **fields) -> Path | None:
         path = d / f"{datetime.now().strftime('%Y-%m-%d')}.jsonl"
         with _write_lock, path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(rec, default=str, ensure_ascii=False) + "\n")
+        _maybe_prune(d)
         return path
     except Exception as exc:                             # noqa: BLE001
         logger.debug("[traces] could not write record: %s", exc)
@@ -149,6 +189,7 @@ def finish(result: dict | None = None, error: str | None = None) -> Path | None:
         line = json.dumps(rec, default=str, ensure_ascii=False)
         with _write_lock, path.open("a", encoding="utf-8") as fh:
             fh.write(line + "\n")
+        _maybe_prune(d)
         return path
     except Exception as exc:                             # noqa: BLE001
         logger.debug("[traces] could not write trace: %s", exc)

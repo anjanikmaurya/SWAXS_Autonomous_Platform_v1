@@ -233,6 +233,45 @@ def _cache_get(d: Path, key: str):
         return None
 
 
+CACHE_MAX_FILES = int(os.environ.get("SWAXS_FITTER_CACHE_MAX", "5000"))
+CACHE_MAX_AGE_S = 30 * 24 * 3600
+_PRUNE_EVERY_S = 3600.0
+_last_prune: dict = {}
+
+
+def prune_cache(d: Path, max_files: int = CACHE_MAX_FILES, max_age_s: float = CACHE_MAX_AGE_S) -> int:
+    """Keep the AI fitter cache bounded (audit AN8): entries older than 30 days
+    go, then the oldest beyond ``max_files``. A pruned entry only costs one more
+    AI call if that exact curve is fitted again. Never raises."""
+    try:
+        now = time.time()
+        files = []
+        for p in Path(d).glob("*.json"):
+            try:
+                files.append((p.stat().st_mtime, p))
+            except OSError:
+                pass
+        files.sort(reverse=True)
+        n = 0
+        for i, (mt, p) in enumerate(files):
+            if i >= max_files or now - mt > max_age_s:
+                try:
+                    p.unlink()
+                    n += 1
+                except OSError:
+                    pass
+        return n
+    except Exception:                                       # noqa: BLE001
+        return 0
+
+
+def _maybe_prune(d: Path) -> None:
+    now = time.time()
+    if now - _last_prune.get(str(d), 0.0) >= _PRUNE_EVERY_S:
+        _last_prune[str(d)] = now
+        prune_cache(d)
+
+
 def _cache_put(d: Path, key: str, value: dict) -> None:
     try:
         d.mkdir(parents=True, exist_ok=True)
@@ -241,6 +280,7 @@ def _cache_put(d: Path, key: str, value: dict) -> None:
         os.replace(tmp, d / f"{key}.json")
     except Exception:                                       # noqa: BLE001
         pass
+    _maybe_prune(d)
 
 
 # ── the fitter ───────────────────────────────────────────────────────────────

@@ -16,6 +16,9 @@ this file is the running summary. Dates are when the work landed on `main`.
   started with (paused, or Continue refused, if that fitter is missing), the
   fitter cannot be changed while a campaign runs, and Continue keeps the frozen
   fitter knowledge.
+- Fixed AN6, AN8, AN9 (disk over long runs): frozen fitter snapshots are written
+  only at Start and pruned; the AI fitter cache keeps 5,000 entries / 30 days;
+  trace files are kept 90 days.
 
 ### Analyser: clearer Setup, named knowledge bases with a Fitter part
 

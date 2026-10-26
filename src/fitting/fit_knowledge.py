@@ -541,6 +541,31 @@ def freeze(set_id, sources=None, save_root=None) -> dict:
     return snap
 
 
+MAX_UNREFERENCED_SNAPSHOTS = 20
+
+
+def prune_frozen(root, keep=(), max_unreferenced: int = MAX_UNREFERENCED_SNAPSHOTS) -> int:
+    """Remove old frozen snapshots under <root>/.swaxs_state/fit_knowledge/
+    (audit AN6). Snapshots whose hash is in ``keep`` (those a campaign record
+    names) are never removed; of the rest, the newest ``max_unreferenced`` stay.
+    Returns how many files were removed. Never raises."""
+    try:
+        d = Path(root) / ".swaxs_state" / "fit_knowledge"
+        files = sorted(d.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    except OSError:
+        return 0
+    keep = {str(k) for k in keep or () if k}
+    loose = [p for p in files if p.stem not in keep]
+    n = 0
+    for p in loose[max(0, int(max_unreferenced)):]:
+        try:
+            p.unlink()
+            n += 1
+        except OSError:
+            pass
+    return n
+
+
 def load_frozen(root, h: str) -> dict | None:
     if not (root and isinstance(h, str) and h.isalnum()):
         return None

@@ -2753,6 +2753,8 @@ def api_campaign_start():
                     "sources": _fz["sources"], "base_version": _fz["project_version"],
                     "n_notes": len(_fz["notes"]), "n_fits": len(_fz["fits"]),
                     "settings": _fz["settings"]}
+                if _project_root:
+                    fk.prune_frozen(_project_root, _fk_referenced_hashes())
             if _seeds:
                 _campaign_meta["seeds"] = _seeds
                 _campaign_meta["seed_kinds"] = (["own"] * _kn["n_own"]
@@ -3477,9 +3479,26 @@ def _fk_snapshot() -> dict | None:
             _fk_cache[fm["hash"]] = snap
             return snap
     try:
-        return fk.freeze(_active_set or None, save_root=_project_root or None)
+        # Outside a campaign the snapshot stays in memory (audit AN6): saving
+        # one per change of the base wrote a new file holding every judged fit
+        # after each call on a fit, growing quadratically. Only Start saves one.
+        return fk.freeze(_active_set or None)
     except Exception:                                         # noqa: BLE001
         return fk.freeze(None)
+
+
+def _fk_referenced_hashes() -> set:
+    """Frozen fitter snapshots a campaign record (or the running campaign) names."""
+    keep = {((_campaign_meta or {}).get("fit_knowledge") or {}).get("hash")}
+    try:
+        for f in _resolve_results().glob("campaign_*.json"):
+            try:
+                keep.add(((json.loads(f.read_text(encoding="utf-8")).get("fit_knowledge")) or {}).get("hash"))
+            except (OSError, ValueError, AttributeError):
+                pass
+    except OSError:
+        pass
+    return {h for h in keep if h}
 
 
 def _verdict_set() -> str:

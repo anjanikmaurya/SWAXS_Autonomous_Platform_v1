@@ -20,7 +20,7 @@ new findings in the register instead.
 
 | File | Scope | When | Result |
 |---|---|---|---|
-| [`ANALYZER_QUICK_AUDIT_2026_10.md`](ANALYZER_QUICK_AUDIT_2026_10.md) | analyzer after the Phase 1 to 4 rebuild, AI levels and knowledge bases (AN1 to AN14) | 2026-10-25 | AN1, AN5, AN7 fixed; **11 open** (1 HIGH, 4 MEDIUM, 6 LOW) |
+| [`ANALYZER_QUICK_AUDIT_2026_10.md`](ANALYZER_QUICK_AUDIT_2026_10.md) | analyzer after the Phase 1 to 4 rebuild, AI levels and knowledge bases (AN1 to AN14) | 2026-10-25 | AN1, AN5 to AN9 fixed; **8 open** (1 HIGH, 2 MEDIUM, 5 LOW) |
 | [`PLATFORM_QUICK_AUDIT_2026_10.md`](PLATFORM_QUICK_AUDIT_2026_10.md) | every app and the shared platform code (Q1 to Q37) | 2026-10-14 | all 37 fixed the same day; one residual |
 | [`REACTOR_AUDIT.md`](REACTOR_AUDIT.md) | reactor app, `src/reactor/`, `src/beamline/` (R1 to R28) | Sept 2026 | 25 of 27 fixed, R4 accepted, **R12 open** |
 | [`AUTO_WATCH_AUDIT.md`](AUTO_WATCH_AUDIT.md) | watchdog app, `src/watchdog/` (W1 to W25) | 2026-09-11 | 14 fixed, **11 open** |

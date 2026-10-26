@@ -332,6 +332,8 @@ def test_snapshot_used_outside_and_frozen_inside_a_campaign(an, tmp_path, base):
     fk.add_note(base, "first")
     s1 = an._fk_snapshot()
     assert [n["text"] for n in s1["notes"]] == ["first"] and s1["name"] == "Pd nanoparticles"
+    assert not (tmp_path / ".swaxs_state" / "fit_knowledge").exists()   # AN6: no file outside a campaign
+    s1 = fk.freeze(base, save_root=tmp_path)                           # what Start does
     an._campaign_meta = {"fit_knowledge": {"hash": s1["hash"]}}
     an._campaign = SimpleNamespace(status_str="running")
     fk.add_note(base, "second, after Start")
@@ -370,3 +372,71 @@ def test_start_freezes_the_fitter_knowledge(an, tmp_path, base):
     assert fm["name"] == "Pd nanoparticles"
     assert fk.load_frozen(tmp_path, fm["hash"])["notes"][0]["text"] == "cores are CdSe"
     assert an._fk_snapshot()["hash"] == fm["hash"]
+
+
+# ── disk stays bounded over long runs (audit AN6, AN8, AN9) ──────────────────
+
+def test_no_snapshot_files_outside_a_campaign_and_one_at_start(an, tmp_path, base):
+    an._active_set = base
+    an._active_fitter = "llm_assisted"
+    for i in range(5):                       # calls on fits change the base each time
+        fk.add_note(base, f"fact {i}")
+        an._fk_snapshot()
+    d = tmp_path / ".swaxs_state" / "fit_knowledge"
+    assert not d.exists() or not list(d.glob("*.json"))
+    r = an.app.test_client().post("/api/campaign/start", json={
+        "target_size": 2.5, "tolerance": 0.3, "pdi_cap": 0.1, "budget": 10, "n_init": 3,
+        "knowledge": {"set_id": base, "n": 0}}).get_json()
+    assert r["ok"], r
+    assert [p.stem for p in d.glob("*.json")] == [r["campaign"]["fit_knowledge"]["hash"]]
+
+
+def test_prune_frozen_keeps_referenced_and_the_newest(tmp_path):
+    import os
+    import time as _t
+    d = tmp_path / ".swaxs_state" / "fit_knowledge"
+    d.mkdir(parents=True)
+    now = _t.time()
+    for i in range(30):
+        p = d / f"h{i:02d}.json"
+        p.write_text("{}")
+        os.utime(p, (now - 1000 + i, now - 1000 + i))   # h29 newest
+    n = fk.prune_frozen(tmp_path, keep={"h00", "h01"}, max_unreferenced=5)
+    left = sorted(p.stem for p in d.glob("*.json"))
+    assert n == 23 and left == ["h00", "h01", "h25", "h26", "h27", "h28", "h29"]
+    assert fk.prune_frozen(tmp_path / "nowhere") == 0
+
+
+def test_the_ai_fitter_cache_is_pruned(tmp_path):
+    import os
+    import time as _t
+    from src.fitting import llm_structure as L
+    d = tmp_path / "cache"
+    d.mkdir()
+    now = _t.time()
+    for i in range(12):
+        p = d / f"k{i:02d}.json"
+        p.write_text("{}")
+        os.utime(p, (now - 100 + i, now - 100 + i))
+    old = d / "old.json"
+    old.write_text("{}")
+    os.utime(old, (now - 40 * 86400, now - 40 * 86400))
+    n = L.prune_cache(d, max_files=10)
+    left = sorted(p.stem for p in d.glob("*.json"))
+    assert n == 3 and "old" not in left and left[0] == "k02" and len(left) == 10
+    # _cache_put prunes at most once an hour per folder
+    L._last_prune.clear()
+    for i in range(3):
+        L._cache_put(d, f"new{i}", {"x": i})
+    assert len(list(d.glob("*.json"))) == 13 and str(d) in L._last_prune
+
+
+def test_trace_files_are_kept_for_a_window(tmp_path):
+    from datetime import datetime
+    from src.ai import traces
+    for day in ("2026-01-01", "2026-07-20", "2026-07-30", "2026-10-25"):
+        (tmp_path / f"{day}.jsonl").write_text("{}\n")
+    (tmp_path / "notes.txt").write_text("x")
+    n = traces.prune(tmp_path, days=90, today=datetime(2026, 10, 25))
+    assert n == 2
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["2026-07-30.jsonl", "2026-10-25.jsonl", "notes.txt"]

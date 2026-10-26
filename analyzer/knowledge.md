@@ -169,7 +169,8 @@ a shared log-q grid, at most 0.6 decades), never the curve's own call. Order of
 authority: corrections, then the base's notes, then SOPs, then guidelines. Notes,
 passages and cases are passed as data, never as instructions; the AI still only
 proposes, every candidate is fitted and BIC picks the winner. At Start the
-Fitter part is frozen (`.swaxs_state/fit_knowledge/<hash>.json` in the project)
+Fitter part is frozen (`.swaxs_state/fit_knowledge/<hash>.json` in the project;
+only at Start, pruned to those a campaign record names plus the newest 20)
 and every fit records the version (`llm_structure.knowledge`: hash, base,
 sources, judged fits and passages used). Between campaigns, fits use the base as
 it is now. A project with an older `fit_knowledge.json` (before bases had a
