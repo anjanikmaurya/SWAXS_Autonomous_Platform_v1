@@ -288,7 +288,8 @@ def test_the_audits_folder_stays_consolidated():
     keeps that file the single place to look."""
     d = ROOT / "docs" / "audits"
     got = sorted(p.name for p in d.glob("*.md"))
-    assert got == ["ASSISTANT_AUDIT.md", "AUTOFIT_AUDIT.md", "AUTO_WATCH_AUDIT.md",
+    assert got == ["ANALYZER_QUICK_AUDIT_2026_10.md",
+                   "ASSISTANT_AUDIT.md", "AUTOFIT_AUDIT.md", "AUTO_WATCH_AUDIT.md",
                    "BEAMLINE_SAFETY_AUDIT.md", "OPEN_DEFECTS.md",
                    "PLATFORM_QUICK_AUDIT_2026_10.md",
                    "PRE_BEAMTIME_READINESS.md", "REACTOR_AUDIT.md",
@@ -312,6 +313,11 @@ def test_every_subsystem_audit_files_its_residuals_in_the_register():
     for q in sorted(set(re.findall(r"^\| (Q\d+) \|", quick, flags=re.M))):
         assert f"| {q} |" in reg, f"platform audit item missing from the register: {q}"
     assert "PLATFORM_QUICK_AUDIT_2026_10.md" in reg
+    # Analyser quick audit (Oct 25 2026): every AN item lives in the register too.
+    an = (ROOT / "docs" / "audits" / "ANALYZER_QUICK_AUDIT_2026_10.md").read_text()
+    for a in sorted(set(re.findall(r"^\| (AN\d+) \|", an, flags=re.M))):
+        assert f"| {a} |" in reg, f"analyser audit item missing from the register: {a}"
+    assert "ANALYZER_QUICK_AUDIT_2026_10.md" in reg
 
 
 def test_the_open_defect_register_still_carries_the_reactor_residuals():

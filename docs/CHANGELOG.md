@@ -7,6 +7,12 @@ this file is the running summary. Dates are when the work landed on `main`.
 
 ## October 2026
 
+### Analyser quick audit (AN1 to AN14)
+
+- `docs/audits/ANALYZER_QUICK_AUDIT_2026_10.md`: 14 findings, 2 HIGH (a restart
+  switches the fitter to the default; the first batch trains the model, = O7),
+  all filed in the register. Nothing fixed yet.
+
 ### Analyser: clearer Setup, named knowledge bases with a Fitter part
 
 - **Setup** now reads top to bottom: Data folders, Target & limits, **Knowledge
