@@ -7,6 +7,24 @@ this file is the running summary. Dates are when the work landed on `main`.
 
 ## October 2026
 
+### Analyser: clearer Setup, named knowledge bases with a Fitter part
+
+- **Setup** now reads top to bottom: Data folders, Target & limits, **Knowledge
+  base** (pick one by name, e.g. Pd nanoparticles, with a two-line summary),
+  **Fitting**, **Design loop**, Starting recipes. Fitting and Design loop are
+  separate full-width lists, each ordered Standard, then ML, then Agentic.
+- Case-by-case settings moved under **More options** in their step: Min fit
+  confidence; optimiser tuning; AI review interval, apply mode, Claude model and
+  thinking; your own starting recipes. Test AI connection stays visible.
+- **Knowledge bases** have two parts, Fitter first, then Design loop. The AI
+  fitter's sources, notes, judged fits, settings and evaluation now live in the
+  base (`ai_knowledge/design/<id>.json`, key `fitter`), not per project; what the
+  design loop uses (literature, notes, past campaigns, verdicts, every AI pick)
+  is also saved with the base. Setup no longer has these ticks.
+- Calls on fits go to the running campaign's base, else the one chosen in Setup.
+  A project's older `fit_knowledge.json` can be copied into a base (the file is
+  left as it was). Export / Import carry the Fitter part (notes as drafts).
+
 ### Analyser: knowledge for the AI fitter
 
 - Setup step 3, with **AI-assisted structure**, now chooses what the AI fitter

@@ -1,11 +1,14 @@
 """
 src/fitting/fit_knowledge.py: what the AI fitter (AI-assisted structure) knows.
 
-Two kinds of knowledge, chosen per campaign in Setup:
+It lives in the **Fitter** part of a named knowledge base ("Pd nanoparticles"),
+next to the base's Design-loop part (src/design_knowledge/store.py, one file per
+base, ``ai_knowledge/design/<id>.json``). Setup only picks the base by name; what
+the fitter uses is ticked once in the Knowledge tab and saved with the base.
 
-* **Guinier's knowledge** (shared, ``ai_knowledge/``, the same files the
-  assistant reads). Each part can be ticked on or off, except the model
-  catalogue, which the fitter always needs (it may only name catalogue models):
+* **Guinier's knowledge** (shared, ``ai_knowledge/``, the files the assistant
+  reads). Each part can be ticked on or off, except the model catalogue, which
+  the fitter always needs (it may only name catalogue models):
 
       catalogue     rules/saxs_models.yml       always on
       corrections   rules/corrections.json      operator corrections
@@ -15,44 +18,42 @@ Two kinds of knowledge, chosen per campaign in Setup:
                     (needs the assistant's index; chromadb, requirements-ai.txt)
       cases         ai_knowledge/cases/*.json   expert-judged worked examples
 
-* **This project's knowledge** (``<project>/fit_knowledge.json``), harnessed
-  from the operator's own work on this project:
+* **The base's own knowledge**, harnessed from the operator's work:
 
-      notes         facts about this project, typed by the operator ("the cores
-                    are CdSe, about 3 nm"; "ignore q < 0.1 nm⁻¹, beamstop").
+      notes         facts about these samples and data, typed by the operator.
                     Notes drafted from repeated verdicts wait for approval.
       fits          judged fits: the operator's Right / Wrong-model call on a
                     fit in the Fitting tab, with the right model and a note.
                     The ``n_fits`` most similar judged curves (by the shape of
                     log I(q)) are shown to the AI as precedent for each curve.
 
-The project file is versioned (every change bumps ``version``), written
-atomically under a lock, and nothing is deleted (retired items stay). At Start
-the chosen sources and the project knowledge are FROZEN into a snapshot with a
-content hash, saved under ``.swaxs_state/fit_knowledge/<hash>.json``; every fit
-of the campaign uses that snapshot and records its hash, so a fit is
-reproducible and the AI cache never mixes knowledge versions.
+Every change bumps the base's version; nothing is deleted (retired items stay).
+At Start the base's fitter part is FROZEN into a snapshot with a content hash,
+saved under the project's ``.swaxs_state/fit_knowledge/<hash>.json``; every fit
+of the campaign uses that snapshot and records its hash. With no base chosen
+the fitter reads Guinier's four files, exactly as before.
 
-``evaluate`` answers "did the fitting knowledge help?" on this project's judged
-fits (leave one out: a curve never sees its own verdict), arm by arm: Catalogue
-+ BIC (statistics only), the AI with Guinier's knowledge only, with the notes,
-and with the notes and judged fits. ``propose_improvement`` tunes the settings
-on the practice half and proposes a change only if it is also better on the
-held-out half; nothing changes until the operator approves it.
+``evaluate`` answers "did the fitting knowledge help?" on the base's judged fits
+(leave one out), arm by arm: Catalogue + BIC (statistics only), the AI with
+Guinier's knowledge only, with the notes, and with the notes and judged fits.
+``propose_improvement`` tunes the settings on the practice half and proposes a
+change only if it is also better on the held-out half; nothing changes until
+the operator approves it.
 """
 from __future__ import annotations
 
 import hashlib
 import json
 import os
-import threading
 import time
 from pathlib import Path
 
 import numpy as np
 
+from src.design_knowledge import store as kstore
+
 ROOT = Path(__file__).resolve().parents[2]
-FILE_NAME = "fit_knowledge.json"
+LEGACY_FILE = "fit_knowledge.json"        # a project file from before Oct 25 2026 (import_legacy)
 KNOWLEDGE_PROMPT_VERSION = "fk1"
 
 SHARED = (
@@ -90,53 +91,59 @@ MIN_LABELLED = 4
 SIG_GRID = np.logspace(np.log10(0.05), np.log10(5.0), 24)     # nm⁻¹
 MIN_OVERLAP = 8
 MAX_DISTANCE = 0.6                                            # rms decades
-_LOCK = threading.RLock()
+_LOCK = kstore._LOCK                      # one lock for the whole knowledge base
+_PART_KEYS = ("sources", "notes", "fits", "settings", "evaluations", "proposal")
 
 
-# ── the project file ─────────────────────────────────────────────────────────
-
-def _path(project_root) -> Path:
-    if not project_root:
-        raise ValueError("no project folder set")
-    return Path(project_root) / FILE_NAME
-
+# ── storage: the "fitter" part of a knowledge base ──────────────────────────
+# A knowledge base (src/design_knowledge/store.py, ai_knowledge/design/<id>.json)
+# has two parts: "fitter" (this module) and the design-loop cards, verdicts and
+# campaigns. Every change here bumps the base's version, under the base's lock.
 
 def _empty() -> dict:
-    return {"version": 0, "updated_at": None, "sources": list(DEFAULT_SOURCES), "notes": [], "fits": [],
-            "settings": dict(SETTINGS_DEFAULTS), "evaluations": [], "proposal": None, "log": []}
+    return {"version": 0, "updated_at": None, "set_id": None, "name": None,
+            "sources": list(DEFAULT_SOURCES), "notes": [], "fits": [],
+            "settings": dict(SETTINGS_DEFAULTS), "evaluations": [], "proposal": None}
 
 
-def load(project_root) -> dict:
-    try:
-        p = _path(project_root)
-    except ValueError:
-        return _empty()
-    try:
-        d = json.loads(p.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return _empty()
+def part_of(s: dict) -> dict:
+    """The fitter part of a loaded knowledge base, with defaults filled in."""
     base = _empty()
-    if isinstance(d, dict):
-        base.update({k: d[k] for k in base if k in d})
+    part = (s or {}).get("fitter") or {}
+    if isinstance(part, dict):
+        base.update({k: part[k] for k in _PART_KEYS if k in part})
+    base["version"] = (s or {}).get("version", 0)
+    base["updated_at"] = (s or {}).get("updated_at")
+    base["set_id"], base["name"] = (s or {}).get("id"), (s or {}).get("name")
     base["settings"] = settings(base)
     base["sources"] = clean_sources(base.get("sources"))
     return base
 
 
-def _write(project_root, d: dict) -> None:
-    p = _path(project_root)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_suffix(".json.part")
-    tmp.write_text(json.dumps(d, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
-    os.replace(tmp, p)
+def load(set_id) -> dict:
+    if not set_id:
+        return _empty()
+    try:
+        s = kstore.load_set(str(set_id))
+    except (ValueError, OSError):
+        raise ValueError("unknown knowledge base")
+    return part_of(s)
+
+
+def _write(set_id, d: dict) -> None:
+    with _LOCK:
+        s = kstore.load_set(str(set_id))
+        s["fitter"] = {k: d.get(k) for k in _PART_KEYS}
+        what, who = d.pop("_what", None), d.pop("_who", "")
+        if what:
+            kstore._bump(s, "fitter: " + what, who)
+            d["version"] = s["version"]
+        kstore._write(s)
 
 
 def _bump(d: dict, what: str, who: str = "") -> None:
-    d["version"] = int(d.get("version") or 0) + 1
-    d["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
-    d.setdefault("log", []).append({"version": d["version"], "what": str(what)[:200],
-                                    "who": str(who or "")[:80], "at": d["updated_at"]})
-    d["log"] = d["log"][-MAX_LOG:]
+    """Mark the change; _write bumps the base's version and logs it."""
+    d["_what"], d["_who"] = str(what)[:180], str(who or "")[:80]
 
 
 def _next_id(items: list, prefix: str) -> str:
@@ -163,13 +170,13 @@ def _clean_text(t, n=MAX_NOTE) -> str:
     return " ".join(str(t or "").split())[:n]
 
 
-def add_note(project_root, text: str, who: str = "", status: str = "active",
+def add_note(set_id, text: str, who: str = "", status: str = "active",
              basis: list | None = None) -> dict:
     text = _clean_text(text)
     if len(text) < 3:
         raise ValueError("write the note first")
     with _LOCK:
-        d = load(project_root)
+        d = load(set_id)
         if sum(1 for n in d["notes"] if n.get("status") != "retired") >= MAX_NOTES:
             raise ValueError(f"at most {MAX_NOTES} notes")
         if any(n.get("text") == text and n.get("status") != "retired" for n in d["notes"]):
@@ -181,15 +188,15 @@ def add_note(project_root, text: str, who: str = "", status: str = "active",
             note["basis"] = [str(b)[:20] for b in basis][:20]
         d["notes"].append(note)
         _bump(d, f"note {note['id']} {'drafted' if note['status'] == 'draft' else 'added'}", who)
-        _write(project_root, d)
+        _write(set_id, d)
         return note
 
 
-def review_note(project_root, nid: str, action: str, who: str = "") -> dict:
+def review_note(set_id, nid: str, action: str, who: str = "") -> dict:
     if action not in ("approve", "retire", "discard"):
         raise ValueError("action must be approve, retire or discard")
     with _LOCK:
-        d = load(project_root)
+        d = load(set_id)
         for n in d["notes"]:
             if n.get("id") == nid:
                 if action == "approve":
@@ -200,7 +207,7 @@ def review_note(project_root, nid: str, action: str, who: str = "") -> dict:
                     n["status"] = "retired"
                 n["reviewed_by"] = str(who or "")[:80]
                 _bump(d, f"note {nid} {action}d", who)
-                _write(project_root, d)
+                _write(set_id, d)
                 return n
     raise ValueError("unknown note")
 
@@ -246,7 +253,7 @@ def catalogue_names() -> tuple[set, set]:
         return set(), set()
 
 
-def add_fit_verdict(project_root, *, file: str, path: str | None, q, I, fitted_model: str,
+def add_fit_verdict(set_id, *, file: str, path: str | None, q, I, fitted_model: str,
                     verdict: str, correct_model: str | None = None, note: str = "",
                     fitter: str = "", features: dict | None = None, who: str = "") -> dict:
     """The operator's call on one fit. ``verdict``: "right" or "wrong"."""
@@ -271,7 +278,7 @@ def add_fit_verdict(project_root, *, file: str, path: str | None, q, I, fitted_m
             raise ValueError("say which model is right, or add a note")
     sig = signature(q, I)
     with _LOCK:
-        d = load(project_root)
+        d = load(set_id)
         for old in d["fits"]:                       # one call per file: a new call replaces it
             if old.get("file") == file and old.get("status") != "retired":
                 old["status"] = "retired"
@@ -288,51 +295,51 @@ def add_fit_verdict(project_root, *, file: str, path: str | None, q, I, fitted_m
              "at": time.strftime("%Y-%m-%dT%H:%M:%S")}
         d["fits"].append(f)
         _bump(d, f"fit {f['id']} judged {verdict} ({file})", who)
-        _write(project_root, d)
+        _write(set_id, d)
         return f
 
 
-def retire_fit(project_root, fid: str, who: str = "") -> bool:
+def retire_fit(set_id, fid: str, who: str = "") -> bool:
     with _LOCK:
-        d = load(project_root)
+        d = load(set_id)
         for f in d["fits"]:
             if f.get("id") == fid and f.get("status") != "retired":
                 f["status"] = "retired"
                 _bump(d, f"fit {fid} retired", who)
-                _write(project_root, d)
+                _write(set_id, d)
                 return True
     return False
 
 
-def set_sources(project_root, sources, who: str = "") -> list[str]:
+def set_sources(set_id, sources, who: str = "") -> list[str]:
     """The sources Setup ticks; used by fits outside a campaign and by the next Start."""
     with _LOCK:
-        d = load(project_root)
+        d = load(set_id)
         src = clean_sources(list(sources or []))
         if src != d["sources"]:
             d["sources"] = src
             _bump(d, "sources " + ", ".join(src), who)
-            _write(project_root, d)
+            _write(set_id, d)
         return src
 
 
-def set_settings(project_root, new: dict, who: str = "", why: str = "") -> dict:
+def set_settings(set_id, new: dict, who: str = "", why: str = "") -> dict:
     with _LOCK:
-        d = load(project_root)
+        d = load(set_id)
         cur = settings(d)
         for k in SETTINGS_LIMITS:
             if k in (new or {}):
                 cur[k] = new[k]
         d["settings"] = settings({"settings": cur})
         _bump(d, "settings " + json.dumps(d["settings"]) + (f" ({why})" if why else ""), who)
-        _write(project_root, d)
+        _write(set_id, d)
         return d["settings"]
 
 
-def draft_notes_from_fits(project_root, who: str = "") -> list[dict]:
+def draft_notes_from_fits(set_id, who: str = "") -> list[dict]:
     """Repeated corrections become DRAFT notes (approve-only): when two or more
     judged fits say the fitter's X is really Y, propose a note saying so."""
-    d = load(project_root)
+    d = load(set_id)
     pairs: dict = {}
     for f in d["fits"]:
         if f.get("status") == "retired" or f.get("verdict") != "wrong" or not f.get("label"):
@@ -348,14 +355,48 @@ def draft_notes_from_fits(project_root, who: str = "") -> list[dict]:
         if text in have:
             continue
         try:
-            out.append(add_note(project_root, text, who=who, status="draft", basis=ids))
+            out.append(add_note(set_id, text, who=who, status="draft", basis=ids))
         except ValueError:
             pass
     return out
 
 
-def summary(project_root) -> dict:
-    d = load(project_root)
+def import_legacy(set_id, project_root, who: str = "") -> dict:
+    """Copy notes and judged fits from a project's old fit_knowledge.json (built
+    before fitter knowledge moved into knowledge bases) into this base. The file
+    is left as it is; running it twice adds nothing new."""
+    p = Path(project_root or "") / LEGACY_FILE
+    try:
+        old = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise ValueError("no earlier fitting knowledge in this project")
+    with _LOCK:
+        d = load(set_id)
+        have_n = {n.get("text") for n in d["notes"] if n.get("status") != "retired"}
+        have_f = {(f.get("file"), f.get("at")) for f in d["fits"]}
+        n_notes = n_fits = 0
+        for n in old.get("notes") or []:
+            if n.get("status") == "retired" or not n.get("text") or n["text"] in have_n:
+                continue
+            d["notes"].append(dict(n, id=_next_id(d["notes"], "FN"), imported_from=str(p)))
+            n_notes += 1
+        for f in old.get("fits") or []:
+            if f.get("status") == "retired" or (f.get("file"), f.get("at")) in have_f:
+                continue
+            d["fits"].append(dict(f, id=_next_id(d["fits"], "FV"), imported_from=str(p)))
+            n_fits += 1
+        if n_notes or n_fits:
+            _bump(d, f"imported {n_notes} note(s), {n_fits} judged fit(s) from {p.parent.name}", who)
+            _write(set_id, d)
+    return {"notes": n_notes, "fits": n_fits}
+
+
+def has_legacy(project_root) -> bool:
+    return bool(project_root) and (Path(project_root) / LEGACY_FILE).is_file()
+
+
+def summary(set_id) -> dict:
+    d = load(set_id)
     act = [f for f in d["fits"] if f.get("status") != "retired"]
     return {"version": d["version"], "updated_at": d["updated_at"],
             "n_notes": sum(1 for n in d["notes"] if n.get("status") == "active"),
@@ -464,12 +505,15 @@ def clean_sources(sources) -> list[str]:
     return [s for s in SOURCE_IDS if s in src]
 
 
-def freeze(project_root, sources=None, save: bool = True) -> dict:
-    """The snapshot a campaign uses: chosen sources (default: the project's
-    saved choice), settings, active notes and judged fits, with a content hash."""
-    d = load(project_root) if project_root else _empty()
+def freeze(set_id, sources=None, save_root=None) -> dict:
+    """The snapshot a campaign uses: the base's chosen sources, settings, active
+    notes and judged fits, with a content hash. No base: Guinier's four files,
+    exactly what the AI fitter read before. Saved under ``save_root``
+    (the project) as .swaxs_state/fit_knowledge/<hash>.json."""
+    d = load(set_id) if set_id else dict(_empty(), sources=["catalogue", "corrections", "sops", "guidelines"])
     src = clean_sources(sources if sources is not None else d.get("sources"))
-    snap = {"sources": src, "settings": settings(d), "project_version": d["version"],
+    snap = {"set_id": d.get("set_id"), "name": d.get("name"),
+            "sources": src, "settings": settings(d), "project_version": d["version"],
             "notes": [{"id": n["id"], "text": n["text"]} for n in d["notes"]
                       if n.get("status") == "active"] if "notes" in src else [],
             "fits": [{k: f.get(k) for k in ("id", "file", "fitted_model", "verdict", "label",
@@ -484,9 +528,9 @@ def freeze(project_root, sources=None, save: bool = True) -> dict:
         h.update(json.dumps(expert_cases(), sort_keys=True).encode())
     snap["hash"] = h.hexdigest()[:12]
     snap["frozen_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
-    if save and project_root:
+    if save_root:
         try:
-            p = Path(project_root) / ".swaxs_state" / "fit_knowledge" / f"{snap['hash']}.json"
+            p = Path(save_root) / ".swaxs_state" / "fit_knowledge" / f"{snap['hash']}.json"
             if not p.exists():
                 p.parent.mkdir(parents=True, exist_ok=True)
                 tmp = p.with_suffix(".part")
@@ -497,11 +541,11 @@ def freeze(project_root, sources=None, save: bool = True) -> dict:
     return snap
 
 
-def load_frozen(project_root, h: str) -> dict | None:
-    if not (project_root and isinstance(h, str) and h.isalnum()):
+def load_frozen(root, h: str) -> dict | None:
+    if not (root and isinstance(h, str) and h.isalnum()):
         return None
     try:
-        return json.loads((Path(project_root) / ".swaxs_state" / "fit_knowledge" / f"{h}.json")
+        return json.loads((Path(root) / ".swaxs_state" / "fit_knowledge" / f"{h}.json")
                           .read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
@@ -625,8 +669,8 @@ ARMS = (
 )
 
 
-def labelled_cases(project_root) -> list[dict]:
-    d = load(project_root)
+def labelled_cases(set_id) -> list[dict]:
+    d = load(set_id)
     cs = [f for f in d["fits"] if f.get("status") != "retired" and f.get("label") and f.get("path")]
     return sorted(cs, key=lambda f: int(str(f["id"])[2:] or 0))
 
@@ -667,8 +711,9 @@ def _load_curve(path):
     return np.asarray(q, float), np.asarray(I, float), (np.asarray(s, float) if s is not None else None)
 
 
-def run_arms(project_root, cases: list[dict], base: dict, arms, *, client_factory=None,
-             loader=None, settings_override: dict | None = None, progress=None) -> dict:
+def run_arms(set_id, cases: list[dict], base: dict, arms, *, client_factory=None,
+             loader=None, settings_override: dict | None = None, progress=None,
+             cache_root=None) -> dict:
     """{arm: {"practice": [hit...], "heldout": [hit...], "errors": n}}"""
     from src.fitting import get
     from src.fitting.llm_structure import LLMStructure
@@ -693,7 +738,7 @@ def run_arms(project_root, cases: list[dict], base: dict, arms, *, client_factor
                     r = get("catalogue_bic").fit(q, I, s, dist="auto")
                 else:
                     r = LLMStructure(client_factory=client_factory).fit(
-                        q, I, s, dist="auto", project_root=project_root, fit_knowledge=snap,
+                        q, I, s, dist="auto", project_root=cache_root, fit_knowledge=snap,
                         exclude_file=c["file"], trace=False)
                     if (r.get("llm_structure") or {}).get("status") != "ai":
                         out[a]["fallbacks"] += 1
@@ -719,11 +764,11 @@ def _score_table(raw: dict) -> list[dict]:
              "fallbacks": r["fallbacks"]} for a, r in raw.items()]
 
 
-def evaluate(project_root, sources=None, *, client_factory=None, loader=None,
-             max_cases: int = 20, progress=None) -> dict:
+def evaluate(set_id, sources=None, *, client_factory=None, loader=None,
+             max_cases: int = 20, progress=None, cache_root=None) -> dict:
     """Score each arm on this project's judged fits; saved to the project file."""
     from src.ai.models import get_client
-    cases = labelled_cases(project_root)[-int(max_cases):]
+    cases = labelled_cases(set_id)[-int(max_cases):]
     ev = {"at": time.strftime("%Y-%m-%dT%H:%M:%S"), "n_cases": len(cases), "rows": [], "note": ""}
     if len(cases) < MIN_LABELLED:
         ev["note"] = (f"Needs at least {MIN_LABELLED} judged fits that name the right model "
@@ -732,9 +777,9 @@ def evaluate(project_root, sources=None, *, client_factory=None, loader=None,
     cf = client_factory or (lambda: get_client())
     have_ai = cf() is not None
     arms = [a for a, _ in ARMS] if have_ai else ["catalogue_bic"]
-    base = freeze(project_root, sources, save=False)
-    raw = run_arms(project_root, cases, base, arms, client_factory=cf, loader=loader,
-                   progress=progress)
+    base = freeze(set_id, sources)
+    raw = run_arms(set_id, cases, base, arms, client_factory=cf, loader=loader,
+                   progress=progress, cache_root=cache_root)
     ev["rows"] = _score_table(raw)
     ev["sources"] = base["sources"]; ev["settings"] = base["settings"]
     ev["project_version"] = base["project_version"]
@@ -744,32 +789,32 @@ def evaluate(project_root, sources=None, *, client_factory=None, loader=None,
         best = max(ev["rows"], key=lambda r: (r["all"] or 0))
         ev["note"] = f"Best on these {len(cases)} curves: {best['label']} ({best['all']:.0%} right model)."
     with _LOCK:
-        d = load(project_root)
+        d = load(set_id)
         d["evaluations"] = (d.get("evaluations") or [])[-(MAX_EVALS - 1):] + [ev]
-        _write(project_root, d)
+        _write(set_id, d)
     return ev
 
 
-def propose_improvement(project_root, sources=None, *, client_factory=None, loader=None,
-                        max_cases: int = 20) -> dict:
+def propose_improvement(set_id, sources=None, *, client_factory=None, loader=None,
+                        max_cases: int = 20, cache_root=None) -> dict:
     """Try other settings on the practice half; propose one only if it is also
     better on the held-out half. Saved as the proposal; never applied here."""
     from src.ai.models import get_client
     cf = client_factory or (lambda: get_client())
-    cases = labelled_cases(project_root)[-int(max_cases):]
+    cases = labelled_cases(set_id)[-int(max_cases):]
     if len(cases) < MIN_LABELLED:
         return {"proposal": None, "note": f"Needs at least {MIN_LABELLED} judged fits that name the right model."}
     if cf() is None:
         return {"proposal": None, "note": "No AI login: the settings only matter to the AI fitter."}
-    base = freeze(project_root, sources, save=False)
+    base = freeze(set_id, sources)
     cur = dict(base["settings"])
     cands = [{"n_fits": n} for n in (0, 1, 3, 5) if n != cur["n_fits"]]
     if "literature" in base["sources"]:
         cands += [{"n_passages": n} for n in (1, 3, 6) if n != cur["n_passages"]]
 
     def score(over, split):
-        raw = run_arms(project_root, cases, base, ["ai_project"], client_factory=cf,
-                       loader=loader, settings_override=over)
+        raw = run_arms(set_id, cases, base, ["ai_project"], client_factory=cf,
+                       loader=loader, settings_override=over, cache_root=cache_root)
         return _acc(raw["ai_project"][split])
 
     cur_p, cur_h = score(None, "practice"), score(None, "heldout")
@@ -787,21 +832,21 @@ def propose_improvement(project_root, sources=None, *, client_factory=None, load
     prop = {"settings": dict(cur, **best), "from": cur, "practice": [cur_p, best_p],
             "heldout": [cur_h, h], "at": time.strftime("%Y-%m-%dT%H:%M:%S"), "n_cases": len(cases)}
     with _LOCK:
-        d = load(project_root)
+        d = load(set_id)
         d["proposal"] = prop
-        _write(project_root, d)
+        _write(set_id, d)
     return {"proposal": prop, "note": "Better on both halves; approve to use it from the next campaign."}
 
 
-def decide_proposal(project_root, approve: bool, who: str = "") -> dict:
+def decide_proposal(set_id, approve: bool, who: str = "") -> dict:
     with _LOCK:
-        d = load(project_root)
+        d = load(set_id)
         prop = d.get("proposal")
         if not prop:
             raise ValueError("no proposal waiting")
         d["proposal"] = None
-        _write(project_root, d)
+        _write(set_id, d)
     if approve:
-        return {"settings": set_settings(project_root, prop["settings"], who,
+        return {"settings": set_settings(set_id, prop["settings"], who,
                                          why=f"approved improvement (held-out {prop['heldout'][0]} to {prop['heldout'][1]})")}
-    return {"settings": settings(load(project_root))}
+    return {"settings": settings(load(set_id))}

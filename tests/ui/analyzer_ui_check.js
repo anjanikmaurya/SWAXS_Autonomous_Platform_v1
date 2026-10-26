@@ -70,22 +70,24 @@ const KSET={id:'pd',name:'Pd · ODE',version:4,chemistry:{keywords:['Pd']},match
          {id:'N1',param:'T_reac',effect:'above 300 °C the ODE boils',range:[null,300],kind:'note',source:'note',status:'approved',limit_like:true,check:{range:[180,300]}},
          {id:'L2',param:'x_TOP',effect:'more TOP narrows',range:[0.1,0.4],kind:'literature',source:'S',status:'draft',passage:'More TOP narrows the PDI.',check:{range:[0.1,0.3],clipped:true,note:'clipped to 0.1 to 0.3 (search range)'}}],
   campaigns:[{campaign_id:'c1',run_tag:'Run2',n:24,runs:[{}],best:{size:2.48,pdi:.09},ended:'2026-10-20T10:00',project:'/p'}]};
-const FK={project:true,shared:[{id:'catalogue',label:'Model catalogue',desc:'always',always:true,available:true,count:null},
+const FK={shared:[{id:'catalogue',label:'Model catalogue',desc:'always',always:true,available:true,count:null},
   {id:'corrections',label:'Operator corrections',desc:'c',available:true,count:2},{id:'sops',label:'Group SOPs',desc:'s',available:true,count:5},
   {id:'guidelines',label:'SAXS guidelines',desc:'g',available:true,count:null},
   {id:'literature',label:'Literature passages',desc:'l',available:false,count:null,why:'the literature index is not built here'},
   {id:'cases',label:'Expert cases',desc:'e',available:false,count:0}],
-  project_sources:[{id:'notes',label:'Project notes',desc:'n'},{id:'fits',label:'Judged fits',desc:'f'}],
+  own_sources:[{id:'notes',label:'Notes',desc:'n'},{id:'fits',label:'Judged fits',desc:'f'}],
+  models:['core_shell_sphere','cylinder','ellipsoid','sphere'],structure_factors:['hardsphere'],
+  active_set:'pd',verdicts_go_to:'pd',frozen:null,legacy:true,active_fitter:'catalogue_bic'};
+const FKPART={ok:true,set_id:'pd',name:'Pd · ODE',version:4,
   sources:['catalogue','corrections','sops','guidelines','notes','fits'],
-  summary:{version:3,n_notes:1,n_drafts:1,n_fits:2,n_labelled:2,settings:{n_fits:3,n_passages:3}},
-  notes:[{id:'FN1',text:'cores are CdSe',status:'active',who:'ak'},{id:'FN2',text:'In this project, curves fitted as sphere were judged core_shell_sphere',status:'draft',who:''}],
+  summary:{version:4,n_notes:1,n_drafts:1,n_fits:2,n_labelled:2,settings:{n_fits:3,n_passages:3}},
+  notes:[{id:'FN1',text:'cores are CdSe',status:'active',who:'ak'},{id:'FN2',text:'curves fitted as sphere were judged core_shell_sphere',status:'draft',who:''}],
   fits:[{id:'FV1',file:'a.dat',fitted_model:'sphere',verdict:'wrong',label:'core_shell_sphere',note:'',status:'active'},
         {id:'FV2',file:'b.dat',fitted_model:'polydisperse_sphere',verdict:'right',label:'sphere',note:'',status:'active'}],
   settings:{n_fits:3,n_passages:3},limits:{n_fits:[0,8],n_passages:[1,6]},
   evaluation:{at:'2026-10-25',n_cases:6,note:'Best on these 6 curves',rows:[{arm:'catalogue_bic',label:'Catalogue + BIC',all:.5,practice:.33,heldout:.67,n:6,errors:0,fallbacks:0},
-    {arm:'ai_project',label:'AI, plus project notes and judged fits',all:.83,practice:.67,heldout:1,n:6,errors:0,fallbacks:1}]},
-  proposal:{settings:{n_fits:5,n_passages:3},from:{n_fits:3,n_passages:3},practice:[.67,1],heldout:[.67,1]},
-  job:{},models:['core_shell_sphere','cylinder','ellipsoid','sphere'],structure_factors:['hardsphere'],frozen:null,active_fitter:'llm_assisted'};
+    {arm:'ai_project',label:'AI, plus notes and judged fits',all:.83,practice:.67,heldout:1,n:6,errors:0,fallbacks:1}]},
+  proposal:{settings:{n_fits:5,n_passages:3},from:{n_fits:3,n_passages:3},practice:[.67,1],heldout:[.67,1]},job:{}};
 const FKPOST=[];
 function stub(w){
 /* canvas: record instead of raster (jsdom has no 2d context) */
@@ -99,8 +101,14 @@ w.HTMLCanvasElement.prototype.getContext=function(){
 };
 w.fetch=async (u,o)=>{
   let body={};
-  if(u.startsWith('/api/fitknowledge')){ if(o&&o.method==='POST') FKPOST.push([u,JSON.parse(o.body||'{}')]);
-    body = u==='/api/fitknowledge' ? FK : (u.endsWith('/verdict') ? {ok:true,verdict:{id:'FV3',verdict:'wrong',label:'cylinder',note:'',fitted_model:'sphere'},drafted:[{id:'FN3'}]} : {ok:true,sources:FK.sources}); }
+  if(o&&o.method==='POST'&&(u.startsWith('/api/fitknowledge')||/\/fitter|\/use$|knowledge\/active/.test(u))) FKPOST.push([u,JSON.parse(o.body||'{}')]);
+  if(u==='/api/fitknowledge') body=FK;
+  else if(u.startsWith('/api/fitknowledge/verdict')) body={ok:true,set_id:'pd',verdict:{id:'FV3',verdict:'wrong',label:'cylinder',note:'',fitted_model:'sphere'},drafted:[{id:'FN3'}]};
+  else if(u.startsWith('/api/knowledge/active')) body={ok:true,set_id:'pd',verdicts_go_to:'pd'};
+  else if(u==='/api/knowledge/set/pd/fitter') body=FKPART;
+  else if(u.startsWith('/api/knowledge/set/pd/fitter/sources')) body={ok:true,sources:JSON.parse(o.body).sources};
+  else if(u.startsWith('/api/knowledge/set/pd/fitter')) body={ok:true};
+  else if(u.startsWith('/api/knowledge/set/pd/use')) body={ok:true,design_use:JSON.parse(o.body)};
   else if(u.startsWith('/api/result/')) body={summary:ROWS[ROWS.length-1],
     full:{phase:{phase:null},llm:{summary:'fit is well constrained',flags:[]}},
     plot:{q,I,model:MO,sigma:SG}};
@@ -110,7 +118,9 @@ w.fetch=async (u,o)=>{
     models:[{id:'',label:'Default (from your AI settings)'},{id:'us.anthropic.claude-opus-5',label:'Claude Opus 5.5'}]};
   else if(u.startsWith('/api/ai/test')) body={ok:true,model:'us.anthropic.claude-opus-5',ms:812,thinking:'off',error:''};
   else if(u.startsWith('/api/knowledge/sets')) body={ok:true,chemistry:{product:'Pd nanoparticles'},
-    sets:[{id:'pd',name:'Pd · ODE',version:4,keywords:['Pd'],n_cards:2,n_drafts:1,n_campaigns:1,matches_chemistry:true}]};
+    sets:[{id:'pd',name:'Pd · ODE',version:4,keywords:['Pd'],n_cards:2,n_drafts:1,n_campaigns:1,n_verdicts:0,matches_chemistry:true,
+      design_use:{literature:true,notes:true,campaigns:true,verdicts:true,every_pick:false},
+      fitter:{sources:['catalogue','corrections','sops','guidelines','notes','fits'],n_notes:1,n_drafts:1,n_fits:2,n_labelled:2}}]};
   else if(u.startsWith('/api/knowledge/set/pd/review')) body={ok:true,card:{}};
   else if(u.startsWith('/api/knowledge/set/pd/evaluation')) body={state:'done',kind:'evaluate',result:{caveat:'Indicative: 2 past campaigns.',campaigns:['Run1','Run2'],set_version:4,repeats:3,at:'2026-10-24',notes:[],
     summary:[{arm:'gp_ei',label:'GP + EI',runs_to_spec:6,reached:5,trials:6,best_after_10:1.2,fallbacks:0},{arm:'gp_ei_knowledge',label:'GP + EI + recipes from cards',runs_to_spec:4,reached:6,trials:6,best_after_10:0.9,fallbacks:0}]}};
@@ -273,16 +283,42 @@ const w=dom.window;
   ok($('c_ninit').textContent==='10','cold start defaults to 10, got '+$('c_ninit').textContent);
   ok($('k_set').value==='pd','the knowledge set matching chemistry.yml is preselected');
   ok($('c_nknow').value==='3' && $('c_nspread').value==='7','knowledge splits the cold start: 3 from knowledge + 7 spread, got '+$('c_nknow').value+'+'+$('c_nspread').value);
-  ok(/1 card/.test($('k_lit_n').textContent) && /1 card/.test($('k_note_n').textContent),'approved card counts per kind');
+  ok(/1 literature card/.test($('k_sum').textContent) && /1 note card/.test($('k_sum').textContent) && /1 past campaign/.test($('k_sum').textContent),'Setup summarises the design part: '+$('k_sum').textContent);
+  ok(/used only by AI-assisted structure/.test($('k_sum').textContent),'Setup says the fitter part needs the AI fitter');
+  ok(!$('k_lit') && !$('k_for') && !$('k_camp'),'no knowledge ticks left in Setup');
+  const steps=[...w.document.querySelectorAll('.steps .step:not(.race-only) .step-h')].map(h=>h.textContent.trim().split('\n')[0].trim());
+  ok(/Data folders/.test(steps[0]) && /Target/.test(steps[1]) && /Knowledge base/.test(steps[2]) && /Fitting/.test(steps[3]) && /Design loop/.test(steps[4]) && /Starting recipes/.test(steps[5]),'Setup steps in order: '+steps.join(' | '));
+  const fams=[...w.document.querySelectorAll('#fitList .mfam')].map(x=>x.textContent).join();
+  ok(fams==='Standard,Agentic','fitting families ordered Standard, then Agentic (ML hidden when absent): '+fams);
+  ok([...w.document.querySelectorAll('#optList .mfam')].map(x=>x.textContent).join()==='Standard,ML,Agentic','design loop ordered Standard, ML, Agentic');
+  ok($('c_confmin').closest('details.more')!==null && $('c_addown').closest('details.more')!==null,'case-by-case settings live under More options');
   ok(/1 draft/.test($('k_set_note').textContent),'drafts waiting are flagged, not used');
-  ok(/Knowledge: Pd/.test($('readyList').textContent),'ready list names the knowledge set');
+  ok(/Knowledge: Pd/.test($('readyList').textContent),'ready list names the knowledge base');
+  ok(FKPOST.some(p=>p[0]==='/api/knowledge/active' && p[1].set_id==='pd'),'the chosen base is made active for fits and calls');
   $('k_set').value=''; await w.kSetChosen();
   ok($('c_nknow').disabled && $('c_nspread').value==='10','no knowledge: back to 10 spread');
   $('k_set').value='pd'; await w.kSetChosen();
   ok($('c_nspread').value==='7','choosing the set again splits again');
   /* Knowledge tab */
   w.showTab('knowledge'); await new Promise(r=>setTimeout(r,80));
-  ok($('kn_title').textContent==='Pd · ODE','knowledge tab opens the set');
+  ok($('kn_title').textContent==='Pd · ODE','knowledge tab opens the base');
+  const nav=[...w.document.querySelectorAll('.gd-nav .gd-grp')].map(x=>x.textContent);
+  ok(nav.join()==='Knowledge bases,Fitter,Design loop','nav: bases, then Fitter, then Design loop: '+nav);
+  await new Promise(r=>setTimeout(r,40));
+  ok($('kn-fk_use').style.display!=='none' && /Guinier's knowledge/.test($('fk_use_box').textContent),'the base opens on Fitter, What it uses');
+  const cat=w.document.querySelector('.fk_src[value="catalogue"]'), lit=w.document.querySelector('.fk_src[value="literature"]');
+  ok(cat.checked && cat.disabled && lit.disabled && !lit.checked,'catalogue always on; missing literature index cannot be ticked');
+  const sops=w.document.querySelector('.fk_src[value="sops"]'); sops.checked=false; sops.dispatchEvent(new w.Event('change'));
+  await new Promise(r=>setTimeout(r,30));
+  const up=FKPOST.filter(p=>p[0]==='/api/knowledge/set/pd/fitter/sources').pop();
+  ok(up && !up[1].sources.includes('sops') && up[1].sources.includes('catalogue') && up[1].sources.includes('fits'),'unticking a fitter source saves it with the base');
+  ok(/Copy them into this base/.test($('fk_legacy').innerHTML),'old project fitting notes can be copied in');
+  w.kSection('dz_use');
+  ok([...w.document.querySelectorAll('.dz_u')].filter(c=>c.checked).length===4 && $('kh_n').value==='3','design part: what it uses and its settings');
+  const evp=w.document.querySelector('.dz_u[data-k="every_pick"]'); evp.checked=true; evp.dispatchEvent(new w.Event('change'));
+  await new Promise(r=>setTimeout(r,30));
+  const du=FKPOST.filter(p=>p[0]==='/api/knowledge/set/pd/use').pop();
+  ok(du && du[1].every_pick===true && du[1].literature===true,'design use saved with the base');
   ok(w.document.querySelectorAll('#kn_tbl tbody tr').length===2,'approved cards listed (drafts not)');
   ok(/sounds like a limit/.test($('kn_tbl').textContent),'limit-like card flagged');
   w.kSection('drafts');
@@ -290,10 +326,10 @@ const w=dom.window;
   w.kSection('camps');
   ok(/Run2/.test($('kn_ctbl').textContent) && /4.96 nm/.test($('kn_ctbl').textContent),'campaigns listed with diameter');
   w.kSection('eval'); await new Promise(r=>setTimeout(r,60));
-  ok($('kh_n').value==='3' && /GP \+ EI/.test($('kn_eval_body').textContent),'evaluation: harness settings and the last replay');
+  ok(/GP \+ EI/.test($('kn_eval_body').textContent),'evaluation: the last replay');
   w.kSection('verdicts');
   w.kSection('fk_notes'); await new Promise(r=>setTimeout(r,40));
-  ok(w.document.querySelector('.kn-head').style.display==='none','fitting pages hide the knowledge-set header');
+  ok(w.document.querySelector('.kn-head').style.display!=='none','the base name stays on top of fitter pages');
   ok(/Approve/.test(w.document.querySelector('#fk_ntbl tbody').textContent) && /cores are CdSe/.test(w.document.querySelector('#fk_ntbl tbody').textContent),'project notes with drafts to approve');
   w.kSection('fk_fits');
   ok(w.document.querySelectorAll('#fk_ftbl tbody tr').length===2,'judged fits listed');
@@ -301,7 +337,6 @@ const w=dom.window;
   ok(/83%/.test($('fk_eval_body').textContent) && /Approve/.test($('fk_prop').textContent),'fitting evaluation and proposal shown');
   ok($('fk_nf').value==='3','fitting settings filled');
   w.kSection('add');
-  ok(w.document.querySelector('.kn-head').style.display==='','set header back on set pages');
   ok(/No verdict yet/.test($('kn_vtbl').textContent),'verdicts section');
   await w.kSearch();
   ok(w.document.querySelectorAll('#kn_hits .khit').length===1 && /open access/.test($('kn_hits').textContent),'web search results listed');
@@ -315,7 +350,8 @@ const w=dom.window;
   /* AI levels */
   w.document.querySelector('#optList input[value="ai_copilot"]').click(); await new Promise(r=>setTimeout(r,30));
   ok(/Shortlist from/.test($('m_opt_desc').textContent) && $('ai_inner').value==='gp_ei','Co-pilot shows the optimiser it shortlists from');
-  ok($('k_for').style.display==='' && /every AI pick/.test($('k_for').textContent),'the For choice appears with an AI level');
+  ok($('ai_model').closest('details.more')!==null && $('ai_inner').closest('details.more')===null,'AI essentials shown, model and thinking under More options');
+  ok(!$('loopMore').hidden,'More options appears for an AI level');
   ok([...$('ai_review').options].some(o=>o.value==='0'),'Co-pilot review can be off');
   ok($('ai_model').options.length===2 && /claude-sonnet-5/.test($('ai_model').options[0].textContent),'model choice lists the default and the models');
   $('ai_model').value='us.anthropic.claude-opus-5'; $('ai_model').dispatchEvent(new w.Event('change'));
@@ -327,25 +363,19 @@ const w=dom.window;
   ok(![...$('ai_review').options].some(o=>o.value==='0'),'Pilot cannot turn the review off');
   ok(/experimental/.test($('readyList').textContent),'Pilot flagged in the ready list');
   w.document.querySelector('#optList input[value="ai_advisor"]').click(); await new Promise(r=>setTimeout(r,30));
-  ok(!!$('ai_apply') && /every progress review/.test($('k_for').textContent),'Advisor offers apply mode and reviews');
-  w.document.querySelector('input[name=k_for][value=every]').checked=true;
-  ok(w.kBody().use.every_pick===true,'every review/pick is sent with the knowledge');
+  ok(!!$('ai_apply'),'Advisor offers apply mode');
+  ok(w.kBody().set_id==='pd' && w.kBody().use===undefined,'Setup sends only the base name; the server reads what it uses');
   w.document.querySelector('#optList input[value="gp_ei"]').click(); await new Promise(r=>setTimeout(r,30));
-  ok($('k_for').style.display==='none' && !w.kBody().use.every_pick,'back to the optimiser: no AI, no every-pick');
+  ok($('ai_more').innerHTML==='','back to the optimiser: no AI options');
   ok(!!w.document.querySelector('#studyMethods input[value="ai_copilot"]'),'AI Co-pilot can be raced');
-  /* knowledge for the AI fitter in Setup step 3 */
-  ok($('fk_box').textContent==='','no fitter knowledge box for a statistics fitter');
+  /* the AI fitter in Setup: one line naming the base */
+  ok($('fk_line').textContent==='','no fitter line for a statistics fitter');
   w.document.querySelector('#fitList input[value="llm_assisted"]').click(); await new Promise(r=>setTimeout(r,30));
-  ok(/Knowledge for the AI fitter/.test($('fk_box').textContent) && /Guinier's knowledge/.test($('fk_box').textContent),'AI fitter shows its knowledge choice');
-  const cat=w.document.querySelector('.fk_src[value="catalogue"]'), lit=w.document.querySelector('.fk_src[value="literature"]');
-  ok(cat.checked && cat.disabled && lit.disabled && !lit.checked,'catalogue always on; missing literature index cannot be ticked');
-  const sops=w.document.querySelector('.fk_src[value="sops"]'); sops.checked=false; sops.dispatchEvent(new w.Event('change'));
-  await new Promise(r=>setTimeout(r,20));
-  const up=FKPOST.filter(p=>p[0]==='/api/fitknowledge/use').pop();
-  ok(up && !up[1].sources.includes('sops') && up[1].sources.includes('catalogue') && up[1].sources.includes('fits'),'unticking a source saves the choice');
-  ok(/AI fitter knowledge: 5 source/.test($('readyList').textContent) && /drafted fitting note/.test($('readyList').textContent),'ready list shows the fitter knowledge and drafts');
+  ok(/Fitter part of Pd · ODE/.test($('fk_line').textContent),'AI fitter names the base it reads');
+  ok(/AI fitter reads Pd · ODE: 6 source/.test($('readyList').textContent) && /drafted fitter note/.test($('readyList').textContent),'ready list shows the fitter knowledge and drafts');
+  ok(/2 judged fit/.test($('k_sum').textContent),'Setup summary shows the fitter part once the AI fitter is chosen');
   w.document.querySelector('#fitList input[value="catalogue_bic"]').click(); await new Promise(r=>setTimeout(r,30));
-  ok($('fk_box').textContent==='','box hides again for Catalogue + BIC');
+  ok($('fk_line').textContent==='','line hides again for Catalogue + BIC');
   /* Decisions in Report */
   ES.last.emit({results:[],logs:[],campaign:{...CAMP, ai:{level:'ai_copilot',label:'AI Co-pilot',n_fallbacks:1,can_undo:false,
     work_bounds:null,pending_suggestion:null,decisions:[
@@ -390,10 +420,11 @@ const w=dom.window;
   /* AI fitter knowledge: verdict under the plot */
   ok($('fvBox').style.display==='flex' && /Right model\?/.test($('fvBox').textContent),'fit offers a Right / Wrong-model call');
   ok([...$('fv_model').options].some(o=>o.value==='sphere@hardsphere'),'wrong-model list includes structure factors');
-  $('fv_model').value='cylinder'; $('fv_wrong').click(); await new Promise(r=>setTimeout(r,40));
+  $('fv_model').value='cylinder'; $('fv_wrong').click(); await new Promise(r=>setTimeout(r,150));
   const vp=FKPOST.find(p=>p[0]==='/api/fitknowledge/verdict');
   ok(vp && vp[1].verdict==='wrong' && vp[1].correct_model==='cylinder' && vp[1].name===heldName,'wrong-model call posts the right model');
-  ok(/drafted/.test($('fv_now').textContent),'drafted notes are announced');
+  ok(/drafted/.test($('fv_now').textContent),'drafted notes are announced: '+$('fv_now').textContent);
+  ok(/saved in Pd · ODE/.test($('fv_now').textContent),'the call says which base keeps it');
   ok($('heldBox').style.display==='block' && /Accept/.test($('heldBox').textContent),'held fit offers Accept');
   /* Compare methods: simulator only */
   ES.last.emit({results:[],logs:[],campaign:{status:'idle'},total:25,seq:25,reset:false});

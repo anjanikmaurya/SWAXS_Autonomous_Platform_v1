@@ -11,6 +11,9 @@ travels with the code; ``SWAXS_DESIGN_KNOWLEDGE_DIR`` overrides the folder):
      "verdicts": [...],     # the operator's Good / Bad calls on past picks
      "campaigns": [...],    # finished campaigns, with their measured runs
      "harness": {...},      # settings the campaigns use (HARNESS_DEFAULTS)
+     "design_use": {...},   # which design parts campaigns use (DESIGN_USE_DEFAULTS)
+     "fitter": {...},       # the AI fitter's part: sources, notes, judged fits,
+                            #   settings, evaluations (src/fitting/fit_knowledge.py)
      "evaluations": [...],  # replay results (src/design_knowledge/replay.py)
      "proposal": {...},     # an improvement waiting for the operator's approval
      "log": [...]}          # what changed, newest last (version, what, who)
@@ -36,6 +39,11 @@ _ROOT = Path(__file__).resolve().parents[2]
 #: an improvement the operator approves (replay.propose_improvement).
 HARNESS_DEFAULTS = {"n_knowledge": 3, "shortlist_k": 5, "trust": 0.25}
 HARNESS_LIMITS = {"n_knowledge": (0, 10), "shortlist_k": (2, 8), "trust": (0.05, 0.6)}
+#: What the design loop takes from the base, ticked in the Knowledge tab (Setup
+#: only picks the base by name). every_pick: an AI level also reads the cards
+#: and verdicts at every pick or review, not only for the starting recipes.
+DESIGN_USE_DEFAULTS = {"literature": True, "notes": True, "campaigns": True,
+                       "verdicts": True, "every_pick": False}
 MAX_VERDICTS = 500
 MAX_EVALS = 30
 _LOCK = threading.RLock()
@@ -100,8 +108,37 @@ def list_sets() -> list[dict]:
                     "n_drafts": sum(1 for c in cards if c.get("status") == "draft"),
                     "n_verdicts": sum(1 for v in s.get("verdicts") or [] if v.get("status") != "retired"),
                     "n_campaigns": len(s.get("campaigns") or []),
-                    "harness": harness(s)})
+                    "harness": harness(s), "design_use": design_use(s),
+                    "fitter": _fitter_summary(s)})
     return out
+
+
+def design_use(s: dict) -> dict:
+    u = dict(DESIGN_USE_DEFAULTS)
+    for k in u:
+        if k in (s.get("design_use") or {}):
+            u[k] = bool(s["design_use"][k])
+    return u
+
+
+def set_design_use(set_id: str, use: dict, who: str = "") -> dict:
+    with _LOCK:
+        s = load_set(set_id)
+        u = design_use({"design_use": {k: v for k, v in (use or {}).items() if k in DESIGN_USE_DEFAULTS}})
+        s["design_use"] = u
+        _bump(s, "design loop uses " + ", ".join(k for k, v in u.items() if v), who)
+        _write(s)
+        return u
+
+
+def _fitter_summary(s: dict) -> dict:
+    f = s.get("fitter") or {}
+    fits = [x for x in f.get("fits") or [] if x.get("status") != "retired"]
+    notes = f.get("notes") or []
+    return {"sources": f.get("sources"),
+            "n_notes": sum(1 for n in notes if n.get("status") == "active"),
+            "n_drafts": sum(1 for n in notes if n.get("status") == "draft"),
+            "n_fits": len(fits), "n_labelled": sum(1 for x in fits if x.get("label"))}
 
 
 def load_set(set_id: str) -> dict:
@@ -309,6 +346,21 @@ def import_set(payload: dict, who: str = "") -> dict:
     for e in (src.get("campaigns") or [])[:50]:
         if isinstance(e, dict) and e.get("campaign_id"):
             add_campaign(s["id"], e, who)
+    fit = src.get("fitter") or {}
+    if isinstance(fit, dict) and (fit.get("notes") or fit.get("fits") or fit.get("sources")):
+        with _LOCK:
+            s = load_set(s["id"])
+            s["fitter"] = {"sources": fit.get("sources"),
+                           # notes from elsewhere are reviewed first, like cards
+                           "notes": [dict(n, status="draft") for n in fit.get("notes") or []
+                                     if isinstance(n, dict) and n.get("status") != "retired"][:200],
+                           "fits": [x for x in fit.get("fits") or []
+                                    if isinstance(x, dict) and x.get("status") != "retired"][:1000],
+                           "settings": fit.get("settings") or {}}
+            _bump(s, "fitter part imported (notes as drafts)", who)
+            _write(s)
+    if isinstance(src.get("design_use"), dict):
+        set_design_use(s["id"], src["design_use"], who)
     return load_set(s["id"])
 
 

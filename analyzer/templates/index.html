@@ -337,6 +337,14 @@ body.swaxs-shell #main{overflow-y:auto}
 .scored-held{color:var(--warn-text);font-weight:600} .scored-weak{color:var(--muted)}
 /* knowledge step */
 .kuse{display:grid;grid-template-columns:150px minmax(0,1fr);gap:8px;margin:6px 0}
+details.more{margin-top:8px;border-top:1px dashed var(--border);padding-top:6px}
+details.more>summary{cursor:pointer;font-size:var(--fs-sm);color:var(--muted);list-style:none;user-select:none}
+details.more>summary::-webkit-details-marker{display:none}
+details.more>summary::before{content:'▸ ';}
+details.more[open]>summary::before{content:'▾ ';}
+details.more>.more-b{margin-top:8px}
+.ksum{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:4px;font-size:var(--fs-sm)}
+.ksum b{display:inline-block;min-width:92px}
 .kuse-l{display:flex;flex-direction:column;gap:3px}
 .tick{display:flex;gap:7px;align-items:baseline;font-weight:400;color:var(--text);font-size:var(--fs-sm);margin:0}
 .tick input{width:auto}
@@ -474,8 +482,6 @@ body.swaxs-shell #main{overflow-y:auto}
               <option value="sphere">sphere only</option>
               <option value="any">any shape (equivalent size)</option>
             </select></div>
-          <div class="live-only"><label for="c_confmin" title="A fit below this confidence cannot be the answer or end the run; it still informs the model, with a low weight">Min fit confidence</label>
-            <input id="c_confmin" type="number" value="0.5" step="0.05" min="0" max="1"></div>
           <div class="race-only" style="display:none"><label for="c_repeats">Repeats per method</label>
             <input id="c_repeats" type="number" value="3" step="1" min="1" max="10"></div>
         </div>
@@ -483,53 +489,47 @@ body.swaxs-shell #main{overflow-y:auto}
         <div class="range-row"><span class="lbl">Search range</span>
           <span class="mono" id="c_range">loading…</span>
           <span class="sub" id="c_range_src"></span></div>
+        <details class="more live-only"><summary>More options</summary><div class="more-b grid2">
+          <div><label for="c_confmin" title="A fit below this confidence cannot be the answer or end the run; it still informs the model, with a low weight">Min fit confidence</label>
+            <input id="c_confmin" type="number" value="0.5" step="0.05" min="0" max="1"></div>
+        </div></details>
       </div>
 
-      <!-- STEP: how it fits & searches -->
-      <div class="step">
-        <div class="step-h"><span class="step-n"></span> How it fits &amp; searches</div>
-        <div class="mchoose">
-          <div class="live-only" id="fitCol"><div class="colh">Fitting</div>
-            <div class="mlistbox" id="fitList"></div>
-            <select id="m_fitter" onchange="setMethods()" aria-label="fitting method" hidden></select>
-            <div class="sub" id="m_fitter_desc" hidden></div></div>
-          <div id="m_opt_wrap"><div class="colh" id="optColH">Next recipe</div>
-            <div class="mlistbox live-only" id="optList"></div>
-            <select id="m_optimiser" onchange="setMethods()" aria-label="search strategy" hidden></select>
-            <div class="mlistbox race-only" id="studyMethods" style="display:none"></div></div>
-        </div>
-        <div id="m_opt_desc" class="mdetail live-only"></div>
-        <div id="m_opt_params" class="grid2 live-only" style="margin-top:8px"></div>
-        <div id="fk_box" class="mdetail live-only"></div>
-        <div class="sub" id="m_hint" style="margin-top:6px"></div>
-      </div>
-
-      <!-- STEP: knowledge for this campaign (live goals only) -->
+      <!-- STEP: knowledge base (live goals only): picked by name; what each part
+           uses is ticked in the Knowledge tab and saved with the base -->
       <div class="step live-only" id="stepKnow">
-        <div class="step-h"><span class="step-n"></span> Knowledge for this campaign
+        <div class="step-h"><span class="step-n"></span> Knowledge base
           <span class="step-sub"><a href="#" class="glink" data-guide="knowledge">How it is used →</a></span></div>
-        <div class="fg"><label for="k_set">Knowledge set</label>
+        <div class="fg"><label for="k_set">Use</label>
           <div class="cell"><div class="browse-row">
             <select id="k_set" onchange="kSetChosen()"><option value="">None</option></select>
-            <a href="#" class="glink" onclick="showTab('knowledge');return false">Add or edit in the Knowledge tab →</a></div>
-            <div class="sub" id="k_set_note"></div></div></div>
-        <div class="kuse" id="k_use">
-          <div class="colh">Use</div>
-          <div class="kuse-l">
-            <label class="tick"><input type="checkbox" id="k_lit" checked onchange="kSetChosen()"> Literature <span class="sub" id="k_lit_n"></span></label>
-            <label class="tick"><input type="checkbox" id="k_note" checked onchange="kSetChosen()"> Your notes <span class="sub" id="k_note_n"></span></label>
-            <label class="tick" id="k_verd_row" style="display:none"><input type="checkbox" id="k_verd" checked onchange="kSetChosen()"> Your verdicts on past picks <span class="sub" id="k_verd_n"></span></label>
-            <label class="tick" id="k_camp_row"><input type="checkbox" id="k_camp" checked onchange="kSetChosen()"> Past campaigns <span class="sub" id="k_camp_n"></span></label>
-          </div>
-        </div>
-        <div class="kuse" id="k_for" style="display:none">
-          <div class="colh">For</div>
-          <div class="kuse-l">
-            <label class="tick"><input type="radio" name="k_for" value="start" checked> Starting recipes</label>
-            <label class="tick"><input type="radio" name="k_for" value="every"> <span id="k_for_every">Starting recipes and every AI pick</span></label>
-          </div>
-        </div>
-        <div class="sub">Used for: the starting recipes from knowledge (inside the range the ticked cards allow), and past campaigns as a warm start for the optimiser's model; with an AI level and "every AI pick", the AI also reads the cards. Only approved cards are used. Frozen at Start; knowledge can narrow where the starting recipes go, never widen the search, and the reactor limits always apply.</div>
+            <a href="#" class="glink" onclick="showTab('knowledge');return false">Make or edit in Knowledge →</a></div>
+            <div class="sub" id="k_set_note"></div>
+            <ul class="ksum" id="k_sum"></ul></div></div>
+      </div>
+
+      <!-- STEP: fitting (live goals only) -->
+      <div class="step live-only" id="stepFit">
+        <div class="step-h"><span class="step-n"></span> Fitting</div>
+        <div class="mlistbox" id="fitList"></div>
+        <select id="m_fitter" onchange="setMethods()" aria-label="fitting method" hidden></select>
+        <div class="sub" id="m_fitter_desc" hidden></div>
+        <div class="sub" id="fk_line" style="margin-top:6px"></div>
+      </div>
+
+      <!-- STEP: design loop (who picks the next recipe) -->
+      <div class="step" id="stepLoop">
+        <div class="step-h"><span class="step-n"></span> <span id="optColH">Design loop</span>
+          <span class="step-sub live-only">(who picks the next recipe)</span></div>
+        <div class="mlistbox live-only" id="optList"></div>
+        <select id="m_optimiser" onchange="setMethods()" aria-label="search strategy" hidden></select>
+        <div class="mlistbox race-only" id="studyMethods" style="display:none"></div>
+        <div id="m_opt_desc" class="mdetail live-only"></div>
+        <details class="more live-only" id="loopMore"><summary>More options</summary><div class="more-b">
+          <div id="m_opt_params" class="grid2"></div>
+          <div id="ai_more"></div>
+        </div></details>
+        <div class="sub" id="m_hint" style="margin-top:6px"></div>
       </div>
 
       <!-- STEP: starting recipes (live goals only) -->
@@ -541,15 +541,18 @@ body.swaxs-shell #main{overflow-y:auto}
             <td class="sub">inside the range the ticked, approved cards allow (step above)</td></tr>
           <tr><td>Spread out</td><td><input type="number" id="c_nspread" value="10" min="0" max="50" step="1" oninput="this.dataset.touched='1';countStart()"></td>
             <td class="sub">evenly over the whole search range (Sobol), so the model sees every region</td></tr>
-          <tr><td>Your own</td><td><b id="c_nown">0</b></td>
-            <td class="sub">exact recipes you type, e.g. repeat an earlier best as a check
-              <button class="btn btn-ghost btn-sm" type="button" id="c_addown" onclick="addOwn()">Add recipe</button></td></tr>
+          <tr id="c_ownrow" style="display:none"><td>Your own</td><td><b id="c_nown">0</b></td>
+            <td class="sub">exact recipes you typed (More options below)</td></tr>
           <tr class="tot"><td><b>Total</b></td><td><b id="c_ninit">10</b></td><td id="c_nmsg" class="sub"></td></tr>
         </tbody></table>
-        <div id="ownRows"></div>
         <div class="btn-row"><button class="btn btn-ghost btn-sm" type="button" onclick="previewStart()">Preview starting recipes</button>
           <span class="sub">Optional. Shows the exact first recipes the reactor will make, before the pumps start; Start makes the same ones.</span></div>
         <div id="previewOut"></div>
+        <details class="more"><summary>More options: your own recipes</summary><div class="more-b">
+          <div class="sub">Exact recipes you type, made first, e.g. to repeat an earlier best as a check (up to 5).
+            <button class="btn btn-ghost btn-sm" type="button" id="c_addown" onclick="addOwn()">Add recipe</button></div>
+          <div id="ownRows"></div>
+        </div></details>
       </div>
 
       <div class="btn-row" style="margin-top:8px">
@@ -689,7 +692,7 @@ body.swaxs-shell #main{overflow-y:auto}
       <div id="dec_pending"></div>
       <div id="dec_reviews"></div>
       <div class="tablewrap" style="max-height:340px"><table id="dec_tbl"><thead><tr><th>Run</th><th>Chosen by</th><th>What</th><th>Why</th><th>Based on</th><th>Result</th><th>Your verdict</th></tr></thead><tbody></tbody></table></div>
-      <div class="sub">Good call or Bad call, with one line why, is kept with the run and, when the campaign used a knowledge set, in that set at once: an AI level reads it next time (Setup step 4, Your verdicts). AI decisions are also traced in logs/assistant_traces (kind "design").</div>
+      <div class="sub">Good call or Bad call, with one line why, is kept with the run and, when the campaign used a knowledge base, in that base at once: an AI level reads it next time (Knowledge, Design loop, What it uses). AI decisions are also traced in logs/assistant_traces (kind "design").</div>
     </div>
     <div class="card" id="helpCard" style="display:none">
       <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-quality"/></svg> Did the knowledge help?
@@ -748,28 +751,30 @@ body.swaxs-shell #main{overflow-y:auto}
     </div>
   </section>
 
-  <!-- ══ TAB: Knowledge — design knowledge sets, one per chemistry ═══════ -->
+  <!-- ══ TAB: Knowledge — knowledge bases, one per chemistry: Fitter part, then Design loop part ═══ -->
   <section class="page" id="page-knowledge">
     <div class="gd">
       <nav class="gd-nav">
-        <div class="gd-grp">Knowledge sets</div>
+        <div class="gd-grp">Knowledge bases</div>
         <div id="kn_sets"></div>
-        <button class="gd-item sub" type="button" onclick="kNewSet()">+ New set</button>
-        <div class="gd-grp">This set</div>
-        <button class="gd-item kn-sec on" data-k="add" type="button">Add knowledge</button>
+        <button class="gd-item sub" type="button" onclick="kNewSet()">+ New base</button>
+        <div class="gd-grp">Fitter</div>
+        <button class="gd-item kn-sec on" data-k="fk_use" type="button">What it uses</button>
+        <button class="gd-item kn-sec" data-k="fk_notes" type="button">Notes <span class="kn-n" id="fk_n_notes"></span></button>
+        <button class="gd-item kn-sec" data-k="fk_fits" type="button">Judged fits <span class="kn-n" id="fk_n_fits"></span></button>
+        <button class="gd-item kn-sec" data-k="fk_eval" type="button">Evaluation</button>
+        <div class="gd-grp">Design loop</div>
+        <button class="gd-item kn-sec" data-k="dz_use" type="button">What it uses</button>
+        <button class="gd-item kn-sec" data-k="add" type="button">Add knowledge</button>
         <button class="gd-item kn-sec" data-k="drafts" type="button">Drafts <span class="kn-n" id="kn_n_drafts"></span></button>
         <button class="gd-item kn-sec" data-k="cards" type="button">Cards <span class="kn-n" id="kn_n_cards"></span></button>
         <button class="gd-item kn-sec" data-k="verdicts" type="button">Your verdicts <span class="kn-n" id="kn_n_verdicts"></span></button>
         <button class="gd-item kn-sec" data-k="camps" type="button">Campaigns <span class="kn-n" id="kn_n_camps"></span></button>
         <button class="gd-item kn-sec" data-k="eval" type="button">Evaluation</button>
-        <div class="gd-grp">Fitting knowledge (AI fitter)</div>
-        <button class="gd-item kn-sec" data-k="fk_notes" type="button">Project notes <span class="kn-n" id="fk_n_notes"></span></button>
-        <button class="gd-item kn-sec" data-k="fk_fits" type="button">Judged fits <span class="kn-n" id="fk_n_fits"></span></button>
-        <button class="gd-item kn-sec" data-k="fk_eval" type="button">Fitting evaluation</button>
-        <div class="kn-foot sub">Knowledge sets steer the next recipe. Fitting knowledge belongs to this project and helps the AI fitter; Guinier's general SAXS knowledge is chosen in Setup, step 3.</div>
+        <div class="kn-foot sub">One base per chemistry (e.g. Pd nanoparticles), with a part for the AI fitter and a part for the design loop. Tick here what each part uses; Setup then picks the base by name.</div>
       </nav>
       <div class="card gd-body">
-        <div class="kn-head"><h3 id="kn_title">No knowledge set yet</h3>
+        <div class="kn-head"><h3 id="kn_title">No knowledge base yet</h3>
           <span class="sub" id="kn_meta"></span>
           <span class="kn-hbtn">
             <button class="btn btn-ghost btn-sm" type="button" id="kn_export" onclick="kExport()">Export</button>
@@ -777,7 +782,36 @@ body.swaxs-shell #main{overflow-y:auto}
           </span></div>
         <div class="sub" id="kn_msg"></div>
 
-        <div class="kn-page" id="kn-add">
+        <div class="kn-page" id="kn-fk_use">
+          <div class="sub" id="fk_legacy"></div>
+          <div class="sub">What AI-assisted structure reads before it names the shapes to fit. Saved with this base; every change makes a new version. The AI only proposes: every candidate is fitted and the statistics pick the winner.</div>
+          <div class="fkcols" id="fk_use_box"></div>
+          <div class="kn-sub2">Settings</div>
+          <div class="grid2">
+            <div><label for="fk_nf">Similar judged fits shown per curve</label><input id="fk_nf" type="number" min="0" max="8" step="1"></div>
+            <div><label for="fk_np">Literature passages per curve</label><input id="fk_np" type="number" min="1" max="6" step="1"></div>
+          </div>
+          <div class="btn-row"><button class="btn btn-ghost btn-sm" type="button" onclick="fkSaveSettings()">Save settings</button></div>
+        </div>
+        <div class="kn-page" id="kn-dz_use" style="display:none">
+          <div class="sub">What the design loop takes from this base. Saved with the base; a campaign freezes it at Start.</div>
+          <div class="kuse-l" style="margin:8px 0">
+            <label class="tick"><input type="checkbox" class="dz_u" data-k="literature"> <span><b>Literature cards</b> <span class="sub" id="dz_n_lit"></span></span></label>
+            <label class="tick"><input type="checkbox" class="dz_u" data-k="notes"> <span><b>Your note cards</b> <span class="sub" id="dz_n_note"></span></span></label>
+            <label class="tick"><input type="checkbox" class="dz_u" data-k="campaigns"> <span><b>Past campaigns</b>, as a warm start for the optimiser's model (not used by Random) <span class="sub" id="dz_n_camp"></span></span></label>
+            <label class="tick"><input type="checkbox" class="dz_u" data-k="verdicts"> <span><b>Your verdicts</b> on past picks (AI levels only) <span class="sub" id="dz_n_verd"></span></span></label>
+            <label class="tick"><input type="checkbox" class="dz_u" data-k="every_pick"> <span><b>AI levels read the cards and verdicts at every pick or review</b>, not only for the starting recipes</span></label>
+          </div>
+          <div class="kn-sub2">Settings</div>
+          <div class="grid2" id="kn_harness">
+            <div><label for="kh_n">Starting recipes from knowledge</label><input id="kh_n" type="number" min="0" max="10" step="1"></div>
+            <div><label for="kh_k">AI shortlist size</label><input id="kh_k" type="number" min="2" max="8" step="1"></div>
+            <div><label for="kh_t">AI Pilot trust region (fraction of each span)</label><input id="kh_t" type="number" min="0.05" max="0.6" step="0.05"></div>
+          </div>
+          <div class="btn-row"><button class="btn btn-ghost btn-sm" type="button" onclick="kSaveHarness()">Save settings</button></div>
+          <div class="sub">Only approved cards are used. Cards can narrow where the starting recipes go, never widen the search; the reactor limits always apply.</div>
+        </div>
+        <div class="kn-page" id="kn-add" style="display:none">
           <div class="ksrc">
             <div class="ksbox"><b>Search the web</b>
               <input id="kn_q" placeholder="Pd nanoparticles 5 nm low PDI flow synthesis">
@@ -808,16 +842,9 @@ body.swaxs-shell #main{overflow-y:auto}
 
         <div class="kn-page" id="kn-verdicts" style="display:none">
           <table id="kn_vtbl"><thead><tr><th>ID</th><th>Run</th><th>Chosen by</th><th>Call</th><th>Why</th><th>Result</th><th></th></tr></thead><tbody></tbody></table>
-          <div class="sub">From Report, Decisions (Good call / Bad call). They count straight away; an AI level reads them when Setup step 4 ticks Your verdicts with "every AI pick".</div>
+          <div class="sub">From Report, Decisions (Good call / Bad call). They count straight away; an AI level reads them when Design loop, What it uses ticks Your verdicts and every pick.</div>
         </div>
         <div class="kn-page" id="kn-eval" style="display:none">
-          <div class="kn-sub2">Settings campaigns take from this set</div>
-          <div class="grid2" id="kn_harness">
-            <div><label for="kh_n">Starting recipes from knowledge</label><input id="kh_n" type="number" min="0" max="10" step="1"></div>
-            <div><label for="kh_k">AI shortlist size</label><input id="kh_k" type="number" min="2" max="8" step="1"></div>
-            <div><label for="kh_t">AI Pilot trust region (fraction of each span)</label><input id="kh_t" type="number" min="0.05" max="0.6" step="0.05"></div>
-          </div>
-          <div class="btn-row"><button class="btn btn-ghost btn-sm" type="button" onclick="kSaveHarness()">Save settings</button></div>
           <div class="kn-sub2">Did the knowledge help?</div>
           <div id="kn_eval_body" class="sub">No test yet.</div>
           <div class="btn-row"><button class="btn btn-accent btn-sm" type="button" onclick="evalRun('kn')">Run test</button>
@@ -828,7 +855,7 @@ body.swaxs-shell #main{overflow-y:auto}
           <div class="sub">The test replays this set's finished campaigns, each against an emulator fitted to its own measured runs, with and without each source of knowledge. Propose improvement tunes the settings on the older campaigns and proposes a change only if it also does better on the most recent one, which it was not tuned on. Nothing changes until you approve it.</div>
         </div>
         <div class="kn-page" id="kn-fk_notes" style="display:none">
-          <div class="ksbox"><b>Add notes about this project</b>
+          <div class="ksbox"><b>Add notes about these samples and data</b>
             <textarea id="fk_note_text" rows="3" placeholder="the cores are CdSe, about 3 nm; ignore q below 0.1 nm⁻¹ (beamstop)"></textarea>
             <div class="btn-row"><button class="btn btn-ghost btn-sm" type="button" onclick="fkAddNote()">Add notes</button></div>
             <div class="sub">One line, one note. Your notes are used straight away; notes drafted from your verdicts wait here for your approval.</div></div>
@@ -836,26 +863,20 @@ body.swaxs-shell #main{overflow-y:auto}
         </div>
         <div class="kn-page" id="kn-fk_fits" style="display:none">
           <table id="fk_ftbl"><thead><tr><th>ID</th><th>File</th><th>Fitted as</th><th>Call</th><th>Right model</th><th>Note</th><th></th></tr></thead><tbody></tbody></table>
-          <div class="sub">From the Fitting tab (Right / Wrong model under the plot). For each new curve the AI fitter is shown the most similar judged curves (by the shape of log I(q)) as precedent; a curve never sees its own call. A new call on the same file replaces the old one.</div>
+          <div class="sub">From the Fitting tab (Right / Wrong model under the plot), saved in the base chosen in Setup (or the running campaign's). For each new curve the AI fitter is shown the most similar judged curves (by the shape of log I(q)) as precedent; a curve never sees its own call. A new call on the same file replaces the old one.</div>
         </div>
         <div class="kn-page" id="kn-fk_eval" style="display:none">
-          <div class="kn-sub2">Settings</div>
-          <div class="grid2">
-            <div><label for="fk_nf">Similar judged fits shown per curve</label><input id="fk_nf" type="number" min="0" max="8" step="1"></div>
-            <div><label for="fk_np">Literature passages per curve</label><input id="fk_np" type="number" min="1" max="6" step="1"></div>
-          </div>
-          <div class="btn-row"><button class="btn btn-ghost btn-sm" type="button" onclick="fkSaveSettings()">Save settings</button></div>
-          <div class="kn-sub2">Did the fitting knowledge help?</div>
+          <div class="kn-sub2">Did the fitter's knowledge help?</div>
           <div id="fk_eval_body" class="sub">No test yet.</div>
           <div class="btn-row"><button class="btn btn-accent btn-sm" type="button" onclick="fkEval('evaluate')">Run test</button>
             <button class="btn btn-ghost btn-sm" type="button" onclick="fkEval('propose')">Propose improvement</button>
             <span class="sub" id="fk_eval_state"></span></div>
           <div id="fk_prop"></div>
-          <div class="sub">The test refits this project's judged curves (those that name the right model) with Catalogue + BIC and with the AI fitter given Guinier's knowledge only, plus the project notes, plus the notes and judged fits, and counts how often each finds the right model. Each curve is fitted without its own call. It calls the AI once per curve and arm (cached afterwards). Propose improvement tries other settings on half the curves and proposes a change only if it also does better on the other half; nothing changes until you approve it.</div>
+          <div class="sub">The test refits this base's judged curves (those that name the right model) with Catalogue + BIC and with the AI fitter given Guinier's knowledge only, plus the project notes, plus the notes and judged fits, and counts how often each finds the right model. Each curve is fitted without its own call. It calls the AI once per curve and arm (cached afterwards). Propose improvement tries other settings on half the curves and proposes a change only if it also does better on the other half; nothing changes until you approve it.</div>
         </div>
         <div class="kn-page" id="kn-camps" style="display:none">
           <table id="kn_ctbl"><thead><tr><th>Campaign</th><th>Runs</th><th>Best</th><th>Ended</th><th>Project</th></tr></thead><tbody></tbody></table>
-          <div class="sub">A campaign that used this set joins it when it ends, with its measured runs. Ticked under Past campaigns (Setup), their runs warm-start the optimiser's model, scored against the new target, without using the budget.</div>
+          <div class="sub">A campaign that used this set joins it when it ends, with its measured runs. Ticked under Past campaigns (Design loop, What it uses), their runs warm-start the optimiser's model, scored against the new target, without using the budget.</div>
         </div>
       </div>
     </div>
@@ -1359,7 +1380,7 @@ async function setFolder(){
   const r=await api('/api/folder',{folder:f});
   if(r.error){ $('resolved').textContent='Could not set the folder: '+r.error; return; }
   $('resolved').textContent=r.resolved?'Watching: '+r.resolved:'';
-  _folderInfo=r; checkReady(); _fkSel=null; fkLoad();
+  _folderInfo=r; checkReady(); fkShared();
   setPill('p_watch','', r.resolved);
   $('setupHint').textContent=(r.resolved||'').split('/').slice(-2).join('/');
 }
@@ -1428,6 +1449,13 @@ function updateMethodDescs(){
     const prev=($('ai_review')||{}).value;
     html=`<div class="acqbox aibox"><div class="grid2">`
       +`<div><label for="ai_inner">${lbl}</label><select id="ai_inner" onchange="$('m_optimiser').value=this.value;setMethods()">${opts}</select></div>`
+      +`</div><div class="btn-row"><button class="btn btn-ghost btn-sm" type="button" onclick="aiTest()">Test AI connection</button><span class="sub" id="ai_test_out"></span></div>`
+      +`<div class="sub" style="margin-top:6px">`
+      +(adv?'Measuring never stops for a review. A suggested range inside the search range is applied from the next recipe and can be undone (Report, Decisions); one outside it goes back to the AI once, then is dropped.'
+           :'Every AI decision, its reason and what it was based on appear in Report, Decisions. The search range, pump windows and hard caps are always enforced; anything invalid uses the optimiser\'s pick. Measuring continues while a review waits for you.')
+      +(pilot?' The review cannot be turned off, and Start asks you to confirm the limits.':'')
+      +` Model, thinking and the review interval are under More options.</div></div>`;
+    const more=`<div class="grid2">`
       +`<div><label for="ai_review">Progress review</label><select id="ai_review" onchange="checkReady()">`
         +`<option value="5">every 5 runs</option><option value="10">every 10 runs</option>${pilot?'':'<option value="0">off</option>'}</select></div>`
       +(adv?`<div><label for="ai_apply">Apply suggestions</label><select id="ai_apply"><option value="auto">automatically, if within the safety limits</option><option value="ask">ask me first</option></select></div>`:'')
@@ -1435,36 +1463,39 @@ function updateMethodDescs(){
         +(_aiInfo.models||[{id:'',label:'Default (from your AI settings)'}]).map(m=>`<option value="${esc(m.id)}">${esc(m.id?m.label:m.label+(_aiInfo.default_model?': '+_aiInfo.default_model:''))}</option>`).join('')+`</select></div>`
       +`<div><label for="ai_think">Thinking</label><select id="ai_think" onchange="_aiOK=null;$('ai_test_out').textContent=''">`
         +`<option value="off">off (fastest; same answer for the same state)</option><option value="standard">standard (about 2k tokens)</option><option value="deep">deep (about 8k tokens, slower)</option></select></div>`
-      +`</div><div class="btn-row"><button class="btn btn-ghost btn-sm" type="button" onclick="aiTest()">Test AI connection</button><span class="sub" id="ai_test_out"></span></div>`
-      +`<div class="sub" style="margin-top:6px">`
-      +(adv?'Measuring never stops for a review. A suggested range inside the search range is applied from the next recipe and can be undone (Report, Decisions); one outside it goes back to the AI once, then is dropped.'
-           :'Every AI decision, its reason and what it was based on appear in Report, Decisions. The search range, pump windows and hard caps are always enforced; anything invalid uses the optimiser\'s pick. Measuring continues while a review waits for you.')
-      +(pilot?' The review cannot be turned off, and Start asks you to confirm the limits.':'')
-      +`</div></div>`;
+      +`</div>`;
     const pm=_aiPick.model, pt=_aiPick.think;
-    $('m_opt_desc').innerHTML=html;
+    $('m_opt_desc').innerHTML=html; $('ai_more').innerHTML=more; $('m_opt_params').innerHTML=''; _moreShow();
     if(prev && [...$('ai_review').options].some(o=>o.value===prev)) $('ai_review').value=prev;
     if(pm!=null && [...$('ai_model').options].some(o=>o.value===pm)) $('ai_model').value=pm;
     if(pt) $('ai_think').value=pt;
     $('ai_model').addEventListener('change',()=>{_aiPick.model=$('ai_model').value;});
     $('ai_think').addEventListener('change',()=>{_aiPick.think=$('ai_think').value;});
     if(_aiTestRes) _aiShowTest(_aiTestRes);
-    $('m_opt_params').innerHTML='';
     renderMethodLists();
     return;
   }
   $('m_opt_desc').innerHTML=html;
-  renderOptParams();
+  $('ai_more').innerHTML='';
+  renderOptParams(); _moreShow();
   renderMethodLists();
 }
+/* "More options" under the design loop appears only when the chosen method has any */
+function _moreShow(){
+  const d=$('loopMore'); if(!d) return;
+  const any=!!($('m_opt_params').children.length||$('ai_more').innerHTML);
+  d.hidden=!any || _goal==='benchmark';
+}
 const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-/* Families shown in Setup step 3 (Standard · ML · Agentic) */
+/* Families shown in Setup, Fitting and Design loop, in this order: Standard · ML · Agentic */
 const _FIT_FAM={catalogue_bic:'Standard', ls_sphere:'Standard', ml_regressor:'ML', llm_assisted:'Agentic'};
 const _OPT_FAM={random:'Standard', gp_ei:'ML', gp_ucb:'ML', turbo:'ML', bax:'ML', pareto_ehvi:'ML'};
 const _TAG={catalogue_bic:'recommended', gp_ei:'recommended', random:'baseline', ls_sphere:'fastest', ml_regressor:'spheres only'};
+const _FAM_RANK={Standard:0, ML:1, Agentic:2};
+const _byFam=fam=>(a,b)=>(_FAM_RANK[fam[a.id]||'Standard']-_FAM_RANK[fam[b.id]||'Standard']);
 function _listHTML(kind, items, fam, active){
   let h='', last=null;
-  items.forEach(m=>{
+  items.slice().sort(_byFam(fam)).forEach(m=>{
     const f=fam[m.id]||'Standard';
     if(f!==last){ h+=`<div class="mfam">${f}</div>`; last=f; }
     const tag=_TAG[m.id]?`<i class="mtag${m.id==='random'?' base':''}">${esc(_TAG[m.id])}</i>`:'';
@@ -1506,16 +1537,14 @@ function renderMethodLists(){
         +`<span class="d">${esc(a.desc)} <a href="#" class="glink" data-guide="${a.id}">Details in the Guide →</a></span></span></label>`).join('');
   }
   document.querySelectorAll('.mopt input').forEach(i=>i.onchange=()=>{
-    if(i.name==='m_opt' && i.value.startsWith('ai_')){ _aiLevel=i.value; updateMethodDescs(); kForShow(); checkReady(); return; }
+    if(i.name==='m_opt' && i.value.startsWith('ai_')){ _aiLevel=i.value; updateMethodDescs(); kSummaryRender(); checkReady(); return; }
     if(i.name==='m_opt') _aiLevel=null;
-    const sel=$(i.name==='m_fit'?'m_fitter':'m_optimiser'); sel.value=i.value; setMethods(); kForShow();
+    const sel=$(i.name==='m_fit'?'m_fitter':'m_optimiser'); sel.value=i.value; setMethods(); kSummaryRender();
   });
-  fkSetup();
+  fkLine();
   if(_running) lockSetup(true);
-  // Random uses no data, so past campaigns cannot warm-start it
-  const kr=$('k_camp_row'); if(kr) kr.style.display = $('m_optimiser').value==='random' ? 'none' : '';
   const fit=_methodFor(fits,$('m_fitter').value), opt=_methodFor(_methodData.optimisers,$('m_optimiser').value);
-  $('pairHint').innerHTML=_goal==='benchmark'?'':`<b>Fitting</b>: ${esc(fit.id==='llm_assisted'?'AI-assisted structure':(fit.label||''))}<br><b>Next recipe</b>: ${esc(_aiLevel?(_AI_LEVELS.find(a=>a.id===_aiLevel).label+' ('+(opt.label||'')+')'):(opt.label||''))}`;
+  $('pairHint').innerHTML=_goal==='benchmark'?'':`<b>Fitting</b>: ${esc(fit.id==='llm_assisted'?'AI-assisted structure':(fit.label||''))}<br><b>Design loop</b>: ${esc(_aiLevel?(_AI_LEVELS.find(a=>a.id===_aiLevel).label+' ('+(opt.label||'')+')'):(opt.label||''))}`;
 }
 async function loadMethods(){
   const r=await api('/api/methods');
@@ -1632,7 +1661,7 @@ async function setGoal(g){
   $('goalGuide').dataset.guide=g;
   document.querySelectorAll('.live-only').forEach(e=>e.style.display=race?'none':'');
   document.querySelectorAll('.race-only').forEach(e=>e.style.display=race?'':'none');
-  $('optColH').textContent = race ? 'Methods to race' : 'Next recipe';
+  $('optColH').textContent = race ? 'Methods to race' : 'Design loop'; _moreShow();
   $('c_start_lbl').textContent = race ? 'Run comparison' : 'Start campaign';
   $('c_budget_lbl').textContent = race ? 'Experiments per run' : 'Max experiments';
   // Pareto maps a size RANGE, not a single target → swap the size inputs.
@@ -1675,6 +1704,7 @@ function countStart(){
   const know=$('c_nknow').disabled?0:Math.max(0, Math.round(+$('c_nknow').value||0));
   const n=own+know+spread, budget=+$('c_budget').value||0;
   $('c_nown').textContent=own; $('c_ninit').textContent=n;
+  const orow=$('c_ownrow'); if(orow) orow.style.display=own?'':'none';
   $('c_addown').disabled = own>=5 || _running;
   let msg='then the optimiser picks from the measured results', cls='sub';
   if(n<1){ msg='At least 1 starting recipe is needed'; cls='errt'; }
@@ -1741,10 +1771,11 @@ function checkReady(){
     h+=_range ? li('ok','Search range read from the reactor config') : li('warn','Search range not read yet');
     const fit=_methodFor(_methodData.fitters,$('m_fitter').value);
     h+=fit.id ? li('ok','Fitting: '+esc(fit.id==='llm_assisted'?'AI-assisted structure (falls back to Catalogue + BIC without an AI login)':fit.label)) : li('warn','Choose a fitting method');
-    if(fit.id==='llm_assisted' && _fk){
-      const src=fkChosen(), sm=_fk.summary||{};
-      h+=li('ok','AI fitter knowledge: '+src.length+' source(s)'+(src.includes('notes')?', '+(sm.n_notes||0)+' project note(s)':'')+(src.includes('fits')?', '+(sm.n_fits||0)+' judged fit(s)':''));
-      if(sm.n_drafts) h+=li('warn',sm.n_drafts+' drafted fitting note(s) wait for approval in Knowledge, Project notes (not used until approved)');
+    if(fit.id==='llm_assisted'){
+      const ks0=_kSummary($('k_set').value), f=(ks0&&ks0.fitter)||{};
+      h+= ks0 ? li('ok',`AI fitter reads ${esc(ks0.name)}: ${(f.sources||[]).length||'default'} source(s), ${f.n_notes||0} note(s), ${f.n_fits||0} judged fit(s)`)
+              : li('ok','AI fitter reads Guinier\'s catalogue, corrections, SOPs and guidelines (no knowledge base)');
+      if(f.n_drafts) h+=li('warn',f.n_drafts+' drafted fitter note(s) wait for approval in Knowledge, Fitter, Notes (not used until approved)');
     }
     const n=+$('c_ninit').textContent||0, b=+$('c_budget').value||0;
     h+= (n>=1 && (!b || n<=b)) ? li(n<5||(b&&n>b/3)?'warn':'ok', `Cold start: ${n} recipe(s)`) : li('bad','Cold start does not fit the budget');
@@ -1759,8 +1790,8 @@ function checkReady(){
       if(_aiLevel==='ai_pilot') h+=li('warn','AI Pilot is experimental: Start asks you to confirm the limits');
     }
     const ks=_kSummary($('k_set').value);
-    if(!ks) h+=li('ok','No knowledge set: starting recipes are your own and the spread');
-    else { h+= ks.matches_chemistry===false ? li('warn','Knowledge set "'+esc(ks.name)+'" does not match chemistry.yml')
+    if(!ks) h+=li('ok','No knowledge base: starting recipes are your own and the spread');
+    else { h+= ks.matches_chemistry===false ? li('warn','Knowledge base "'+esc(ks.name)+'" does not match chemistry.yml')
                                             : li('ok','Knowledge: '+esc(ks.name)+' v'+ks.version+', '+ks.n_cards+' approved card(s)');
            if(ks.n_drafts) h+=li('warn',ks.n_drafts+' draft card(s) waiting for approval in Knowledge (not used until approved)'); }
   }
@@ -1803,7 +1834,6 @@ async function startCampaign(){
   const body={target_size, tolerance, pdi_cap:pdi, budget, confidence_min:cm,
               goal:_goal, spec_units:'diameter', ...extra, ..._coldBody()};
   body.method_params=collectOptParams();      // UCB kappa / TuRBO size / BAX tau, per the active optimiser
-  if($('m_fitter').value==='llm_assisted' && _fk) body.fit_knowledge={sources:fkChosen()};
   if(_aiLevel){
     body.ai={level:_aiLevel, review_every:+(($('ai_review')||{}).value||0), apply:($('ai_apply')||{}).value||'auto',
              model:($('ai_model')||{}).value||'', thinking:($('ai_think')||{}).value||'off'};
@@ -1882,7 +1912,7 @@ async function verdict(rid, call){
   if(why===null) return;
   const r=await api('/api/campaign/verdict',{recipe_id:rid, call, why});
   if(r.error||r.ok===false){ $('r_status').textContent='✗ '+(r.error||'could not save the verdict'); return; }
-  $('r_status').textContent = r.kept_in_set ? `Verdict ${r.verdict.id} saved in the knowledge set.` : 'Verdict kept with this run (no knowledge set on this campaign).';
+  $('r_status').textContent = r.kept_in_set ? `Verdict ${r.verdict.id} saved in the knowledge base.` : 'Verdict kept with this run (no knowledge base on this campaign).';
 }
 
 /* ── did the knowledge help? (Report) and Evaluation (Knowledge tab) ───── */
@@ -2013,10 +2043,10 @@ function lockSetup(running){
   // would not affect the live run and only misleads. Lock them until it ends.
   _running=running;
   ['c_target','c_tol','c_dmin','c_dmax','c_pdi','c_budget','m_fitter','m_optimiser',
-   'c_shape','c_confmin','c_nspread','c_addown','k_set','k_lit','k_note','k_camp',
-   'ai_inner','ai_review','ai_apply','k_verd','ai_model','ai_think'].forEach(id=>{
+   'c_shape','c_confmin','c_nspread','c_addown','k_set',
+   'ai_inner','ai_review','ai_apply','ai_model','ai_think'].forEach(id=>{
     const el=$(id); if(el) el.disabled=running; });
-  document.querySelectorAll('#sidebar .nav-btn, #m_opt_params input, #fitList input, #optList input, #ownRows input, #ownRows button, input[name=k_for]')
+  document.querySelectorAll('#sidebar .nav-btn, #m_opt_params input, #fitList input, #optList input, #ownRows input, #ownRows button')
     .forEach(el=>el.disabled=running);
   const hint=$('c_lock_hint'); if(hint) hint.style.display=running?'block':'none';
 }
@@ -2216,7 +2246,7 @@ async function psDiag(){
 }
 
 /* ── design knowledge: Setup step + Knowledge tab ─────────────────────────── */
-let _ksets=[], _kset=null, _kchem={}, _khits=[], _kfilter='';
+let _ksetsLoaded=false, _ksets=[], _kset=null, _kchem={}, _khits=[], _kfilter='';
 const _KPARAMS=['T_reac','F_tot','x_ODE','x_TOP','x_oley','all'];
 async function loadSets(keep){
   const r=await api('/api/knowledge/sets');
@@ -2224,9 +2254,12 @@ async function loadSets(keep){
   _ksets=r.sets||[]; _kchem=r.chemistry||{};
   const sel=$('k_set'), cur=keep!=null?keep:sel.value;
   sel.innerHTML='<option value="">None</option>'+_ksets.map(s=>
-    `<option value="${esc(s.id)}">${esc(s.name)} (${s.n_cards} card${s.n_cards===1?'':'s'})${s.matches_chemistry===false?' · not this chemistry':''}</option>`).join('');
-  // preselect a set that matches chemistry.yml when nothing is chosen yet
-  const pick = _ksets.some(s=>s.id===cur) ? cur : ((_ksets.find(s=>s.matches_chemistry)||{}).id||'');
+    `<option value="${esc(s.id)}">${esc(s.name)}${s.matches_chemistry===false?' · not this chemistry':''}</option>`).join('');
+  // preselect a base that matches chemistry.yml on the first load only; after
+  // that "None" stays None
+  const pick = _ksets.some(s=>s.id===cur) ? cur
+             : (_ksetsLoaded ? '' : ((_ksets.find(s=>s.matches_chemistry)||{}).id||''));
+  _ksetsLoaded=true;
   sel.value=pick;
   $('kn_sets').innerHTML=_ksets.map(s=>`<button class="gd-item kn-set${_kset&&_kset.id===s.id?' on':''}" type="button" data-s="${esc(s.id)}">${esc(s.name)}</button>`).join('')
     || '<div class="sub" style="padding:6px 14px">No set yet: + New set</div>';
@@ -2235,32 +2268,48 @@ async function loadSets(keep){
   kSetChosen();
 }
 function _kSummary(id){ return _ksets.find(s=>s.id===id)||null; }
-let _kStepSet=null;
+let _kStepSet=null, _activeSent=null;
 async function kSetChosen(){
   const id=$('k_set').value, s=_kSummary(id);
   const note=$('k_set_note');
-  ['k_lit','k_note','k_camp'].forEach(k=>$(k).disabled=!id||_running);
-  if(!id){ note.textContent='No knowledge: the starting recipes come from your own and the spread.';
-    ['k_lit_n','k_note_n','k_camp_n'].forEach(k=>$(k).textContent=''); _kStepSet=null; _kAutoSplit(false); countStart(); return; }
+  if(id!==_activeSent){ _activeSent=id;            // only when the choice changes
+    api('/api/knowledge/active',{set_id:id}).then(()=>{ if(_sel) renderFitVerdict(_sel, _selModel, null, true); }); }
+  if(!id){ note.textContent='No knowledge: the starting recipes are the spread (and your own); the AI fitter reads only Guinier\'s files.';
+    _kStepSet=null; kSummaryRender(); _kAutoSplit(false); countStart(); return; }
   if(!_kStepSet || _kStepSet.id!==id){
     const r=await api('/api/knowledge/set/'+encodeURIComponent(id));
     _kStepSet = r&&r.ok ? r.set : null;
   }
-  const cards=(_kStepSet&&_kStepSet.cards||[]).filter(c=>c.status==='approved');
-  const lit=cards.filter(c=>c.kind==='literature'), nts=cards.filter(c=>c.kind==='note');
-  const ranged=cards.filter(c=>(c.kind==='literature'?$('k_lit').checked:$('k_note').checked) && c.check && c.check.range);
-  $('k_lit_n').textContent=`${lit.length} card${lit.length===1?'':'s'}`;
-  $('k_note_n').textContent=`${nts.length} card${nts.length===1?'':'s'}`;
-  const nc=(_kStepSet&&_kStepSet.campaigns||[]).length;
-  $('k_camp_n').textContent=`${nc} campaign${nc===1?'':'s'} (warm start)`;
-  const nv=(_kStepSet&&_kStepSet.verdicts||[]).filter(v=>v.status!=='retired').length;
-  $('k_verd_n').textContent=`${nv} (the AI sees which earlier picks worked)`;
   const drafts=(_kStepSet&&_kStepSet.cards||[]).filter(c=>c.status==='draft').length;
   note.innerHTML=`version ${s?s.version:'?'}`
     +(s&&s.matches_chemistry===false?' · <span class="warnt">does not match chemistry.yml</span>':'')
     +(drafts?` · <span class="warnt">${drafts} draft card(s) waiting for approval, not used</span>`:'');
-  _kAutoSplit(ranged.length>0);
+  kSummaryRender();
+  const u=(s&&s.design_use)||{};
+  const cards=(_kStepSet&&_kStepSet.cards||[]).filter(c=>c.status==='approved'
+      && (c.kind==='literature'?u.literature!==false:u.notes!==false) && c.check && c.check.range);
+  _kAutoSplit(cards.length>0);
   countStart();
+}
+/* One line per part: what the chosen base gives the fitter and the design loop
+   (ticked in the Knowledge tab, not here) */
+function kSummaryRender(){
+  const ul=$('k_sum'); if(!ul) return;
+  const s=_kSummary($('k_set').value);
+  if(!s){ ul.innerHTML=''; fkLine(); return; }
+  const f=s.fitter||{}, u=s.design_use||{}, kb=_kStepSet&&_kStepSet.id===s.id?_kStepSet:null;
+  const cards=kb?(kb.cards||[]).filter(c=>c.status==='approved'):[];
+  const nl=cards.filter(c=>c.kind==='literature').length, nn=cards.filter(c=>c.kind==='note').length;
+  const srcN=(f.sources||[]).filter(x=>!['notes','fits'].includes(x)).length||4;
+  const fit=`${srcN} of Guinier's sources`+((f.sources||['notes']).includes('notes')?`, ${f.n_notes||0} note(s)`:'')+((f.sources||['fits']).includes('fits')?`, ${f.n_fits||0} judged fit(s)`:'');
+  const dz=[u.literature!==false?`${nl} literature card(s)`:'', u.notes!==false?`${nn} note card(s)`:'',
+            u.campaigns!==false?`${s.n_campaigns||0} past campaign(s)${$('m_optimiser').value==='random'?' (not used by Random)':''}`:'',
+            _aiLevel&&u.verdicts!==false?`${s.n_verdicts||0} verdict(s)`:'',
+            _aiLevel&&u.every_pick?'read at every AI pick':''].filter(Boolean).join(', ')||'nothing ticked';
+  ul.innerHTML=`<li><b>Fitter</b> ${$('m_fitter').value==='llm_assisted'?esc(fit):'<span class="sub">used only by AI-assisted structure</span>'}</li>`
+    +`<li><b>Design loop</b> ${esc(dz)}</li>`
+    +`<li class="sub">Change what each part uses in Knowledge →</li>`;
+  fkLine();
 }
 /* The cold start keeps its size when knowledge is switched on or off: the 3
    recipes from knowledge come out of the spread (From knowledge 3 · Spread
@@ -2279,21 +2328,11 @@ function _kAutoSplit(on){
     if(sp.dataset.touched!=='1') sp.value=Math.max(0,(+sp.value||0)-want);
   }
 }
-function kForShow(){
-  const f=$('k_for'); if(!f) return;
-  f.style.display=_aiLevel?'':'none';
-  const vr=$('k_verd_row'); if(vr) vr.style.display=_aiLevel?'':'none';
-  $('k_for_every').textContent=_aiLevel==='ai_advisor'?'Starting recipes and every progress review':'Starting recipes and every AI pick';
-  if(!_aiLevel){ const r=document.querySelector('input[name=k_for][value=start]'); if(r) r.checked=true; }
-}
 function kBody(){
   const id=$('k_set').value;
-  const every=!!_aiLevel && (document.querySelector('input[name=k_for]:checked')||{}).value==='every';
-  if(!id) return every?{set_id:'', use:{every_pick:true}}:null;
-  return {set_id:id, use:{literature:$('k_lit').checked, notes:$('k_note').checked, every_pick:every,
-          campaigns:_goal!=='benchmark' && $('k_camp').checked && $('k_camp_row').style.display!=='none',
-          verdicts:!!_aiLevel && $('k_verd').checked},
-          n:Math.max(0,Math.round(+$('c_nknow').value||0))};
+  if(!id) return null;
+  // what each part uses is saved with the base; the server reads it at Start
+  return {set_id:id, n:Math.max(0,Math.round(+$('c_nknow').value||0))};
 }
 
 /* Knowledge tab */
@@ -2307,19 +2346,17 @@ async function kOpen(id, quiet){
 function kSection(k){
   document.querySelectorAll('.kn-sec').forEach(b=>b.classList.toggle('on',b.dataset.k===k));
   document.querySelectorAll('.kn-page').forEach(p=>p.style.display=p.id==='kn-'+k?'':'none');
-  const fkp=k.startsWith('fk_');
-  const hd=document.querySelector('.kn-head'); if(hd) hd.style.display=fkp?'none':'';
   $('kn_msg').textContent='';
-  if(fkp) fkLoad();
+  if(k.startsWith('fk_')) fkLoad();
 }
 function _rangeTxt(r){ if(!r) return '—'; const f=v=>v==null?'':(+v).toString();
   return r[0]==null?`up to ${f(r[1])}`:(r[1]==null?`from ${f(r[0])}`:`${f(r[0])} to ${f(r[1])}`); }
 function kRender(){
   const s=_kset;
   ['kn_export'].forEach(k=>$(k).disabled=!s);
-  if(!s){ $('kn_title').textContent='No knowledge set yet'; $('kn_meta').textContent='Make one with + New set.';
+  if(!s){ $('kn_title').textContent='No knowledge base yet'; $('kn_meta').textContent='Make one with + New base, e.g. Pd nanoparticles.';
     $('kn_drafts').innerHTML=''; document.querySelector('#kn_tbl tbody').innerHTML=''; document.querySelector('#kn_ctbl tbody').innerHTML='';
-    ['kn_n_drafts','kn_n_cards','kn_n_camps'].forEach(k=>$(k).textContent=''); return; }
+    ['kn_n_drafts','kn_n_cards','kn_n_camps'].forEach(k=>$(k).textContent=''); dzUseRender(); _fkPart=null; fkRender(); return; }
   $('kn_title').textContent=s.name;
   const kw=(s.chemistry&&s.chemistry.keywords||[]).join(', ');
   $('kn_meta').textContent=`version ${s.version}${kw?' · matches: '+kw:''}${s.matches_chemistry===false?' · not this project\'s chemistry.yml':''}`;
@@ -2332,6 +2369,7 @@ function kRender(){
       +`<td class="sub">${v.result&&v.result.diameter_nm!=null?num(v.result.diameter_nm,2)+' nm, PDI '+num(v.result.pdi,3):''}</td>`
       +`<td><button class="btn btn-ghost btn-sm" type="button" onclick="kRetireVerdict('${esc(v.id)}')">Retire</button></td></tr>`).join('')
     : '<tr><td colspan="7" class="sub">No verdict yet.</td></tr>';
+  dzUseRender(); fkLoad();
   const h=s.harness||{}; $('kh_n').value=h.n_knowledge??3; $('kh_k').value=h.shortlist_k??5; $('kh_t').value=h.trust??0.25;
   const pr=s.proposal&&s.proposal.proposal;
   $('kn_prop').innerHTML = pr ? `<div class="heldbox"><b>Proposed:</b> ${esc(Object.entries(pr).map(([k,v])=>k+' '+v).join(', '))}`
@@ -2383,13 +2421,13 @@ async function _kAfter(r, msg){
   if(!_kMsg(r, msg)) return;
   _kStepSet=null; await kOpen(_kset.id, true); await loadSets(); kSection('drafts');
 }
-function _kNeedSet(){ if(_kset) return true; $('kn_msg').innerHTML='<span class="warnt">Make or pick a knowledge set first.</span>'; return false; }
+function _kNeedSet(){ if(_kset) return true; $('kn_msg').innerHTML='<span class="warnt">Make or pick a knowledge base first.</span>'; return false; }
 async function kNewSet(){
-  const name=prompt('Name of the new knowledge set (e.g. Pd · ODE · oleylamine):'); if(!name) return;
-  const kw=prompt('Words that must appear in chemistry.yml for this set to match (comma separated, may be empty):','')||'';
+  const name=prompt('Name of the new knowledge base (e.g. Pd nanoparticles):'); if(!name) return;
+  const kw=prompt('Words that must appear in chemistry.yml for this base to match (comma separated, may be empty):','')||'';
   const r=await api('/api/knowledge/sets',{name, keywords:kw.split(',').map(x=>x.trim()).filter(Boolean)});
-  if(!_kMsg(r,'Set created.')) return;
-  await kOpen(r.set.id,true); await loadSets(); kSection('add');
+  if(!_kMsg(r,'Knowledge base created.')) return;
+  await kOpen(r.set.id,true); await loadSets(); kSection('fk_use');
 }
 async function kNotes(){
   if(!_kNeedSet()) return;
@@ -2450,8 +2488,8 @@ async function kReview(id, action){
 async function kSaveHarness(){
   if(!_kNeedSet()) return;
   const r=await api(`/api/knowledge/set/${_kset.id}/harness`,{n_knowledge:+$('kh_n').value, shortlist_k:+$('kh_k').value, trust:+$('kh_t').value});
-  if(!_kMsg(r,'Settings saved (new set version).')) return;
-  _kStepSet=null; await kOpen(_kset.id,true); await loadSets(); kSection('eval');
+  if(!_kMsg(r,'Settings saved (new version of the base).')) return;
+  _kStepSet=null; await kOpen(_kset.id,true); await loadSets(); kSection('dz_use');
 }
 async function kProposal(approve){
   if(approve && !confirm('Apply the proposed settings to this set? Running campaigns keep the version they started with.')) return;
@@ -2478,46 +2516,69 @@ document.querySelectorAll('.kn-f').forEach(b=>b.onclick=()=>{ _kfilter=b.dataset
   document.querySelectorAll('.kn-f').forEach(x=>x.classList.toggle('on',x===b)); kRender(); });
 
 
-/* ── knowledge for the AI fitter (Setup step 3, Fitting verdicts, Knowledge tab) ── */
-let _fk=null, _fkSel=null;
+/* ── the Fitter part of a knowledge base (Knowledge tab), the Setup line and
+      the Right / Wrong-model call under each fit ────────────────────────────── */
+let _fk=null, _fkPart=null, _selModel='polydisperse_sphere', _fvCur=null;
+async function fkShared(){
+  const r=await api('/api/fitknowledge'); if(r&&!r.error) _fk=r; return _fk;
+}
 async function fkLoad(){
-  const r=await api('/api/fitknowledge'); if(!r||r.error) return;
-  _fk=r; if(!_fkSel) _fkSel=[...(r.sources||[])];
-  fkSetup(); fkRender(); checkReady();
+  await fkShared();
+  if(_kset){
+    const r=await api('/api/knowledge/set/'+encodeURIComponent(_kset.id)+'/fitter');
+    _fkPart = r&&r.ok ? r : null;
+  } else _fkPart=null;
+  fkRender(); fkLine();
 }
-function fkChosen(){ return [...new Set(['catalogue',...(_fkSel||[])])]; }
-function fkSetup(){
-  const box=$('fk_box'); if(!box) return;
-  if(!_fk || $('m_fitter').value!=='llm_assisted'){ box.innerHTML=''; return; }
-  const sel=new Set(fkChosen()), sm=_fk.summary||{};
+/* Setup, Fitting step: one line saying what AI-assisted structure will read */
+function fkLine(){
+  const el=$('fk_line'); if(!el) return;
+  if($('m_fitter').value!=='llm_assisted'){ el.textContent=''; return; }
+  const s=_kSummary($('k_set').value);
+  el.innerHTML = s ? `The AI fitter reads the Fitter part of <b>${esc(s.name)}</b> (Knowledge base step). <a href="#" class="glink" data-guide="fit_knowledge">How →</a>`
+                   : `No knowledge base chosen: the AI fitter reads Guinier's catalogue, corrections, SOPs and guidelines only. <a href="#" class="glink" data-guide="fit_knowledge">How →</a>`;
+}
+/* Knowledge tab, Fitter: What it uses */
+function fkUseRender(){
+  const box=$('fk_use_box'); if(!box) return;
+  if(!_fkPart||!_fk){ box.innerHTML='<div class="sub">Open or make a knowledge base first.</div>'; return; }
+  const sel=new Set(_fkPart.sources||[]), sm=_fkPart.summary||{};
   const tick=(e,cnt,why)=>{ const dis=e.always||e.available===false;
-    return `<label class="tick"><input type="checkbox" class="fk_src" value="${esc(e.id)}"${sel.has(e.id)&&e.available!==false?' checked':''}${dis?' disabled':''}>`
+    return `<label class="tick"><input type="checkbox" class="fk_src" value="${esc(e.id)}"${(sel.has(e.id)||e.always)&&e.available!==false?' checked':''}${dis?' disabled':''}>`
       +`<span><b>${esc(e.label)}</b>${cnt!=null?' ('+cnt+')':''}${e.always?' <i class="mtag base">always</i>':''}<span class="d">${esc(why||e.desc||'')}</span></span></label>`; };
-  const shared=(_fk.shared||[]).map(e=>tick(e,e.count,e.available===false?(e.why||'none yet'):e.desc)).join('');
-  const proj=(_fk.project_sources||[]).map(e=>tick(e, e.id==='notes'?(sm.n_notes||0):(sm.n_fits||0), e.desc)).join('');
-  const fz=_fk.frozen;
-  box.innerHTML=`<div class="acqbox aibox"><div><b>Knowledge for the AI fitter</b> <a href="#" class="glink" data-guide="fit_knowledge">How it is used →</a></div>`
-    +`<div class="fkcols"><div><div class="colh">Guinier's knowledge (shared)</div>${shared}</div>`
-    +`<div><div class="colh">This project's knowledge</div>${_fk.project?proj:'<div class="sub">Set the project folder first.</div>'}`
-    +`<div class="sub">Add notes and see judged fits in Knowledge, Fitting knowledge. Judge a fit under its plot in the Fitting tab.</div></div></div>`
-    +`<div class="sub" style="margin-top:6px">Frozen at Start: every fit of the campaign uses the same knowledge and records its version. Between campaigns the AI fitter uses what is ticked here.`
-    +(fz?` Campaign uses version ${esc(fz.hash)}.`:'')+`</div></div>`;
+  box.innerHTML=`<div><div class="colh">Guinier's knowledge (shared)</div>${(_fk.shared||[]).map(e=>tick(e,e.count,e.available===false?(e.why||'none yet'):e.desc)).join('')}</div>`
+    +`<div><div class="colh">This base's own knowledge</div>${(_fk.own_sources||[]).map(e=>tick(e, e.id==='notes'?(sm.n_notes||0):(sm.n_fits||0), e.desc)).join('')}`
+    +`<div class="sub">Notes: Fitter, Notes. Judged fits: the Right / Wrong-model call under each plot in the Fitting tab.</div></div>`;
   box.querySelectorAll('.fk_src').forEach(c=>c.onchange=async()=>{
-    _fkSel=[...box.querySelectorAll('.fk_src:checked')].map(x=>x.value);
-    if(_fk.project){ const r=await api('/api/fitknowledge/use',{sources:fkChosen()}); if(r&&r.sources) _fk.sources=r.sources; }
-    checkReady(); });
-  if(_running) box.querySelectorAll('input').forEach(i=>i.disabled=true);
+    const src=[...box.querySelectorAll('.fk_src:checked')].map(x=>x.value);
+    const r=await api(`/api/knowledge/set/${encodeURIComponent(_kset.id)}/fitter/sources`,{sources:src});
+    if(r.error||r.ok===false){ $('kn_msg').textContent='✗ '+(r.error||'could not save'); return; }
+    $('kn_msg').textContent='Saved: '+r.sources.length+' source(s), new version of the base.';
+    await loadSets(); fkLoad(); });
+  const lg=$('fk_legacy');
+  if(lg) lg.innerHTML=_fk.legacy?`This project has fitting notes from before knowledge bases had a Fitter part. <button class="btn btn-ghost btn-sm" type="button" onclick="fkImportLegacy()">Copy them into this base</button>`:'';
 }
-function renderFitVerdict(name, model, v){
+async function fkImportLegacy(){
+  const r=await api(`/api/knowledge/set/${encodeURIComponent(_kset.id)}/fitter/import_project`,{});
+  $('kn_msg').textContent= r.error||r.ok===false ? '✗ '+(r.error||'failed') : `Copied ${r.notes} note(s) and ${r.fits} judged fit(s).`;
+  await loadSets(); fkLoad();
+}
+function renderFitVerdict(name, model, v, refetch){
   const box=$('fvBox'); if(!box) return;
-  if(!_fk||!_fk.project){ box.style.display='none'; return; }
+  _selModel=model||'polydisperse_sphere';
+  if(refetch){ fkShared().then(()=>api('/api/result/'+encodeURIComponent(name))).then(d=>{ if(d&&!d.error&&_sel===name) renderFitVerdict(name, _selModel, d.fit_verdict); }); return; }
+  _fvCur=v||null;
+  if(!_fk){ box.style.display='none'; fkShared().then(()=>{ if(_fk) renderFitVerdict(name,_selModel,v); }); return; }
+  const to=_fk.verdicts_go_to, s=_kSummary(to);
   box.style.display='flex';
+  if(!to){ box.innerHTML=`<span class="sub">Choose a knowledge base in Setup to keep your Right / Wrong-model calls; they teach the AI fitter.</span>`; return; }
   const opts=(_fk.models||[]).map(m=>`<option value="${esc(m)}">${esc(m)}</option>`).join('')
     +(_fk.structure_factors||[]).flatMap(sf=>['sphere','core_shell_sphere','ellipsoid','cylinder'].filter(m=>(_fk.models||[]).includes(m)).map(m=>`<option value="${esc(m+'@'+sf)}">${esc(m+' + '+sf)}</option>`)).join('');
-  const now=v?`Your call (${esc(v.id)}): ${v.verdict==='right'?'right model':'wrong model'}${v.verdict==='wrong'&&v.label?', it is '+esc(v.label):''}${v.note?'; '+esc(v.note):''}. A new call replaces it.`
-             :'Not judged yet. Your call teaches the AI fitter about this project.';
+  const where=`saved in ${esc(s?s.name:to)}`;
+  const now=v?`Your call (${esc(v.id)}, ${where}): ${v.verdict==='right'?'right model':'wrong model'}${v.verdict==='wrong'&&v.label?', it is '+esc(v.label):''}${v.note?'; '+esc(v.note):''}. A new call replaces it.`
+             :`Not judged yet. Your call is ${where} and teaches the AI fitter.`;
   box.innerHTML=`<b>Right model?</b>`
-    +`<button class="btn btn-ghost btn-sm" type="button" id="fv_right">Right: ${esc(model.replace('polydisperse_sphere','sphere'))}</button>`
+    +`<button class="btn btn-ghost btn-sm" type="button" id="fv_right">Right: ${esc(_selModel.replace('polydisperse_sphere','sphere'))}</button>`
     +`<span>or wrong, it is</span><select id="fv_model" aria-label="the right model"><option value="">choose…</option>${opts}</select>`
     +`<input id="fv_note" placeholder="note (optional)" maxlength="300">`
     +`<button class="btn btn-ghost btn-sm" type="button" id="fv_wrong">Save: wrong model</button>`
@@ -2530,88 +2591,112 @@ async function fitVerdict(name, verdict){
   if(verdict==='wrong') body.correct_model=$('fv_model').value||'';
   const r=await api('/api/fitknowledge/verdict', body);
   if(r.error||r.ok===false){ $('fv_now').textContent='✗ '+(r.error||'could not save'); return; }
-  await fkLoad();
-  const s=(r.drafted||[]).length;
+  await loadSets($('k_set').value);
   renderFitVerdict(name, r.verdict.fitted_model, r.verdict);
-  if(s) $('fv_now').textContent+=` ${s} note(s) drafted from your calls: approve them in Knowledge, Project notes.`;
+  const n=(r.drafted||[]).length;
+  if(n) $('fv_now').textContent+=` ${n} note(s) drafted from your calls: approve them in Knowledge, Fitter, Notes.`;
 }
+const w_q=q=>document.querySelector(q);
+const _pc=v=>v==null?'-':Math.round(v*100)+'%';
 function fkRender(){
-  if(!_fk) return;
-  const notes=_fk.notes||[], fits=(_fk.fits||[]).filter(f=>f.status!=='retired');
+  fkUseRender();
+  const P=_fkPart;
+  const notes=P?(P.notes||[]):[], fits=P?(P.fits||[]).filter(f=>f.status!=='retired'):[];
   $('fk_n_notes').textContent=notes.filter(n=>n.status!=='retired').length||'';
   $('fk_n_fits').textContent=fits.length||'';
-  const nb=document.querySelector('#fk_ntbl tbody');
+  const nb=w_q('#fk_ntbl tbody');
   if(nb) nb.innerHTML=notes.filter(n=>n.status!=='retired').map(n=>`<tr><td>${esc(n.id)}</td><td>${esc(n.text)}</td><td>${n.status==='draft'?'<i class="mtag">draft</i>':'used'}</td><td>${esc(n.who||'')}</td>`
       +`<td>${n.status==='draft'?`<button class="btn btn-ghost btn-sm" type="button" onclick="fkNote('${esc(n.id)}','approve')">Approve</button> <button class="btn btn-ghost btn-sm" type="button" onclick="fkNote('${esc(n.id)}','discard')">Discard</button>`
                                 :`<button class="btn btn-ghost btn-sm" type="button" onclick="fkNote('${esc(n.id)}','retire')">Retire</button>`}</td></tr>`).join('')
       || '<tr><td colspan="5" class="sub">No notes yet.</td></tr>';
-  const fb=document.querySelector('#fk_ftbl tbody');
+  const fb=w_q('#fk_ftbl tbody');
   if(fb) fb.innerHTML=fits.slice().reverse().map(f=>`<tr><td>${esc(f.id)}</td><td>${esc(f.file)}</td><td>${esc((f.fitted_model||'').replace('polydisperse_sphere','sphere'))}</td>`
-      +`<td>${f.verdict==='right'?'right':'wrong'}</td><td>${esc(f.label||'—')}</td><td>${esc(f.note||'')}</td>`
+      +`<td>${f.verdict==='right'?'right':'wrong'}</td><td>${esc(f.label||'-')}</td><td>${esc(f.note||'')}</td>`
       +`<td><button class="btn btn-ghost btn-sm" type="button" onclick="fkRetireFit('${esc(f.id)}')">Retire</button></td></tr>`).join('')
       || '<tr><td colspan="7" class="sub">No judged fits yet: judge a fit under its plot in the Fitting tab.</td></tr>';
-  const st=_fk.settings||{}; if($('fk_nf')) { $('fk_nf').value=st.n_fits; $('fk_np').value=st.n_passages; }
-  fkShowEval(_fk.job&&_fk.job.state?_fk.job:{state:'done',result:_fk.evaluation});
-  const p=_fk.proposal;
-  $('fk_prop').innerHTML=p?`<div class="heldbox"><b>Proposed:</b> ${esc(Object.entries(p.settings).map(([k,v])=>k+' '+(p.from||{})[k]+' → '+v).join(', '))}. Right model on the practice half ${_pc(p.practice[0])} → ${_pc(p.practice[1])}, held-out half ${_pc(p.heldout[0])} → ${_pc(p.heldout[1])}.
+  const st=(P&&P.settings)||{}; if($('fk_nf')){ $('fk_nf').value=st.n_fits??3; $('fk_np').value=st.n_passages??3; }
+  fkShowEval(P&&P.job&&P.job.state?P.job:{state:'done',result:P&&P.evaluation});
+  const pp=P&&P.proposal;
+  $('fk_prop').innerHTML=pp?`<div class="heldbox"><b>Proposed:</b> ${esc(Object.entries(pp.settings).map(([k,v])=>k+' '+(pp.from||{})[k]+' → '+v).join(', '))}. Right model on the practice half ${_pc(pp.practice[0])} → ${_pc(pp.practice[1])}, held-out half ${_pc(pp.heldout[0])} → ${_pc(pp.heldout[1])}.
       <button class="btn btn-accent btn-sm" type="button" onclick="fkProposal(true)">Approve</button> <button class="btn btn-ghost btn-sm" type="button" onclick="fkProposal(false)">Discard</button></div>`:'';
 }
-const _pc=v=>v==null?'—':Math.round(v*100)+'%';
 function fkShowEval(job){
   const el=$('fk_eval_body'), stt=$('fk_eval_state'); if(!el) return;
   if(job.state==='running'){ stt.textContent=`${job.kind==='propose'?'Proposing':'Testing'}… (started ${esc(job.started||'')})`; return; }
   stt.textContent= job.state==='error' ? '✗ '+(job.error||'failed') : '';
-  const ev=job.kind==='propose'?null:job.result;
-  if(job.kind==='propose'&&job.result){ stt.textContent=job.result.note||''; }
-  const last=ev||(_fk&&_fk.evaluation);
+  if(job.kind==='propose'&&job.result) stt.textContent=job.result.note||'';
+  const last=(job.kind!=='propose'&&job.result)||(_fkPart&&_fkPart.evaluation);
   if(!last){ el.textContent='No test yet.'; return; }
   el.innerHTML=(last.rows&&last.rows.length?`<table><thead><tr><th>Arm</th><th>Right model</th><th>Practice</th><th>Held out</th><th>Curves</th><th>AI fell back</th></tr></thead><tbody>`
-    +last.rows.map(r=>`<tr><td>${esc(r.label)}</td><td><b>${_pc(r.all)}</b></td><td>${_pc(r.practice)}</td><td>${_pc(r.heldout)}</td><td>${r.n}</td><td>${r.arm==='catalogue_bic'?'—':r.fallbacks}</td></tr>`).join('')+'</tbody></table>':'')
+    +last.rows.map(r=>`<tr><td>${esc(r.label)}</td><td><b>${_pc(r.all)}</b></td><td>${_pc(r.practice)}</td><td>${_pc(r.heldout)}</td><td>${r.n}</td><td>${r.arm==='catalogue_bic'?'-':r.fallbacks}</td></tr>`).join('')+'</tbody></table>':'')
     +`<div class="sub">${esc(last.note||'')} ${last.at?'('+esc(last.at)+')':''}</div>`;
 }
+const _fkUrl=x=>`/api/knowledge/set/${encodeURIComponent(_kset.id)}/fitter${x||''}`;
 async function fkPoll(){
   for(let i=0;i<600;i++){
     await new Promise(r=>setTimeout(r,2000));
-    const r=await api('/api/fitknowledge'); if(!r||r.error) return;
-    _fk=r; if(!(r.job&&r.job.state==='running')){ fkRender(); return; }
+    if(!_kset) return;
+    const r=await api(_fkUrl()); if(!r||r.error) return;
+    _fkPart=r; if(!(r.job&&r.job.state==='running')){ fkRender(); return; }
     fkShowEval(r.job);
   }
 }
 async function fkEval(kind){
-  const r=await api('/api/fitknowledge/'+kind,{});
+  if(!_kNeedSet()) return;
+  const r=await api(_fkUrl('/'+kind),{});
   if(r.error||r.ok===false){ $('fk_eval_state').textContent='✗ '+(r.error||'could not start'); return; }
   fkShowEval({state:'running',kind,started:new Date().toTimeString().slice(0,8)}); fkPoll();
 }
 async function fkAddNote(){
-  const r=await api('/api/fitknowledge/note',{text:$('fk_note_text').value});
+  if(!_kNeedSet()) return;
+  const r=await api(_fkUrl('/note'),{text:$('fk_note_text').value});
   if(r.error&&r.ok===undefined){ $('kn_msg').textContent='✗ '+r.error; return; }
   if(r.ok===false&&!(r.errors||[]).length){ $('kn_msg').textContent='✗ '+(r.error||'could not add'); return; }
   $('fk_note_text').value=''; $('kn_msg').textContent=(r.added||[]).length+' note(s) added'+((r.errors||[]).length?'; skipped: '+r.errors.join('; '):'');
-  fkLoad();
+  await loadSets(); fkLoad();
 }
 async function fkNote(id, action){
-  if(action!=='approve' && !confirm((action==='retire'?'Retire ':'Discard ')+id+'? It stays in the file, marked retired, and is no longer used.')) return;
-  const r=await api('/api/fitknowledge/note/'+encodeURIComponent(id),{action});
+  if(action!=='approve' && !confirm((action==='retire'?'Retire ':'Discard ')+id+'? It stays in the base, marked retired, and is no longer used.')) return;
+  const r=await api(_fkUrl('/note/'+encodeURIComponent(id)),{action});
   if(r.error||r.ok===false){ $('kn_msg').textContent='✗ '+(r.error||'failed'); return; }
-  fkLoad();
+  await loadSets(); fkLoad();
 }
 async function fkRetireFit(id){
-  if(!confirm('Retire judged fit '+id+'? It stays in the file and is no longer shown to the AI.')) return;
-  const r=await api('/api/fitknowledge/fit/'+encodeURIComponent(id)+'/retire',{});
+  if(!confirm('Retire judged fit '+id+'? It stays in the base and is no longer shown to the AI.')) return;
+  const r=await api(_fkUrl('/fit/'+encodeURIComponent(id)+'/retire'),{});
   if(r.error||r.ok===false){ $('kn_msg').textContent='✗ '+(r.error||'failed'); return; }
-  fkLoad();
+  await loadSets(); fkLoad();
 }
 async function fkSaveSettings(){
-  const r=await api('/api/fitknowledge/settings',{n_fits:+$('fk_nf').value, n_passages:+$('fk_np').value});
+  if(!_kNeedSet()) return;
+  const r=await api(_fkUrl('/settings'),{n_fits:+$('fk_nf').value, n_passages:+$('fk_np').value});
   $('kn_msg').textContent= r.error||r.ok===false ? '✗ '+(r.error||'failed') : 'Saved: used from the next campaign (and by fits outside a campaign now).';
   fkLoad();
 }
 async function fkProposal(approve){
-  const r=await api('/api/fitknowledge/proposal',{approve});
+  const r=await api(_fkUrl('/proposal'),{approve});
   $('kn_msg').textContent= r.error||r.ok===false ? '✗ '+(r.error||'failed') : (approve?'Approved: used from the next campaign.':'Discarded.');
   fkLoad();
 }
-fkLoad();
+/* Knowledge tab, Design loop: What it uses (saved with the base) */
+function dzUseRender(){
+  const s=_kset; const u=(s&&s.design_use)||{literature:true,notes:true,campaigns:true,verdicts:true,every_pick:false};
+  document.querySelectorAll('.dz_u').forEach(c=>{ c.checked=!!u[c.dataset.k]; c.disabled=!s; });
+  if(!s) return;
+  const cards=(s.cards||[]).filter(c=>c.status==='approved');
+  $('dz_n_lit').textContent=`(${cards.filter(c=>c.kind==='literature').length})`;
+  $('dz_n_note').textContent=`(${cards.filter(c=>c.kind==='note').length})`;
+  $('dz_n_camp').textContent=`(${(s.campaigns||[]).length})`;
+  $('dz_n_verd').textContent=`(${(s.verdicts||[]).filter(v=>v.status!=='retired').length})`;
+}
+document.querySelectorAll('.dz_u').forEach(c=>c.onchange=async()=>{
+  if(!_kNeedSet()) return;
+  const use={}; document.querySelectorAll('.dz_u').forEach(x=>use[x.dataset.k]=x.checked);
+  const r=await api(`/api/knowledge/set/${encodeURIComponent(_kset.id)}/use`, use);
+  if(!_kMsg(r,'Saved: new version of the base.')) return;
+  _kStepSet=null; await kOpen(_kset.id,true); await loadSets(); kSection('dz_use');
+});
+fkShared();
 
 /* ── Guide tab ───────────────────────────────────────────────────────────── */
 let _guidePages=[];

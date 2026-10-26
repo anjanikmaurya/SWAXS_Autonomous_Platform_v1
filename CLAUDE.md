@@ -78,8 +78,8 @@ SWAXS_Autonomous_Platform_v1/
 │   ├── quality/core.py         # grade_profile, score_metrics
 │   ├── analysis/               # core.py · io.py · atsas.py · nanoparticle.py · guidelines.py
 │   ├── fitting/                # fitter registry: ls_sphere · ml_regressor · llm_assisted
-│   │                           #   · fit_knowledge.py (what the AI fitter reads: Guinier's
-│   │                           #   sources + this project's notes and judged fits)
+│   │                           #   · fit_knowledge.py (what the AI fitter reads: the Fitter part
+│   │                           #   of a knowledge base: Guinier's sources, notes, judged fits)
 │   ├── optimizer/              # campaign.py · space.py · gp.py · io.py · study.py
 │   │                           #   · intake_rules.py (held results, starting-recipe checks)
 │   │                           #   · guide.py (the Analyser's Guide tab)
@@ -91,7 +91,7 @@ SWAXS_Autonomous_Platform_v1/
 │   │                           #   · collection.py (SPEC shots) · checks.py (read-only
 │   │                           #   hardware checklist) · hardware.py · config.py · recipe.py
 │   │                           #   · intake.py · drivers/Py_P_Pump.py
-│   ├── design_knowledge/       # Analyser knowledge sets: store · cards · literature
+│   ├── design_knowledge/       # Analyser knowledge bases (Fitter + Design loop parts): store · cards · literature
 │   │                           #   (OpenAlex, AI drafting) · campaigns · freeze
 │   │                           #   · replay (did the knowledge help?, improvement loop)
 │   ├── beamline/driver.py      # SPEC bServer HTTP + EPICS reads
@@ -207,7 +207,7 @@ Apps read and write data from a user-selected project folder:
 │   ├── WAXS/                       # same tree
 ├── config.yml                      # reduction configuration
 ├── reactor_limits.json             # persisted pump limits / calibration
-├── fit_knowledge.json              # AI fitter: project notes, judged fits, settings (Analyser)
+├── fit_knowledge.json              # legacy (before Oct 25 2026): AI fitter notes; copy into a base in Knowledge
 ├── manifest.db                     # cross-app provenance (SQLite, source of truth)
 ├── manifest.json                   # JSON export of the same, written on every save
 ├── .manifest_snapshots/            # rotating manifest.db snapshots

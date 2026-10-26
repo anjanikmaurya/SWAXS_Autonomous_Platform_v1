@@ -79,25 +79,37 @@ Numbered steps, top to bottom:
    0.5). **Search range** shows the bounds read-only from `reactor/config.yml`
    (with the live pump limits) and the hard safety caps; change them in the
    Reactor app.
-3. **How it fits & searches**: two lists grouped Standard / ML / Agentic.
-   **Fitting** (Catalogue + BIC recommended; AI-assisted structure) and **Next
-   recipe** (only the methods that suit the goal), with the chosen method's
-   description and acquisition shown.
-4. **Knowledge for this campaign**: the **Knowledge set** (a set that matches
-   `chemistry.yml` is preselected) and what to **Use**: **Literature** and **Your
-   notes** (approved cards only: they set where the starting recipes from
-   knowledge go) and **Past campaigns** (a warm start: their measured runs train
-   the optimiser's model, scored against the new target, without using the
-   budget; hidden for Random, which uses no data). Drafts waiting for approval
-   are flagged and never used. The set's version is frozen at Start.
-5. **Starting recipes** (the cold start): **From knowledge** (recipes inside the
-   range the ticked approved cards allow; 3 by default when the set has a card
-   with a range, taken out of the spread so the total stays 10), **Spread out**
-   (Sobol points over the whole search range) and **Your own** (up to 5 exact
-   recipes, **Add recipe**); **Total** is the cold start (`n_init`). It warns below 5,
-   above a third of the budget, or when fewer than half are spread out, and Start
-   refuses a total longer than the budget. **Preview starting recipes** lists the
-   exact first recipes, in order, without starting anything.
+3. **Knowledge base**: pick one by name, e.g. "Pd nanoparticles" (a base that
+   matches `chemistry.yml` is preselected on first load; None is allowed). Two
+   summary lines say what it gives: **Fitter** (Guinier's sources, notes and
+   judged fits; used only by AI-assisted structure) and **Design loop** (literature
+   and note cards, past campaigns, verdicts). What each part uses is ticked in the
+   Knowledge tab and saved with the base, not here. Drafts waiting for approval are
+   flagged and never used. The base's version is frozen at Start. The chosen base
+   is also where your Right / Wrong-model calls on fits are kept.
+4. **Fitting**: one list, Standard (Catalogue + BIC recommended, Least-squares
+   sphere), then ML, then Agentic (AI-assisted structure, which says which base it
+   reads).
+5. **Design loop** (who picks the next recipe): one list, Standard (Random), then
+   ML (GP + EI recommended, GP + UCB, TuRBO, BAX, Pareto, as suit the goal), then
+   Agentic (AI Advisor, Co-pilot, Pilot). The chosen method's acquisition, or for
+   an AI level the optimiser it uses and **Test AI connection**. **More options**
+   (shown only when the method has any): optimiser tuning (kappa, trust region,
+   tau), and for AI levels the progress review interval, apply mode (Advisor),
+   Claude model and thinking.
+6. **Starting recipes** (the cold start): **From knowledge** (recipes inside the
+   range the base's approved cards allow; 3 by default when it has a card with a
+   range, taken out of the spread so the total stays 10) and **Spread out** (Sobol
+   points over the whole search range); **Total** is the cold start (`n_init`). It
+   warns below 5, above a third of the budget, or when fewer than half are spread
+   out, and Start refuses a total longer than the budget. **Preview starting
+   recipes** lists the exact first recipes, in order, without starting anything.
+   **More options: your own recipes**: up to 5 exact recipes (**Add recipe**),
+   made first.
+
+Case-by-case settings sit under **More options** in their step: Min fit
+confidence (Target & limits, default 0.5), optimiser tuning and AI settings
+(Design loop), your own recipes (Starting recipes).
 
 The **Ready to start?** card on the right checks the folders, the search range,
 the fitting method, the cold start and the expected shape. Press **Start
@@ -131,31 +143,37 @@ green at ≥ 0.6, amber at ≥ 0.3, otherwise low.
 
 Under the plot, **Right model?** records your call on the fit: **Right** (the
 fitted model is right), or the right model from the catalogue (optionally with a
-structure factor), plus a note, then **Save: wrong model**. Calls are this
-project's **judged fits** (`<project>/fit_knowledge.json`); a new call on the same
-file replaces the old one. Two or more calls saying the same correction (X is
-really Y) draft a project note that waits for your approval.
+structure factor), plus a note, then **Save: wrong model**. Calls are **judged
+fits** in the Fitter part of the running campaign's knowledge base, else the base
+chosen in Setup (the box says which; with no base it asks you to choose one); a
+new call on the same file replaces the old one. Two or more calls saying the same
+correction (X is really Y) draft a note that waits for your approval.
 
-### Knowledge for the AI fitter (Setup step 3, AI-assisted structure)
+### Knowledge for the AI fitter (Knowledge tab, Fitter part of a base)
 
-When the fitting method is **AI-assisted structure**, a box chooses what the AI
-reads before it names the shapes to fit. **Guinier's knowledge** (shared with the
-assistant, `ai_knowledge/`): Model catalogue (always on), Operator corrections,
-Group SOPs, SAXS guidelines, Literature passages (the most relevant passages from
-the assistant's index, found per curve; only when the index is built here) and
-Expert cases (`ai_knowledge/cases/*.json`; none yet). **This project's
-knowledge**: Project notes and Judged fits; for each curve the AI is shown up to 3
-of the most similar judged curves (rms difference of mean-centred log I on a
-shared log-q grid, at most 0.6 decades), never the curve's own call. Order of
-authority: corrections, then project notes, then SOPs, then guidelines. Notes,
+AI-assisted structure reads the **Fitter** part of the knowledge base chosen in
+Setup; with no base, only Guinier's catalogue, corrections, SOPs and guidelines
+(as before). In the Knowledge tab, **Fitter, What it uses** ticks, for that base:
+**Guinier's knowledge** (shared with the assistant, `ai_knowledge/`): Model
+catalogue (always on), Operator corrections, Group SOPs, SAXS guidelines,
+Literature passages (the most relevant passages from the assistant's index, found
+per curve; only when the index is built here) and Expert cases
+(`ai_knowledge/cases/*.json`; none yet); and **this base's own knowledge**: Notes
+and Judged fits. Settings: similar judged fits shown per curve (0 to 8, default
+3) and literature passages per curve (1 to 6, default 3). For each curve the AI
+is shown the most similar judged curves (rms difference of mean-centred log I on
+a shared log-q grid, at most 0.6 decades), never the curve's own call. Order of
+authority: corrections, then the base's notes, then SOPs, then guidelines. Notes,
 passages and cases are passed as data, never as instructions; the AI still only
-proposes, every candidate is fitted and BIC picks the winner. The choice is saved
-with the project; at Start it is frozen (`.swaxs_state/fit_knowledge/<hash>.json`)
-and every fit records the version (`llm_structure.knowledge`: hash, sources,
-judged fits and passages used). Between campaigns, fits use the current choice.
+proposes, every candidate is fitted and BIC picks the winner. At Start the
+Fitter part is frozen (`.swaxs_state/fit_knowledge/<hash>.json` in the project)
+and every fit records the version (`llm_structure.knowledge`: hash, base,
+sources, judged fits and passages used). Between campaigns, fits use the base as
+it is now. A project with an older `fit_knowledge.json` (before bases had a
+Fitter part) offers **Copy them into this base**; the file is left as it was.
 Logic: `src/fitting/fit_knowledge.py`.
 
-### AI next-recipe levels (Setup step 3, Agentic)
+### AI next-recipe levels (Setup, Design loop, Agentic)
 
 | Level | Who picks each recipe | The AI's part |
 |---|---|---|
@@ -164,7 +182,7 @@ Logic: `src/fitting/fit_knowledge.py`.
 | **AI Pilot** (experimental) | the AI writes the recipe | must be inside the search range, pump windows, hard caps, working range and a trust region (best ± a quarter of each span), new, and cited; one retry, then the optimiser's pick; reviews every 5 or 10 runs cannot be turned off; Start asks you to confirm the limits |
 
 The cold start is never the AI's. The AI level drives the optimiser shown in its
-detail box (Shortlist from / Fallback optimiser / Optimiser). The box also sets the
+detail box (Shortlist from / Fallback optimiser / Optimiser). **More options** sets the
 **Claude model** (Default = `SWAXS_DESIGN_MODEL`, else `ANTHROPIC_MODEL`, else
 `ANTHROPIC_DEFAULT_SONNET_MODEL` from `~/.claude/settings.json`, else
 `us.anthropic.claude-sonnet-4-6`; or the same gateway ids the assistant offers:
@@ -174,10 +192,9 @@ about 2k and deep about 8k tokens of extended thinking, slower; answers are stil
 cached on the exact prompt). **Test AI connection** makes one tiny real call with
 that model and shows "Connected: model, ms" or the error type (never a
 credential); the Ready list repeats it. From a terminal: `python tools/ai_check.py
---all`. Both are recorded with every decision. In step 4, **For**:
-**Starting recipes** (the AI does not see the cards) or **Starting recipes and
-every AI pick** (or every progress review, for the Advisor); **Your verdicts on
-past picks** (AI levels) adds your Good / Bad calls to what the AI reads. Anything invalid,
+--all`. Both are recorded with every decision. Whether the AI reads the cards
+and your verdicts at every pick or review (not only for the starting recipes) is
+ticked with the base (Knowledge, Design loop, What it uses). Anything invalid,
 no AI login, a timeout or a non-JSON answer: the optimiser's pick, recorded as a
 fallback; the loop never waits on the AI (the call runs in the background, and
 a pause or abort meanwhile drops its answer). Every decision is in **Report,
@@ -188,11 +205,20 @@ reproducible. Logic: `src/optimizer/ai_design.py`.
 
 ### Knowledge tab
 
-Design knowledge for the next recipe, one **knowledge set** per chemistry
-(`ai_knowledge/design/<set_id>.json`, in git). The assistant (Guinier) does not
-read it. Below the sets, **Fitting knowledge** holds this project's notes and
-judged fits for the AI fitter; Guinier's general SAXS knowledge is chosen in
-Setup step 3.
+One **knowledge base** per chemistry (e.g. Pd nanoparticles;
+`ai_knowledge/design/<id>.json`, in git), with two parts, listed in this order:
+
+- **Fitter**: **What it uses** (the sources above, and its settings), **Notes**
+  (add, one line per note, used at once; drafted notes from your calls show
+  **Approve** / **Discard**; **Retire**), **Judged fits** (your calls, with
+  **Retire**) and **Evaluation** (below).
+- **Design loop**: **What it uses** (Literature cards, Your note cards, Past
+  campaigns as a warm start (not used by Random), Your verdicts (AI levels), and
+  whether AI levels read them at every pick or review; plus the settings:
+  starting recipes from knowledge, AI shortlist size, AI Pilot trust region), then
+  the pages below.
+
+Setup only picks the base by name. The assistant (Guinier) does not read a base.
 
 - **Add knowledge**: **Search the web** (OpenAlex; only the query is sent; the
   query starts from `chemistry.yml` and the target; tick papers, then **Draft
@@ -209,9 +235,7 @@ Setup step 3.
 - **Campaigns**: finished campaigns that used the set, with their measured
   runs, target, tolerance and PDI cap; they join automatically when a campaign
   ends (also on Abort).
-- **Evaluation**: the settings campaigns take from the set (starting recipes
-  from knowledge, AI shortlist size, AI Pilot trust region; **Save settings**
-  makes a new version), **Run test** and **Propose improvement**.
+- **Design loop, Evaluation**: **Run test** and **Propose improvement**.
   - **Run test** replays each finished campaign against an emulator fitted to
     its own measured runs (a GP for diameter and one for PDI), with each method
     running a fresh campaign with that campaign's target and budget, 3 times:
@@ -228,21 +252,14 @@ Setup step 3.
     `src/design_knowledge/replay.py`.
 - **Export** downloads the set; **Import** makes a new set from an export, with
   every card as a draft to review.
-- **Fitting knowledge (AI fitter)**, this project only, not a set:
-  - **Project notes**: add notes (one line, one note, used at once); drafted
-    notes from your calls show **Approve** / **Discard**; **Retire** stops using a
-    note (it stays in the file).
-  - **Judged fits**: every call from the Fitting tab, with **Retire**.
-  - **Fitting evaluation**: settings (similar judged fits shown per curve, 0 to
-    8, default 3; literature passages per curve, 1 to 6, default 3), **Run test**
-    and **Propose improvement**. Run test refits the judged curves that name the
-    right model (at least 4, the latest 20) with Catalogue + BIC and with the AI
-    fitter given Guinier's knowledge only, plus the project notes, plus the notes
-    and judged fits (each curve without its own call), and counts how often each
-    finds the right model, on two halves (practice and held out). Without an AI
-    login only the baseline runs. Propose improvement tries other settings on the
-    practice half and proposes one only if it is also better on the held-out
-    half; **Approve** applies it from the next campaign.
+- **Fitter, Evaluation**: **Run test** refits the base's judged curves that name
+  the right model (at least 4, the latest 20) with Catalogue + BIC and with the
+  AI fitter given Guinier's knowledge only, plus the notes, plus the notes and
+  judged fits (each curve without its own call), and counts how often each finds
+  the right model, on two halves (practice and held out). Without an AI login only
+  the baseline runs. **Propose improvement** tries other settings on the practice
+  half and proposes one only if it is also better on the held-out half;
+  **Approve** applies it from the next campaign.
 
 How the AI drafts cards: with an AI login the AI reads the text as data (never
 as instructions) and must quote, for each card, a sentence that is really in
@@ -263,11 +280,11 @@ header link to their page (**Details in the Guide →**).
   from knowledge, the optimiser or an AI level; what it was; why and what it was
   based on for AI picks; the result) and **Good call** / **Bad call** with one
   line why. A verdict is kept with the run and, when the campaign used a
-  knowledge set, in that set at once (an AI level reads it next time). For AI
+  knowledge base, in that base at once (an AI level reads it next time). For AI
   levels also: AI picks, how many matched the optimiser's own top pick,
   fallbacks, the working range, the Advisor's reviews, a waiting suggestion with
   **Apply** / **Reject**, and **Undo range**.
-- **Did the knowledge help?**: the last replay of the campaign's knowledge set
+- **Did the knowledge help?**: the last replay of the campaign's knowledge base
   (below), and **Run test**.
 - **Campaign**: status, **Pause** / **Resume** (paused: no new recipe is issued;
   anything already queued still runs and its result is still recorded) and
@@ -572,11 +589,12 @@ and `*.json` there as a recipe.
 | `GET /api/campaign/diagnostics` | read-only learning and convergence summary |
 | `GET /api/campaign/plot/<view>.png` | `slice` (`x`, `y`, `anchor`), `convergence`, `trajectory`, `levelset`, `pareto` |
 | `POST /api/study`, `GET /api/study/plot.png` | in-silico method comparison |
-| `GET /api/fitknowledge` | the AI fitter's knowledge: Guinier's sources with what is there, the project's sources, the saved choice, notes, judged fits, settings, last evaluation, proposal, job, catalogue models, the running campaign's frozen version |
-| `POST /api/fitknowledge/use` | `{sources}`: the ticked sources (the catalogue is always added) |
-| `POST /api/fitknowledge/note`, `/note/<id>` | add notes `{text}` (one per line); `{action: approve, retire, discard}` |
-| `POST /api/fitknowledge/verdict` | `{name, verdict: right | wrong, correct_model, note}` on a fit; returns the drafted notes |
-| `POST /api/fitknowledge/fit/<id>/retire` | stop using a judged fit |
-| `POST /api/fitknowledge/settings` | `{n_fits, n_passages}` (clamped) |
-| `POST /api/fitknowledge/evaluate`, `/propose`, `/proposal` | test and improvement (background; state in `GET /api/fitknowledge` `job`); `{approve}` |
+| `GET/POST /api/knowledge/active` | `{set_id}`: the base chosen in Setup (used by AI fits outside a campaign, and where calls on fits go) |
+| `POST /api/knowledge/set/<id>/use` | what the design loop uses `{literature, notes, campaigns, verdicts, every_pick}`, saved with the base; a Start without `knowledge.use` takes it |
+| `GET /api/fitknowledge` | Guinier's sources with what is there now, the catalogue's models, the active base, where calls go, the running campaign's frozen fitter knowledge, whether the project has an older `fit_knowledge.json` |
+| `GET /api/knowledge/set/<id>/fitter` | the base's Fitter part: sources, notes, judged fits, settings, last evaluation, proposal, job |
+| `POST /api/knowledge/set/<id>/fitter/sources`, `/settings` | `{sources}` (the catalogue is always added); `{n_fits, n_passages}` (clamped) |
+| `POST /api/knowledge/set/<id>/fitter/note`, `/note/<nid>`, `/fit/<fid>/retire` | add notes `{text}` (one per line); `{action: approve, retire, discard}`; stop using a judged fit |
+| `POST /api/knowledge/set/<id>/fitter/evaluate`, `/propose`, `/proposal`, `/import_project` | test and improvement (background; state in the part's `job`); `{approve}`; copy an older project `fit_knowledge.json` in |
+| `POST /api/fitknowledge/verdict` | `{name, verdict: right | wrong, correct_model, note}` on a fit, saved in the running campaign's base, else the active one; returns the drafted notes |
 | `GET /api/restart_notice` | whether an interrupted campaign needs a manual Continue |

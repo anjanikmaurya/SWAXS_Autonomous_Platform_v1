@@ -145,10 +145,10 @@ PAGES = {
                  "from knowledge = Sobol points inside the cards' range (seed 1)",
         "when": "Every live campaign. Preview shows the exact recipes before the pumps start."},
     "knowledge": {"title": "Knowledge for campaigns", "group": "Knowledge",
-        "what": "One knowledge set per chemistry, in the Knowledge tab: cards from literature (web "
+        "what": "One knowledge base per chemistry (e.g. Pd nanoparticles), in the Knowledge tab, with a Fitter part and a Design loop part. The design loop part holds cards from literature (web "
                 "search, papers) and your notes, and finished campaigns. Drafted cards wait in "
-                "Drafts until you approve them. Setup step 4 chooses the set and which parts a "
-                "campaign uses; the set's version is frozen at Start.",
+                "Drafts until you approve them. Setup picks the base by name; what its parts use "
+                "is ticked in the Knowledge tab. The base's version is frozen at Start.",
         "when": "Literature and your notes: where the starting recipes from knowledge go. Past "
                 "campaigns: a warm start, their measured runs train the optimiser's model (scored "
                 "against the new target) without using the budget.",
@@ -156,10 +156,10 @@ PAGES = {
                "starting recipes go but never widen the search. Text from papers or web pages is "
                "never passed on as an instruction: only approved cards (setting, effect, numeric "
                "range, source) are used.",
-        "refs": "General SAXS knowledge for fitting stays with Guinier (ai_knowledge/rules, reference)."},
+        "refs": "The Fitter part: see Knowledge for the AI fitter. Guinier's own files stay in ai_knowledge/rules and reference."},
     "verdicts": {"title": "Your verdicts", "group": "Knowledge",
         "what": "Good call or Bad call, with one line why, on any run in Report, Decisions. It is kept "
-                "with the run and, when the campaign used a knowledge set, in the set at once. With an "
+                "with the run and, when the campaign used a knowledge base, in the base at once. With an "
                 "AI level, \"Your verdicts\" ticked and \"every AI pick\", the AI reads them (and may "
                 "cite them) at every pick or review.",
         "not": "A verdict on the run you are replaying: the replay leaves a campaign's own verdicts out."},
@@ -177,15 +177,16 @@ PAGES = {
                "cold start, the test cannot tell them apart.",
         "refs": "src/design_knowledge/replay.py · Meta-Harness, arXiv 2603.28052"},
     "fit_knowledge": {"title": "Knowledge for the AI fitter", "group": "Fitting",
-        "what": "AI-assisted structure reads knowledge before it names the shapes to fit. Setup step 3 "
-                "chooses it part by part. Guinier's knowledge (shared with the assistant): the model "
-                "catalogue (always), operator corrections, group SOPs, SAXS guidelines, literature "
-                "passages found for each curve, expert cases. This project's knowledge "
-                "(fit_knowledge.json in the project folder): your notes about the samples and data, and "
-                "your judged fits, the Right / Wrong-model calls under the plot in the Fitting tab. For "
+        "what": "AI-assisted structure reads the Fitter part of the knowledge base chosen in Setup "
+                "(with no base: Guinier's catalogue, corrections, SOPs and guidelines). Knowledge, "
+                "Fitter, What it uses ticks it part by part. Guinier's knowledge (shared with the "
+                "assistant): the model catalogue (always), operator corrections, group SOPs, SAXS "
+                "guidelines, literature passages found for each curve, expert cases. The base's own "
+                "knowledge: your notes about the samples and data, and your judged fits, the Right / "
+                "Wrong-model calls under the plot in the Fitting tab. For "
                 "each curve the AI is shown the most similar judged curves, never the curve's own call. "
                 "Two or more calls saying the same correction draft a note, used only once you approve it.",
-        "maths": "order of authority: corrections > project notes > SOPs > guidelines\n"
+        "maths": "order of authority: corrections > the base's notes > SOPs > guidelines\n"
                  "similar = rms difference of mean-centred log I on a shared log-q grid (<= 0.6 decades)\n"
                  "the AI only proposes; every candidate is fitted and BIC picks the winner",
         "when": "Frozen at Start, with a version stamp on every fit. Knowledge, Fitting evaluation refits "
