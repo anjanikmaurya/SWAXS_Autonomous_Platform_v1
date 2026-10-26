@@ -2,7 +2,8 @@
 
 > **Status, 2026-10-25.** Quick audit after the Phase 1 to 4 rebuild, the AI
 > levels, knowledge bases with a Fitter part and the new Setup layout. 14
-> findings: 2 HIGH, 6 MEDIUM, 6 LOW. **None fixed yet**; all are filed in
+> findings: 2 HIGH, 6 MEDIUM, 6 LOW. **AN1, AN5 and AN7 fixed 2026-10-25** (the fitter
+> belongs to the campaign); the rest are open. All are filed in
 > [OPEN_DEFECTS.md](OPEN_DEFECTS.md). The earlier deep audit of the loop itself is
 > [AUTOFIT_AUDIT.md](AUTOFIT_AUDIT.md) (A1 to A9, fixed) and is not repeated here.
 > Each finding below was checked against the code; AN6 was also measured.

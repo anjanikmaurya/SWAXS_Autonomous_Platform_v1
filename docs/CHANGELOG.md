@@ -11,7 +11,11 @@ this file is the running summary. Dates are when the work landed on `main`.
 
 - `docs/audits/ANALYZER_QUICK_AUDIT_2026_10.md`: 14 findings, 2 HIGH (a restart
   switches the fitter to the default; the first batch trains the model, = O7),
-  all filed in the register. Nothing fixed yet.
+  all filed in the register.
+- Fixed AN1, AN5, AN7: a resumed or continued campaign fits with the fitter it
+  started with (paused, or Continue refused, if that fitter is missing), the
+  fitter cannot be changed while a campaign runs, and Continue keeps the frozen
+  fitter knowledge.
 
 ### Analyser: clearer Setup, named knowledge bases with a Fitter part
 

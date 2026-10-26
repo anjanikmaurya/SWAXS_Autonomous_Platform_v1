@@ -966,6 +966,25 @@ def _save_campaign() -> None:
         _emit(f"⚠ could not save the campaign state: {exc}", "warn")
 
 
+def _restore_fitter(meta: dict) -> str | None:
+    """The fitter belongs to the campaign (audit AN1): a resumed or continued run
+    must fit with the method it started with, not the app's default. Returns an
+    error text when that fitter is not available here (the caller pauses)."""
+    global _active_fitter
+    fid = str((meta or {}).get("fitter") or "")
+    if not fid:
+        return None                       # an older record: keep the current fitter
+    ready = {m["id"] for m in fitting.available() if m.get("ready", True)}
+    if fid not in ready:
+        return (f"this campaign was fitted with '{fid}', which is not available here; "
+                "it is paused so the scoring does not change. Make it available and Resume, "
+                "or Abort")
+    if fid != _active_fitter:
+        _emit(f"🧩 fitter restored for this campaign: {fid} (was {_active_fitter})", "info")
+    _active_fitter = fid
+    return None
+
+
 def _restore_campaign() -> None:
     """Rebuild the campaign from disk by replaying its history through tell().
 
@@ -1012,6 +1031,7 @@ def _restore_campaign() -> None:
     # writing to its existing record instead of orphaning it.
     _campaign_id = str(st.get("campaign_id") or "")
     _campaign_meta = dict(st.get("meta") or {})
+    _fit_problem = _restore_fitter(_campaign_meta)
     hist = st.get("history") or []
     # Rehydrate the Target-Run tag AND advance the sequence counter past every id
     # already issued this run. Without this, a resumed campaign either falls back to
@@ -1056,7 +1076,7 @@ def _restore_campaign() -> None:
         with _campaign_lock:
             _campaign = camp
             _campaign_cfg = cfg
-            _paused = bool(st.get("paused"))
+            _paused = bool(st.get("paused")) or bool(_fit_problem)
             _pending.clear(); _pending.update(st.get("pending") or {})
             # Restart the expiry clock NOW for every pending condition (audit
             # Q19). The saved proposal times include the downtime, so a restart
@@ -1083,9 +1103,13 @@ def _restore_campaign() -> None:
         _emit(f"♻ campaign RESUMED from disk — {len(hist)} result(s) replayed, "
               f"{len(_pending)} condition(s) still pending, target "
               f"R={cfg.get('target_size')}±{cfg.get('tolerance')} nm", "ok")
+        if _fit_problem:
+            _CAMPAIGN_NOTICE = {"level": "lost", "message": "Campaign resumed PAUSED: " + _fit_problem,
+                                "params": []}
+            _emit("⏸ campaign resumed PAUSED: " + _fit_problem, "error")
         # If nothing is outstanding the loop would sit idle forever, so kick it.
         with _campaign_lock:
-            if not _pending and _campaign.status_str == "running":
+            if not _pending and _campaign.status_str == "running" and not _paused:
                 _emit("♻ no pending condition after the restart — proposing the "
                       "next one", "info")
                 _advance_campaign()
@@ -1277,7 +1301,7 @@ def _continue_run() -> dict:
     meta_keys = ("objective", "started_at", "operator", "run_no", "run_tag",
                  "goal", "spec_units", "optimiser", "optimiser_requested",
                  "size_range", "fitter", "method_params", "expected_shape", "seeds",
-                 "seed_kinds", "knowledge", "prior", "ai")
+                 "seed_kinds", "knowledge", "prior", "ai", "fit_knowledge")
     cfg = {k: rec[k] for k in cfg_keys if k in rec}
     meta = {k: rec[k] for k in meta_keys if k in rec}
     campaign_id = str(rec.get("campaign_id") or "")
@@ -1351,6 +1375,9 @@ def _continue_run() -> dict:
     hi_seq = _max_run_seq(run_tag, issued)
     camp._n_asked = max(hi_seq, len(camp.history) + len(reissued))
 
+    if _restore_fitter(meta):
+        raise RuntimeError(f"this run was fitted with '{meta.get('fitter')}', which is not "
+                           "available here; Continue would change how results are scored")
     _run_tag = run_tag
     _run_seq = hi_seq
     with _campaign_lock:
@@ -2304,6 +2331,11 @@ def api_methods():
         if fit_id:
             if fit_id not in ready_fit:
                 return jsonify({"ok": False, "error": f"fitter '{fit_id}' is not available"}), 400
+            # The fitter belongs to the campaign (audit AN5): changing it mid-run
+            # would change how every later result is scored.
+            if (fit_id != _active_fitter and _campaign is not None
+                    and _campaign.status_str == "running"):
+                return jsonify({"ok": False, "error": "a campaign is running: abort it before changing the fitter"}), 409
             _active_fitter = fit_id
         if opt_id:
             if _campaign is not None:

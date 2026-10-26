@@ -114,7 +114,10 @@ confidence (Target & limits, default 0.5), optimiser tuning and AI settings
 The **Ready to start?** card on the right checks the folders, the search range,
 the fitting method, the cold start and the expected shape. Press **Start
 campaign** (for Compare methods: **Run comparison**). Goal, spec, methods and
-starting recipes are locked while a campaign runs. If the latest run was
+starting recipes are locked while a campaign runs. The fitter belongs to the campaign: the
+server refuses a change while one runs, and a restart or Continue fits with the
+fitter the campaign started with (if it is not available here, a resumed
+campaign comes back paused and Continue is refused, with the reason). If the latest run was
 interrupted, **Continue RunN** appears beside Start. **Live progress** shows Best
 diameter, Δ to target, Best PDI, Runs and a diameter-per-run chart.
 

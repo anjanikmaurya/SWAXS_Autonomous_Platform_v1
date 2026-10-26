@@ -285,3 +285,81 @@ def test_simulated_loop_only_writes_recipes_the_reactor_accepts(an):
     assert st["status"] in ("running", "converged", "exhausted")
     assert any(h.get("held") == "shape" for h in an._campaign.history), "the cylinder was held"
     assert len(seen) >= 4
+
+
+# ── the fitter belongs to the campaign (audit AN1, AN5, AN7) ─────────────────
+def _start_with_fitter(mod, fitter="catalogue_bic"):
+    cl = mod.app.test_client()
+    assert cl.post("/api/methods", json={"fitter": fitter}).get_json()["active"]["fitter"] == fitter
+    r = cl.post("/api/campaign/start", json={
+        "target_size": 2.5, "tolerance": 0.3, "pdi_cap": 0.1, "budget": 20, "n_init": 3}).get_json()
+    assert r["ok"], r
+    return cl
+
+
+def test_a_restart_keeps_the_campaigns_fitter(tmp_path, monkeypatch):
+    """AN1: a resumed campaign fitted with the app's default (ls_sphere) instead
+    of the fitter it started with, so non-spheres were suddenly sized as spheres."""
+    pytest.importorskip("scipy")
+    (tmp_path / "1D" / "SAXS" / "Conditions").mkdir(parents=True)
+    monkeypatch.setenv("SWAXS_PROJECT", str(tmp_path))
+    monkeypatch.setenv("SWAXS_RESUME", "1")
+    a1 = _load("an_fit_r1")
+    _start_with_fitter(a1, "catalogue_bic")
+    a2 = _load("an_fit_r2")
+    assert a2._active_fitter == "ls_sphere"                       # the app default
+    a2._restore_campaign()
+    assert a2._campaign is not None and a2._active_fitter == "catalogue_bic"
+    assert a2._paused is False
+
+
+def test_a_restart_pauses_when_the_campaigns_fitter_is_missing(tmp_path, monkeypatch):
+    pytest.importorskip("scipy")
+    (tmp_path / "1D" / "SAXS" / "Conditions").mkdir(parents=True)
+    monkeypatch.setenv("SWAXS_PROJECT", str(tmp_path))
+    monkeypatch.setenv("SWAXS_RESUME", "1")
+    a1 = _load("an_fit_m1")
+    _start_with_fitter(a1, "catalogue_bic")
+    issued = set(a1._pending)
+    a2 = _load("an_fit_m2")
+    real = a2.fitting.available
+    monkeypatch.setattr(a2.fitting, "available",
+                        lambda: [m for m in real() if m["id"] != "catalogue_bic"])
+    a2._restore_campaign()
+    assert a2._campaign is not None and a2._paused is True
+    assert a2._active_fitter == "ls_sphere"
+    assert "catalogue_bic" in a2._CAMPAIGN_NOTICE["message"]
+    assert set(a2._pending) == issued          # the in-flight one is kept, nothing new issued
+
+
+def test_the_fitter_cannot_change_during_a_campaign(an):
+    """AN5: the page locked the control, the API did not."""
+    cl = _start_with_fitter(an, "catalogue_bic")
+    r = cl.post("/api/methods", json={"fitter": "ls_sphere"})
+    assert r.status_code == 409 and "fitter" in r.get_json()["error"]
+    assert an._active_fitter == "catalogue_bic"
+    # posting the same fitter (the page does this on every method change) is fine
+    assert cl.post("/api/methods", json={"fitter": "catalogue_bic"}).status_code == 200
+
+
+def test_continue_keeps_the_fitter_and_its_frozen_knowledge(an, monkeypatch):
+    """AN1 and AN7 for Continue: the durable record carries both."""
+    monkeypatch.setattr(an, "_latest_incomplete_run", lambda: {
+        "campaign_id": "c9", "run_no": 9, "run_tag": "Run9", "target_size": 2.5,
+        "tolerance": 0.3, "pdi_cap": 0.1, "budget": 20, "n_init": 3,
+        "fitter": "catalogue_bic", "fit_knowledge": {"hash": "abc123def456", "sources": ["catalogue"]}})
+    monkeypatch.setattr(an, "_load_fit_records_for_campaign", lambda cid, tag: [])
+    assert an._active_fitter == "ls_sphere"
+    an._continue_run()
+    assert an._active_fitter == "catalogue_bic"
+    assert an._campaign_meta["fit_knowledge"]["hash"] == "abc123def456"
+
+
+def test_continue_refuses_when_the_fitter_is_missing(an, monkeypatch):
+    monkeypatch.setattr(an, "_latest_incomplete_run", lambda: {
+        "campaign_id": "c9", "run_no": 9, "run_tag": "Run9", "target_size": 2.5,
+        "tolerance": 0.3, "pdi_cap": 0.1, "budget": 20, "n_init": 3, "fitter": "no_such_fitter"})
+    monkeypatch.setattr(an, "_load_fit_records_for_campaign", lambda cid, tag: [])
+    with pytest.raises(RuntimeError, match="no_such_fitter"):
+        an._continue_run()
+    assert an._campaign is None and an._active_fitter == "ls_sphere"
