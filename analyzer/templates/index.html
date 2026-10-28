@@ -82,6 +82,14 @@ input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 
   padding:7px 10px;overflow-x:auto}
 /* Sits in .btn-row where the Continue button would be, saying why it is not. */
 .hint{font-size:var(--fs-xs);color:var(--muted);align-self:center;line-height:1.4}
+/* Activity log: docked at the bottom of the main column, visible on every tab
+   (the reactor app's layout): it stays put while the page above it scrolls */
+.log-dock{position:sticky;bottom:0;z-index:20;border-top:1px solid var(--border);
+  background:var(--surface);padding:0 32px 10px}
+.log-dock .card{border:0;margin:0;padding:8px 0 0;background:transparent;border-radius:0}
+.log-dock .card-hd{margin-bottom:6px;padding-bottom:6px}
+.log-dock .log{height:150px;max-height:150px}
+@media (max-width:760px){ .log-dock{padding:0 12px 8px} .log-dock .log{height:96px;max-height:96px} }
 .log{max-height:170px;overflow-y:auto;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 11px;font-family:var(--mono);font-size:var(--fs-xs);line-height:1.55}
 
 /* ── status strip: the whole state of the loop, at a glance ───────────────── */
@@ -889,15 +897,12 @@ details.more>.more-b{margin-top:8px}
     <div class="gd"><nav class="gd-nav" id="gd_nav"></nav><div class="card gd-body" id="gd_body"><div class="sub">Loading…</div></div></div>
   </section>
 
-  <!-- ══ Log — OUTSIDE the tab pages, so it stays visible on every tab ════ -->
-  <div class="card fold" id="fold-log" style="margin-top:4px">
-    <div class="card-hd" onclick="toggleFold('fold-log')">
-      <span class="chev">▾</span> <svg class="ico" aria-hidden="true"><use href="#swaxs-ui-log"/></svg> Log
-      <span class="hd-right sub" id="logHint"></span>
-    </div>
-    <div class="foldbody"><div class="log" id="log"></div></div>
-  </div>
 </div>
+  <!-- ══ Activity log: docked at the bottom, visible on every tab (as in the reactor) ══ -->
+  <div class="log-dock" id="logDock"><div class="card">
+    <div class="card-hd"><svg class="ico" aria-hidden="true"><use href="#swaxs-ui-log"/></svg> Activity log</div>
+    <div class="log" id="log"></div>
+  </div></div>
   </div><!-- /#main -->
 </div><!-- /#app -->
 
@@ -934,7 +939,7 @@ function toggleFold(id, force){
   el.classList.toggle('shut', shut);
   try{ localStorage.setItem('swaxs-an-'+id, shut?'1':'0'); }catch(_){}
 }
-['fold-setup','fold-log','fold-maths'].forEach(id=>{
+['fold-setup','fold-maths'].forEach(id=>{
   // fold-maths defaults collapsed (class shut in markup); the others default open
   try{ const v=localStorage.getItem('swaxs-an-'+id); if(v==='1') toggleFold(id,true); else if(v==='0') toggleFold(id,false); }catch(_){}
 });
@@ -1370,11 +1375,9 @@ function logLines(ls){
   const b=$('log');
   const c={ok:'var(--ok)',warn:'var(--warn)',error:'var(--err)',info:'var(--muted)'};
   ls.forEach(l=>{const d=document.createElement('div');d.style.color=c[l.tag]||'var(--text)';
-    d.textContent=`[${l.ts}] ${l.msg}`;b.appendChild(d);});
-  while(b.childNodes.length>300)b.removeChild(b.firstChild);
+    d.textContent=`[${l.ts}]  ${l.msg}`;b.appendChild(d);});
+  while(b.childNodes.length>500)b.removeChild(b.firstChild);
   b.scrollTop=b.scrollHeight;
-  const last=ls[ls.length-1];
-  if(last) $('logHint').textContent=last.msg.length>46?last.msg.slice(0,44)+'…':last.msg;
 }
 
 async function setFolder(){

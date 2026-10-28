@@ -62,7 +62,8 @@ spec; stops at the first confident hit), **Map the in-spec region** (every
 in-spec recipe; BAX), **Size vs PDI trade-off** (the best PDI across a diameter
 range; EHVI) and **Compare methods** (simulator only). The page has five tabs,
 **Setup**, **Fitting**, **Report**, **Knowledge** and **Guide**, the same for every
-goal, plus a **Log** panel visible on every tab. The project folder is pushed by the hub.
+goal, plus an **Activity log** docked at the bottom of the page, visible on every tab
+(as in the reactor app; it stays in place while the page above it scrolls). The project folder is pushed by the hub.
 
 ### Setup tab
 

@@ -7,6 +7,12 @@ this file is the running summary. Dates are when the work landed on `main`.
 
 ## October 2026
 
+### Analyser: Activity log docked at the bottom, as in the reactor app
+
+- The log is no longer a foldable card at the end of the page: it is docked at the
+  bottom of the main column (150 px, 500 lines), visible on every tab while the
+  page scrolls above it.
+
 ### Analyser: thinking "standard" by default; "off" no longer fails the connection
 
 - The AI levels and Test AI connection default to thinking **standard**.

@@ -243,10 +243,9 @@ const w=dom.window;
   $('showErr').checked=true; w.redraw(); T.push('error bars toggle');
 
   /* folds */
-  w.toggleFold('fold-log');
-  ok($('fold-log').classList.contains('shut'),'log card collapses');
-  w.toggleFold('fold-log');
-  ok(!$('fold-log').classList.contains('shut'),'log card reopens');
+  ok($('logDock') && $('logDock').parentElement.id==='main' && /Activity log/.test($('logDock').textContent),
+     'the activity log is docked in the main column, outside the tab pages');
+  ok(!w.document.querySelector('.page #log'),'the log is not inside any tab page');
 
   /* theme */
   // The start theme is the platform rule (saved choice, else OS) — so check the
