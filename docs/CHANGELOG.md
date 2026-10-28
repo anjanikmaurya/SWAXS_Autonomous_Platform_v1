@@ -7,6 +7,11 @@ this file is the running summary. Dates are when the work landed on `main`.
 
 ## October 2026
 
+### Analyser: Expected shape defaults to sphere only
+
+- A fit of any other structure, core-shell included, is held until you accept it.
+  Choose "sphere (core-shell counts)" or "any shape" in Setup when that fits the sample.
+
 ### Analyser: Activity log docked at the bottom, as in the reactor app
 
 - The log is no longer a foldable card at the end of the page: it is docked at the

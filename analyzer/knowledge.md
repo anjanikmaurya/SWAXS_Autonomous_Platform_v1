@@ -75,8 +75,8 @@ Numbered steps, top to bottom:
 2. **Target & limits**: **Target diameter (nm)** and **Tolerance ± (nm)**, or
    **Min / Max diameter (nm)** for the trade-off; **Max PDI (σ/R̄, from the SAXS
    fit)**, which is the spread of the fitted Schulz distribution, not the DLS
-   polydispersity index; **Max experiments**; **Expected shape** (sphere
-   (core-shell counts), sphere only, any shape); **Min fit confidence** (default
+   polydispersity index; **Max experiments**; **Expected shape** (**sphere
+   only**, the default; sphere (core-shell counts); any shape); **Min fit confidence** (default
    0.5). **Search range** shows the bounds read-only from `reactor/config.yml`
    (with the live pump limits) and the hard safety caps; change them in the
    Reactor app.
@@ -465,7 +465,7 @@ its half-width, both as radius.
 | budget | 30 | `budget` 25 |
 | cold start | 10 (Spread out + Your own) | `n_init` 10; must be 1 to `budget` |
 | your own recipes | none | `seeds` [{T_reac, F_tot, x_ODE, x_TOP, x_oley}], at most 5 |
-| expected shape | sphere (core-shell counts) | `expected_shape` `sphere_cs` (`sphere`, `any`) |
+| expected shape | sphere only | `expected_shape` `sphere` (`sphere_cs`, `any`) |
 | min fit confidence | 0.5 | `confidence_min` 0.5 (0 to 1) |
 
 `ai`: `{level: ai_advisor | ai_copilot | ai_pilot, review_every: 0 | 5 | 10, apply: auto | ask,

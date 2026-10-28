@@ -32,7 +32,7 @@ EXPECTED_SHAPES = {
                   "models": {"sphere", "polydisperse_sphere"}},
     "any":       {"label": "any shape (equivalent size)", "models": None},
 }
-DEFAULT_SHAPE = "sphere_cs"
+DEFAULT_SHAPE = "sphere"            # sphere only: a core-shell or other fit is held
 
 MAX_SEEDS = 5
 
