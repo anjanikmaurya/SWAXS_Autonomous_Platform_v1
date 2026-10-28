@@ -26,6 +26,8 @@ CAT = load_catalogue()
 def _curve(name, seed=3, **p):
     from sasmodels.core import load_model
     from sasmodels import data as smd, direct_model as dm
+    for k in [k for k in p if k.endswith("_pd")]:    # the full distribution, as real samples
+        p.setdefault(k + "_nsigma", 6)                # (sasmodels' default cuts it at ±3σ)
     c = dm.DirectModel(smd.empty_data1D(Q * 0.1), load_model(name))   # sasmodels: Å
     I = np.asarray(c(scale=0.01, background=0.001, **p), float)
     s = 0.02 * I + 2e-4
@@ -164,3 +166,26 @@ def test_llm_assisted_comment_is_not_requested_twice(tmp_path, monkeypatch, sphe
     # no extra AI call for the comment (it used to make two)
     assert calls == []
     assert az._results[f.name]["full"]["llm"] == az._results[f.name]["full"]["llm_assist"]
+
+
+def test_broad_spheres_are_fitted_as_spheres_with_the_right_size():
+    """The size distribution is integrated over mean ± 6σ (model_fit.PD_NSIGMA).
+    With sasmodels' default ±3σ the large-particle tail was cut (scattering ∝ V²),
+    the model curve was up to 11 % off at PDI 0.3, and Catalogue + BIC 'explained'
+    broad spheres as core-shell or sticky spheres with sizes ~9 % wrong (found by
+    tools/analyzer_check.py --loop, Pareto campaign)."""
+    from src.simulator.pattern import iq_curve
+    from src.fitting.catalogue_bic import select
+    from src.analysis.features import compute_features
+    from src.analysis import model_fit
+    assert model_fit.PD_NSIGMA >= 5
+    q = np.geomspace(0.08, 4.0, 250)
+    for R, pdi in ((3.0, 0.3), (5.0, 0.25)):
+        I = iq_curve(q, R, pdi, scale=1000.0, bkg=0.05)
+        s = 0.02 * I + 0.01
+        In = np.abs(I + np.random.default_rng(3).normal(0, s))
+        sel = select(q, In, s, catalogue=CAT, features=compute_features(q, In, s, with_pr=False))
+        w = sel["winner"]
+        assert w["model"] == "sphere", (R, pdi, w["model"])
+        assert abs(w["equivalent_radius"] - R) / R < 0.02
+        assert abs(w["pdi"] - pdi) < 0.03

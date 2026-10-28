@@ -1,5 +1,12 @@
 # Fitter benchmark, October 2026
 
+> **Note, 2026-10-28.** These numbers predate a fitter fix: size distributions are
+> now integrated over mean ± 6σ (was sasmodels' default ±3σ, which cut the
+> large-particle tail; see `src/analysis/model_fit.py`, `PD_NSIGMA`), and the
+> benchmark's own curves are now generated over ± 6σ too. Re-run
+> `python tools/fitter_benchmark.py` for current numbers; the effect is largest
+> for broad distributions (PDI above about 0.15).
+
 Every fitting method in the Autonomous Analyser, scored on simulated SAXS curves
 whose true structure is known. Produced by `tools/fitter_benchmark.py`
 (logic: `src/fitting/benchmark.py`); plan: `docs/design/LLM_FITTER_PLAN.md`.

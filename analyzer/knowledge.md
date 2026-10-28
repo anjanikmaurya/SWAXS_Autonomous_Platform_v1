@@ -592,6 +592,11 @@ and `*.json` there as a recipe.
 
 ## 5. Troubleshooting
 
+**Which functions work?** `python tools/analyzer_check.py` runs the tests behind each
+function and prints PASS / FAIL per function; `--loop` also runs one simulated
+campaign per design-loop method (fit accuracy, no stall, gets near the target);
+`--loop --ai` adds real AI calls. No beam, no reactor; a few minutes.
+
 | Symptom | Likely cause and fix |
 |---|---|
 | Nothing is fitted | Check the Log for the folder actually watched. Profiles present before startup are not auto-fitted: press **Analyse existing profiles**. In gate mode `good`, `Good/` may be empty. |

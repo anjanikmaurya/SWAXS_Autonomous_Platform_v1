@@ -29,8 +29,14 @@ import numpy as np
 import yaml
 
 CATALOGUE = Path(__file__).resolve().parents[2] / "ai_knowledge" / "rules" / "saxs_models.yml"
-PD_N = 25                      # quadrature points for size distributions (final fit)
-PD_N_SEARCH = 9                # coarser during the multi-start search
+PD_N = 35                      # quadrature points for size distributions (final fit)
+PD_N_SEARCH = 11               # coarser during the multi-start search
+PD_NSIGMA = 6.0                # the distribution is integrated over mean ± 6σ. sasmodels'
+                               # default is ±3σ, which cuts the large-particle tail; with
+                               # scattering ∝ V² that tail matters, and at PDI 0.3 the ±3σ
+                               # curve was up to 11 % off the true Schulz curve (2 % at 0.15),
+                               # so broad spheres were "explained" by core-shell or sticky
+                               # models with the wrong size. ±6σ with 35 points: < 0.2 %.
 SEARCH_POINTS = 120            # data points used during the search
 TIME_BUDGET_S = 6.0            # per model: shapes that are slow to evaluate (long
                                # rods, orientation averaging) get fewer evaluations
@@ -75,6 +81,7 @@ class _Problem:
         for pdn in entry.get("pd", []):
             self.fixed[f"{pdn}_pd_n"] = pd_n
             self.fixed[f"{pdn}_pd_type"] = PD_TYPE
+            self.fixed[f"{pdn}_pd_nsigma"] = PD_NSIGMA
         names, lo, hi, logs = [], [], [], []
         b = dict(entry.get("bounds") or {})
         if sq_entry:
@@ -205,7 +212,7 @@ def _rg_of(prob: _Problem, vals, a) -> float | None:
         qg = np.geomspace(0.02 / Rmax, 0.6 / Rmax, 40)       # nm⁻¹, q·Rg ≲ 0.5
         calc = dm.DirectModel(smd.empty_data1D(qg * 0.1), _kernel(prob.name.split("@")[0]))
         p = {k: v for k, v in prob.fixed.items() if k in _param_info(prob.name.split("@")[0])
-             or k.endswith(("_pd_n", "_pd_type")) or k in ("scale", "background")}
+             or k.endswith(("_pd_n", "_pd_type", "_pd_nsigma")) or k in ("scale", "background")}
         p.update({n: prob._to_model(n, v) for n, v in zip(prob.names, vals)
                   if (n[:-3] if n.endswith("_pd") else n) in _param_info(prob.name.split("@")[0])})
         Iq = np.asarray(calc(**p), float)

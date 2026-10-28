@@ -39,7 +39,7 @@ def sphere_form_factor(q, R):
     return out ** 2
 
 
-def schulz_weights(R_mean, pdi, n=41):
+def schulz_weights(R_mean, pdi, n=121, nsigma=6.0):
     """Schulz-Zimm radius distribution → (radii, volume-squared weights).
 
     PDI here is σ/R (the coefficient of variation), matching how the analyzer
@@ -50,8 +50,10 @@ def schulz_weights(R_mean, pdi, n=41):
     if pdi < 5e-3:                                  # effectively monodisperse
         return np.array([R_mean]), np.array([1.0])
     z = 1.0 / pdi ** 2 - 1.0
-    lo = max(1e-3, R_mean * (1.0 - 4.0 * pdi))
-    hi = R_mean * (1.0 + 4.0 * pdi)
+    # ±6σ: with scattering ∝ V² the large-radius tail matters for broad
+    # distributions (±4σ was 2 % off the full Schulz curve at PDI 0.3)
+    lo = max(1e-3, R_mean * (1.0 - nsigma * pdi))
+    hi = R_mean * (1.0 + nsigma * pdi)
     R = np.linspace(lo, hi, n)
     # Schulz: f(R) ∝ R^z exp(-(z+1) R / R_mean)   (log form for numerical safety)
     with np.errstate(over="ignore", invalid="ignore"):

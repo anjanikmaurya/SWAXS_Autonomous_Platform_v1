@@ -7,6 +7,17 @@ this file is the running summary. Dates are when the work landed on `main`.
 
 ## October 2026
 
+### Analyser: checker for every function in simulation; broad-distribution fit fix
+
+- `python tools/analyzer_check.py` prints PASS / FAIL per Analyser function (by its
+  tests); `--loop` adds one simulated closed-loop campaign per design-loop method;
+  `--ai` adds real AI calls.
+- Fixed AN15 (found by the checker): size distributions are now integrated over
+  ±6σ (was sasmodels' default ±3σ), so broad spheres (PDI above about 0.15) are no
+  longer fitted as core-shell or sticky spheres with the wrong size. The simulator
+  and the fitter benchmark use the full distribution too; the benchmark numbers in
+  `docs/benchmarks/FITTER_BENCHMARK_2026-10.md` need a re-run.
+
 ### Analyser quick audit (AN1 to AN14)
 
 - `docs/audits/ANALYZER_QUICK_AUDIT_2026_10.md`: 14 findings, 2 HIGH (a restart

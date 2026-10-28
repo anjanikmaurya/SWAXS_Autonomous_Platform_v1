@@ -24,6 +24,8 @@ CAT = load_catalogue()
 def _curve(name, **p):
     from sasmodels.core import load_model
     from sasmodels import data as smd, direct_model as dm
+    for k in [k for k in p if k.endswith("_pd")]:    # the full distribution, as real samples
+        p.setdefault(k + "_nsigma", 6)                # (sasmodels' default cuts it at ±3σ)
     c = dm.DirectModel(smd.empty_data1D(Q * 0.1), load_model(name))
     I = np.asarray(c(scale=0.01, background=0.001, **p), float)
     s = 0.02 * I + 2e-4

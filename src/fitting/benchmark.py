@@ -113,7 +113,7 @@ def make_case(split: str, i: int) -> dict:
     return case
 
 
-def _model_call(name, q_nm, params_nm, pd_param=None, pdi=None, pd_n=35):
+def _model_call(name, q_nm, params_nm, pd_param=None, pdi=None, pd_n=61):
     from sasmodels.core import load_model
     from sasmodels import data as smd, direct_model as dm
     k = load_model(name)
@@ -125,6 +125,7 @@ def _model_call(name, q_nm, params_nm, pd_param=None, pdi=None, pd_n=35):
         p[f"{pd_param}_pd"] = pdi
         p[f"{pd_param}_pd_n"] = pd_n
         p[f"{pd_param}_pd_type"] = "schulz"
+        p[f"{pd_param}_pd_nsigma"] = 6     # the full distribution (sasmodels' default cuts at ±3σ)
     c = dm.DirectModel(smd.empty_data1D(np.asarray(q_nm) * 0.1), k)
     return np.asarray(c(scale=1.0, background=0.0, **p), float)
 

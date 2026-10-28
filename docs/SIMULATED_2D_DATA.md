@@ -172,6 +172,10 @@ PDI stays below `pdi_ceil` at the corners (otherwise the landscape goes flat).
 
 ## Checking it automatically
 
+For the Analyser alone, `python tools/analyzer_check.py --loop` prints PASS / FAIL
+per function and runs one simulated campaign per design-loop method (see
+`analyzer/knowledge.md`, Troubleshooting).
+
 These tests run the real reduction, subtraction and analyser on simulated frames
 and assert the result (recovered R within 10 % of the injected R, PDI tracked, the
 optimum recipe gives 4.0 ± 0.3 nm and the lowest PDI):
