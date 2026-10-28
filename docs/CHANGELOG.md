@@ -7,6 +7,13 @@ this file is the running summary. Dates are when the work landed on `main`.
 
 ## October 2026
 
+### Analyser: thinking "standard" by default; "off" no longer fails the connection
+
+- The AI levels and Test AI connection default to thinking **standard**.
+- With thinking **off** the request sets temperature 0, which some gateway models
+  refuse; it now retries once without temperature and remembers that model, so
+  Test AI connection and the AI levels work with every thinking level.
+
 ### Analyser: checker for every function in simulation; broad-distribution fit fix
 
 - `python tools/analyzer_check.py` prints PASS / FAIL per Analyser function (by its

@@ -96,8 +96,30 @@ def ai_available() -> bool:
 #: (SWAXS_DESIGN_MODEL, else ANTHROPIC_MODEL). A gateway may offer only some.
 from src.ai.models import MODELS as _GW_MODELS, default_model as _default_model  # noqa: E402
 MODELS = [("", "Default (from your AI settings)")] + list(_GW_MODELS)
-#: Thinking: extended thinking budget before the answer. Off keeps temperature 0.
+#: Thinking: extended thinking budget before the answer. "standard" is the
+#: default: some gateway models refuse a request without thinking that sets
+#: temperature (the "off" level), so with thinking on the request is the one every
+#: model accepts. Off still works: it asks for temperature 0 and, if the model
+#: refuses that, retries once without it (and remembers, per model).
 THINKING = {"off": 0, "standard": 2000, "deep": 8000}
+DEFAULT_THINKING = "standard"
+_NO_TEMPERATURE: set = set()          # models that refused temperature=0
+
+
+def _create(client, **kw):
+    """messages.create, retrying once without ``temperature`` when the model or
+    gateway refuses it, so thinking "off" never breaks the connection."""
+    model = kw.get("model", "")
+    if model in _NO_TEMPERATURE:
+        kw.pop("temperature", None)
+    try:
+        return client.messages.create(**kw)
+    except Exception as exc:                                    # noqa: BLE001
+        if "temperature" in kw and "temperature" in str(exc).lower():
+            _NO_TEMPERATURE.add(model)
+            kw.pop("temperature", None)
+            return client.messages.create(**kw)
+        raise
 
 
 def _clean_error(exc: Exception) -> str:
@@ -106,7 +128,7 @@ def _clean_error(exc: Exception) -> str:
     return f"{type(exc).__name__}: {msg[:200]}"
 
 
-def test_connection(model: str = "", thinking: str = "off", client_factory=None) -> dict:
+def test_connection(model: str = "", thinking: str = DEFAULT_THINKING, client_factory=None) -> dict:
     """A tiny real call to check the AI login, the gateway and the chosen model.
     Returns {ok, model, ms, thinking, error}; never raises, never shows a secret."""
     m = model or _model()
@@ -118,9 +140,10 @@ def test_connection(model: str = "", thinking: str = "off", client_factory=None)
                          "and none in ~/.claude/settings.json), or the anthropic package is missing"}
     try:
         kw = _call_kwargs(m, thinking, max_tokens=40)
-        resp = client.messages.create(system="Answer with JSON only.", timeout=25,
-                                      messages=[{"role": "user", "content": 'Reply {"ok": true}'}], **kw)
-        raw = "".join(getattr(b, "text", "") for b in resp.content)
+        resp = _create(client, system="Answer with JSON only.", timeout=25 + THINKING.get(thinking, 0) / 100,
+                       messages=[{"role": "user", "content": 'Reply {"ok": true}'}], **kw)
+        raw = "".join(getattr(b, "text", "") for b in resp.content
+                      if getattr(b, "type", "text") == "text")
         ok = '"ok"' in raw.replace(" ", "")
         return {"ok": bool(ok), "model": getattr(resp, "model", None) or m, "ms": int(1000 * (time.time() - t0)),
                 "thinking": thinking, "error": "" if ok else "the model answered, but not in JSON"}
@@ -165,7 +188,7 @@ class AIDesign:
     def __init__(self, inner, level: str, *, review_every: int = 5, apply: str = "auto",
                  k: int = 5, trust: float = 0.25, knowledge: dict | None = None,
                  every_pick: bool = True, client_factory=None, chemistry: dict | None = None,
-                 caps: dict | None = None, model: str = "", thinking: str = "off"):
+                 caps: dict | None = None, model: str = "", thinking: str = DEFAULT_THINKING):
         if level not in LEVELS:
             raise ValueError(f"unknown AI level {level}")
         o = self.__dict__
@@ -190,7 +213,7 @@ class AIDesign:
         o["chemistry"] = chemistry or {}
         o["caps"] = dict(caps or {})          # the reactor's hard caps (T_max, F_tot_max)
         o["model"] = str(model or "")
-        o["thinking"] = thinking if thinking in THINKING else "off"
+        o["thinking"] = thinking if thinking in THINKING else DEFAULT_THINKING
 
     # ── the inner optimiser's protocol ───────────────────────────────────────
     def __getattr__(self, name):
@@ -418,9 +441,9 @@ class AIDesign:
         if client is None:
             return None, "no AI login"
         try:
-            resp = client.messages.create(system=SYSTEM, timeout=TIMEOUT_S + THINKING[self.thinking] / 100,
-                                          messages=[{"role": "user", "content": prompt}],
-                                          **_call_kwargs(model, self.thinking))
+            resp = _create(client, system=SYSTEM, timeout=TIMEOUT_S + THINKING[self.thinking] / 100,
+                           messages=[{"role": "user", "content": prompt}],
+                           **_call_kwargs(model, self.thinking))
             raw = "".join(getattr(b, "text", "") for b in resp.content
                           if getattr(b, "type", "text") == "text")
             m = re.search(r"\{.*\}", raw, flags=re.S)

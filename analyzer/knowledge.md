@@ -243,9 +243,10 @@ detail box (Shortlist from / Fallback optimiser / Optimiser). **More options** s
 `ANTHROPIC_DEFAULT_SONNET_MODEL` from `~/.claude/settings.json`, else
 `us.anthropic.claude-sonnet-4-6`; or the same gateway ids the assistant offers:
 Sonnet 4.6, Sonnet 5, Opus 4.8, Opus 5, Haiku 4.5) and
-**Thinking** (off: temperature 0, the same answer for the same state; standard
-about 2k and deep about 8k tokens of extended thinking, slower; answers are still
-cached on the exact prompt). **Test AI connection** makes one tiny real call with
+**Thinking** (**standard**, the default: about 2k tokens of extended thinking;
+deep: about 8k, slower; off: fastest, asks for temperature 0, and if the model or
+gateway refuses temperature it retries once without it and remembers that for the
+model; answers are cached on the exact prompt). **Test AI connection** makes one tiny real call with
 that model and shows "Connected: model, ms" or the error type (never a
 credential); the Ready list repeats it. From a terminal: `python tools/ai_check.py
 --all`. Both are recorded with every decision. Whether the AI reads the cards

@@ -23,7 +23,7 @@ from src.optimizer import ai_design as A  # noqa: E402
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--model", default="")
-    ap.add_argument("--thinking", default="off", choices=list(A.THINKING))
+    ap.add_argument("--thinking", default=A.DEFAULT_THINKING, choices=list(A.THINKING))
     ap.add_argument("--all", action="store_true")
     a = ap.parse_args(argv)
     from src.ai.models import login_summary

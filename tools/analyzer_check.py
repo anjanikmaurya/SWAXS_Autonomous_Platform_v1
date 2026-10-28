@@ -182,7 +182,7 @@ def run_campaign(method: str, fitter: str, budget: int, keep: bool, ai_level: st
     if goal == "pareto":
         body.update(size_range=[6.0, 10.0], target_size=4.0, tolerance=1.0)
     if ai_level:
-        body["ai"] = {"level": ai_level, "review_every": 5, "apply": "auto", "model": "", "thinking": "off"}
+        body["ai"] = {"level": ai_level, "review_every": 5, "apply": "auto", "model": "", "thinking": "standard"}
     r = cl.post("/api/campaign/start", json=body).get_json()
     if not r.get("ok"):
         return (method, FAIL, f"start refused: {r.get('error')}"), None

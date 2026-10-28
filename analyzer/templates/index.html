@@ -1464,7 +1464,7 @@ function updateMethodDescs(){
       +`<div><label for="ai_model">Claude model</label><select id="ai_model" onchange="_aiOK=null;$('ai_test_out').textContent='';checkReady()">`
         +(_aiInfo.models||[{id:'',label:'Default (from your AI settings)'}]).map(m=>`<option value="${esc(m.id)}">${esc(m.id?m.label:m.label+(_aiInfo.default_model?': '+_aiInfo.default_model:''))}</option>`).join('')+`</select></div>`
       +`<div><label for="ai_think">Thinking</label><select id="ai_think" onchange="_aiOK=null;$('ai_test_out').textContent=''">`
-        +`<option value="off">off (fastest; same answer for the same state)</option><option value="standard">standard (about 2k tokens)</option><option value="deep">deep (about 8k tokens, slower)</option></select></div>`
+        +`<option value="standard" selected>standard (about 2k tokens, default)</option><option value="off">off (fastest)</option><option value="deep">deep (about 8k tokens, slower)</option></select></div>`
       +`</div>`;
     const pm=_aiPick.model, pt=_aiPick.think;
     $('m_opt_desc').innerHTML=html; $('ai_more').innerHTML=more; $('m_opt_params').innerHTML=''; _moreShow();
@@ -1522,7 +1522,7 @@ function _aiShowTest(r){
 }
 async function aiTest(){
   const el=$('ai_test_out'); el.textContent='Testing…';
-  const r=await api('/api/ai/test',{model:($('ai_model')||{}).value||'', thinking:($('ai_think')||{}).value||'off'});
+  const r=await api('/api/ai/test',{model:($('ai_model')||{}).value||'', thinking:($('ai_think')||{}).value||'standard'});
   _aiTestRes = r.error&&r.ok===undefined ? {ok:false,error:r.error} : r;
   _aiOK=!!_aiTestRes.ok; _aiShowTest(_aiTestRes); checkReady();
 }
@@ -1840,7 +1840,7 @@ async function startCampaign(){
   body.method_params=collectOptParams();      // UCB kappa / TuRBO size / BAX tau, per the active optimiser
   if(_aiLevel){
     body.ai={level:_aiLevel, review_every:+(($('ai_review')||{}).value||0), apply:($('ai_apply')||{}).value||'auto',
-             model:($('ai_model')||{}).value||'', thinking:($('ai_think')||{}).value||'off'};
+             model:($('ai_model')||{}).value||'', thinking:($('ai_think')||{}).value||'standard'};
     if(_aiLevel==='ai_pilot'){
       const b=(_range&&_range.bounds)||{}, s=(_range&&_range.safety)||{};
       const lim=Object.entries(b).map(([k,v])=>`${k} ${v[0]} to ${v[1]}`).join(', ');

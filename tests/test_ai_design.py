@@ -43,7 +43,8 @@ class FakeAI:
 
     def create(self, **kw):
         self.prompts.append(kw["messages"][0]["content"])
-        assert kw.get("temperature") == 0
+        # off: temperature 0; standard (the default) / deep: extended thinking
+        assert kw.get("temperature") == 0 or (kw.get("thinking") or {}).get("type") == "enabled"
         a = self.answers.pop(0) if len(self.answers) > 1 else self.answers[0]
         if isinstance(a, Exception):
             raise a
@@ -467,3 +468,33 @@ def test_the_analyser_uses_guiniers_login_and_gateway_model(tmp_path, monkeypatc
     assert s["login"] == "gateway token" and s["gateway"] and "tok-123" not in str(s)
     assert all(m.startswith("us.anthropic.") for m, _ in MD.MODELS)
     assert [m for m, _ in _aid.MODELS][0] == "" and len(_aid.MODELS) == len(MD.MODELS) + 1
+
+
+# ── thinking: standard by default; "off" survives a model that refuses temperature ──
+def test_thinking_defaults_to_standard():
+    from src.optimizer import ai_design as A
+    assert A.DEFAULT_THINKING == "standard"
+    kw = A._call_kwargs("m", A.DEFAULT_THINKING)
+    assert kw["thinking"]["budget_tokens"] == 2000 and "temperature" not in kw
+
+
+def test_off_retries_without_temperature_when_the_model_refuses_it():
+    from types import SimpleNamespace
+    from src.optimizer import ai_design as A
+    seen = []
+
+    def create(**kw):
+        seen.append(dict(kw))
+        if "temperature" in kw:
+            raise RuntimeError("BadRequestError: `temperature` is not supported for this model")
+        return SimpleNamespace(content=[SimpleNamespace(type="text", text='{"ok": true}')], model=kw["model"])
+    client = SimpleNamespace(messages=SimpleNamespace(create=create))
+    A._NO_TEMPERATURE.discard("gw-model")
+    r = A.test_connection("gw-model", "off", client_factory=lambda: client)
+    assert r["ok"] and len(seen) == 2 and "temperature" not in seen[1]
+    A.test_connection("gw-model", "off", client_factory=lambda: client)
+    assert len(seen) == 3 and "temperature" not in seen[2]       # remembered: no failing call again
+    # other errors are still reported, not retried
+    bad = SimpleNamespace(messages=SimpleNamespace(create=lambda **kw: (_ for _ in ()).throw(RuntimeError("401 unauthorized"))))
+    r = A.test_connection("gw-model2", "off", client_factory=lambda: bad)
+    assert not r["ok"] and "401" in r["error"]

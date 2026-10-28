@@ -157,7 +157,7 @@ def _build_optimiser(space, goal, size_range, base_cfg, method_params=None,
         ctl = _aid.AIDesign(ctl, ai["level"], review_every=int(ai.get("review_every") or 0),
                             apply=ai.get("apply") or "auto",
                             k=int(_kh.get("shortlist_k", 5)), trust=float(_kh.get("trust", 0.25)),
-                            model=str(ai.get("model") or ""), thinking=str(ai.get("thinking") or "off"),
+                            model=str(ai.get("model") or ""), thinking=str(ai.get("thinking") or _aid.DEFAULT_THINKING),
                             knowledge=(_campaign_meta or {}).get("knowledge") if knowledge is None else knowledge,
                             every_pick=bool(ai.get("every_pick")), chemistry=_chemistry(),
                             caps=(_space_cfg().get("safety") or {}))
@@ -2945,7 +2945,7 @@ def api_campaign_start():
             _model_id = str(_ai.get("model") or "")
             if _model_id and _model_id not in {i for i, _ in _aid.MODELS}:
                 _errs.append(f"unknown AI model '{_model_id}'")
-            _think = str(_ai.get("thinking") or "off")
+            _think = str(_ai.get("thinking") or _aid.DEFAULT_THINKING)
             if _think not in _aid.THINKING:
                 _errs.append(f"unknown thinking level '{_think}'")
             _ai = {"level": lvl, "review_every": rev, "model": _model_id, "thinking": _think,
@@ -3174,7 +3174,7 @@ def api_ai_status():
     """Is an AI login configured (no call made), the default model, the choices."""
     return jsonify({"available": _aid.ai_available(), "default_model": _aid._model(),
                     "models": [{"id": i, "label": lab} for i, lab in _aid.MODELS],
-                    "thinking": list(_aid.THINKING)})
+                    "thinking": list(_aid.THINKING), "default_thinking": _aid.DEFAULT_THINKING})
 
 
 @app.route("/api/ai/test", methods=["POST"])
@@ -3185,7 +3185,7 @@ def api_ai_test():
     model = str(b.get("model") or "")
     if model and model not in {i for i, _ in _aid.MODELS}:
         return jsonify({"ok": False, "error": "unknown model"}), 400
-    thinking = str(b.get("thinking") or "off")
+    thinking = str(b.get("thinking") or _aid.DEFAULT_THINKING)
     if thinking not in _aid.THINKING:
         return jsonify({"ok": False, "error": "unknown thinking level"}), 400
     r = _aid.test_connection(model, thinking)
