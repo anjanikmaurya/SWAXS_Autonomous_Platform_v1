@@ -7,6 +7,12 @@ this file is the running summary. Dates are when the work landed on `main`.
 
 ## October 2026
 
+### Every app: the same content margin as the reactor
+
+- Content now starts 22 px from the left column (18 px under the tabs) in every
+  app; before it ranged from 18 px (reduction, average, watchdog) to 32 px
+  (analyzer) and 48 px (calibration, analysis, hub).
+
 ### Analyser: Expected shape defaults to sphere only
 
 - A fit of any other structure, core-shell included, is held until you accept it.

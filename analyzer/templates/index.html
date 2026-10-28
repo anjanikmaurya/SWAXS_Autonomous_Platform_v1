@@ -85,7 +85,7 @@ input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 
 /* Activity log: docked at the bottom of the main column, visible on every tab
    (the reactor app's layout): it stays put while the page above it scrolls */
 .log-dock{position:sticky;bottom:0;z-index:20;border-top:1px solid var(--border);
-  background:var(--surface);padding:0 32px 10px}
+  background:var(--surface);padding:0 22px 10px}
 .log-dock .card{border:0;margin:0;padding:8px 0 0;background:transparent;border-radius:0}
 .log-dock .card-hd{margin-bottom:6px;padding-bottom:6px}
 .log-dock .log{height:150px;max-height:150px}
@@ -118,7 +118,8 @@ input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 
 .page.active{display:block}
 
 /* Single full-width column: every panel spans the page, left to right. */
-.wrap{padding:14px 32px 40px;display:flex;flex-direction:column}
+/* content gutter: 18px top, 22px each side, the same in every app (the reactor's) */
+.wrap{padding:18px 22px 40px;display:flex;flex-direction:column}
 /* Profiles table (left) beside the fit plot (right) in one row, so a profile
    can be picked and its fit seen side by side. Stacks on a narrow window. */
 .fitrow{display:grid;grid-template-columns:minmax(300px,380px) minmax(0,1fr);

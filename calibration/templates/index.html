@@ -50,7 +50,8 @@ html,body{height:100%;font-family:var(--font);font-size:16px;line-height:1.5;col
 #topbar{height:44px;flex-shrink:0;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 22px;gap:14px}
 #topbar-title{font-weight:700;color:var(--txt);font-size:17px}
 #topbar-path{font-size:15px;font-family:var(--mono);color:var(--accent);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.tab-panel{display:none;flex:1;overflow-y:auto;padding:22px 22px 22px 48px}
+/* content gutter: 18px top, 22px each side, the same in every app (the reactor's) */
+.tab-panel{display:none;flex:1;overflow-y:auto;padding:18px 22px}
 .tab-panel.active{display:flex;flex-direction:column;gap:18px}
 
 /* ── Cards ── */

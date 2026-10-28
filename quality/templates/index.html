@@ -30,7 +30,8 @@ body{margin:0;font-family:var(--font);background:var(--bg);color:var(--text);fon
 .topbar a{color:var(--accent);text-decoration:none}
 .proj{font-size:var(--fs-xs);color:rgba(var(--sf),.7);font-family:var(--mono);max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .theme-toggle{width:32px;height:28px;border:1px solid rgba(var(--sf),.3);border-radius:7px;background:transparent;color:var(--txt);cursor:pointer}
-.wrap{padding:14px 18px;display:flex;flex-direction:column;gap:12px}
+/* content gutter: 18px top, 22px each side, the same in every app (the reactor's) */
+.wrap{padding:18px 22px;display:flex;flex-direction:column;gap:12px}
 .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px}
 .card-hd{font-size:var(--fs-sm);font-weight:700;margin-bottom:8px;color:var(--text)}
 .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}

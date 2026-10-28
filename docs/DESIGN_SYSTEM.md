@@ -243,6 +243,14 @@ data-dense displays.
 
 `--sp-*` is defined in hub, reduction, average, analyzer, assistant and watchdog.
 
+**Content gutter (October 2026): the same in every app.** The scrolling content
+starts **22 px** from the left column (or from the window edge in the hub and the
+Quality Gate) and ends 22 px from the right edge, with **18 px** under the tab bar:
+the reactor's `.pages{padding:18px 22px}`. Measured at 1440 px wide after the
+change: 22 / 18 in calibration, reduction, average, background, quality, analysis,
+analyzer, reactor and watchdog (before: 18 to 48 px on the left). The assistant's
+chat layout is full-bleed and keeps its own spacing.
+
 ---
 
 ## 3. Color — light palette

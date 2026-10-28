@@ -43,7 +43,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
 .toptabbar{display:flex;gap:2px;padding:0 16px;background:var(--surface2);border-bottom:2px solid var(--border);flex-shrink:0}
 .toptab{padding:9px 15px;border:none;background:transparent;color:var(--muted);font-size:var(--fs-sm);font-weight:600;cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px}
 .toptab:hover{color:var(--text)}.toptab.active{color:var(--accent);font-weight:700;border-bottom-color:var(--accent)}
-.page{flex:1;min-height:0;overflow:auto;padding:22px 30px 22px 48px;display:none}
+/* content gutter: 18px top, 22px each side, the same in every app (the reactor's) */
+.page{flex:1;min-height:0;overflow:auto;padding:18px 22px;display:none}
 .page.active{display:block}
 .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;margin-bottom:14px}
 .card h3{font-size:var(--fs-md);font-weight:700;margin-bottom:10px}
