@@ -7,6 +7,15 @@ this file is the running summary. Dates are when the work landed on `main`.
 
 ## October 2026
 
+### Analyser: no fixed 3-min wait before the next recipe; More options open
+
+- One profile per recipe, so the model now learns as soon as the profile's final
+  fit is ready and the next recipe goes to the reactor straight away: seconds with
+  Catalogue + BIC; with AI-assisted structure, when the AI fit is done (at most
+  3 min, then the quick fit). "Wait for more batches" now defaults to 0; set it
+  above 0 only for several batch profiles per recipe.
+- The More options sections in Setup start open.
+
 ### Every app: the same content margin as the reactor
 
 - Content now starts 22 px from the left column (18 px under the tabs) in every

@@ -170,7 +170,7 @@ def run_campaign(method: str, fitter: str, budget: int, keep: bool, ai_level: st
     t0 = time.time()
     an = _load_analyzer(project, f"anlz_check_{method}_{ai_level or 'x'}_{int(t0 * 1000)}")
     cl = an.app.test_client()
-    an._BATCH_SETTLE_S = 180.0
+    an._BATCH_SETTLE_S = 0.0                     # the default: learn when the final fit is ready
     goal = {"bax": "level-set", "pareto_ehvi": "pareto"}.get(method, "target-hit")
     r = cl.post("/api/methods", json={"fitter": fitter, "optimiser": method}).get_json()
     if r.get("error"):

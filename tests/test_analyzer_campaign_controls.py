@@ -555,3 +555,40 @@ def test_the_model_learns_only_after_the_ai_refit(an, tmp_path, monkeypatch):
     an._settle_tick()
     h = an._campaign.history[-1]
     assert h["size"] == 4.0 and h["model"] == "core_shell_sphere"
+
+
+# ── no fixed wait: the model learns as soon as the final fit is ready ────────
+def test_default_learns_as_soon_as_the_ai_fit_is_done(an, tmp_path, monkeypatch):
+    """Operator, Oct 28 2026: one profile per recipe, so no 3-min wait. With the
+    AI fitter the model learns the moment the AI fit is done, from the better fit;
+    no done marker or quiet time is needed."""
+    assert an._BATCH_SETTLE_S == 0.0
+    _cl, rid = _settle_campaign(an, settle=0.0)
+    an._active_fitter = "llm_assisted"
+    _fake_fitters(an, monkeypatch, ai_bic=50.0, ai_delay=0.4)          # better, and slow
+    f = _profile(tmp_path, rid)
+    an._analyze_file(f)
+    assert len(an._campaign.history) == 0, "waits for the AI fit, not for a timer"
+    an._settle_tick()
+    assert len(an._campaign.history) == 0
+    an._ai_fit_wait(30)
+    h = an._campaign.history[-1]
+    assert h["size"] == 4.0 and h["model"] == "core_shell_sphere"     # the AI fit, at once
+    assert len(an._pending) == 1, "the next recipe is issued straight away"
+
+
+def test_default_with_a_statistics_fitter_learns_at_once(an, tmp_path, monkeypatch):
+    _cl, rid = _settle_campaign(an, settle=0.0)
+    an._active_fitter = "catalogue_bic"
+    _fake_fitters(an, monkeypatch, ai_bic=50.0)
+    an._analyze_file(_profile(tmp_path, rid))
+    assert len(an._campaign.history) == 1 and an._campaign.history[-1]["size"] == 3.0
+
+
+def test_a_paused_ai_fitter_does_not_hold_the_recipe(an, tmp_path, monkeypatch):
+    _cl, rid = _settle_campaign(an, settle=0.0)
+    an._active_fitter = "llm_assisted"
+    _fake_fitters(an, monkeypatch, ai_bic=50.0)
+    monkeypatch.setattr(an._ai_guard, "allow", lambda: (False, "paused for the test"))
+    an._analyze_file(_profile(tmp_path, rid))
+    assert len(an._campaign.history) == 1 and an._campaign.history[-1]["size"] == 3.0

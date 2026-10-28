@@ -376,7 +376,8 @@ const w=dom.window;
   w.document.querySelector('#fitList input[value="catalogue_bic"]').click(); await new Promise(r=>setTimeout(r,30));
   ok($('fk_line').textContent==='','line hides again for Catalogue + BIC');
   /* batches being collected for a recipe (audit AN2) */
-  ok($('c_settle').closest('details.more')!==null && $('c_settle').value==='3','batch settle time is a More option, 3 min by default');
+  ok($('c_settle').closest('details.more')!==null && $('c_settle').value==='0','batch settle time is a More option, 0 (no fixed wait) by default');
+  ok([...w.document.querySelectorAll('details.more')].every(d=>d.open),'every More options section starts open');
   ES.last.emit({results:[],logs:[],campaign:{...CAMP, batch_settle_s:180, ai_fits_waiting:1,
     collecting:[{recipe_id:'Run3_r012',n:2,best_conf:0.84,quiet_s:20,run_done:true}]},total:25,seq:25,reset:false});
   await new Promise(r=>setTimeout(r,30));

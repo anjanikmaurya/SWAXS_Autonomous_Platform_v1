@@ -498,11 +498,11 @@ details.more>.more-b{margin-top:8px}
         <div class="range-row"><span class="lbl">Search range</span>
           <span class="mono" id="c_range">loading…</span>
           <span class="sub" id="c_range_src"></span></div>
-        <details class="more live-only"><summary>More options</summary><div class="more-b grid2">
+        <details class="more live-only" open><summary>More options</summary><div class="more-b grid2">
           <div><label for="c_confmin" title="A fit below this confidence cannot be the answer or end the run; it still informs the model, with a low weight">Min fit confidence</label>
             <input id="c_confmin" type="number" value="0.5" step="0.05" min="0" max="1"></div>
-          <div><label for="c_settle" title="A recipe gives several batch profiles. The model learns once the reactor says the run ended and no new batch has come for this long, from the highest-confidence batch. 0 = learn from the first batch at once.">Wait for more batches (min)</label>
-            <input id="c_settle" type="number" value="3" step="0.5" min="0" max="60"></div>
+          <div><label for="c_settle" title="0 (default, one profile per recipe): the model learns as soon as the profile's final fit is ready; with AI-assisted structure, when the AI fit is done (at most 3 min). Above 0, for setups with several batch profiles per recipe: wait until the run has ended and no new batch came for this long, then learn from the best batch.">Wait for more batches (min)</label>
+            <input id="c_settle" type="number" value="0" step="0.5" min="0" max="60"></div>
         </div></details>
       </div>
 
@@ -536,7 +536,7 @@ details.more>.more-b{margin-top:8px}
         <select id="m_optimiser" onchange="setMethods()" aria-label="search strategy" hidden></select>
         <div class="mlistbox race-only" id="studyMethods" style="display:none"></div>
         <div id="m_opt_desc" class="mdetail live-only"></div>
-        <details class="more live-only" id="loopMore"><summary>More options</summary><div class="more-b">
+        <details class="more live-only" id="loopMore" open><summary>More options</summary><div class="more-b">
           <div id="m_opt_params" class="grid2"></div>
           <div id="ai_more"></div>
         </div></details>
@@ -559,7 +559,7 @@ details.more>.more-b{margin-top:8px}
         <div class="btn-row"><button class="btn btn-ghost btn-sm" type="button" onclick="previewStart()">Preview starting recipes</button>
           <span class="sub">Optional. Shows the exact first recipes the reactor will make, before the pumps start; Start makes the same ones.</span></div>
         <div id="previewOut"></div>
-        <details class="more"><summary>More options: your own recipes</summary><div class="more-b">
+        <details class="more" open><summary>More options: your own recipes</summary><div class="more-b">
           <div class="sub">Exact recipes you type, made first, e.g. to repeat an earlier best as a check (up to 5).
             <button class="btn btn-ghost btn-sm" type="button" id="c_addown" onclick="addOwn()">Add recipe</button></div>
           <div id="ownRows"></div>
@@ -2138,7 +2138,8 @@ function renderCampaign(c){
   const nh=(c.held||[]).length;
   if(nh) txt += ` · ${nh} held result(s) waiting in Fitting`;
   (c.collecting||[]).forEach(b=>{ txt += ` · ${b.recipe_id}: ${b.n} batch(es), best conf ${num(b.best_conf,2)}, `
-    + (b.run_done ? `learns when no batch comes for ${Math.round((c.batch_settle_s||0)/60)} min` : 'waiting for the run to end'); });
+    + (!(c.batch_settle_s>0) ? 'waiting for its AI fit'
+       : b.run_done ? `learns when no batch comes for ${Math.round((c.batch_settle_s||0)/60)} min` : 'waiting for the run to end'); });
   if(c.ai_fits_waiting) txt += ` · ${c.ai_fits_waiting} AI refit(s) running in the background`;
   if(c.ai_fitter && !c.ai_fitter.allowed) txt += ` · AI FITTER PAUSED: ${c.ai_fitter.why}`;
   $('c_status').textContent=txt;

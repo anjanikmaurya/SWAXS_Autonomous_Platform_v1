@@ -108,9 +108,9 @@ Numbered steps, top to bottom:
    **More options: your own recipes**: up to 5 exact recipes (**Add recipe**),
    made first.
 
-Case-by-case settings sit under **More options** in their step: Min fit
+Case-by-case settings sit under **More options** in their step (open by default; click the line to close it): Min fit
 confidence (Target & limits, default 0.5), **Wait for more batches** (Target &
-limits, default 3 min, 0 to 60), optimiser tuning and AI settings
+limits, default 0 = no fixed wait, 0 to 60 min), optimiser tuning and AI settings
 (Design loop), your own recipes (Starting recipes).
 
 The **Ready to start?** card on the right checks the folders, the search range,
@@ -128,33 +128,34 @@ the search bounds (box, composition sum, each pump's flow window) and under the
 reactor's hard caps (`T_max`, `F_tot_max`); otherwise Start and Preview refuse
 with the reason, and nothing is cleared or started.
 
-### Which batch trains the model
+### When the model learns from a recipe
 
-A recipe yields several batch profiles (the average app writes batch001,
-batch002, ...). The Analyser fits each one as it arrives, but the model learns
-from a recipe once: when the reactor has written `<recipe_id>.done.json` and no
-new batch has come for **Wait for more batches** (default 3 min), it uses the
-highest-confidence batch (the latest on a tie) and logs which one. Without a
-done marker it learns after 20 min from the first batch
-(`SWAXS_BATCH_MAX_WAIT_S`), so a missing marker never stalls the loop. A
-condition that times out with batches is learned from them, not scored as
-failed. The batches collected so far survive a restart, and Continue replays the
-same choice. A batch that arrives after its recipe was learned is fitted and
-recorded only. The status line shows each recipe being collected. 0 min keeps
-the old rule (the first batch trains the model at once).
+**Default (one profile per recipe): no fixed wait.** The model learns as soon as
+the recipe's profile has its final fit, and the next recipe is issued straight
+away:
 
-With **AI-assisted structure**, each live profile is fitted at once with
-Catalogue + BIC (seconds), and the AI fit then runs in a background worker (one
-at a time, queue of 200). The design loop learns from the **better of the two
-fits**: the AI fit replaces the quick one only when the statistics prefer it
-(lower BIC on the same data, the rule the fitters use between models); a losing
-AI proposal is kept beside the result (`ai_refit`) and logged. The model does not
-learn before the profile's AI fit has finished, but it waits at most 3 min from
-the profile (`SWAXS_AI_REFIT_MAX_WAIT_S`); after that the quick fit is used. With
-one profile per recipe the model therefore learns 3 min after the profile
-arrives, from the AI fit if it was done and better, else from the quick fit. The status line
-counts the AI fits still running. Analyse existing profiles still uses the AI fit
-directly.
+- with Catalogue + BIC (or any statistics fitter): right after the fit, seconds
+  after the profile arrives;
+- with **AI-assisted structure**: the profile is fitted at once with Catalogue +
+  BIC (seconds), the AI fit runs in a background worker (one at a time, queue of
+  20), and the model learns the moment the AI fit is done, from the **better of
+  the two fits** (the AI fit replaces the quick one only when its BIC is lower on
+  the same data; a losing AI proposal is kept beside the result as `ai_refit`).
+  It waits at most 3 min for the AI (`SWAXS_AI_REFIT_MAX_WAIT_S`); after that, or
+  when the AI fitter is paused, the quick fit is used at once.
+
+**Several batch profiles per recipe** (only if the average app's Frames per
+average N is smaller than the reactor's frames): set **Wait for more batches**
+(Target & limits, More options) above 0. Then the model learns once the reactor
+has written `<recipe_id>.done.json` and no new batch has come for that long, from
+the highest-confidence batch (the latest on a tie); without a done marker after
+20 min (`SWAXS_BATCH_MAX_WAIT_S`).
+
+Either way: a condition that times out with a profile is learned from it, not
+scored as failed; profiles still being collected survive a restart, and Continue
+replays the same choice; a profile arriving after its recipe was learned is fitted
+and recorded only; the status line shows each recipe still waiting and why.
+Analyse existing profiles uses the AI fit directly.
 
 Knowledge tests (design loop and fitter Evaluation) are refused while a campaign
 runs, so they never compete with live fitting.

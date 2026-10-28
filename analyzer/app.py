@@ -1139,7 +1139,11 @@ _pending_at: dict = {}          # recipe_id -> time the condition was proposed
 # Without a done marker the recipe is told after _BATCH_MAX_WAIT_S from its first
 # batch, so a missing marker never stalls the loop. A settle time of 0 keeps the
 # old rule: the first batch trains the model at once.
-_BATCH_SETTLE_S = float(os.environ.get("SWAXS_BATCH_SETTLE_S", 180.0))
+# Default 0 (operator, Oct 28 2026: one profile per recipe): no fixed wait; the
+# model learns as soon as the profile's final fit is ready (with AI-assisted
+# structure: when the AI fit is done, at most 3 min). A settle time above 0 is
+# for setups that write several batch profiles per recipe.
+_BATCH_SETTLE_S = float(os.environ.get("SWAXS_BATCH_SETTLE_S", 0.0))
 _BATCH_MAX_WAIT_S = float(os.environ.get("SWAXS_BATCH_MAX_WAIT_S", 1200.0))
 _batches: dict = {}             # recipe_id -> {"first", "last", "items": {name: {...}}}
 _told_recently: "collections.deque" = collections.deque(maxlen=200)
@@ -1213,9 +1217,15 @@ def _settle_tick() -> None:
             quiet = now - b["last"]
             # the design loop learns from the BEST fit: wait for a profile's AI
             # refit (at most _AI_REFIT_MAX_WAIT_S from its first profile)
-            refit_wait = (any(n in _refits_pending for n in b["items"])
+            refit_wait = (any(n in _refits_pending or it.get("awaiting_refit")
+                              for n, it in b["items"].items())
                           and (now - b["first"]) < _AI_REFIT_MAX_WAIT_S)
             if refit_wait:
+                continue
+            if settle <= 0:               # no fixed wait: the final fit is ready
+                _finalize_batches(rid, why="final fit ready" if not any(
+                    it.get("awaiting_refit") for it in b["items"].values()) else "AI fit not ready in time")
+                told = True
                 continue
             if (quiet >= settle and _run_done(rid)) or (now - b["first"]) >= _BATCH_MAX_WAIT_S:
                 _finalize_batches(rid, why="settled" if quiet >= settle else "max wait")
@@ -1587,20 +1597,37 @@ def _feed_campaign(name: str, res: dict) -> None:
                       f"(expired or already fed) — not driving the loop", "warn")
             return
         it = _batch_item(res)
-        if _settle_s() <= 0:
-            _tell_recipe(rid, name, it)          # the old rule: the first batch trains
+        it["awaiting_refit"] = bool(res.get("refining"))     # its AI fit is still to come
+        settle = _settle_s()
+        if settle <= 0 and not it["awaiting_refit"] and rid not in _batches:
+            _tell_recipe(rid, name, it)          # final fit ready: learn now, no waiting
         else:
             b = _batches.setdefault(rid, {"first": time.time(), "last": time.time(), "items": {}})
             refit = name in b["items"]
             b["items"][name] = it
             if not refit:                # an AI refit does not restart the settle time
                 b["last"] = time.time()
-            bn, _bi = _best_batch(b["items"])
-            _emit(f"📥 {rid}: {'AI refit of' if refit else 'batch'} {name} conf={it['confidence']:.2f} "
-                  f"({len(b['items'])} so far, best {bn == name and 'this one' or bn}); "
-                  f"the model learns once the run has ended and no batch came for "
-                  f"{_settle_s() / 60:.0f} min", "info")
+            if settle <= 0:
+                if not it["awaiting_refit"]:
+                    _finalize_batches(rid, why="final fit ready")
+                else:
+                    _emit(f"📥 {rid}: quick fit conf={it['confidence']:.2f}; the model learns as soon "
+                          f"as the AI fit is done (at most {_AI_REFIT_MAX_WAIT_S / 60:.0f} min)", "info")
+            else:
+                bn, _bi = _best_batch(b["items"])
+                _emit(f"📥 {rid}: {'AI refit of' if refit else 'batch'} {name} conf={it['confidence']:.2f} "
+                      f"({len(b['items'])} so far, best {bn == name and 'this one' or bn}); "
+                      f"the model learns once the run has ended and no batch came for "
+                      f"{settle / 60:.0f} min", "info")
     _save_campaign()
+
+
+def _refit_done(name: str) -> None:
+    """The AI refit of this profile finished (won, lost, failed or was skipped)."""
+    for b in list(_batches.values()):
+        it = (b.get("items") or {}).get(name)
+        if it:
+            it["awaiting_refit"] = False
 
 
 def _tell_recipe(rid: str, name: str, it: dict, note: str = "") -> None:
@@ -2076,12 +2103,18 @@ def _queue_ai_fit(path: Path) -> None:
     ok, why = _ai_guard.allow()
     if not ok:                                   # paused or over budget: no AI call, no token
         _guard_note()
+        with _campaign_lock:
+            _refit_done(Path(path).name)
+        _settle_tick()
         return
     try:
         _ai_fit_q.put_nowait(str(path))
         _refits_pending.add(Path(path).name)
     except _queue.Full:
         _emit(f"⚠ AI refit queue full ({_AI_FIT_QUEUE_MAX}); {Path(path).name} keeps its Catalogue + BIC fit", "warn")
+        with _campaign_lock:
+            _refit_done(Path(path).name)
+        _settle_tick()
         return
     t = _ai_fit_thread["t"]
     if t is None or not t.is_alive():
@@ -2115,6 +2148,8 @@ def _ai_fit_worker() -> None:
                   f"the Catalogue + BIC fit stands", "warn")
         finally:
             _refits_pending.discard(Path(p).name)
+            with _campaign_lock:
+                _refit_done(Path(p).name)
             _ai_fit_q.task_done()
             _settle_tick()               # the recipe may now be ready to learn
 
