@@ -9,5 +9,16 @@
     "overrides": [],
     "status": "active",
     "proposed_by_assistant": false
+  },
+  {
+    "id": "corr_0002",
+    "ts": "2026-10-27T19:55:38.170676+00:00",
+    "author": "akmaurya",
+    "scope": "global",
+    "wrong": "When query_manifest(query_type='files'/'averaged', ...) returns a truncated file list (e.g. \"Showing 15 of 23 matches\"), concluding a stage (e.g. 'subtracted') is absent just because no matching filename is visible in that truncated list.",
+    "right": "Always read the `by_stage` / `by_detector` summary counts in the SAME response FIRST and treat them as ground truth (e.g. \"subtracted\": 1 means one subtracted file exists, full stop). Only scan the file list for names/details once existence is confirmed by the counts. If the list is truncated and a specific file is needed, re-query with a narrower keyword instead of eyeballing a partial list or declaring the stage missing. Never tell the user a file/stage is missing without first checking the summary counts.",
+    "overrides": [],
+    "status": "active",
+    "proposed_by_assistant": false
   }
 ]

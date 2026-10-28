@@ -22,5 +22,11 @@
     "title": "No Bragg peak claims without WAXS confirmation",
     "text": "Do NOT report, count, or build any interpretation on putative Bragg peaks found in the SAXS high-q tail (typically q > ~2 nm\u207b\u00b9 / 0.2 \u00c5\u207b\u00b9) without independent confirmation from the WAXS detector. Reasons: (a) SAXS SNR degrades rapidly at high q and peak-finders will trigger on noise; (b) the q_usable_max boundary itself is noise-limited and wanders run-to-run; (c) a real crystalline reflection must appear at the SAME q in both SAXS and WAXS and must be reproducible across frames. The required check is: overlay the SAXS and WAXS subtracted curves for the same sample and confirm peak positions match. Until that check passes, classify any high-q SAXS feature as 'unconfirmed / likely noise'.",
     "added": "2026-09-07T06:19:09.843544+00:00"
+  },
+  {
+    "id": "ba1e10fd",
+    "title": "Manifest query discipline: trust counts before filenames",
+    "text": "When calling query_manifest with query_type='files'/'averaged'/'background'/'analysis', ALWAYS read the `by_stage`/`by_detector` summary counts in the response before scanning the (possibly truncated/capped) file list. If a count shows a stage exists (e.g. subtracted: 1) but the stage's filename isn't visible in the capped list, re-query with a narrower keyword to surface it \u2014 never declare a file/stage missing based on an incomplete list when the summary count says otherwise.",
+    "added": "2026-10-27T19:55:38.174122+00:00"
   }
 ]
